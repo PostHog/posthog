@@ -56,6 +56,9 @@ MAX_URLS_PER_SOURCE = 5000
 # Default recursion depth for `same_origin` BFS.
 DEFAULT_CRAWL_MAX_DEPTH = 2
 CRAWL_HARD_MAX_DEPTH = 5
+# Pages one crawl writes per transaction. A crawl holds at most this many parsed
+# pages plus the fetches in flight, not the whole source.
+CRAWL_WRITE_BATCH_SIZE = 50
 # Per-hostname concurrency during a single crawl — prevents us from
 # hammering an origin. In-process (threading.Semaphore), not cross-worker.
 PER_HOST_CONCURRENCY = 4

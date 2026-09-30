@@ -49,8 +49,8 @@ from posthog.utils import get_context_for_template, get_instance_realm
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
