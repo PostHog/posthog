@@ -254,6 +254,18 @@ def workflow_writer(
     return WorkflowWriter(team=team, user=user, was_impersonated=was_impersonated, report_usage=report_usage)
 
 
+def comparable_workflow_contents(old: dict[str, Any], new: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Two workflow content snapshots as the revision history compares them, so equal means no new version.
+
+    For this product's own presentation layer only, for the same reason as ``workflow_writer``.
+    """
+    from products.workflows.backend.services.workflow_writes import (  # noqa: PLC0415 - heavy DRF import: the service reads the viewset module's content helpers
+        comparable_contents,
+    )
+
+    return comparable_contents(old, new)
+
+
 def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str, str]:
     """Names keyed by the workflow id as a string. Deleted workflows are left out."""
     return {

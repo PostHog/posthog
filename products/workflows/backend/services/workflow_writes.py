@@ -71,6 +71,15 @@ def _without_bytecode_contracts(node: Any) -> Any:
     return node
 
 
+def comparable_contents(old: dict[str, Any], new: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Two content snapshots as the revision history compares them, without secret inputs or bytecode stamps."""
+    template_cache: TemplateCache = {}
+    return (
+        _without_bytecode_contracts(strip_content_secrets(old, template_cache)),
+        _without_bytecode_contracts(strip_content_secrets(new, template_cache)),
+    )
+
+
 def _parse_client_timestamp(raw: Optional[str]) -> Optional[datetime]:
     parsed = parse_datetime(raw) if raw else None
     # A timezone-less timestamp parses naive; comparing it to the tz-aware stored updated_at would
@@ -104,8 +113,8 @@ class WorkflowWriter:
     was_impersonated: bool
     report_usage: WorkflowUsageReporter
 
-    def create(self, validated: ValidatedWorkflow) -> HogFlow:
-        workflow = validated.save(created_by=self.user)
+    def create(self, validated: ValidatedWorkflow, **fields: Any) -> HogFlow:
+        workflow = validated.save(created_by=self.user, **fields)
         self._log_activity(workflow, "created", detail_type="standard")
         self.announce_edited(workflow)
         return workflow
@@ -188,6 +197,46 @@ class WorkflowWriter:
         self.announce_edited(locked)
         return locked
 
+    def replace_content(
+        self,
+        instance: HogFlow,
+        validate: Callable[[HogFlow, HogFlow, bool], Optional[ValidatedWorkflow]],
+        *,
+        stage_active: bool,
+    ) -> Optional[HogFlow]:
+        """Replace the whole content of `instance`, as applying a workflow file does, and return the
+        written workflow, or None when `validate` finds nothing to change.
+
+        `validate` receives the locked row, the row as stored, and whether the content is staged. It
+        validates the new content on the locked row. With `stage_active`, content for an active workflow is staged as its draft.
+        Otherwise it goes live and replaces any staged draft."""
+        with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            before = HogFlow.objects.get(pk=instance.pk)
+            as_draft = stage_active and locked.status == HogFlow.State.ACTIVE
+            if not as_draft:
+                # Validation recovers omitted secrets from the row's stored maps, and the draft's map wins
+                # there. Live content that replaces the draft keeps the live secrets, so the draft's go first.
+                locked.draft = None
+                locked.draft_encrypted_inputs = None
+            validated = validate(locked, before, as_draft)
+            if validated is None:
+                return None
+            if as_draft:
+                self._stage_update(locked, locked, validated, WorkflowUpdate(stage_as_draft=True))
+            else:
+                self.write_live(locked, before, validated, **_CLEARED_DRAFT)
+                if before.draft is not None:
+                    unstage_workflow_proposals(locked)
+
+        if not as_draft:
+            self.after_live_write(before, locked)
+        self._log_activity(locked, "updated", previous=before)
+        self.announce_edited(locked)
+        return locked
+
     def check_fresh(self, locked: HogFlow, base_updated_at: Optional[str], *, stage_as_draft: bool) -> None:
         """Raise `StaleWorkflowWrite` when `locked` changed after the client loaded it at `base_updated_at`."""
         _reject_if_newer(
@@ -247,9 +296,7 @@ class WorkflowWriter:
         # Compare secret-free on both sides. `raw_new` still carries the plaintext secrets validation
         # recovered into `actions` (stripping happens later in save()), while `before` is the persisted
         # stripped snapshot; without this a secret-bearing flow would bump on every actions-carrying save.
-        template_cache: TemplateCache = {}
-        old_content = _without_bytecode_contracts(strip_content_secrets(raw_old, template_cache))
-        new_content = _without_bytecode_contracts(strip_content_secrets(raw_new, template_cache))
+        old_content, new_content = comparable_contents(raw_old, raw_new)
         if new_content == old_content:
             return False
         instance.version = (before.version or 0) + 1

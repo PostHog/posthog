@@ -12,6 +12,14 @@ from products.workflows.backend.services.workflow_code.compiler import EXIT_NODE
 class WorkflowCodePlanResult(models.TextChoices):
     CREATE = "create"
     UPDATE = "update"
+    STAGE = "stage"
+    UNCHANGED = "unchanged"
+
+
+class WorkflowCodeApplyResult(models.TextChoices):
+    CREATED = "created"
+    UPDATED = "updated"
+    STAGED = "staged"
     UNCHANGED = "unchanged"
 
 
@@ -125,6 +133,16 @@ def plan_update(
         empty_variables=impact["empty_variables"],
         schedule_conflicts=impact["schedule_conflicts"],
         discards_draft=has_draft and not unchanged,
+    )
+
+
+def plan_stage(plan: CodePlan, staged: WorkflowState, proposed: WorkflowState) -> CodePlan:
+    """The plan for content staged as a draft over `staged`, the draft or the live content it replaces."""
+    unchanged = _canonical(staged) == _canonical(proposed)
+    return replace(
+        plan,
+        result=WorkflowCodePlanResult.UNCHANGED if unchanged else WorkflowCodePlanResult.STAGE,
+        discards_draft=False,
     )
 
 

@@ -4610,6 +4610,7 @@ class HogFlowViewSet(
         "resume_email_sending",
         "approve_proposal",
         "reject_proposal",
+        "code_apply",
     ]
     queryset = HogFlow.objects.all()
     pagination_class = HogFlowPagination

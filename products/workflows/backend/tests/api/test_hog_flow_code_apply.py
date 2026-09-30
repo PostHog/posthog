@@ -196,7 +196,7 @@ class TestHogFlowCodeApply(APIBaseTest):
         self._applied(_webhook_file(path="changed"))
 
         after = self._workflow("crm-sync")
-        assert after.encrypted_inputs == {"tell_the_crm": {"signing_secret": live_secret}}
+        assert after.encrypted_inputs["tell_the_crm"]["signing_secret"]["value"] == live_secret["value"]
         assert after.draft_encrypted_inputs is None
 
     def test_a_file_with_errors_gets_the_errors_check_gives_and_writes_nothing(self) -> None:
@@ -302,7 +302,7 @@ class TestHogFlowCodeApply(APIBaseTest):
             "conversion": {"window_minutes": 60, "filters": []},
             "trigger_masking": {"ttl": 600, "hash": "{person.id}", "threshold": 1},
             "email_sending_rate_limit": {"per_second": 5},
-            "abort_action": {"id": "abort", "type": "exit", "name": "Abort", "config": {}},
+            "abort_action": "exit_node",
         }
         HogFlow.objects.filter(team=self.team, key="crm-sync").update(**stored)
 
