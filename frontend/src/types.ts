@@ -39,7 +39,7 @@ import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import type { OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
+import type { FlagEvaluationsModeEnumApi, OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -912,6 +912,7 @@ export interface TeamType extends TeamBasicType {
     core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
@@ -5164,6 +5165,9 @@ export interface PropertyGroupFilterValue {
     values: (AnyPropertyFilter | PropertyGroupFilterValue)[]
 }
 
+/** One row of a filter editor. A group's values can nest, so a row is not always a leaf filter. */
+export type PropertyFilterRow = AnyPropertyFilter | PropertyGroupFilterValue
+
 export interface CohortCriteriaGroupFilter {
     id?: string
     type: FilterLogicalOperator
@@ -5920,6 +5924,7 @@ export const API_SCOPE_OBJECTS = [
     'health_issue',
     'heatmap',
     'hog_flow',
+    'hog_flow_proposal',
     'hog_function',
     'ingestion_warning',
     'insight',
