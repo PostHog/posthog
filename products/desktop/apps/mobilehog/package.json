@@ -46,6 +46,7 @@
     "expo-crypto": "~57.0.1",
     "expo-dev-client": "~57.0.19",
     "expo-device": "~57.0.2",
+    "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.3",
     "expo-haptics": "~57.0.3",

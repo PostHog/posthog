@@ -2,6 +2,7 @@ import type {
   PreparedTaskArtifactUpload,
   TaskArtifactUploadRequest,
 } from "@posthog/api-client/posthog-client";
+import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { getClient } from "@/lib/client";
 
@@ -51,7 +52,6 @@ function uploadRequests(photos: Photo[]): TaskArtifactUploadRequest[] {
   }));
 }
 
-// Streams each file straight from disk to object storage; nothing is base64 encoded.
 async function postFiles(
   photos: Photo[],
   prepared: PreparedTaskArtifactUpload[],
@@ -65,11 +65,10 @@ async function postFiles(
       )) {
         form.append(key, value);
       }
-      form.append("file", {
-        uri: photo.uri,
-        name: photo.name,
-        type: photo.mimeType,
-      } as unknown as Blob);
+      // Expo fetch rejects React Native's legacy { uri, name, type } part.
+      // File supplies the bytes() contract that its multipart encoder requires;
+      // React Native's FormData type does not yet include Expo's File support.
+      form.append("file", new File(photo.uri) as unknown as Blob);
       const response = await fetch(artifact.presigned_post.url, {
         method: "POST",
         body: form,
