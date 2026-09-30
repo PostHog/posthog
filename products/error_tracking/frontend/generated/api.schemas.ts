@@ -1136,6 +1136,8 @@ export interface ErrorTrackingIssueQueryRequestApi {
     volumeResolution?: number
     /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
     includeSparkline?: boolean
+    /** Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false. */
+    includeBreakdown?: boolean
 }
 
 export interface ErrorTrackingAssigneeResponseApi {
@@ -1208,6 +1210,47 @@ export interface ErrorTrackingImpactApi {
     sessions?: number
 }
 
+export interface ErrorTrackingBreakdownValueApi {
+    /** Property value. */
+    value: string
+    /** Number of matching events with this value. */
+    count: number
+}
+
+export interface ErrorTrackingBreakdownTopValuesApi {
+    /** Most common $pathname values, most frequent first. */
+    path?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $current_url values, most frequent first. Returned only when events have no $pathname, as with backend SDKs. */
+    url?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $screen_name values, most frequent first. */
+    screen?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $browser values, most frequent first. */
+    browser?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $os values, most frequent first. */
+    os?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $lib values, most frequent first. */
+    library?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $lib_version values, most frequent first. */
+    library_version?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $app_version values, most frequent first. */
+    app_version?: ErrorTrackingBreakdownValueApi[]
+}
+
+export interface ErrorTrackingIssueBreakdownApi {
+    /** Start of the range that the breakdown covers. */
+    date_from: string
+    /** End of the range that the breakdown covers. */
+    date_to: string
+    /** True when the requested range was longer than 30 days and the breakdown covers only the last 30. */
+    range_limited: boolean
+    /** Matching exception events in the breakdown range. */
+    occurrences: number
+    /** Up to 5 $session_id values with the most matching events, for session recording lookups. */
+    sample_session_ids: string[]
+    /** Most common values for each dimension. A dimension with no values is left out. */
+    top_values: ErrorTrackingBreakdownTopValuesApi
+}
+
 export interface ErrorTrackingIssueDetailApi {
     /** Error tracking issue ID. */
     id: string
@@ -1217,7 +1260,7 @@ export interface ErrorTrackingIssueDetailApi {
      */
     name?: string | null
     /**
-     * Issue description.
+     * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
      * @nullable
      */
     description?: string | null
@@ -1262,6 +1305,8 @@ export interface ErrorTrackingIssueDetailApi {
     impact?: ErrorTrackingImpactApi
     /** Optional compact occurrence sparkline. */
     sparkline?: number[]
+    /** Aggregate over matching events. Returned only when includeBreakdown is true. */
+    breakdown?: ErrorTrackingIssueBreakdownApi
 }
 
 /**
@@ -1580,7 +1625,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
      * * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
-     * Page size.
+     * Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.
      * @minimum 1
      * @maximum 100
      */
@@ -1591,7 +1636,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
      */
     offset?: number
     /**
-     * Number of volume buckets. Defaults to 0 for compact aggregate counts.
+     * Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
      * @minimum 0
      * @maximum 200
      */
@@ -1633,7 +1678,7 @@ export interface ErrorTrackingIssueListItemApi {
      */
     name?: string | null
     /**
-     * Issue description.
+     * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
      * @nullable
      */
     description?: string | null
@@ -2195,6 +2240,12 @@ export interface ErrorTrackingSymbolSetUploadApi {
      * @nullable
      */
     content_hash?: string | null
+    /**
+     * Optional byte count of the content about to be uploaded. When given, the upload response also carries a presigned PUT signed for exactly this length, which S3-compatible stores without presigned POST support (such as Cloudflare R2) accept.
+     * @minimum 0
+     * @nullable
+     */
+    content_length?: number | null
 }
 
 export interface ErrorTrackingSymbolSetBulkCheckUploadApi {
@@ -2261,6 +2312,10 @@ export interface ErrorTrackingSymbolSetBulkStartUploadEntryApi {
     presigned_url: ErrorTrackingSymbolSetPresignedPostApi
     /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
     fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPostApi
+    /** Presigned PUT for the upload, present only when the request declared `content_length`. Send the raw bytes with a matching `Content-Length` header. Prefer this over `presigned_url`: presigned POST is an AWS extension that some S3-compatible stores reject. */
+    presigned_put_url?: string
+    /** Presigned PUT against the standard S3 endpoint, present only when the primary PUT uses transfer acceleration. */
+    fallback_presigned_put_url?: string
 }
 
 /**

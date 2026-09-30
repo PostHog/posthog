@@ -2,6 +2,9 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
+import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
+import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -51,6 +54,7 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         tags: [],
         scanner_type: 'monitor',
         scanner_config: { prompt: 'Did the user struggle?' },
+        prompt_question: 'Did the user struggle?',
         query: null,
         sampling_rate: 1,
         // The API always serializes this (non-null column with a default), so a fixture without it
@@ -85,6 +89,7 @@ const scanners = {
             id: '00000000-0000-0000-0000-00000000000a',
             name: 'Confused checkout',
             credits_this_month: 1250,
+            prompt_question: 'Did the user hesitate at checkout?',
             observations_this_month: 1250,
             estimated_monthly_observations: 3100,
             estimated_monthly_credits: 3100,
@@ -98,6 +103,7 @@ const scanners = {
         scanner({
             id: '00000000-0000-0000-0000-00000000000b',
             name: 'Frustration tags',
+            prompt_question: 'Which frustration patterns appear in this session?',
             credits_this_month: 0,
             scanner_type: 'classifier',
             scanner_config: { prompt: 'Tag this session.', tags: ['rage-click', 'dead-end'], multi_label: true },
@@ -108,6 +114,7 @@ const scanners = {
         scanner({
             id: '00000000-0000-0000-0000-00000000000c',
             name: 'Session summary',
+            prompt_question: 'What happened in this session?',
             credits_this_month: 5,
             observations_this_month: 5,
             estimated_monthly_observations: 40,
@@ -121,6 +128,7 @@ const scanners = {
         scanner({
             id: '00000000-0000-0000-0000-00000000000d',
             name: 'Intent score',
+            prompt_question: 'How strong is the buying intent in this session?',
             credits_this_month: 320,
             observations_this_month: 160,
             credits_per_observation: 2,
@@ -262,6 +270,7 @@ const activeSelfDrivingStats: ScannerSelfDrivingStatsApi = {
 
 const monitorOverviewScanner: ReplayScannerApi = {
     ...scanners.results[0],
+    prompt_question: 'Did the user struggle to complete checkout?',
     scanner_config: {
         prompt: [
             'Did the user struggle to complete checkout?',
@@ -395,6 +404,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             },
             signals_count: 0,
         },
+        prompt_question: null,
         triggered_by: 'schedule',
         triggered_by_user: null,
         distinct_id: 'user_8f3k2j',
@@ -456,6 +466,57 @@ const observations = {
     ],
 }
 
+// The detail pages show the prompt beside the answer, so these read like prompts people write.
+const SUMMARIZER_DETAIL_PROMPT = [
+    'Summarize this session for the product team reviewing checkout drop-off.',
+    '',
+    'Start with one sentence on what the user was trying to do and whether they got there. Then walk through the key moments in order: where they spent the most time, where they hesitated or went back, and any errors, empty states, or slow loads they ran into.',
+    '',
+    'Call out anything that looks like a bug rather than user confusion, such as a button that does nothing, a form that clears itself, or a page that never finishes loading. Quote the exact error text when it is visible on screen.',
+    '',
+    'Keep it factual. Do not guess at intent beyond what the recording shows, and do not recommend fixes. If the session is mostly idle or the user never reaches checkout, say so in one sentence and stop.',
+].join('\n')
+
+const MONITOR_DETAIL_PROMPT = [
+    'Did the user struggle to complete checkout?',
+    '',
+    'Answer yes if the user shows clear friction on the cart, shipping, or payment steps. Count any of these as friction:',
+    '- Entering a coupon or gift card code more than once after a validation error',
+    '- Resubmitting the payment form after an error message',
+    '- Moving back and forth between the cart and the payment step without completing the order',
+    '- Rage-clicking a disabled or unresponsive button, such as Place order while shipping rates load',
+    '- Leaving the site within a minute of seeing an error message',
+    '',
+    'Answer no if the user completes the order without going back, or browses the cart and leaves without trying to pay. Leaving without paying is not struggling on its own.',
+    '',
+    'Answer inconclusive if the recording ends before the user reaches a decision, or if most of the checkout is masked.',
+    '',
+    'Ignore sessions from internal staff accounts and sessions shorter than ten seconds.',
+].join('\n')
+
+const CLASSIFIER_DETAIL_PROMPT = [
+    'Tag this session with every friction pattern that clearly appears in it. A session can have several tags or none.',
+    '',
+    '- rage-click: three or more fast clicks on the same element when it does not respond',
+    '- dead-end: the user reaches a page with no obvious next step and leaves or goes back',
+    '- slow-load: a page or component takes more than about five seconds to show content while the user waits',
+    '- form-error: a validation or submit error appears on a form the user is filling in',
+    '',
+    'Only tag what you can see in the recording, and leave out borderline cases. When a clear friction pattern fits none of these tags, add a short freeform tag in kebab-case instead of forcing it into the closest match.',
+].join('\n')
+
+const SCORER_DETAIL_PROMPT = [
+    'Score how strong the buying intent in this session is, from 0 to 10.',
+    '',
+    'Score high (8 to 10) when the user takes steps that only make sense before paying: comparing plans on the pricing page, opening billing settings, entering payment details, or inviting teammates to the workspace.',
+    '',
+    'Score in the middle (4 to 7) when the user explores the product in depth, for example building a dashboard or reading the docs for several minutes, but never goes near pricing or billing.',
+    '',
+    'Score low (0 to 3) for short visits, sessions that bounce from the landing page, or sessions spent mostly in account settings unrelated to billing.',
+    '',
+    'Base the score only on what happens in this recording, not on how old the account is. Give a short label that names the level of intent.',
+].join('\n')
+
 // Standalone detail-page observation with long unbroken identifiers, prev/next nav, and a rating.
 const observationDetail = observation({
     id: '00000000-0000-0000-0000-0000000000d1',
@@ -465,6 +526,11 @@ const observationDetail = observation({
     previous_observation_id: '00000000-0000-0000-0000-0000000000b1',
     next_observation_id: '00000000-0000-0000-0000-0000000000b4',
     label: { is_correct: true, feedback: 'Good catch on the coupon error.' },
+    prompt_question: 'What happened in this session around checkout drop-off?',
+    scanner_snapshot: {
+        ...observation().scanner_snapshot!,
+        scanner_config: { prompt: SUMMARIZER_DETAIL_PROMPT, length: 'medium' },
+    },
     scanner_result: {
         model_output: {
             scanner_type: 'summarizer',
@@ -483,11 +549,17 @@ const thumbsDownObservationDetail = observation({
     id: '00000000-0000-0000-0000-0000000000d3',
     session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d12',
     label: { is_correct: false, feedback: '' },
+    scanner_snapshot: {
+        ...observation().scanner_snapshot!,
+        scanner_config: { prompt: SUMMARIZER_DETAIL_PROMPT, length: 'medium' },
+    },
 })
 
 // A monitor observation, so the detail page renders the prompt row and the reasoning card that a
-// summarizer hides. The prompt is long on purpose: it is what the collapsed row has to clamp.
+// summarizer hides. The prompt and reasoning are long on purpose, so both clips show. Other stories
+// keep the one-paragraph reasoning most scans produce.
 const monitorObservationDetail = observation({
+    prompt_question: 'Did the user struggle to complete checkout?',
     id: '00000000-0000-0000-0000-0000000000d2',
     session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d11',
     recording_subject_email: 'bob@example.com',
@@ -502,7 +574,7 @@ const monitorObservationDetail = observation({
         provider: 'google',
         emits_signals: true,
         scanner_config: {
-            prompt: 'Did the user struggle at checkout? Count it as struggling if they retried a coupon code more than once, resubmitted the payment form after an error, or moved back and forth between the cart and the payment step without completing the order. Ignore sessions that never reached the checkout page at all.',
+            prompt: MONITOR_DETAIL_PROMPT,
             allow_inconclusive: true,
         },
         verify_positives: 'off',
@@ -512,8 +584,15 @@ const monitorObservationDetail = observation({
             scanner_type: 'monitor',
             confidence: 0.82,
             verdict: 'yes',
-            reasoning:
-                'The user entered a coupon code three times, each time getting a validation error, then switched to the payment form and submitted it twice before leaving the page. That is a retry loop at checkout rather than ordinary browsing.',
+            reasoning: [
+                'The user reached the cart about a minute into the session and moved to checkout with two items. On the payment step they entered the coupon code SPRING20 and got the error "This code is not valid for items in your cart." They cleared the field and entered it again with the same result, then tried it in lowercase, which failed the same way.',
+                '',
+                'After the third failure they went back to the cart, removed one item, and returned to payment, which looks like an attempt to make the coupon apply. It still failed. They then filled in the card details and pressed Place order. The page showed a spinner for several seconds and then "Payment could not be processed. Please try again." They submitted the form once more, got the same message, and closed the tab about twenty seconds later.',
+                '',
+                'This matches three of the friction signals in the prompt: repeated coupon retries after a validation error, going back from payment to the cart, and resubmitting the payment form after an error. The session is not from a staff account and is well over ten seconds long.',
+                '',
+                'Confidence is below certain because the card fields are masked, so the recording does not show whether the second payment error came from the same input as the first.',
+            ].join('\n'),
         },
         signals_count: 1,
         verification: null,
@@ -686,6 +765,7 @@ const meta: Meta = {
                         {
                             observation: observation({
                                 id: '00000000-0000-0000-0000-0000000000d1',
+                                prompt_question: 'Did the user hesitate at checkout?',
                                 scanner_id: scanners.results[0].id,
                                 scanner_snapshot: {
                                     name: 'Confused checkout',
@@ -719,6 +799,7 @@ const meta: Meta = {
                         {
                             observation: observation({
                                 id: '00000000-0000-0000-0000-0000000000d2',
+                                prompt_question: 'How strong is the buying intent in this session?',
                                 scanner_id: scanners.results[3].id,
                                 scanner_snapshot: {
                                     name: 'Intent score',
@@ -752,6 +833,7 @@ const meta: Meta = {
                         {
                             observation: observation({
                                 id: '00000000-0000-0000-0000-0000000000d3',
+                                prompt_question: 'What happened in this session?',
                                 recording_subject_email: 'bob@example.com',
                                 viewed: true,
                             }),
@@ -760,6 +842,7 @@ const meta: Meta = {
                         {
                             observation: observation({
                                 id: '00000000-0000-0000-0000-0000000000d4',
+                                prompt_question: 'What happened in this session?',
                                 scanner_result: {
                                     model_output: {
                                         scanner_type: 'summarizer',
@@ -820,6 +903,21 @@ const meta: Meta = {
                     '$entry_utm_source',
                     '$entry_current_url',
                 ]),
+                // The observation page embeds the player, so it needs a recording to play.
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) =>
+                    new URL(request.url).searchParams.get('source') === 'blob_v2'
+                        ? new Response(snapshotsAsJSONLines())
+                        : {
+                              sources: [
+                                  {
+                                      source: 'blob_v2',
+                                      start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                      end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                      blob_key: '0',
+                                  },
+                              ],
+                          },
+                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
                 '/api/projects/:team_id/property_definitions/': ({ request }) => {
                     const type = new URL(request.url).searchParams.get('type')
                     return type === 'person'
@@ -829,11 +927,18 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { query?: string } } | null
+                    const body = (await request.json()) as { query?: { kind?: string; query?: string } } | null
+                    if (body?.query?.kind === 'EventsQuery') {
+                        return recordingEventsJson
+                    }
                     // The observation page's pinned strip is the only query aliasing its columns this way.
                     return body?.query?.query?.includes('as pinned_0')
                         ? { results: [sessionPropertiesRow] }
                         : observationsTrend
+                },
+                '/api/projects/:team_id/vision/observations/:id/label/': async ({ request }) => {
+                    const body = (await request.json()) as { is_correct: boolean; feedback?: string }
+                    return { is_correct: body.is_correct, feedback: body.feedback ?? '' }
                 },
                 '/api/projects/:team_id/vision/scanners/estimate/': estimate,
                 '/api/projects/:team_id/vision/scanners/:scannerId/backfills/estimate/': backfillEstimate,
@@ -1077,6 +1182,130 @@ export const ScorerObservations: StoryObj = {
         { score: 5.5, confidence: 0.7, reasoning: 'Read the docs at length but never started a trial.' },
     ]),
 }
+
+const observationDetailFor = (
+    scannerResponse: ReplayScannerApi,
+    id: string,
+    output: Record<string, unknown>,
+    promptQuestion: string | null = null
+): ReplayObservationApi =>
+    observation({
+        id,
+        prompt_question: promptQuestion,
+        scanner_id: scannerResponse.id,
+        recording_subject_email: 'bob@example.com',
+        distinct_id: 'user_2m1x9d',
+        previous_observation_id: '00000000-0000-0000-0000-0000000000b1',
+        next_observation_id: '00000000-0000-0000-0000-0000000000b4',
+        scanner_snapshot: {
+            ...observation().scanner_snapshot!,
+            name: scannerResponse.name,
+            scanner_type: scannerResponse.scanner_type,
+            scanner_config: scannerResponse.scanner_config,
+        },
+        scanner_result: {
+            model_output: { scanner_type: scannerResponse.scanner_type, ...output },
+            signals_count: 0,
+            verification: null,
+        },
+    })
+
+const classifierObservationDetail = observationDetailFor(
+    {
+        ...classifierOverviewScanner,
+        scanner_config: {
+            prompt: CLASSIFIER_DETAIL_PROMPT,
+            tags: ['rage-click', 'dead-end', 'slow-load', 'form-error'],
+            multi_label: true,
+            allow_freeform_tags: true,
+        },
+    },
+    '00000000-0000-0000-0000-0000000000d4',
+    {
+        tags: ['rage-click', 'slow-load'],
+        tags_freeform: ['coupon-confusion'],
+        confidence: 0.64,
+        reasoning:
+            'On the shipping step the user pressed the disabled Continue to payment button seven times in about four seconds while the rates were still loading, and the rates took roughly nine seconds to appear, so the step shows both rage-click and slow-load. On payment they entered a coupon code twice and got "Code not recognized" both times, which is tagged coupon-confusion rather than form-error because the form itself submitted fine. There is no dead-end: the user always had a next step and placed the order.',
+    },
+    'Which friction patterns appear in this session?'
+)
+
+const scorerObservationDetail = observationDetailFor(
+    {
+        ...scorerOverviewScanner,
+        scanner_config: { prompt: SCORER_DETAIL_PROMPT, scale: { min: 0, max: 10, label: 'buying intent' } },
+    },
+    '00000000-0000-0000-0000-0000000000d5',
+    {
+        score: 8.5,
+        label: 'buying intent',
+        confidence: 0.41,
+        reasoning:
+            'The user spent about two minutes on the pricing page comparing the Growth and Enterprise plans, then opened the Billing tab and started to add a card before closing the form. Right after that they invited two teammates from the Members page. Looking at billing and then inviting a team puts this in the high band of the prompt, but not at the top, because the payment details were never saved and the rest of the session was spent back in the product.',
+    },
+    'How strong is the buying intent in this session?'
+)
+
+const observationDetailStory = (detail: ReplayObservationApi): StoryObj => ({
+    parameters: { pageUrl: urls.replayVisionObservation(detail.id) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/vision/observations/:id/': detail } })],
+})
+
+// A scan the model never finished, so the page leads with the failure and a retry instead of a result.
+const failedObservationDetail = observation({
+    ...monitorObservationDetail,
+    id: '00000000-0000-0000-0000-0000000000d6',
+    status: 'failed',
+    error_reason: 'provider_transient:The model timed out before returning a result.',
+    scanner_result: null,
+})
+
+export const ObservationDetailFailed: StoryObj = observationDetailStory(failedObservationDetail)
+
+// The session had no screen data to watch, so no model ran and a later retry may still succeed.
+const notScannedObservationDetail = observation({
+    ...monitorObservationDetail,
+    id: '00000000-0000-0000-0000-0000000000d7',
+    status: 'ineligible',
+    error_reason: 'no_snapshots:The recording has no snapshot data yet.',
+    scanner_result: null,
+})
+
+// A scan still in progress, so the page shows progress where the result goes.
+const runningObservationDetail = observation({
+    ...monitorObservationDetail,
+    id: '00000000-0000-0000-0000-0000000000d8',
+    status: 'running',
+    error_reason: '',
+    scanner_result: null,
+    completed_at: null,
+})
+
+export const ObservationDetailNotScanned: StoryObj = observationDetailStory(notScannedObservationDetail)
+
+export const ObservationDetailRunning: StoryObj = {
+    ...observationDetailStory(runningObservationDetail),
+    // A running scan keeps its progress and status spinners going, so the page never settles for a snapshot.
+    tags: ['test-skip'],
+}
+
+// The observation outlived its recording, so the player's place explains why and shows the saved frame.
+export const ObservationDetailRecordingExpired: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionObservation(monitorObservationDetail.id) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/observations/:id/': monitorObservationDetail,
+                '/api/environments/:team_id/session_recordings/:id': () => [404, { detail: 'Not found.' }],
+            },
+        }),
+    ],
+}
+
+export const ObservationDetailClassifier: StoryObj = observationDetailStory(classifierObservationDetail)
+
+export const ObservationDetailScorer: StoryObj = observationDetailStory(scorerObservationDetail)
 
 export const ScannerOnDemand: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=run` },
@@ -1379,12 +1608,24 @@ export const ObservationDetailMonitor: StoryObj = {
     ],
 }
 
-export const ObservationDetailCalibrationEntryPoint: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionObservation(observationDetail.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ENTRY_POINT]: 'test' },
+// The monitor allows inconclusive answers, and this one ran out of recording before the user decided.
+const inconclusiveObservationDetail = observation({
+    ...monitorObservationDetail,
+    id: '00000000-0000-0000-0000-0000000000d9',
+    scanner_result: {
+        model_output: {
+            scanner_type: 'monitor',
+            confidence: 0.58,
+            verdict: 'inconclusive',
+            reasoning:
+                'The user added two items to the cart and opened the payment step, where the card fields are masked. The recording ends about ten seconds later with the page still loading, so it does not show whether the payment went through or whether the user gave up. There is no retry, error message or backtracking before the recording stops.',
+        },
+        signals_count: 0,
+        verification: null,
     },
-}
+})
+
+export const ObservationDetailMonitorInconclusive: StoryObj = observationDetailStory(inconclusiveObservationDetail)
 
 export const ObservationDetailFeedbackPrompt: StoryObj = {
     parameters: {

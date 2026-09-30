@@ -70,8 +70,7 @@ class DeltaMaintenance:
     Stateless over a `DeltaTableRef`, which holds the cached table handle — construct one at the
     call site whenever maintenance is needed. `run_scheduled` is the policy entry point shared by
     the pre-write defensive pass (both pipelines, so a sync that arrived at a fragmented table
-    cleans up before adding to the pile) and the CDC post-load pass; `compact_table` is the
-    unconditional post-load compaction for non-CDC syncs.
+    cleans up before adding to the pile) and the post-load pass.
     """
 
     def __init__(self, table: "DeltaTableRef") -> None:
@@ -107,7 +106,7 @@ class DeltaMaintenance:
                 compact_stats = await execute_with_conflict_retry(
                     table,
                     _compact_op,
-                    "compact_table",
+                    "compact",
                     self._logger,
                 )
                 break
@@ -117,41 +116,17 @@ class DeltaMaintenance:
                 attempt += 1
                 target_size //= 2
                 await self._logger.awarning(
-                    f"compact_table: byte array offset overflow, retrying with smaller "
+                    f"compact: byte array offset overflow, retrying with smaller "
                     f"target_size={target_size} (attempt {attempt}/{COMPACT_OFFSET_OVERFLOW_RETRIES})"
                 )
         await self._logger.adebug(json.dumps(compact_stats))
-
-    async def compact_table(self) -> None:
-        """Compact and vacuum unconditionally, after a non-CDC sync has loaded its rows.
-
-        An object-store refusal (see `run_scheduled` for why it does not fail the sync) is logged
-        and swallowed. Every other failure propagates to the caller, which decides how to report it.
-        """
-        table = await self._table.get_delta_table()
-        if table is None:
-            raise Exception("Deltatable not found")
-
-        try:
-            await self._compact(table)
-            # Reuse the table already resolved above instead of re-fetching it: `get_delta_table`
-            # is cached only opportunistically, so a re-fetch here can race a concurrent sync of a
-            # different table evicting this table's cache entry and spuriously report it missing.
-            await self._vacuum(table)
-        except ObjectStorePermissionDeniedError:
-            await self._logger.awarning(
-                "Delta maintenance skipped: the object store denied the operation. The table's rows "
-                "are unaffected and the next maintenance pass retries the same cleanup."
-            )
-            return
-        await self._logger.adebug("Compacting and vacuuming complete")
 
     async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
         """Vacuum tombstoned files once enough commits have accrued since the last vacuum.
 
         Decoupled from merge success (called pre-write) so a table that OOMs its merge every run still
         gets cleaned — the post-load compaction never runs for it, which is how tables reach ~99% dead
-        files. Vacuum only deletes dead files (an S3 LIST + delete), so unlike `compact_table`'s
+        files. Vacuum only deletes dead files (an S3 LIST + delete), so unlike `compact_if_fragmented`'s
         `optimize.compact` (which rewrites partitions) it is memory-safe even on an oversized table.
 
         Uses the delta version (commit count) as a cheap proxy for tombstone accumulation — no S3 LIST to
@@ -222,9 +197,9 @@ class DeltaMaintenance:
         arrive here with None.
 
         Returns True if compaction ran, False if it was skipped. Cheap when the table is
-        healthy: one S3 LIST via `table.file_uris`. Intended for pre-write defensive cleanup
-        so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
-        before reaching post-load compaction) cleans up before adding to the pile.
+        healthy: one S3 LIST via `table.file_uris`. Runs pre-write, so a sync that arrived at a
+        fragmented state (e.g. an earlier attempt that failed before reaching post-load) cleans up
+        before adding to the pile, and again post-load once the sync's own files have landed.
         """
         table = await self._table.get_delta_table()
         if table is None:
@@ -292,7 +267,7 @@ class DeltaMaintenance:
 
         Reads the right watermark, runs `run_maintenance`, and persists the returned watermark via
         `update_sync_type_config_keys` (row-locked merge) — both call sites (the pre-write defensive
-        pass and the CDC post-load pass) share this, so the watermark can't drift between them.
+        pass and the post-load pass) share this, so the watermark can't drift between them.
 
         One schema can back two delta tables (snapshot + `_cdc` companion) whose delta versions are
         unrelated numbers, so each table's vacuum cadence gets its own watermark key — sharing one

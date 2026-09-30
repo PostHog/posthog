@@ -16,6 +16,7 @@ import {
     describeApiValidationError,
     describeExecCommand,
     describeValidationError,
+    type ExecCommandMeta,
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
@@ -55,6 +56,7 @@ function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObje
 
 const mockContext = {
     getDistinctId: async () => 'test-distinct-id',
+    api: { config: { apiToken: 'phx_test' } },
 } as unknown as Context
 
 function createExec(
@@ -75,6 +77,35 @@ function createExec(
 }
 
 describe('exec tool', () => {
+    describe('help command', () => {
+        it('lists available commands and their argument shapes', async () => {
+            const result = await createExec().handler(mockContext, { command: 'help' })
+
+            expect(result).toContain('search <words or regex_pattern>')
+            expect(result).toContain('call [--json] [--confirm] <tool_name> [json_input]')
+            expect(result).not.toContain('learn <topic...>')
+        })
+
+        it('shows usage for one command', async () => {
+            const result = await createExec().handler(mockContext, { command: 'help search' })
+
+            expect(result).toBe('search <words or regex_pattern> — find tools by name, title, or description')
+        })
+
+        it('shows learn only when it is available', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog: new ExecLearnCatalog([], undefined) })
+
+            await expect(exec.handler(mockContext, { command: 'help learn' })).resolves.toContain('learn <topic...>')
+        })
+
+        it('directs unknown help topics to the command list', async () => {
+            await expect(createExec().handler(mockContext, { command: 'help unknown' })).rejects.toMatchObject({
+                reason: 'unknown_command',
+                message: 'Unknown command: "unknown". Run "help" to list available commands.',
+            })
+        })
+    })
+
     describe('learn command', () => {
         const guides = [
             {
@@ -91,6 +122,49 @@ describe('exec tool', () => {
             },
         ]
         const learnCatalog = new ExecLearnCatalog(guides, { posthog: undefined })
+
+        it.each([
+            ['learn -s "funnel conversion"', { exec_learn_kind: 'search', exec_search_query: 'funnel conversion' }],
+            [
+                'learn posthog:building-a-dashboard README.md',
+                { exec_learn_kind: 'load', exec_learn_target: 'posthog:building-a-dashboard' },
+            ],
+            [
+                'learn posthog:building-a-dashboard README.md -s "date range"',
+                {
+                    exec_learn_kind: 'load',
+                    exec_learn_target: 'posthog:building-a-dashboard',
+                    exec_search_query: 'date range',
+                },
+            ],
+            ['learn skills', { exec_learn_kind: 'list' }],
+            ['learn -d posthog:building-a-dashboard', { exec_learn_kind: 'describe' }],
+            ['learn analytics', { exec_learn_kind: 'guide' }],
+            ['learn', { exec_learn_kind: 'list' }],
+        ])('reports the learn form for "%s" whether or not learn is available', async (command, expected) => {
+            for (const catalogOption of [{ learnCatalog }, {}]) {
+                const tracked: ExecCommandMeta[] = []
+                const exec = createExec(undefined, undefined, {
+                    ...catalogOption,
+                    trackCommand: (meta) => tracked.push(meta),
+                })
+
+                await exec.handler(mockContext, { command }).catch(() => undefined)
+
+                expect(tracked.at(-1)).toEqual({ exec_verb: 'learn', ...expected })
+            }
+        })
+
+        it('keeps a malformed learn command a usage error and stamps no form', async () => {
+            const tracked: ExecCommandMeta[] = []
+            const exec = createExec(undefined, undefined, { learnCatalog, trackCommand: (meta) => tracked.push(meta) })
+
+            await expect(exec.handler(mockContext, { command: 'learn -s "unterminated' })).rejects.toMatchObject({
+                reason: 'usage',
+                message: 'Unterminated quote in learn command.',
+            })
+            expect(tracked.at(-1)).toEqual({ exec_verb: 'learn' })
+        })
 
         it('lists guide metadata and skill discovery commands without loading content', async () => {
             const exec = createExec(undefined, undefined, { learnCatalog })
@@ -348,14 +422,14 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> [json_input]'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> [json_input]'
             )
         })
 
@@ -1751,8 +1825,41 @@ describe('exec tool', () => {
                 ])
 
                 await expect(exec.handler(mockContext, { command })).rejects.toThrow(
-                    /exists[\s\S]*endpoint:write[\s\S]*reauthorize[\s\S]*browser does not update MCP permissions/i
+                    /exists[\s\S]*endpoint:write[\s\S]*browser does not update MCP permissions/i
                 )
+            }
+        )
+
+        it.each([
+            { apiToken: 'pha_test', recovery: 'Reauthorize the PostHog MCP connection and approve these scopes.' },
+            {
+                apiToken: 'phx_test',
+                recovery:
+                    'Add these scopes to the personal API key. The change reaches this connection within 2 minutes, and reconnecting the client does not make it faster.',
+            },
+            {
+                apiToken: 'unrecognized-token',
+                recovery: 'Reauthorize the PostHog MCP connection, or add these scopes to the personal API key.',
+            },
+        ])(
+            'gives the scope recovery step for the connection credential ($apiToken)',
+            async ({ apiToken, recovery }) => {
+                const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
+                const scopeGated = [
+                    {
+                        name: 'endpoint-create',
+                        title: 'Create endpoint',
+                        description: 'Create a new endpoint',
+                        missingScopes: ['endpoint:write'],
+                    },
+                ]
+                const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, scopeGated)
+
+                await expect(exec.handler(context, { command: 'call endpoint-create {}' })).rejects.toThrow(recovery)
+                const search = JSON.parse(
+                    (await exec.handler(context, { command: 'search endpoint-create' })) as string
+                )
+                expect(search.hint).toContain(recovery)
             }
         )
 
@@ -1801,6 +1908,8 @@ describe('exec tool', () => {
         // from a mistyped verb in analytics. Flag handling differs per verb, so a
         // parser regression silently collapses the funnel back into one bucket.
         it.each([
+            ['help', 'help', undefined],
+            ['help search', 'help', undefined],
             ['tools', 'tools', undefined],
             ['search query-', 'search', undefined],
             ['info execute-sql', 'info', 'execute-sql'],
@@ -2219,7 +2328,7 @@ describe('exec tool', () => {
 
                 it.each([
                     ['vision-scanners-get', 'scanner_id', 'replay scanner'],
-                    ['vision-observations-retrieve', 'observation_id', 'replay observation'],
+                    ['vision-observations-get', 'observation_id', 'replay observation'],
                 ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey, entity) => {
                     expect(formatFor(toolName, { [sentKey]: SOME_UUID })).toBe(
                         `Invalid input for "${toolName}": missing required parameter: id (A UUID string identifying this ${entity}.); this tool ignored these keys it does not accept: "${sentKey}"`
@@ -2227,10 +2336,10 @@ describe('exec tool', () => {
                 })
 
                 it('does not tell the caller to resend a scanner id as an observation id', () => {
-                    // `vision-observations-retrieve` does not declare `scanner_id`, and its
+                    // `vision-observations-get` does not declare `scanner_id`, and its
                     // `id` has no format constraint. Matching the two by name suffix would
                     // advise reusing a value that identifies a different entity.
-                    const message = formatFor('vision-observations-retrieve', { scanner_id: SOME_UUID })
+                    const message = formatFor('vision-observations-get', { scanner_id: SOME_UUID })
 
                     expect(message).toContain('"scanner_id"')
                     expect(message).not.toContain('resend')

@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
@@ -25,6 +25,8 @@ import {
 } from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from './AgentLogo'
 
@@ -202,7 +204,10 @@ export function AgentPromptButton({
     const [remembered, setRemembered] = useLocalStorage<RememberedCombo | null>(`${resolvedStorageKey}:combo`, null)
     const [open, setOpen] = useState(defaultOpen)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
-    const availableAgents = agentKeys ? AGENTS.filter((agent) => agentKeys.includes(agent.key)) : AGENTS
+    const { todayRailEnabled } = useValues(todayShellLogic)
+    const availableAgents = AGENTS.filter(
+        (agent) => (!agentKeys || agentKeys.includes(agent.key)) && !(todayRailEnabled && agent.key === 'posthog-ai')
+    )
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null

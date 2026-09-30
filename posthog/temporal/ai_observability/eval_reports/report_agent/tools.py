@@ -425,9 +425,9 @@ def _period_summary_dict(
         "result_counts": result_counts,
         "result_rates": result_rates,
     }
-    if output_type in ("boolean", "numeric"):
+    if output_type in ("boolean", "numeric", "categorical"):
         summary["pass_rate"] = calculate_pass_rate(
-            result_counts, empty_as_none=empty_rates_as_none or output_type == "numeric"
+            result_counts, empty_as_none=empty_rates_as_none or output_type in ("numeric", "categorical")
         )
     return summary
 
@@ -524,6 +524,19 @@ def get_result_distribution_over_time(
 
 
 _LIST_ALL_MAX_RESULTS = 500
+_MAX_EVAL_RESULTS_CHARS = 30_000
+
+
+def _eval_result_count_within_budget(rendered_rows: Iterable[str]) -> int:
+    # Reserve space for the header or JSON envelope without cutting category lists.
+    remaining_chars = _MAX_EVAL_RESULTS_CHARS - 256
+    count = 0
+    for row in rendered_rows:
+        remaining_chars -= len(row) + 2
+        if remaining_chars < 0:
+            break
+        count += 1
+    return count
 
 
 @tool
@@ -533,7 +546,8 @@ def list_all_eval_results(
 ) -> str:
     """Get a compact overview of evaluation results in the period.
 
-    Returns up to 500 results as condensed rows with outcome and target ID.
+    Returns up to 500 results as condensed rows with outcome and target ID,
+    with fewer rows when needed to fit the response size limit.
     Boolean results include truncated reasoning, while sentiment results include
     scores without classifier reasoning. When there are more than 500 results,
     returns a random sample. Use this as your first scan to spot patterns before
@@ -599,8 +613,6 @@ def list_all_eval_results(
         """,
         placeholders=shared_placeholders,
     )
-    _remember_returned_target_ids(state, [row[0] for row in rows if row])
-
     max_reasoning_length = min(max(20, max_reasoning_length), 200)
     lines = []
     for row in rows:
@@ -609,6 +621,8 @@ def list_all_eval_results(
         score = ""
         if isinstance(row[3], int | float):
             score = f" ({row[3]})" if output_type == "numeric" else f" ({row[3]:.2f})"
+        if output_type == "categorical":
+            score = f" ({json.dumps(row[1])})"
         fields = [f"{outcome}{score}", target_id]
         if output_type != "sentiment":
             reasoning = (row[4] or "")[:max_reasoning_length]
@@ -617,11 +631,15 @@ def list_all_eval_results(
             fields.append(reasoning)
         lines.append(" | ".join(fields))
 
-    if is_sampled:
+    result_count = _eval_result_count_within_budget(lines)
+    _remember_returned_target_ids(state, [row[0] for row in rows[:result_count]])
+    if result_count < len(lines):
+        header = f"Total: {total_count} results (showing {result_count}; response size limit)\n"
+    elif is_sampled:
         header = f"Total: {total_count} results (showing random sample of {len(lines)})\n"
     else:
         header = f"Total: {len(lines)} results\n"
-    return header + "\n".join(lines)
+    return header + "\n".join(lines[:result_count])
 
 
 @tool
@@ -635,6 +653,8 @@ def sample_eval_results(
 
     Boolean and numeric results include reasoning. Score ordering returns the worst
     numeric scores or the highest-confidence sentiment labels first.
+    Returns JSON with results and a truncated flag. Large rows reduce the sample
+    to fit the response size limit; each returned row retains all its categories.
 
     Args:
         outcome: "all" or one of the output type's supported outcomes
@@ -698,8 +718,6 @@ def sample_eval_results(
             "limit": ast.Constant(value=limit),
         },
     )
-    _remember_returned_target_ids(state, [row[0] for row in rows if row])
-
     target_id_key = _target_id_key(state)
     result = []
     for row in rows:
@@ -709,11 +727,22 @@ def sample_eval_results(
         }
         if output_type in ("sentiment", "numeric"):
             entry["score"] = row[4]
+        if output_type == "categorical":
+            entry["categories"] = row[1]
         if output_type != "sentiment":
             entry["reasoning"] = row[2] or ""
         result.append(entry)
 
-    return json.dumps(result, indent=2)
+    result_count = _eval_result_count_within_budget(json.dumps(entry) for entry in result)
+    _remember_returned_target_ids(state, [row[0] for row in rows[:result_count]])
+    truncated = result_count < len(result)
+    response: dict[str, object] = {"results": result[:result_count], "truncated": truncated}
+    if truncated:
+        response["notice"] = (
+            f"Showing {result_count} of {len(result)} fetched results due to the response size limit. "
+            "Use get_summary_metrics for aggregate counts and pass rates."
+        )
+    return json.dumps(response)
 
 
 @tool
@@ -831,7 +860,7 @@ def sample_generation_details(
 def _label_generation_evals(
     eval_rows: Sequence[Sequence[object]],
     detector_evaluation_ids: Container[str],
-    numeric_output_configs: dict[str, dict] | None = None,
+    evaluation_output_configs: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Label every evaluation on one generation, each by its own polarity."""
     labeled = []
@@ -842,19 +871,24 @@ def _label_generation_evals(
             definition = get_outcome_definition(
                 output_type,
                 true_is_failure=evaluation_id in detector_evaluation_ids,
-                output_config=(numeric_output_configs or {}).get(evaluation_id),
+                output_config=(evaluation_output_configs or {}).get(evaluation_id),
             )
         except ValueError:
             continue
-        raw_result = row[7] if output_type == "numeric" else row[3] if output_type == "sentiment" else row[2]
+        if output_type == "categorical":
+            raw_result = row[8]
+        else:
+            raw_result = row[7] if output_type == "numeric" else row[3] if output_type == "sentiment" else row[2]
         entry = {
             "evaluation_id": evaluation_id,
             "output_type": output_type,
-            "outcome": definition.label_for(raw_result, row[6]),
+            "outcome": "skipped" if row[9] in (True, "true") else definition.label_for(raw_result, row[6]),
             "reasoning": row[5] or "",
         }
         if output_type in ("sentiment", "numeric"):
             entry["score"] = row[7] if output_type == "numeric" else row[4]
+        if output_type == "categorical":
+            entry["categories"] = raw_result
         labeled.append(entry)
     return labeled
 
@@ -959,7 +993,9 @@ def get_generation_detail(
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_evaluation_reasoning as reasoning,
             properties.$ai_evaluation_applicable as applicable,
-            toFloat(properties.$ai_evaluation_numeric_result) as numeric_score
+            toFloat(properties.$ai_evaluation_numeric_result) as numeric_score,
+            JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)') as categories,
+            properties.$ai_evaluation_skipped as skipped
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_target_event_id = {generation_id}
@@ -972,7 +1008,7 @@ def get_generation_detail(
     )
 
     evals = _label_generation_evals(
-        eval_rows, set(state.get("detector_evaluation_ids") or []), state.get("numeric_output_configs")
+        eval_rows, set(state.get("detector_evaluation_ids") or []), state.get("evaluation_output_configs")
     )
 
     result: dict = {
@@ -1405,8 +1441,16 @@ def list_recent_report_runs(
         }
         if "result_rates" in normalized_metrics:
             entry["result_rates"] = normalized_metrics["result_rates"]
-        if output_type in ("boolean", "numeric") and "pass_rate" in normalized_metrics:
+        if output_type in ("boolean", "numeric", "categorical") and "pass_rate" in normalized_metrics:
             entry["pass_rate"] = normalized_metrics["pass_rate"]
+        if output_type in ("numeric", "categorical"):
+            config = normalized_metrics.get("output_config") or {}
+            previous_rule = config.get("passing_rule")
+            current_rule = (state.get("output_config") or {}).get("passing_rule")
+            entry["output_config"] = config
+            entry["passing_rule_matches_current"] = (
+                previous_rule == current_rule if previous_rule and current_rule else None
+            )
         result.append(entry)
 
     return json.dumps(result, indent=2, default=str)

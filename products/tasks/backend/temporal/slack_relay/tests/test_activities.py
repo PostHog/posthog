@@ -257,6 +257,25 @@ class TestRelaySlackMessage(TestCase):
         mock_post.assert_called_once()
         assert mock_post.call_args.args[0].startswith(expected_prefix)
 
+    @parameterized.expand(
+        [
+            ("bare", "Done, <@U123>. The PR is up."),
+            ("labeled", "Done, <@U123|Jane Doe>. The PR is up."),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_answer_that_already_mentions_the_target_is_not_prefixed(
+        self, _name, text, _mock_delete_progress, mock_post, _mock_update
+    ):
+        relay_slack_message(
+            RelaySlackMessageInput(run_id=str(self.task_run.id), relay_id=f"relay-self-mention-{_name}", text=text)
+        )
+
+        mock_post.assert_called_once()
+        assert mock_post.call_args.args[0].count("<@U123>") == 1
+
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")

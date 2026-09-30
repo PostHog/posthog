@@ -1652,7 +1652,10 @@ def create_webhook(
                 )
             return WebhookCreationResult(
                 success=False,
-                error="Your Stripe API key doesn't have permission to create webhooks. Please add the 'Write' permission for 'Webhook endpoints' to your API key, or create the webhook manually.",
+                error=(
+                    "Your Stripe API key can't create webhooks. Give it Write access on Webhook endpoints in "
+                    "Stripe, then select Try again, or set up the webhook manually below."
+                ),
             )
 
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")

@@ -23,7 +23,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_0_day[new_events_schema]
@@ -50,7 +51,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_1_hour[new_events_schema]
@@ -77,7 +79,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_2_minute[new_events_schema]
@@ -104,7 +107,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_3_week[new_events_schema]
@@ -131,7 +135,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_4_month[new_events_schema]
@@ -158,7 +163,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_each_datum_has_label_and_day[new_events_schema]
@@ -185,7 +191,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_filter_test_accounts_0_filter_test_accounts_off[new_events_schema]
@@ -212,7 +219,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_filter_test_accounts_1_filter_test_accounts_on[new_events_schema]
@@ -225,7 +233,7 @@
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
          avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
   FROM events_json AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email)))))), '%@posthog.com%'), 1))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), '%@posthog.com%'), 1))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -239,7 +247,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_days_produce_separate_buckets_with_correct_stats[new_events_schema]
@@ -266,7 +275,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each[new_events_schema.1]
@@ -293,7 +303,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each[new_events_schema]
@@ -320,7 +331,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_users_aggregate_within_same_day[new_events_schema]
@@ -347,7 +359,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_no_data_fills_all_dates_with_zeros[new_events_schema]
@@ -374,7 +387,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_0_all_missing[new_events_schema]
@@ -401,7 +415,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_1_single_missing[new_events_schema]
@@ -428,7 +443,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_property_filters_0_filter_chrome_only[new_events_schema]
@@ -441,7 +457,7 @@
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
          avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
   FROM events_json AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), 'Chrome'), 0))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))), 'Chrome'), 0))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -455,7 +471,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_property_filters_1_filter_firefox_only[new_events_schema]
@@ -468,7 +485,7 @@
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
          avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
   FROM events_json AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), 'Firefox'), 0))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))), 'Firefox'), 0))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -482,7 +499,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_property_filters_2_no_filter_sees_both[new_events_schema]
@@ -509,7 +527,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_results_are_ordered_by_day_ascending[new_events_schema]
@@ -536,7 +555,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_session_duration_produces_boxplot_data[new_events_schema]
@@ -574,7 +594,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_sparse_data_fills_missing_dates_with_zeros[new_events_schema]
@@ -601,7 +622,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_0_uniform_distribution[new_events_schema]
@@ -628,7 +650,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_1_single_value[new_events_schema]
@@ -655,7 +678,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_2_two_values[new_events_schema]
@@ -682,7 +706,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_3_identical_values[new_events_schema]
@@ -709,7 +734,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_4_negative_values[new_events_schema]
@@ -736,7 +762,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_5_large_values[new_events_schema]
@@ -763,7 +790,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_6_decimal_values[new_events_schema]
@@ -790,6 +818,7 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---

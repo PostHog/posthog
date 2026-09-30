@@ -1401,6 +1401,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         [
             ("env-uuid-abc", "read_only", "env-uuid-abc", "read_only"),
             (None, None, None, "full"),
+            (None, [], None, []),
         ],
     )
     async def test_forwards_sandbox_env_and_scopes(self, ctx_env, ctx_scopes, expected_env, expected_scopes):

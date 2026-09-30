@@ -21,6 +21,7 @@ enum NotificationBlock {
     IssueAssigned = 'issue-assigned',
     EtWeeklyDigest = 'et-weekly-digest',
     WaWeeklyDigest = 'wa-weekly-digest',
+    DataCatalogWeeklyDigest = 'data-catalog-weekly-digest',
     CommentMentions = 'comment-mentions',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
@@ -49,6 +50,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     materialized_view_sync_failed_daily: true,
     materialized_view_sync_failed_immediate: false,
     web_analytics_weekly_digest: true,
+    data_catalog_weekly_digest: true,
 }
 
 function ProjectDigestSelector({
@@ -543,6 +545,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                         />
                     </>
                 )}
+            </div>
+        ),
+        [NotificationBlock.DataCatalogWeeklyDigest]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="data_catalog_weekly_digest"
+                    label="Data catalog weekly digest"
+                    description="Get a weekly summary of the metrics, relationships, and certifications waiting for review in your projects"
+                    dataAttr="data_catalog_weekly_digest_enabled"
+                />
             </div>
         ),
         [NotificationBlock.CommentMentions]: (

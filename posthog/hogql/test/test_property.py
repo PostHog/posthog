@@ -45,6 +45,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Property, PropertyDefinition, Team
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr
 from posthog.utils import relative_date_parse
@@ -429,6 +430,38 @@ class TestProperty(BaseTest):
         assert isinstance(result.right.args[0], ast.Constant)
         assert result.right.args[0].value == expected_rhs
 
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_property_to_expr_event_dotted_key_reads_one_flat_path(self):
+        # A filter key is one property name however many dots it holds, so the native read must bind the escaped
+        # path name rather than descend into `properties.a.b`.
+        expr = self._property_to_expr({"type": "event", "key": "a.b", "value": "x"})
+        self.assertEqual(expr, self._parse_expr("properties.`a.b` = 'x'"))
+
+        query = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=expr,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
+        self.assertIn("getSubcolumn(events.properties, %(hogql_val_", sql)
+        self.assertNotIn("events.properties.a", sql)
+        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb", "^`a%2Eb`"})
+
+    def test_property_string_expr_reads_dotted_key_as_one_flat_path_on_native_table(self):
+        # Raw-SQL readers must bind the escaped path name like the printer does, and stay safe for callers that
+        # run the SQL through `%` parameter substitution.
+        expr, _ = get_property_string_expr("events", "a.b", "'a.b'", "properties", use_new_events_schema=True)
+        self.assertNotIn("%", expr)
+
+        document = '{"a.b": "flat", "a": {"b": "nested"}}'
+        [(value,)] = sync_execute(
+            f"SELECT {expr} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
+            {"raw": document, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+            settings={"json_type_escape_dots_in_keys": 1, "type_json_skip_duplicated_paths": 1},
+        )
+        self.assertEqual(value, "flat")
+
     def test_property_to_expr_event_list(self):
         # positive
         self.assertEqual(
@@ -752,19 +785,20 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "text",
-                    "value": "text-text.",
-                    "operator": "regex",
-                }
-            ),
-            self._parse_expr(
-                "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
-            ),
-        )
+        for text_key in ("text", "$el_text"):
+            self.assertEqual(
+                self._property_to_expr(
+                    {
+                        "type": "element",
+                        "key": text_key,
+                        "value": "text-text.",
+                        "operator": "regex",
+                    }
+                ),
+                self._parse_expr(
+                    "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
+                ),
+            )
 
     def test_property_groups(self):
         self.assertEqual(
@@ -2013,6 +2047,14 @@ class TestProperty(BaseTest):
                 ast.Constant(value=1)
             )
 
+    # Filters created via the API can carry a single scalar for IN/NOT IN. Rejecting the scalar
+    # fails every query that uses the stored filter, so it must compile like a one-element list.
+    @parameterized.expand([("in",), ("not_in",)])
+    def test_scalar_value_for_in_operator_compiles_as_single_element_list(self, operator: str):
+        assert self._property_to_expr(
+            {"type": "event", "key": "action", "value": "edit_video", "operator": operator}
+        ) == self._property_to_expr({"type": "event", "key": "action", "value": ["edit_video"], "operator": operator})
+
     def test_every_negative_operator_is_known(self):
         # A negative operator missing from operator_is_negative silently negates per element on
         # array properties and loses its lowercase index hint, so the name pattern pins the set.
@@ -2519,9 +2561,9 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
 
     @parameterized.expand(
         [
-            # The native table infers DateTime for these values at ingest, and a non-UTC ClickHouse
-            # session renders a DateTime as local wall clock. Read back as UTC, u1 stays 10:00Z and
-            # u2 stays 18:00Z; read back as Los Angeles wall clock marked Z, both would fall before 14:00Z.
+            # A non-UTC ClickHouse session must not shift the stored value. Read back as UTC, u1 stays
+            # 10:00Z and u2 stays 18:00Z; read back as Los Angeles wall clock marked Z, both would fall
+            # before 14:00Z.
             ("la_session_is_date_before_iso_z", "2026-03-19T14:00:00Z", "is_date_before", 1),
             ("la_session_is_date_after_iso_z", "2026-03-19T14:00:00Z", "is_date_after", 1),
         ]

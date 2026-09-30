@@ -846,14 +846,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     )
     def test_list_does_not_duplicate_insights_with_multiple_matching_tags(self, _name: str, query: str) -> None:
         from posthog.models.tag import Tag
-        from posthog.models.tagged_item import TaggedItem
 
         insight = Insight.objects.create(
             short_id="search-tg", name="needle", team=self.team, filters={"events": [{"id": "$pageview"}]}
         )
         for tag_name in ("needle-tag-a", "needle-tag-b", "needle-tag-c"):
             tag = Tag.objects.create(name=tag_name, team=self.team)
-            TaggedItem.objects.create(insight=insight, tag=tag)
+            insight.tagged_items.create(tag=tag)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?{query}")
         assert response.status_code == status.HTTP_200_OK
@@ -4331,6 +4330,49 @@ class TestInsightQueryScan(APIBaseTest):
         self.assertIsNone(body["query_scan"])
         self.assertNotIn("cache_key", body["query_status"])
         self.assertNotIn("query_scan", body["query_status"])
+
+
+class TestInsightWarnings(APIBaseTest):
+    WARNING = {
+        "type": "warehouse_sync",
+        "message": "Last sync of `costs` (from DoIt) failed.",
+        "schema_name": "costs",
+        "source_id": "source-1",
+        "source_type": "DoIt",
+        "status": "Failed",
+        "table_name": "doit_costs",
+    }
+
+    @parameterized.expand([("a project member", False, [WARNING]), ("a shared link viewer", True, None)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_an_insight_carries_its_warehouse_sync_warnings(
+        self, _name: str, shared: bool, expected: list[dict] | None, mock_calculate: mock.MagicMock
+    ) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=True,
+            timezone=self.team.timezone,
+            warnings=[self.WARNING],
+        )
+        url = f"/api/projects/{self.team.id}/insights/{insight.id}/"
+        if shared:
+            sharing_configuration = SharingConfiguration.objects.create(
+                team=self.team, insight=insight, enabled=True, access_token="xyz"
+            )
+            self.client.logout()
+            url += f"?sharing_access_token={sharing_configuration.access_token}"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["warnings"], expected)
 
 
 class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

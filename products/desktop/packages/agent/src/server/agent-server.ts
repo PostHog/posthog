@@ -69,6 +69,7 @@ import packageJson from "../../package.json" with { type: "json" };
 import {
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
+  type ProcessKilledParams,
   type SteerDeclineCause,
 } from "../acp-extensions";
 import {
@@ -76,6 +77,7 @@ import {
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
+import type { InitializationPhase } from "../adapters/claude/session/initialization";
 import {
   getSessionJsonlPath,
   hydrateSessionJsonl,
@@ -144,6 +146,11 @@ import {
 } from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
+import {
+  CliProcessRegistry,
+  isTaskRunSandbox,
+  MemoryWatchdogWatcher,
+} from "./memory-watchdog";
 import {
   checkoutExistingPullRequest,
   type ExistingPrCheckoutResult,
@@ -544,6 +551,7 @@ export class AgentServer {
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
   private slackReplyContext = false;
+  private mobileClient = false;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -575,6 +583,7 @@ export class AgentServer {
     typeof createAcpConnection
   > | null = null;
   private initializationFailureCode: string | undefined;
+  private initializationPhase: InitializationPhase | undefined;
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
@@ -613,6 +622,9 @@ export class AgentServer {
   private readonly posthogExecPermissionRegex: RegExp;
   private readonly posthogExecPermissionRegexSource: string;
   private mcpRelayServer: McpRelayServer | null = null;
+  private memoryWatchdogWatcher: MemoryWatchdogWatcher | null = null;
+  private pendingProcessKills: ProcessKilledParams[] = [];
+  private readonly cliProcesses = new CliProcessRegistry(process.env);
   private codexTokenClient: CodexSubscriptionTokenClient | null = null;
   private readonly credentialRelay = new CredentialRelay({
     emitEvent: (event) => this.broadcastEvent(event),
@@ -792,6 +804,7 @@ export class AgentServer {
         status: "ok",
         hasSession: !!this.session,
         readiness: boot.state,
+        initializationPhase: this.initializationPhase,
         failureCode: this.initializationFailureCode,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
@@ -1017,7 +1030,45 @@ export class AgentServer {
       );
     });
 
+    await this.startMemoryWatchdogWatcher();
     await this.autoInitializeSession();
+  }
+
+  private async startMemoryWatchdogWatcher(): Promise<void> {
+    if (!isTaskRunSandbox(process.env) || this.memoryWatchdogWatcher) return;
+    const watcher = new MemoryWatchdogWatcher({
+      onProcessKilled: (params) => this.emitProcessKilled(params),
+      logger: this.logger,
+    });
+    if (await watcher.start()) {
+      this.memoryWatchdogWatcher = watcher;
+    }
+  }
+
+  private emitProcessKilled(params: ProcessKilledParams): void {
+    const notification = {
+      jsonrpc: "2.0",
+      method: POSTHOG_NOTIFICATIONS.PROCESS_KILLED,
+      params,
+    };
+    if (this.session) {
+      this.broadcastAndPersistNotification(notification);
+      return;
+    }
+    this.pendingProcessKills.push(params);
+  }
+
+  private flushPendingProcessKills(): void {
+    if (!this.session || this.pendingProcessKills.length === 0) return;
+    const kills = this.pendingProcessKills;
+    this.pendingProcessKills = [];
+    for (const params of kills) {
+      this.broadcastAndPersistNotification({
+        jsonrpc: "2.0",
+        method: POSTHOG_NOTIFICATIONS.PROCESS_KILLED,
+        params,
+      });
+    }
   }
 
   private async loadResumeState(
@@ -1148,6 +1199,7 @@ export class AgentServer {
     this.logger.debug("Stopping agent server...");
     this.shutdownController.abort(new CredentialRelayError("cancelled"));
     this.credentialRelay.stop();
+    this.memoryWatchdogWatcher?.stop();
     try {
       await withTimeout(
         Promise.allSettled([
@@ -2128,6 +2180,7 @@ export class AgentServer {
     this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
     this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
     this.slackReplyContext = preTaskRun?.state.slack_reply_context === true;
+    this.mobileClient = preTaskRun?.state.client_platform === "mobile";
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -2237,6 +2290,16 @@ export class AgentServer {
         this.handleAcpTransportMessage(message, eventId),
       stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
+      processCallbacks: isTaskRunSandbox(process.env)
+        ? {
+            onProcessSpawned: ({ pid }) => {
+              void this.cliProcesses.spawned(pid);
+            },
+            onProcessExited: (pid) => {
+              void this.cliProcesses.exited(pid);
+            },
+          }
+        : undefined,
       claudeGatewayEnv:
         runtimeAdapter !== "codex" && claudeSubscriptionToken === null
           ? gatewayEnv
@@ -2499,6 +2562,7 @@ export class AgentServer {
     };
     this.initializingTelemetry = undefined;
     this.flushPreSessionEvents();
+    this.flushPendingProcessKills();
 
     this.logger = new Logger({
       debug: true,
@@ -4563,6 +4627,7 @@ export class AgentServer {
       createPr: this.config.createPr,
       hasGithubToken: Boolean(resolveGithubToken()),
       isAutomatedOrigin: this.isAutomatedOrigin(),
+      mobileClient: this.mobileClient,
       isSlack: this.isSlackReplyContext(),
       projectId: this.config.projectId,
       repositoryAttached: Boolean(this.config.repositoryPath),
@@ -5042,6 +5107,13 @@ export class AgentServer {
         method: string,
         params: Record<string, unknown>,
       ) => {
+        if (
+          method === POSTHOG_NOTIFICATIONS.STATUS &&
+          (params.status === "sdk_initialization" ||
+            params.status === "setup_hooks")
+        ) {
+          this.initializationPhase = params.status;
+        }
         this.logger.debug("Extension notification", { method, params });
       },
       sessionUpdate: async (params: {

@@ -73,6 +73,15 @@ fine — they get converted to newlines.
 Temporal and the temporal-django-worker start automatically via phrocs when you
 run `hogli start`.
 
+The separate `task-management` implementation is not registered with the worker.
+It stops polling closed or merged PRs and caps background runs at two idle checks; pending CI and merge-queue checks do not consume that budget.
+Pending CI and merge queues have a separate limit of 96 waiting checks (24 hours at the normal cadence).
+Follow-ups and sandbox-session boundaries reset both budgets, and the counters persist in server-owned `TaskRun.state` across orchestrator restarts.
+With the `tasks-task-management-durable-ci-checkpoints` Temporal patch, queue and budget changes are staged in a generation-protected checkpoint before application.
+Startup applies any unfinished checkpoint before restoring the queue and counters. Follow-ups wait for their reset and queued message to persist before delivery.
+Exhausted persistence retries stop the orchestrator instead of continuing with an unsaved budget; a new execution can recover a staged checkpoint. A failure before staging does not create a recoverable database checkpoint.
+With `tasks-task-management-checkpoint-recovery-status`, checkpoint read or write failures leave the task run non-terminal so recovery can reattach to its sandbox. `tasks-execute-sandbox-reopen-parent-delivery` resumes sandbox acknowledgements when the restarted orchestrator attaches.
+
 The `process-task` workflow defined in
 `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox,
 starts an agent inside it, and waits for the agent to finish. The workflow
@@ -102,6 +111,9 @@ orchestrates these activities:
 
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
+
+Credential refresh runs in the background. For workflow histories with the `tasks-credential-refresh-propagate-cancel` patch, cancellation stops the loop even during an in-flight refresh activity.
+Other refresh failures retry on the default cadence.
 
 ## Running via the UI
 

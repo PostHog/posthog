@@ -17,9 +17,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.experiments.backend.metric_resolution import is_scheduled_metric
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.metric_resolution import is_scheduled_metric
 
 logger = structlog.get_logger(__name__)
 

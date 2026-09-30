@@ -1,7 +1,7 @@
-import { CSS_LOAD_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
+import { CHUNK_CSS_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
 
 import { BOOT_ENTRIES, ENTRY } from './bootEntries.mjs'
-import { chunkIdentity, shortHash } from './stableChunkNames.mjs'
+import { alphanumericStem, chunkIdentity, shortHash } from './stableChunkNames.mjs'
 
 /**
  * Split stylesheets for the stable build.
@@ -13,13 +13,17 @@ import { chunkIdentity, shortHash } from './stableChunkNames.mjs'
  * - Eager layers hold the CSS that the boot chain (entry, App, bootApp, AuthenticatedShell) imports
  *   statically. The stable page links them in order before the first render.
  * - Lazy groups hold the rest, grouped by the JS chunks whose modules import it. A lazy entry
- *   chunk waits for the groups its static imports need before it runs (see `cssPrelude`).
+ *   chunk registers the groups its static imports need, and its import waits for them (see `cssPrelude`).
  *
  * Groups keep today's rule order among themselves, because every group lists its files in the
  * order of the entry stylesheet. Lazy groups load after the eager layers.
  */
 
 export const CSS_SPECIFIER_PREFIX = '@css/'
+
+export function cssGroupFileStem(groupName) {
+    return alphanumericStem(`styles-${groupName}`)
+}
 
 const isStylesheet = (file) => /\.(css|scss|sass)$/.test(file)
 
@@ -149,7 +153,6 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
     }
 
     const eager = EAGER_ORDER.filter((name) => groups.has(name))
-    // A lazy prelude would call the undefined window.ESBUILD_LOAD_CSS if there's no eager layer to define it.
     if (lazyGroupsByEntry.size > 0 && eager.length === 0) {
         throw new Error('stable css: lazy chunks need split CSS but no eager layer would define the loader')
     }
@@ -161,20 +164,13 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
 }
 
 /**
- * The line a lazy entry chunk starts with: it waits for its stylesheets before any of its code
- * runs, so the chunk never renders unstyled. `import.meta.resolve` reads each group's URL from the
- * import map, and the group's rank tells the loader where to insert it.
- *
- * A browser without `import.meta.resolve` (Chromium 89 to 104 has import maps but not this) gets
- * the full stylesheet instead. When even that fails, the chunk throws a ChunkLoadError, so the
- * app's chunk-load recovery runs, not an unstyled scene.
+ * The line a lazy entry chunk starts with: it registers the chunk's stylesheets for
+ * `window.ESBUILD_IMPORT` to wait on. Without `import.meta.resolve` (Chromium 89 to 104 has import
+ * maps but not this) it registers `null`, which asks for the full stylesheet instead.
  */
-export function cssPrelude(groupNames, rankOfGroup) {
+export function cssPrelude(specifier, groupNames, rankOfGroup) {
     const entries = groupNames.map(
         (name) => `[import.meta.resolve(${JSON.stringify(CSS_SPECIFIER_PREFIX + name)}),${rankOfGroup.get(name)}]`
     )
-    return (
-        `if(!(await window.${CSS_LOAD_GLOBAL}(typeof import.meta.resolve=="function"?[${entries.join(',')}]:null)))` +
-        `throw Object.assign(new Error("Stylesheets for this chunk did not load"),{name:"ChunkLoadError"});`
-    )
+    return `window.${CHUNK_CSS_GLOBAL}[${JSON.stringify(specifier)}]=typeof import.meta.resolve=="function"?[${entries.join(',')}]:null;`
 }
