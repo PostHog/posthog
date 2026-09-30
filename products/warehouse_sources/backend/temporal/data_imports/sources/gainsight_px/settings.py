@@ -54,7 +54,7 @@ EVENT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class GainsightPxEndpointConfig:
     name: str
     path: str

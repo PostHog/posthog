@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
 API_KEY_HEADER = "X-APTRINSIC-API-KEY"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GainsightPxResumeConfig:
     # Cursor token for scroll-paginated endpoints (users/accounts). None starts at the first page.
     scroll_id: str | None = None
