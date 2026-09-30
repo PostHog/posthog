@@ -81,6 +81,8 @@ class TestModelConfig(SimpleTestCase):
 
 
 class TestGetAppPromptFromDatabase(BaseTest):
+    PROMPT_NAME = "emoji-search-suggestions"
+
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(override_settings(CLOUD_DEPLOYMENT="US"))
@@ -89,15 +91,15 @@ class TestGetAppPromptFromDatabase(BaseTest):
         self.addCleanup(self._clear_caches)
 
     def _clear_caches(self) -> None:
-        invalidate_prompt_latest_cache(self.team.id, "emoji-search-suggestions")
-        invalidate_prompt_label_cache(self.team.id, "emoji-search-suggestions", "production")
-        safe_cache_delete(prompt_label_cache_key(self.team.id, "emoji-search-suggestions", "production"))
+        invalidate_prompt_latest_cache(self.team.id, self.PROMPT_NAME)
+        invalidate_prompt_label_cache(self.team.id, self.PROMPT_NAME, "production")
+        safe_cache_delete(prompt_label_cache_key(self.team.id, self.PROMPT_NAME, "production"))
 
     def _publish_prompt(self, *, version: int, config: dict) -> None:
-        LLMPrompt.objects.filter(team=self.team, name="emoji-search-suggestions").update(is_latest=False)
+        LLMPrompt.objects.filter(team=self.team, name=self.PROMPT_NAME, is_latest=True).update(is_latest=False)
         LLMPrompt.objects.create(
             team=self.team,
-            name="emoji-search-suggestions",
+            name=self.PROMPT_NAME,
             prompt="Suggest related emojis for a search.",
             version=version,
             is_latest=True,
@@ -108,9 +110,9 @@ class TestGetAppPromptFromDatabase(BaseTest):
     def _label_production(self, version: int) -> None:
         LLMPromptLabel.objects.create(
             team=self.team,
-            prompt_name="emoji-search-suggestions",
+            prompt_name=self.PROMPT_NAME,
             name="production",
-            prompt=LLMPrompt.objects.get(team=self.team, name="emoji-search-suggestions", version=version),
+            prompt=LLMPrompt.objects.get(team=self.team, name=self.PROMPT_NAME, version=version),
             created_by=self.user,
         )
 
@@ -120,14 +122,14 @@ class TestGetAppPromptFromDatabase(BaseTest):
         self._label_production(1)
 
         with override_settings(CLOUD_DEPLOYMENT=region):
-            assert managed_decision_model.get_app_prompt("emoji-search-suggestions") is None
+            assert managed_decision_model.get_app_prompt(self.PROMPT_NAME) is None
 
     def test_the_production_label_resolves(self) -> None:
         self._publish_prompt(version=1, config={"model": DEFAULT_DECISION_MODEL})
         self._publish_prompt(version=2, config={"model": NEW_MODEL})
         self._label_production(2)
 
-        result = managed_decision_model.get_app_prompt("emoji-search-suggestions")
+        result = managed_decision_model.get_app_prompt(self.PROMPT_NAME)
 
         assert result is not None
         assert result.config == {"model": NEW_MODEL}
@@ -138,20 +140,20 @@ class TestGetAppPromptFromDatabase(BaseTest):
         self._publish_prompt(version=1, config={"model": DEFAULT_DECISION_MODEL})
         self._publish_prompt(version=2, config={"model": NEW_MODEL})
 
-        result = managed_decision_model.get_app_prompt("emoji-search-suggestions", version=1)
+        result = managed_decision_model.get_app_prompt(self.PROMPT_NAME, version=1)
 
         assert result is not None
         assert result.config == {"model": DEFAULT_DECISION_MODEL}
         assert result.label is None
 
     def test_a_missing_prompt_returns_none(self) -> None:
-        assert managed_decision_model.get_app_prompt("emoji-search-suggestions") is None
+        assert managed_decision_model.get_app_prompt(self.PROMPT_NAME) is None
 
     def test_the_model_refresher_reads_the_database(self) -> None:
         self._publish_prompt(version=1, config={"model": NEW_MODEL})
         self._label_production(1)
 
-        managed = ManagedDecisionModel("emoji-search-suggestions")
+        managed = ManagedDecisionModel(self.PROMPT_NAME)
         managed._refresher._refresh()
 
         assert managed.current() == NEW_MODEL
