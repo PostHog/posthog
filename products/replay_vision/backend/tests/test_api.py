@@ -4787,7 +4787,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
         jev_low = self._succeeded_observation(scanner, "jev-low", 10, self._monitor_result("yes"))
         store_watch_ranks(
-            self.team.id, scanner.id, {str(jev_high.id), str(jev_low.id)}, {str(jev_high.id): 0.95}, "jevk5-fp8-0.2"
+            self.team.id, scanner.id, {str(jev_high.id), str(jev_low.id)}, {str(jev_high.id): 0.95}, {}, "jevk5-fp8-0.2"
         )
 
         ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
@@ -4835,7 +4835,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         for index in range(100):
             self._succeeded_observation(scanner, f"routine-{index}", index + 1, self._monitor_result("no"))
         store_watch_ranks(
-            self.team.id, scanner.id, {str(old_interesting.id)}, {str(old_interesting.id): 0.9}, "jevk5-fp8-0.2"
+            self.team.id, scanner.id, {str(old_interesting.id)}, {str(old_interesting.id): 0.9}, {}, "jevk5-fp8-0.2"
         )
 
         ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
