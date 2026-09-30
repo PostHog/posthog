@@ -79,7 +79,7 @@ If neither source is present, write one scratchpad entry:
 
 Close out empty. Future revenue runs read this entry cold and short-circuit fast. Re-running with the same key idempotently refreshes the timestamp — the entry stays until revenue analytics actually becomes active, at which point the next run rewrites or deletes it.
 
-If `project-get` failed and the fallback listing failed or found no event charge views, do not write the `not-in-use:` entry. The fallback cannot prove that no event is configured. Close out empty and say in the run summary that the config was unreadable.
+If `project-get` failed and the fallback listing failed or found no event charge views, do not write the `not-in-use:` entry. The fallback cannot prove that no event is configured. If `external_data_sources` has a payment platform, continue the run and check that source. Otherwise, close out empty. In both cases, say in the run summary that the config was unreadable.
 
 ## How a run works
 
