@@ -186,23 +186,27 @@ impl EndpointDiscovery {
     }
 
     fn build_endpoint(&self, addr: SocketAddr) -> Endpoint {
-        let mut ep = Endpoint::from_shared(format!("http://{addr}"))
-            .expect("valid endpoint URL")
-            .timeout(self.endpoint_config.timeout)
-            .connect_timeout(self.endpoint_config.connect_timeout)
-            .tcp_nodelay(true);
-
-        if let Some(interval) = self.endpoint_config.keepalive_interval {
-            ep = ep
-                .http2_keep_alive_interval(interval)
-                .keep_alive_while_idle(true);
-        }
-        if let Some(timeout) = self.endpoint_config.keepalive_timeout {
-            ep = ep.keep_alive_timeout(timeout);
-        }
-
-        self.endpoint_config.http2_windows.apply_to_endpoint(ep)
+        build_discovered_endpoint(addr, &self.endpoint_config)
     }
+}
+
+pub fn build_discovered_endpoint(addr: SocketAddr, config: &EndpointConfig) -> Endpoint {
+    let mut ep = Endpoint::from_shared(format!("http://{addr}"))
+        .expect("valid endpoint URL")
+        .timeout(config.timeout)
+        .connect_timeout(config.connect_timeout)
+        .tcp_nodelay(true);
+
+    if let Some(interval) = config.keepalive_interval {
+        ep = ep
+            .http2_keep_alive_interval(interval)
+            .keep_alive_while_idle(true);
+    }
+    if let Some(timeout) = config.keepalive_timeout {
+        ep = ep.keep_alive_timeout(timeout);
+    }
+
+    config.http2_windows.apply_to_endpoint(ep)
 }
 
 #[cfg(test)]
