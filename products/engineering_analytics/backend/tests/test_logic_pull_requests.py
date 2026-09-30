@@ -189,8 +189,7 @@ class TestPullRequestEndpointMapping(BaseTest):
             ["E2E CI"],
         )
         # The query returns newest-first (its per-PR LIMIT BY keeps the most recent pushes); the mapper
-        # reverses to the oldest-first contract, so the mock is ordered newest-first to match. The last
-        # two columns count every push, including the ones past the cap.
+        # reverses to the oldest-first contract, so the mock is ordered newest-first to match.
         push_rows = [
             ("PostHog", "posthog", 10, "sha-new", _dt("2026-01-11T10:00:00"), None, 0, 1, 5, 2),
             ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0, 5, 2),
