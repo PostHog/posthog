@@ -13030,6 +13030,22 @@ snapshots:
         hash: v1.k794b7964.7a6a02807240dbbe34017687603246e0d2a8cf3c5030a72489e9c91dbebbd7bf.wRFlnN8ieOdhMFH_nOuQP7jaRIAsHHzggG0_S_U6UBU
     scenes-inbox-scout-tags--searched-filter--wide--light:
         hash: v1.k794b7964.d2fc29b8d0d41c120300eb49eff2ef947cc30813d3491d915dfe4219a8c4326d.-JiZJOnlilAHmEGyfuIA5Uoerbf1c_XC6zVvzKjtduY
+    scenes-other-access-control-property-rules--ai-property-picker--dark:
+        hash: v1.k794b7964.44dd6391c243b1a12408ad42a34ec2c09333232bce5ffce5dae7e3c96c181d1e.46JF-BelKqooz5_oYr4tZrBqKPvWhbIYZ9NoSBAgEN8
+    scenes-other-access-control-property-rules--ai-property-picker--light:
+        hash: v1.k794b7964.709e7619c1aeb1044cb952b1f20e386ef63c3a4be0eddede5b8dd1f1b5215e60.kHSQ_4LbW2jlLeRGuM6GVzZGNT09G-XykcRt3HE6vew
+    scenes-other-access-control-property-rules--default--dark:
+        hash: v1.k794b7964.279fee58a8b64ecc4242914ea4c97d5e00819ff404e1ba537d62c33510a83fe7.oKTTgaqtpuXTZWDyf9Tw_e0kMyRj-H8aH34xAKxTZrY
+    scenes-other-access-control-property-rules--default--light:
+        hash: v1.k794b7964.dac6d38e89371044282bd486d2ced541cf2adf480da8212dc7529bd45320d10c.pkmFnxlnYymfAiaEcTWo9DgZEMQM4QvjSAAtKzGHvXw
+    scenes-other-access-control-property-rules--narrow--dark:
+        hash: v1.k794b7964.ca818f8306d183d36504c706b739304960f2136612b4602f3c78e812d158b419.MkKGWmT8YPBapYtHTIHH1jFGcFF5u6dgwGWSY-zC3qU
+    scenes-other-access-control-property-rules--narrow--light:
+        hash: v1.k794b7964.08f5461bdd27081088ced5cfc9b86a4bd8e8d3ec6869943336a4e52030c65d65.1vuTGVYghlXVGQ4xbJV9UJDAKFUXMhAWNfnokseJ_ic
+    scenes-other-access-control-property-rules--saving-ai-property-rule--dark:
+        hash: v1.k794b7964.610e843169d2964454392cc46da86f96b5ca1fd91f92dfab075efaf1c43661b7.S1lB60UBoWVJT8NpkCjs1CpoTjWTGzor-F-3nR11YRM
+    scenes-other-access-control-property-rules--saving-ai-property-rule--light:
+        hash: v1.k794b7964.f744b83a3b4cd755d46c352fdabb216ab0ab61227f5a27961d6ea7501a3ae57c.YZapjuaJVZzE1iuZjp9BdXY8XmjTxoMaVP8ANezY4Fg
     scenes-other-account-connected--github-integration-connected--dark:
         hash: v1.k794b7964.fcae9b65af8160ba40bf82664dd9b5a6b9f5a1ddbdedee05bf15ec453eb7aa64.3616s9KNJancKVe-j4dQsJdo3W1CVcwWxRMA24QgU6Q
     scenes-other-account-connected--github-integration-connected--light:
