@@ -317,14 +317,14 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 user=self.user,
             )
-        self.assertEqual(response.results, [(0.9, 0.9)])
-        self.assertCountEqual(
-            [
-                (call.kwargs["json"]["model"], call.kwargs["headers"]["X-PostHog-Product"])
-                for call in post.call_args_list
-            ],
-            [("posthog/hogference/jeeves-0.1", "hogql_decide"), ("posthog/hogference/jevk5-fp8-0.2", "hogql_decide")],
-        )
+        assert response.results == [(0.9, 0.9)]
+        calls = [
+            (call.kwargs["json"]["model"], call.kwargs["headers"]["X-PostHog-Product"]) for call in post.call_args_list
+        ]
+        assert sorted(calls) == [
+            ("posthog/hogference/jeeves-0.1", "hogql_decide"),
+            ("posthog/hogference/jevk5-fp8-0.2", "hogql_decide"),
+        ]
 
     @parameterized.expand(
         [
