@@ -11,6 +11,8 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
+import { TodayPane } from './TodayPane'
+import { TodayPaneGroup } from './TodayPaneGroup'
 import { TodayPaneRow } from './TodayPaneRow'
 
 /** The Library sub-nav: every saved object type, each opening a filtered list in the main area. */
@@ -20,9 +22,8 @@ export function TodayLibrarySidebar(): JSX.Element {
     const path = removeProjectIdIfPresent(location.pathname)
 
     return (
-        <div className="TodayPane">
-            <div className="TodayPane__scroll">
-                <div className="TodayPane__heading Today__label">Library</div>
+        <TodayPane label="Library">
+            <TodayPaneGroup label="Library">
                 <TodayPaneRow
                     label="All objects"
                     icon={<IconFolder />}
@@ -41,7 +42,7 @@ export function TodayLibrarySidebar(): JSX.Element {
                         dataAttr="today-library-type"
                     />
                 ))}
-            </div>
-        </div>
+            </TodayPaneGroup>
+        </TodayPane>
     )
 }

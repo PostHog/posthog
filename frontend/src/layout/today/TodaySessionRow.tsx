@@ -1,13 +1,15 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { Dot } from '@posthog/quill'
+
 import { urls } from 'scenes/urls'
 
 import { TodayPaneRow } from './TodayPaneRow'
 import { TodaySessionMenu } from './TodaySessionMenu'
 import { todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionRenameInput } from './TodaySessionRenameInput'
-import { TodayWorkItem, shortTimeAgo } from './todayWorkItems'
+import { TodayWorkItem, shortTimeAgo, statusDotVariant } from './todayWorkItems'
 
 interface TodaySessionRowProps {
     item: TodayWorkItem
@@ -25,7 +27,7 @@ export function TodaySessionRow({ item, pinned, dataAttr }: TodaySessionRowProps
     return (
         <TodayPaneRow
             label={item.title || 'Untitled session'}
-            icon={<span className="TodayPane__dot" data-kind={item.kind} data-status={item.status ?? undefined} />}
+            icon={<Dot variant={statusDotVariant(item.status)} />}
             meta={shortTimeAgo(item.timestamp)}
             to={urls.aiTask(item.id)}
             active={location.pathname.endsWith('/ai') && searchParams.task === item.id}

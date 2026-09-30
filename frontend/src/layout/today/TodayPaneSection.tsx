@@ -1,8 +1,6 @@
 import { ReactNode } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-
-import { cn } from 'lib/utils/css-classes'
+import { Collapsible, CollapsibleContent, CollapsibleHeader, CollapsibleTrigger, Separator, Text } from '@posthog/quill'
 
 interface TodayPaneSectionProps {
     label: string
@@ -25,24 +23,23 @@ export function TodayPaneSection({
     dataAttr,
     children,
 }: TodayPaneSectionProps): JSX.Element {
-    const Caret = open ? IconChevronDown : IconChevronRight
     return (
-        <section aria-label={label} className={cn('TodayPaneSection', divider && 'TodayPaneSection--divider')}>
-            <div className="TodayPaneSection__header">
-                <button
-                    type="button"
-                    className="TodayPaneSection__toggle Today__label"
-                    aria-expanded={open}
-                    data-attr={dataAttr}
-                    onClick={onToggle}
-                >
-                    <span>{label}</span>
-                    <Caret className="TodayPaneSection__caret" />
-                    {!open && count > 0 && <span className="TodayPaneSection__count">{count}</span>}
-                </button>
-                {open && actions && <div className="TodayPaneSection__actions">{actions}</div>}
-            </div>
-            {open && <div className="TodayPaneSection__body">{children}</div>}
+        <section aria-label={label} className="flex flex-col gap-1">
+            {divider && <Separator />}
+            <Collapsible variant="folder" open={open} onOpenChange={onToggle}>
+                <CollapsibleHeader>
+                    <CollapsibleTrigger data-attr={dataAttr}>
+                        {label}
+                        {!open && count > 0 && (
+                            <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
+                                {count}
+                            </Text>
+                        )}
+                    </CollapsibleTrigger>
+                    {open && actions && <div className="ms-auto flex shrink-0 items-center">{actions}</div>}
+                </CollapsibleHeader>
+                <CollapsibleContent className="flex flex-col gap-px">{children}</CollapsibleContent>
+            </Collapsible>
         </section>
     )
 }

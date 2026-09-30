@@ -1,10 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { Fragment } from 'react'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
-
-import { cn } from 'lib/utils/css-classes'
-
+import { TodayPaneGroup } from '~/layout/today/TodayPaneGroup'
+import { TodayPaneState } from '~/layout/today/TodayPaneState'
 import { TodaySessionRow } from '~/layout/today/TodaySessionRow'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 
@@ -17,37 +14,25 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
 
     if (sessionsLoading && !feedGroups.length) {
-        return (
-            <div className="TodayPane__state">
-                <Spinner />
-            </div>
-        )
+        return <TodayPaneState loading />
     }
     if (sessionsUnavailable && !feedGroups.length) {
         return (
-            <div className="TodayPane__state">
-                <span>This space’s sessions didn’t load.</span>
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    onClick={() => loadSessions()}
-                    data-attr="today-space-feed-retry"
-                >
-                    Try again
-                </LemonButton>
-            </div>
+            <TodayPaneState
+                message="This space’s sessions didn’t load."
+                onRetry={() => loadSessions()}
+                retrying={sessionsLoading}
+                retryDataAttr="today-space-feed-retry"
+            />
         )
     }
     if (!feedGroups.length) {
-        return <div className="TodayPane__state">No sessions in this space yet.</div>
+        return <TodayPaneState message="No sessions in this space yet." />
     }
     return (
-        <div className="TodaySpaceFeed">
-            {feedGroups.map((group, index) => (
-                <Fragment key={group.key}>
-                    <div className={cn('TodayPane__group', index === 0 && 'TodayPane__group--first')}>
-                        {group.label}
-                    </div>
+        <div className="flex max-w-2xl flex-col gap-3">
+            {feedGroups.map((group) => (
+                <TodayPaneGroup key={group.key} label={group.label}>
                     {group.items.map((item) => (
                         <TodaySessionRow
                             key={item.id}
@@ -56,7 +41,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                             dataAttr="today-space-feed-session"
                         />
                     ))}
-                </Fragment>
+                </TodayPaneGroup>
             ))}
         </div>
     )

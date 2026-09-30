@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Button, Heading, Skeleton, Text } from '@posthog/quill'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { SignalCard } from 'products/signals/frontend/inbox/SignalCard'
@@ -18,36 +18,53 @@ export function TodayReportEvidence({ reportId }: { reportId: string }): JSX.Ele
     const inboxUrl = urls.inboxReport('reports', reportId)
 
     return (
-        <section className="TodayEvidence" aria-label="Evidence">
-            <div className="Today__label">
+        <section className="flex flex-col gap-3" aria-label="Evidence">
+            <Heading size="sm" render={<h2 />}>
                 {reportSignals === null
                     ? 'Evidence'
                     : `Evidence · ${signals.length} ${signals.length === 1 ? 'signal' : 'signals'}`}
-            </div>
+            </Heading>
             {reportSignals === null && reportSignalsLoading ? (
                 <div className="flex flex-col gap-3">
-                    <LemonSkeleton className="h-20" />
-                    <LemonSkeleton className="h-20" />
+                    <Skeleton className="h-20" />
+                    <Skeleton className="h-20" />
                 </div>
             ) : reportSignals === null ? (
-                <p className="TodayEvidence__note">
-                    <span>Couldn’t load the evidence. </span>
-                    <Link to={inboxUrl} data-attr="today-evidence-inbox">
+                <div className="flex flex-wrap items-center gap-2">
+                    <Text size="sm" variant="muted">
+                        Couldn’t load the evidence.
+                    </Text>
+                    <Button
+                        variant="link"
+                        size="sm"
+                        render={<LinkPrimitive to={inboxUrl} />}
+                        data-attr="today-evidence-inbox"
+                    >
                         Open the report in the Inbox
-                    </Link>
-                    <span> to see it there.</span>
-                </p>
+                    </Button>
+                </div>
             ) : signals.length === 0 ? (
-                <p className="TodayEvidence__note">No signals are attached to this report yet.</p>
+                <Text size="sm" variant="muted">
+                    No signals are attached to this report yet.
+                </Text>
             ) : (
                 <div className="flex flex-col gap-3">
-                    {signals.slice(0, SHOWN_SIGNAL_COUNT).map((signal) => (
-                        <SignalCard key={signal.signal_id} signal={signal} />
-                    ))}
+                    {/* Signal cards are shared with the Inbox, so they stay on LemonUI. */}
+                    <div data-not-quill className="flex flex-col gap-3">
+                        {signals.slice(0, SHOWN_SIGNAL_COUNT).map((signal) => (
+                            <SignalCard key={signal.signal_id} signal={signal} />
+                        ))}
+                    </div>
                     {signals.length > SHOWN_SIGNAL_COUNT && !isSampleReportId(reportId) && (
-                        <Link to={inboxUrl} className="text-sm" data-attr="today-evidence-inbox">
+                        <Button
+                            variant="link"
+                            size="sm"
+                            className="self-start"
+                            render={<LinkPrimitive to={inboxUrl} />}
+                            data-attr="today-evidence-inbox"
+                        >
                             {`See all ${signals.length} signals in the Inbox`}
-                        </Link>
+                        </Button>
                     )}
                 </div>
             )}

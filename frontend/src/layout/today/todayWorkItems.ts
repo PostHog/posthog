@@ -21,6 +21,23 @@ export interface TodayWorkGroup {
     items: TodayWorkItem[]
 }
 
+export type TodayStatusDotVariant = 'default' | 'warning' | 'success' | 'destructive'
+
+/** The status dot a session row shows for its latest run. */
+export function statusDotVariant(status: string | null): TodayStatusDotVariant {
+    switch (status) {
+        case 'queued':
+        case 'in_progress':
+            return 'warning'
+        case 'completed':
+            return 'success'
+        case 'failed':
+            return 'destructive'
+        default:
+            return 'default'
+    }
+}
+
 export function sessionItem(task: TaskListItemApi): TodayWorkItem {
     return {
         kind: 'session',

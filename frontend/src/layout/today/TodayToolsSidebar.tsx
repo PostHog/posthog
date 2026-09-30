@@ -1,12 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { ChangeEvent } from 'react'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { Input } from '@posthog/quill'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
+import { TodayPane } from './TodayPane'
+import { TodayPaneGroup } from './TodayPaneGroup'
 import { TodayPaneRow } from './TodayPaneRow'
+import { TodayPaneState } from './TodayPaneState'
 import { todayToolsLogic, toolLabel } from './todayToolsLogic'
 
 export function TodayToolsSidebar(): JSX.Element {
@@ -15,45 +19,43 @@ export function TodayToolsSidebar(): JSX.Element {
     const { location } = useValues(router)
 
     return (
-        <div className="TodayPane">
-            <div className="TodayPane__filters">
-                <LemonInput
+        <TodayPane
+            label="Tools"
+            header={
+                <Input
                     type="search"
-                    size="small"
                     placeholder="Search tools"
+                    aria-label="Search tools"
                     value={search}
-                    onChange={setSearch}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
                     data-attr="today-tools-search"
-                    fullWidth
                 />
-            </div>
-            <div className="TodayPane__scroll">
-                {!toolGroups.length ? (
-                    <div className="TodayPane__state">No tools match that search.</div>
-                ) : (
-                    toolGroups.map((group) => (
-                        <div key={group.category}>
-                            <div className="TodayPane__heading Today__label">{group.category}</div>
-                            {group.tools.map((tool) => {
-                                const href = tool.href ?? ''
-                                return (
-                                    <TodayPaneRow
-                                        key={href}
-                                        label={toolLabel(tool)}
-                                        icon={iconForType(
-                                            (tool.iconType ?? tool.type) as FileSystemIconType,
-                                            tool.iconColor
-                                        )}
-                                        to={href}
-                                        active={!!href && location.pathname.endsWith(href.split('?')[0])}
-                                        dataAttr="today-tool"
-                                    />
-                                )
-                            })}
-                        </div>
-                    ))
-                )}
-            </div>
-        </div>
+            }
+        >
+            {!toolGroups.length ? (
+                <TodayPaneState message="No tools match that search." />
+            ) : (
+                toolGroups.map((group) => (
+                    <TodayPaneGroup key={group.category} label={group.category}>
+                        {group.tools.map((tool) => {
+                            const href = tool.href ?? ''
+                            return (
+                                <TodayPaneRow
+                                    key={href}
+                                    label={toolLabel(tool)}
+                                    icon={iconForType(
+                                        (tool.iconType ?? tool.type) as FileSystemIconType,
+                                        tool.iconColor
+                                    )}
+                                    to={href}
+                                    active={!!href && location.pathname.endsWith(href.split('?')[0])}
+                                    dataAttr="today-tool"
+                                />
+                            )
+                        })}
+                    </TodayPaneGroup>
+                ))
+            )}
+        </TodayPane>
     )
 }

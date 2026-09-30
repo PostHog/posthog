@@ -1,15 +1,13 @@
-import './TodayShell.scss'
-
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import 'scenes/project-homepage/today/Today.scss'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
 import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
 
 import { TodayLibrarySidebar } from './TodayLibrarySidebar'
+import { TodayQuillRoot } from './TodayQuillRoot'
 import { TodayRail } from './TodayRail'
 import { TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
@@ -42,17 +40,17 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     }, [desiredSize, setSidebarWidth])
 
     return (
-        <div className={cn('Today TodayShell', className)}>
+        <TodayQuillRoot className={cn('flex h-full min-h-0 overflow-hidden', className)}>
             <TodayRail />
             {sidebarOpen && (
                 <aside
                     ref={sidebarRef}
-                    className="TodayShell__sidebar relative"
+                    className="relative flex h-full min-w-0 flex-col"
                     aria-label={PANE_LABELS[activePane]}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ width: sidebarWidth }}
                 >
-                    <div className="TodayShell__pane">
+                    <div className="min-h-0 flex-1">
                         {activePane === 'home' ? (
                             <TodayHomeSidebar />
                         ) : activePane === 'spaces' ? (
@@ -67,6 +65,6 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                     <Resizer {...resizerLogicProps} className="z-2" offset={0} />
                 </aside>
             )}
-        </div>
+        </TodayQuillRoot>
     )
 }

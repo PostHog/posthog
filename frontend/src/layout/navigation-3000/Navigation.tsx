@@ -149,7 +149,6 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': mobileLayout,
-                    TodayAppLayout: todayRail,
                 })}
                 style={
                     {

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { Button, Item, ItemActions, ItemContent, ItemDescription } from '@posthog/quill'
 
 import { todayLogic } from './todayLogic'
 
@@ -12,16 +12,22 @@ export function TodaySampleBanner(): JSX.Element | null {
         return null
     }
     return (
-        <LemonBanner
-            type="info"
-            className="mb-8"
-            action={{
-                children: 'Show my reports',
-                onClick: () => setUseSampleData(false),
-                'data-attr': 'today-sample-data-off',
-            }}
-        >
-            You’re looking at sample reports, not your project’s. They stay on until you turn them off.
-        </LemonBanner>
+        <Item variant="outline" tone="info" size="sm" role="status">
+            <ItemContent>
+                <ItemDescription>
+                    You’re looking at sample reports, not your project’s. They stay on until you turn them off.
+                </ItemDescription>
+            </ItemContent>
+            <ItemActions>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setUseSampleData(false)}
+                    data-attr="today-sample-data-off"
+                >
+                    Show my reports
+                </Button>
+            </ItemActions>
+        </Item>
     )
 }

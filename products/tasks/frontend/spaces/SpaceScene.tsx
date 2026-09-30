@@ -1,13 +1,12 @@
 import { useValues } from 'kea'
 
-import { LemonTabs } from '@posthog/lemon-ui'
-
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayQuillRoot } from '~/layout/today/TodayQuillRoot'
 import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
 import { SpaceFeed } from './SpaceFeed'
@@ -33,7 +32,9 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                 isLoading={spaceLoading && !space}
                 resourceType={{ type: 'task' }}
             />
-            <LemonTabs activeKey="feed" tabs={[{ key: 'feed', label: 'Feed', content: <SpaceFeed id={id} /> }]} />
+            <TodayQuillRoot>
+                <SpaceFeed id={id} />
+            </TodayQuillRoot>
         </SceneContent>
     )
 }

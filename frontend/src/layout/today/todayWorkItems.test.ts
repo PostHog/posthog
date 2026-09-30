@@ -4,7 +4,7 @@ import { ConversationDetail } from '~/types'
 
 import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { buildRecentItems, groupByDay } from './todayWorkItems'
+import { buildRecentItems, groupByDay, statusDotVariant } from './todayWorkItems'
 
 const session = (id: string, lastActivityAt: string, archived = false): TaskListItemApi =>
     ({ id, title: `Session ${id}`, last_activity_at: lastActivityAt, archived }) as TaskListItemApi
@@ -40,5 +40,16 @@ describe('todayWorkItems', () => {
         const groups = groupByDay(buildRecentItems([session('s', timestamp)], [], [], 10), now)
 
         expect(groups.map((group) => group.label)).toEqual([label])
+    })
+
+    it.each([
+        ['queued', 'warning'],
+        ['in_progress', 'warning'],
+        ['completed', 'success'],
+        ['failed', 'destructive'],
+        ['cancelled', 'default'],
+        [null, 'default'],
+    ])('shows a %s run as a %s dot', (status, variant) => {
+        expect(statusDotVariant(status)).toEqual(variant)
     })
 })

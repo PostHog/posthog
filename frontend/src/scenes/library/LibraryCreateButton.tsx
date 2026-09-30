@@ -1,7 +1,18 @@
 import { useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import {
+    Button,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { libraryLogic } from './libraryLogic'
 
@@ -19,29 +30,56 @@ export function LibraryCreateButton({ objectType, label }: LibraryCreateButtonPr
     if (!items.length) {
         return null
     }
-    const buttonProps = label
-        ? { type: 'primary' as const, size: 'small' as const, icon: <IconPlus />, children: label }
-        : { size: 'xsmall' as const, icon: <IconPlus />, tooltip: `New ${typeLabel}` }
+    const accessibleLabel = `New ${typeLabel}`
+    const single = items.length === 1
+    const button = label ? (
+        <Button
+            variant="primary"
+            size="sm"
+            render={single ? <LinkPrimitive to={items[0].href} /> : undefined}
+            data-attr="library-new-object"
+        >
+            <IconPlus />
+            <span>{label}</span>
+        </Button>
+    ) : (
+        <Button
+            size="icon-xs"
+            aria-label={accessibleLabel}
+            render={single ? <LinkPrimitive to={items[0].href} /> : undefined}
+            data-attr={single ? 'library-new-object' : undefined}
+        >
+            <IconPlus />
+        </Button>
+    )
 
-    if (items.length === 1) {
-        return (
-            <LemonButton
-                {...buttonProps}
-                to={items[0].href}
-                aria-label={`New ${typeLabel}`}
-                data-attr="library-new-object"
-            />
-        )
+    const trigger = single ? button : <DropdownMenuTrigger render={button} />
+    const control = label ? (
+        trigger
+    ) : (
+        <Tooltip>
+            <TooltipTrigger delay={0} render={trigger} />
+            <TooltipContent>{accessibleLabel}</TooltipContent>
+        </Tooltip>
+    )
+
+    if (single) {
+        return control
     }
     return (
-        <LemonMenu
-            items={items.map((item) => ({
-                label: item.path.split('/').pop() ?? item.path,
-                to: item.href,
-                'data-attr': 'library-new-object',
-            }))}
-        >
-            <LemonButton {...buttonProps} aria-label={`New ${typeLabel}`} />
-        </LemonMenu>
+        <DropdownMenu>
+            {control}
+            <DropdownMenuContent align="end">
+                {items.map((item) => (
+                    <DropdownMenuItem
+                        key={item.href}
+                        render={<LinkPrimitive to={item.href} />}
+                        data-attr="library-new-object"
+                    >
+                        {item.path.split('/').pop() ?? item.path}
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }

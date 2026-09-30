@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { Button, Heading, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { Composer } from 'products/posthog_ai/frontend/api/primitives'
 import {
@@ -63,48 +63,62 @@ export function TodayReportPrompts({ report, reportUrl }: { report: SignalReport
     }
 
     return (
-        <section className="TodayPrompts" aria-label="Ask about this report">
-            <div className="Today__label">Ask about this report</div>
+        <section className="flex flex-col gap-3" aria-label="Ask about this report">
+            <Heading size="sm" render={<h2 />}>
+                Ask about this report
+            </Heading>
             <div className="flex flex-wrap gap-2">
-                {prompts.map((prompt) => (
-                    <LemonButton
-                        key={prompt}
-                        type="secondary"
-                        size="small"
-                        icon={<IconSparkles />}
-                        onClick={() => pickPrompt(prompt)}
-                        disabledReason={loading ? 'A session is starting.' : undefined}
-                        data-attr="today-report-prompt"
-                    >
-                        {prompt}
-                    </LemonButton>
-                ))}
+                {prompts.map((prompt) => {
+                    const button = (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={loading}
+                            onClick={() => pickPrompt(prompt)}
+                            data-attr="today-report-prompt"
+                        >
+                            <IconSparkles />
+                            {prompt}
+                        </Button>
+                    )
+                    return loading ? (
+                        <Tooltip key={prompt}>
+                            <TooltipTrigger render={button} />
+                            <TooltipContent>A session is starting.</TooltipContent>
+                        </Tooltip>
+                    ) : (
+                        <Fragment key={prompt}>{button}</Fragment>
+                    )
+                })}
             </div>
-            <Composer.Root
-                value={draft}
-                onChange={(value) => {
-                    setDraft(value)
-                    if (!value) {
-                        setPickedPrompt(null)
-                    }
-                }}
-                onSubmit={submit}
-                loading={loading}
-                disabled={loading}
-                disabledReason={disabledReason}
-                textAreaRef={textAreaRef}
-            >
-                <Composer.Frame>
-                    <Composer.Field>
-                        <Composer.Placeholder>Ask a question, or pick a prompt above</Composer.Placeholder>
-                        <Composer.Textarea data-attr="today-report-prompt-input" />
-                    </Composer.Field>
-                </Composer.Frame>
-                <Composer.Submit data-attr="today-report-prompt-submit" />
-            </Composer.Root>
-            <p className="TodayPrompts__hint">
+            {/* The composer is shared with PostHog AI, so it stays on LemonUI. */}
+            <div data-not-quill>
+                <Composer.Root
+                    value={draft}
+                    onChange={(value) => {
+                        setDraft(value)
+                        if (!value) {
+                            setPickedPrompt(null)
+                        }
+                    }}
+                    onSubmit={submit}
+                    loading={loading}
+                    disabled={loading}
+                    disabledReason={disabledReason}
+                    textAreaRef={textAreaRef}
+                >
+                    <Composer.Frame>
+                        <Composer.Field>
+                            <Composer.Placeholder>Ask a question, or pick a prompt above</Composer.Placeholder>
+                            <Composer.Textarea data-attr="today-report-prompt-input" />
+                        </Composer.Field>
+                    </Composer.Frame>
+                    <Composer.Submit data-attr="today-report-prompt-submit" />
+                </Composer.Root>
+            </div>
+            <Text size="xs" variant="muted">
                 Starts a PostHog AI session with this report attached. It opens in the side panel.
-            </p>
+            </Text>
         </section>
     )
 }

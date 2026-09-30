@@ -1,5 +1,6 @@
-import { Link } from 'lib/lemon-ui/Link'
-import { cn } from 'lib/utils/css-classes'
+import { NavItem, NavItemAction, NavItemButton, NavItemLabel, NavItemMeta } from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 interface TodayPaneRowProps {
     label: string
@@ -8,7 +9,6 @@ interface TodayPaneRowProps {
     to?: string
     active?: boolean
     onClick?: () => void
-    trailing?: JSX.Element | null
     /** A control that sits on the row's right edge and shows on hover, outside the row's own link or button. */
     action?: JSX.Element | null
     dataAttr?: string
@@ -22,39 +22,22 @@ export function TodayPaneRow({
     to,
     active = false,
     onClick,
-    trailing,
     action,
     dataAttr,
 }: TodayPaneRowProps): JSX.Element {
-    const content = (
-        <>
-            {icon && (
-                <span className="TodayPaneRow__icon" aria-hidden>
-                    {icon}
-                </span>
-            )}
-            <span className="TodayPaneRow__label">{label}</span>
-            {meta && <span className="TodayPaneRow__meta">{meta}</span>}
-            {trailing}
-        </>
-    )
-    const className = cn('TodayPaneRow', action && 'TodayPaneRow--withAction')
-    const row = to ? (
-        <Link to={to} className={className} data-active={active} data-attr={dataAttr} subtle onClick={onClick}>
-            {content}
-        </Link>
-    ) : (
-        <button type="button" className={className} data-active={active} data-attr={dataAttr} onClick={onClick}>
-            {content}
-        </button>
-    )
-    if (!action) {
-        return row
-    }
     return (
-        <div className="TodayPaneRow__wrap">
-            {row}
-            <span className="TodayPaneRow__action">{action}</span>
-        </div>
+        <NavItem>
+            <NavItemButton
+                current={active}
+                render={to ? <LinkPrimitive to={to} /> : undefined}
+                data-attr={dataAttr}
+                onClick={onClick}
+            >
+                {icon}
+                <NavItemLabel>{label}</NavItemLabel>
+                {meta && <NavItemMeta>{meta}</NavItemMeta>}
+            </NavItemButton>
+            {action && <NavItemAction>{action}</NavItemAction>}
+        </NavItem>
     )
 }

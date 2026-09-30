@@ -1,15 +1,26 @@
 import { useActions, useValues } from 'kea'
 
 import { IconHome, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import {
+    Button,
+    NavItem,
+    NavItemButton,
+    NavItemContent,
+    NavItemDescription,
+    NavItemLabel,
+    Skeleton,
+    cn,
+} from '@posthog/quill'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
+import { TodayPane } from '~/layout/today/TodayPane'
+import { TodayPaneGroup } from '~/layout/today/TodayPaneGroup'
 
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
-import { TodayNavItem } from './TodayNavItem'
-import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignalReports'
+import { reportIcon, reportMeta, reportTitle } from './todaySignalReports'
 
 export function TodayHomeSidebar(): JSX.Element {
     const { reportId, reports, topReports, reportsFailed, hoveredReportId, reportSummary, moreReportCount } =
@@ -17,57 +28,79 @@ export function TodayHomeSidebar(): JSX.Element {
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
 
     return (
-        <div className="TodaySidebar">
-            <LemonButton type="primary" fullWidth center icon={<IconPlus />} to={urls.ai()} data-attr="today-new-chat">
-                New chat
-            </LemonButton>
-            <div className="TodaySidebar__scroll">
-                <div className="TodaySidebar__sectionLabel Today__label">Today</div>
-                <div className="TodaySidebar__list">
-                    <TodayNavItem
-                        title="Home"
-                        meta={
-                            topReports === null
-                                ? reportsFailed
-                                    ? 'Reports didn’t load'
-                                    : 'Reading your project…'
-                                : reportSummary
-                        }
-                        color="var(--color-text-secondary)"
-                        icon={<IconHome />}
-                        to={urls.projectHomepage()}
+        <TodayPane
+            label="Today"
+            header={
+                <Button
+                    variant="primary"
+                    className="w-full"
+                    render={<LinkPrimitive to={urls.ai()} />}
+                    data-attr="today-new-chat"
+                >
+                    <IconPlus />
+                    New chat
+                </Button>
+            }
+        >
+            <TodayPaneGroup label="Today">
+                <NavItem>
+                    <NavItemButton
                         current={reportId === null}
-                        dataAttr="today-nav-home"
-                    />
-                    {topReports === null && !reportsFailed ? (
-                        <>
-                            <LemonSkeleton className="h-12" />
-                            <LemonSkeleton className="h-12" />
-                        </>
-                    ) : (
-                        reports.map((report) => (
-                            <TodayNavItem
-                                key={report.id}
-                                title={reportTitle(report)}
-                                meta={reportMeta(report)}
-                                color={reportSource(report).color}
-                                icon={<TodayIcon icon={reportIcon(report)} />}
-                                to={urls.todayReport(report.id)}
-                                active={hoveredReportId === report.id}
+                        render={<LinkPrimitive to={urls.projectHomepage()} />}
+                        data-attr="today-nav-home"
+                    >
+                        <IconHome />
+                        <NavItemContent>
+                            <NavItemLabel>Home</NavItemLabel>
+                            <NavItemDescription>
+                                {topReports === null
+                                    ? reportsFailed
+                                        ? 'Reports didn’t load'
+                                        : 'Reading your project…'
+                                    : reportSummary}
+                            </NavItemDescription>
+                        </NavItemContent>
+                    </NavItemButton>
+                </NavItem>
+                {topReports === null && !reportsFailed ? (
+                    <>
+                        <Skeleton className="h-10" />
+                        <Skeleton className="h-10" />
+                    </>
+                ) : (
+                    reports.map((report) => (
+                        <NavItem key={report.id}>
+                            <NavItemButton
                                 current={reportId === report.id}
-                                dataAttr="today-nav-report"
+                                // The briefing's hovered report link lights up its row here too.
+                                className={cn(hoveredReportId === report.id && 'bg-fill-hover')}
+                                render={<LinkPrimitive to={urls.todayReport(report.id)} />}
+                                data-attr="today-nav-report"
                                 onClick={() => reportOpened(report, 'sidebar')}
-                                onHoverChange={(hovered) => setHoveredReportId(hovered ? report.id : null)}
-                            />
-                        ))
-                    )}
-                </div>
-                {moreReportCount > 0 && (
-                    <Link to={urls.inbox()} className="TodaySidebar__more" data-attr="today-nav-inbox">
-                        {`${moreReportCount} more in the Inbox`}
-                    </Link>
+                                onMouseEnter={() => setHoveredReportId(report.id)}
+                                onMouseLeave={() => setHoveredReportId(null)}
+                            >
+                                <TodayIcon icon={reportIcon(report)} />
+                                <NavItemContent>
+                                    <NavItemLabel>{reportTitle(report)}</NavItemLabel>
+                                    <NavItemDescription>{reportMeta(report)}</NavItemDescription>
+                                </NavItemContent>
+                            </NavItemButton>
+                        </NavItem>
+                    ))
                 )}
-            </div>
-        </div>
+            </TodayPaneGroup>
+            {moreReportCount > 0 && (
+                <Button
+                    variant="link-muted"
+                    size="sm"
+                    className="self-start"
+                    render={<LinkPrimitive to={urls.inbox()} />}
+                    data-attr="today-nav-inbox"
+                >
+                    {`${moreReportCount} more in the Inbox`}
+                </Button>
+            )}
+        </TodayPane>
     )
 }
