@@ -41,6 +41,7 @@ class GitGuardianEndpointConfig:
     # parent's `id` into the `{parent_id}` placeholder. The probe for scope checks hits the parent
     # instead, since the child path can't be requested without a real id.
     parent_endpoint: Optional[str] = None
+    statuses: tuple[str, ...] = ()
 
 
 _DATE_INCREMENTAL_FIELD: list[IncrementalField] = [
@@ -135,6 +136,7 @@ GITGUARDIAN_ENDPOINTS: dict[str, GitGuardianEndpointConfig] = {
         ordering="triggered_at",
         required_scope="honeytokens:read",
         incremental_fields=[],
+        statuses=("open", "archived", "allowed"),
     ),
     # Incident activity logs: the state-transition and notes history of each secret incident,
     # fanned out per incident. There is no server-side time filter, so full refresh. Off by

@@ -144,6 +144,11 @@ class TestLinkHeaderPagination:
         assert [r["id"] for r in rows] == [1, 2, 3]
         assert fetched == [f"{BASE_URL}/v1/incidents/secrets?per_page=100&ordering=date", next_url]
 
+    def test_honeytoken_events_fetch_every_status(self, monkeypatch: Any) -> None:
+        responses = [_page([]), _page([]), _page([])]
+        _, fetched, _ = _run_get_rows(monkeypatch, "honeytoken_events", responses)
+        assert [_query(url)["status"] for url in fetched] == [["open"], ["archived"], ["allowed"]]
+
     def test_first_sync_sends_ordering_but_no_date_filter(self, monkeypatch: Any) -> None:
         # No watermark => full backfill, but ordering must still be explicit so sort_mode="asc" holds.
         responses = [_page([{"id": 1}])]
@@ -249,7 +254,7 @@ class TestFanOut:
         ]
 
     def test_parent_deleted_mid_sync_is_skipped(self, monkeypatch: Any) -> None:
-        responses = [
+        responses: Sequence[MagicMock | Exception] = [
             _page([{"id": 1}, {"id": 2}]),
             _http_error(404),
             _page([{"id": 20, "team_id": 2}]),
@@ -258,7 +263,7 @@ class TestFanOut:
         assert [r["id"] for r in rows] == [20]
 
     def test_child_denial_is_not_swallowed(self, monkeypatch: Any) -> None:
-        responses = [_page([{"id": 1}]), _http_error(403)]
+        responses: Sequence[MagicMock | Exception] = [_page([{"id": 1}]), _http_error(403)]
         with pytest.raises(requests.HTTPError):
             _run_get_rows(monkeypatch, "team_memberships", responses)
 

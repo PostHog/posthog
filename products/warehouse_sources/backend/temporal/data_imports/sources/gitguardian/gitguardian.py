@@ -291,21 +291,23 @@ def get_rows(
     resume = (
         resumable_source_manager.load_state() if config.resumable and resumable_source_manager.can_resume() else None
     )
-    url = (
-        _ensure_same_origin(resume.url, base_url)
-        if resume and resume.url
-        else _build_url(base_url, config.path, params)
-    )
+    if resume and resume.url:
+        urls = [_ensure_same_origin(resume.url, base_url)]
+    elif config.statuses:
+        urls = [_build_url(base_url, config.path, params | {"status": status}) for status in config.statuses]
+    else:
+        urls = [_build_url(base_url, config.path, params)]
 
-    for page in _iter_pages(session, url, headers, base_url, endpoint, logger):
-        rows = page.rows
-        if rows:
-            if config.excluded_fields:
-                rows = [{k: v for k, v in row.items() if k not in config.excluded_fields} for row in rows]
-            yield rows
-        # Checkpoint the CURRENT page's URL after yielding, so a crash re-fetches this page.
-        if config.resumable:
-            resumable_source_manager.save_state(GitGuardianResumeConfig(url=page.url))
+    for url in urls:
+        for page in _iter_pages(session, url, headers, base_url, endpoint, logger):
+            rows = page.rows
+            if rows:
+                if config.excluded_fields:
+                    rows = [{k: v for k, v in row.items() if k not in config.excluded_fields} for row in rows]
+                yield rows
+            # Checkpoint the CURRENT page's URL after yielding, so a crash re-fetches this page.
+            if config.resumable:
+                resumable_source_manager.save_state(GitGuardianResumeConfig(url=page.url))
 
     # The walk finished cleanly, so drop the checkpoint. Otherwise a retry that re-runs extract
     # after a completed walk would resume from the final page and skip everything before it.
