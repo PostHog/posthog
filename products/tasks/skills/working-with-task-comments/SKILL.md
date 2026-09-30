@@ -29,13 +29,13 @@ Call `posthog:exec` with:
 
 The expected inner tools are:
 
-| Tool                       | Scope                                                                   |
-| -------------------------- | ----------------------------------------------------------------------- |
-| `tasks-artifacts-list`     | Artifacts and canvases of the current task                              |
-| `tasks-comments-list`      | Roots on the current task, its artifacts, and canvas roots it wrote     |
-| `tasks-comments-retrieve`  | One thread from `tasks-comments-list`                                   |
-| `canvas-comments-list`     | Every root on one canvas, whichever task or person wrote it             |
-| `canvas-comments-retrieve` | One thread from `canvas-comments-list`                                  |
+| Tool                       | Scope                                                               |
+| -------------------------- | ------------------------------------------------------------------- |
+| `tasks-artifacts-list`     | Artifacts and canvases of the current task                          |
+| `tasks-comments-list`      | Roots on the current task, its artifacts, and canvas roots it wrote |
+| `tasks-comments-retrieve`  | One thread from `tasks-comments-list`                               |
+| `canvas-comments-list`     | Every root on one canvas, whichever task or person wrote it         |
+| `canvas-comments-retrieve` | One thread from `canvas-comments-list`                              |
 
 The `tasks-*` tools need PostHog Desktop task context. The `canvas-*` tools need only a canvas id.
 A user can leave a canvas comment without a task. The `tasks-*` tools do not return that comment.
