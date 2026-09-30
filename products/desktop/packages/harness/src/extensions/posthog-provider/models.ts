@@ -31,6 +31,12 @@ const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const THINKING_LEVEL_MAP_OVERRIDES: Record<string, ThinkingLevelMap> = {
   "claude-fable-5-1": { off: null, xhigh: "xhigh", max: "max" },
   "claude-opus-5-5": { off: null, xhigh: "xhigh", max: "max" },
+  "gpt-6.1-sol": {
+    off: null,
+    minimal: null,
+    xhigh: "xhigh",
+    max: "max",
+  },
 };
 
 function findBuiltinModel(family: ModelFamily, id: string) {
@@ -186,6 +192,12 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     id: "gpt-6-astra",
     owned_by: "openai",
     context_window: 922000,
+    supports_vision: true,
+  },
+  {
+    id: "gpt-6.1-sol",
+    owned_by: "openai",
+    context_window: 1050000,
     supports_vision: true,
   },
   {

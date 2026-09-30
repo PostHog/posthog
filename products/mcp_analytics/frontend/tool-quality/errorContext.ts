@@ -1,6 +1,8 @@
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { mcpSessionUrl } from '../sessionUrls'
+
 export interface MCPErrorContext {
     toolName: string
     errorType: string
@@ -10,10 +12,6 @@ export interface MCPErrorContext {
     harness?: string
     intent?: string
     sessionId?: string
-}
-
-export function mcpSessionUrl(sessionId: string): string {
-    return `${urls.mcpAnalyticsSessions()}?search=${encodeURIComponent(sessionId)}`
 }
 
 function absoluteUrl(path: string): string {
