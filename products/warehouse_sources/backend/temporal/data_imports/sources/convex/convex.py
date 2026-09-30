@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 logger = logging.getLogger(__name__)
 
 # Data sync and cursor conversion are read-only POSTs, so the GET retry policy is safe for them.
-_CONVEX_RETRY = DEFAULT_RETRY.new(allowed_methods=DEFAULT_RETRY.allowed_methods | {"POST"})
+_CONVEX_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
 _DATA_SYNC_RESUME_NAMESPACE = "data_sync"
 _SNAPSHOT_RESUME_NAMESPACE = "list_snapshot"
 
@@ -272,6 +272,8 @@ def data_sync(
     started_from_cursor = cursor is not None
 
     if resume is not None:
+        if not isinstance(resume.cursor, str):
+            raise ValueError("Convex data sync resume state has an invalid cursor")
         cursor = resume.cursor
         started_from_cursor = resume.started_from_cursor
         logger.info("Resuming an in-run Convex data sync for table '%s'", inputs.schema_name)

@@ -1,5 +1,5 @@
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Iterable, Iterator
+from typing import Any, cast
 
 import pytest
 from unittest.mock import Mock, patch
@@ -448,6 +448,13 @@ def _resource(inputs: SourceInputs, manager: ResumableSourceManager[ConvexResume
     )
 
 
+def _items(resource: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], resource.items())
+
+
+_convex_post_retry = cast(Any, _convex_post).retry
+
+
 def _page(
     cursor: str,
     status: str = "upToDate",
@@ -517,7 +524,7 @@ def test_catches_up_and_stages_the_cursor(
         _page("stale", status="stale", has_more=False),
         _page("end", has_more=final_has_more),
     ]
-    assert list(_resource(inputs, manager).items()) == []
+    assert list(_items(_resource(inputs, manager))) == []
     requests = [call.kwargs["json"] for call in http_boundary.post.call_args_list]
     assert requests[0].get("cursor") == stored
     assert [body["cursor"] for body in requests[1:]] == ["snapshot", "stale"]
@@ -536,7 +543,7 @@ def test_full_refresh_reads_one_list_snapshot(redis_boundary: Mock, http_boundar
         _make_response({"values": [{"_id": "a", "_ts": 1}], "cursor": "c1", "snapshot": 5, "hasMore": True}),
         _make_response({"values": [{"_id": "b", "_ts": 2}], "cursor": "c2", "snapshot": 5, "hasMore": False}),
     ]
-    assert list(_resource(inputs, manager).items()) == [[{"_id": "a", "_ts": 1}], [{"_id": "b", "_ts": 2}]]
+    assert list(_items(_resource(inputs, manager))) == [[{"_id": "a", "_ts": 1}], [{"_id": "b", "_ts": 2}]]
     http_boundary.post.assert_not_called()
     first, second = http_boundary.get.call_args_list
     assert first.args[0] == "https://x.convex.cloud/api/list_snapshot"
@@ -557,7 +564,7 @@ def test_page_keeps_only_the_latest_revision_of_each_document(redis_boundary: Mo
             {"component": "", "table": "users", "ts": 102, "deleted": True, "value": {"_id": "a"}},
         ],
     )
-    assert list(_resource(inputs, manager).items()) == [
+    assert list(_items(_resource(inputs, manager))) == [
         [{"_id": "a", "_ts": 102, "_deleted": True}, {"_id": "b", "_ts": 101, "_deleted": False}]
     ]
 
@@ -571,8 +578,8 @@ def test_legacy_watermark_converts_once_and_retries_from_saved_cursor(
         _make_response({"cursor": "converted"}),
         ReadTimeout("interrupted"),
     ]
-    with patch.object(_convex_post.retry, "stop", return_value=True), pytest.raises(ReadTimeout):
-        list(_resource(inputs, manager).items())
+    with patch.object(_convex_post_retry, "stop", return_value=True), pytest.raises(ReadTimeout):
+        list(_items(_resource(inputs, manager)))
     assert http_boundary.post.call_args_list[0].args[0].endswith("/api/data_sync_cursor_from_deltas")
     assert http_boundary.post.call_args_list[0].kwargs["json"] == {
         "cursor": 123,
@@ -580,7 +587,7 @@ def test_legacy_watermark_converts_once_and_retries_from_saved_cursor(
     }
     http_boundary.post.side_effect = None
     http_boundary.post.return_value = _page("end")
-    list(_resource(inputs, ConvexSource().get_resumable_source_manager(inputs)).items())
+    list(_items(_resource(inputs, ConvexSource().get_resumable_source_manager(inputs))))
     assert http_boundary.post.call_args.kwargs["json"]["cursor"] == "converted"
     assert (
         sum(call.args[0].endswith("/api/data_sync_cursor_from_deltas") for call in http_boundary.post.call_args_list)
@@ -604,10 +611,10 @@ def test_refused_legacy_conversion_requests_reset(
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.update_sync_type_config_keys"
         ) as reset,
-        patch.object(_convex_post.retry, "stop", return_value=True),
+        patch.object(_convex_post_retry, "stop", return_value=True),
         pytest.raises(ConvexResyncRequiredError, match="legacy sync position") as error,
     ):
-        list(_resource(inputs, manager).items())
+        list(_items(_resource(inputs, manager)))
     reset.assert_called_once_with("schema-id", 1, updates={"reset_pipeline": True})
     source = ConvexSource()
     assert not error_message_matches(str(error.value), source.get_non_retryable_errors())
@@ -633,11 +640,11 @@ def test_transient_legacy_conversion_failure_retries_without_reset(
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.update_sync_type_config_keys"
         ) as reset,
-        patch.object(_convex_post.retry, "stop", return_value=True),
-        patch.object(_convex_post.retry, "sleep"),
+        patch.object(_convex_post_retry, "stop", return_value=True),
+        patch.object(_convex_post_retry, "sleep"),
         pytest.raises(expected),
     ):
-        list(_resource(inputs, manager).items())
+        list(_items(_resource(inputs, manager)))
     reset.assert_not_called()
 
 
@@ -673,7 +680,7 @@ def test_truncates_and_expiry_reset_only_when_required(
     ) as reset:
         if requires_reset:
             with pytest.raises(ConvexResyncRequiredError) as error:
-                list(_resource(inputs, manager).items())
+                list(_items(_resource(inputs, manager)))
             reset.assert_called_once_with("schema-id", 1, updates={"reset_pipeline": True})
             assert not error_message_matches(str(error.value), ConvexSource().get_non_retryable_errors())
             assert error_message_matches(str(error.value), ConvexSource().get_retryable_errors())
@@ -684,10 +691,10 @@ def test_truncates_and_expiry_reset_only_when_required(
             inputs.reset_pipeline = True
             http_boundary.post.side_effect = None
             http_boundary.post.return_value = _page("rebuilt", truncates=[{"component": "auth", "table": "users"}])
-            list(_resource(inputs, manager).items())
+            list(_items(_resource(inputs, manager)))
             assert "cursor" not in http_boundary.post.call_args.kwargs["json"]
         else:
-            assert list(_resource(inputs, manager).items()) == [[{"_id": "replacement", "_ts": 999, "_deleted": False}]]
+            assert list(_items(_resource(inputs, manager))) == [[{"_id": "replacement", "_ts": 999, "_deleted": False}]]
             reset.assert_not_called()
 
 
@@ -700,7 +707,7 @@ def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     scoped = manager.with_namespace("data_sync")
     http_boundary.post.side_effect = [_page("checkpoint", status="stale", values=rows), RuntimeError("interrupted")]
     with activate_safe_point(manager.commit, covers_framework_checkpoints=False):
-        iterator = iter(_resource(inputs, manager).items())
+        iterator = iter(_items(_resource(inputs, manager)))
         if rows:
             assert next(iterator) == [{"_id": "a", "_ts": 100, "_deleted": False}]
             assert not scoped.can_resume()
@@ -711,7 +718,7 @@ def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     http_boundary.post.return_value = _page("end")
     retry_manager = ConvexSource().get_resumable_source_manager(inputs)
     with activate_safe_point(retry_manager.commit, covers_framework_checkpoints=False):
-        list(_resource(inputs, retry_manager).items())
+        list(_items(_resource(inputs, retry_manager)))
     assert http_boundary.post.call_args.kwargs["json"]["cursor"] == "checkpoint"
     assert scoped.load_state() == ConvexResumeConfig(cursor="end", started_from_cursor=True)
     assert inputs.source_cursor is not None and inputs.source_cursor.staged == ConvexDataSyncCursor(cursor="end")
@@ -726,8 +733,8 @@ def test_data_sync_retries_transient_transport_errors(
 ) -> None:
     inputs = _inputs()
     http_boundary.post.side_effect = [transient_error, _page("end")]
-    with patch.object(_convex_post.retry, "sleep"):
-        list(_resource(inputs, ConvexSource().get_resumable_source_manager(inputs)).items())
+    with patch.object(_convex_post_retry, "sleep"):
+        list(_items(_resource(inputs, ConvexSource().get_resumable_source_manager(inputs))))
     assert http_boundary.post.call_count == 2
 
 
@@ -735,6 +742,6 @@ def test_data_sync_plan_error_maps_to_professional_plan(redis_boundary: Mock, ht
     inputs = _inputs()
     http_boundary.post.return_value = _make_response({"code": "StreamingExportNotEnabled"}, status_code=400)
     with pytest.raises(StreamingExportNotEnabledError) as error:
-        list(_resource(inputs, ConvexSource().get_resumable_source_manager(inputs)).items())
+        list(_items(_resource(inputs, ConvexSource().get_resumable_source_manager(inputs))))
     matches = [message for key, message in ConvexSource().get_non_retryable_errors().items() if key in str(error.value)]
     assert matches and matches[0] is not None and "requires the Convex Professional plan" in matches[0]
