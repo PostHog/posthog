@@ -64,8 +64,9 @@ The broader trial launch API is not a workaround for scoring permissions: it can
 
 For private saved cases, use the [saved comparison CLI](ai-offline-evaluation-reporting.md#saved-datasets-through-online-comparisons).
 It restores a same-snapshot dataset once through the shared eval harness, scopes the allowlist to that fresh project,
-and invokes the online comparison service directly. It needs no frontend adaptation. This integration's initial live pilot
-is still pending; retain the full exported logs and check the bounded online judge's limitations before interpreting results.
+and invokes the online comparison service directly. It needs no frontend adaptation. Retain the full exported logs,
+verify that the baseline's task assignment matches the frozen reference, and check the bounded online judge's
+coverage before interpreting results.
 
 ## 3. Make the real execution path ready
 

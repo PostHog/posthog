@@ -248,8 +248,8 @@ Gateway accounting remains enabled.
 `products.signals.evals.saved_comparison` connects saved Parquet cases to the production comparison engine.
 The shared private workflow harness owns local services and cleanup; the online workflows own variant launches,
 repeats, automatic judging, and comparison reports. This does not start the periodic scout fleet coordinator.
-The initial integration still needs a live one-scout, two-variant pilot; passing input validation does not establish
-provider access, tool isolation, successful judging, or cleanup.
+Start with one scout and two variants. Check the saved judgments, complete raw logs, unchanged base state,
+and sandbox cleanup before expanding the batch; input validation alone does not establish these properties.
 
 Write a private plan with the saved skill name. The first variant is the baseline. This example uses invented scout data:
 
@@ -311,6 +311,9 @@ variants, repeats, and later invocations. `--rubric-model` only affects the firs
 frozen criteria and generator reference into the isolated project, then uses the online rubric completeness checks.
 This automatic adoption is limited to `TEST` plus `DEBUG`; the ordinary online editor still requires an explicit save.
 Candidate instruction files do not replace the frozen rubric reference.
+For model or harness comparisons, keep the baseline's task assignment consistent with that reference.
+A different saved case with the same skill name still reuses the session's original requirements.
+Use a separate session when preparing a different benchmark task.
 
 The adapter uses the online judge's model, versioned prompt, bounded evidence extraction, normalization, and scoring.
 Both judge paths import their schema, prompts, validation, and score calculations from `products/signals/backend/rubrics_judging.py`.
