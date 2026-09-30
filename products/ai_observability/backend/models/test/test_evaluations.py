@@ -39,36 +39,23 @@ class TestEvaluationModel(BaseTest):
         self.assertIsNotNone(evaluation.conditions[0]["bytecode"])
         self.assertIsInstance(evaluation.conditions[0]["bytecode"], list)
 
-    def test_sets_bytecode_error_when_compilation_fails(self):
-        """
-        If bytecode compilation fails, the bytecode_error field should be set
-        """
+    def test_status_only_save_succeeds_when_condition_no_longer_compiles(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Test Evaluation",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            enabled=True,
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
         with patch("posthog.cdp.filters.compile_filters_bytecode") as mock_compile:
             mock_compile.return_value = {"bytecode": None, "bytecode_error": "Invalid property filter"}
+            evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR)
 
-            evaluation = Evaluation.objects.create(
-                team=self.team,
-                name="Test Evaluation",
-                evaluation_type="llm_judge",
-                evaluation_config={"prompt": "Test prompt"},
-                output_type="boolean",
-                output_config={},
-                enabled=True,
-                created_by=self.user,
-                conditions=[
-                    {
-                        "id": "cond-1",
-                        "rollout_percentage": 100,
-                        "properties": [{"key": "invalid"}],
-                    }
-                ],
-            )
-
-            evaluation.refresh_from_db()
-
-            self.assertEqual(len(evaluation.conditions), 1)
-            self.assertIn("bytecode_error", evaluation.conditions[0])
-            self.assertEqual(evaluation.conditions[0]["bytecode_error"], "Invalid property filter")
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
 
     def test_handles_empty_properties_list(self):
         """

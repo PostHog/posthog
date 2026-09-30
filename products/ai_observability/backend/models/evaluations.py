@@ -263,13 +263,24 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
                 raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
 
         # Compile bytecode for each condition
+        # The scheduler skips a condition that has no bytecode, so the evaluation never runs. Reject it when
+        # conditions are written. Status-only saves skip this check, so system transitions do not fail.
+        update_fields = kwargs.get("update_fields")
+        writes_conditions = update_fields is None or "conditions" in update_fields
         compiled_conditions = []
-        for condition in self.conditions:
+        for index, condition in enumerate(self.conditions):
             compiled_condition = {**condition}
             filters = {"properties": condition.get("properties", [])}
             compiled = compile_filters_bytecode(filters, self.team)
+            bytecode_error = compiled.get("bytecode_error")
+            if bytecode_error and writes_conditions:
+                raise ValidationError(
+                    {
+                        "conditions": f"Condition set {index + 1} has a filter that evaluations cannot run. {bytecode_error}"
+                    }
+                )
             compiled_condition["bytecode"] = compiled.get("bytecode")
-            compiled_condition["bytecode_error"] = compiled.get("bytecode_error")
+            compiled_condition["bytecode_error"] = bytecode_error
             compiled_conditions.append(compiled_condition)
 
         self.conditions = compiled_conditions

@@ -1439,6 +1439,33 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(len(response.data["conditions"][0]["properties"]), 1)
         self.assertEqual(response.data["conditions"][0]["properties"][0]["key"], "$ai_model_name")
 
+    @parameterized.expand(
+        [
+            ("select_query", "(select 1)"),
+            ("global_the_runtime_does_not_have", "$virt_is_bot"),
+        ]
+    )
+    def test_condition_that_fails_to_compile_is_rejected(self, _name, hogql_key):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Broken filter",
+                "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
+                "evaluation_config": {"prompt": "Evaluate this"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [
+                    {"id": "cond-1", "rollout_percentage": 100, "properties": []},
+                    {"id": "cond-2", "rollout_percentage": 100, "properties": [{"type": "hogql", "key": hogql_key}]},
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("Condition set 2", str(response.data))
+        self.assertFalse(Evaluation.objects.filter(team=self.team, name="Broken filter").exists())
+
     def test_unknown_condition_keys_are_dropped_and_rollout_percentage_defaults_to_100(self):
         # Regression: callers (notably MCP) previously sent `sampling_rate` instead of
         # `rollout_percentage` and the unstructured JSONField silently persisted it. The
