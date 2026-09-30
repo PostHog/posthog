@@ -153,6 +153,7 @@ export function SavedFilters({
                 return (
                     <>
                         <div
+                            data-attr="filters-saved-filter-apply"
                             onClick={() => {
                                 if (!filter) {
                                     return
