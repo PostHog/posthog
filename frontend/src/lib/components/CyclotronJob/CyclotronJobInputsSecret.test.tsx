@@ -31,7 +31,7 @@ describe('CyclotronJobInputs secret input', () => {
             </Provider>
         )
 
-        fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+        fireEvent.click(screen.getByText('Edit'))
         expect(onInputChange).not.toHaveBeenCalled()
 
         fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '8080' } })
