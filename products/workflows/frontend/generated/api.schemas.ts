@@ -2613,6 +2613,16 @@ export type HogFlowsReputationRetrieveParams = {
 
 export type HogFlowsSearchListParams = {
     /**
+     * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
+     */
+    broadcast_eligible?: boolean
+    created_at?: string
+    /**
+     * Filter to workflows created by the user with this uuid.
+     */
+    created_by?: string
+    id?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -2621,9 +2631,44 @@ export type HogFlowsSearchListParams = {
      */
     offset?: number
     /**
+     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
+     */
+    origin_product?: HogFlowsSearchListOriginProduct
+    /**
      * Text to find. Case-insensitive, and a space also matches a dash or an underscore. Matches the workflow name and description, and the step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
      * @minLength 1
      * @maxLength 200
      */
     q: string
+    /**
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived
+     */
+    status?: HogFlowsSearchListStatus
+    /**
+     * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
+     */
+    trigger?: string
+    /**
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
+     */
+    type?: string
+    updated_at?: string
 }
+
+export type HogFlowsSearchListOriginProduct =
+    (typeof HogFlowsSearchListOriginProduct)[keyof typeof HogFlowsSearchListOriginProduct]
+
+export const HogFlowsSearchListOriginProduct = {
+    Broadcasts: 'broadcasts',
+    Loops: 'loops',
+} as const
+
+export type HogFlowsSearchListStatus = (typeof HogFlowsSearchListStatus)[keyof typeof HogFlowsSearchListStatus]
+
+export const HogFlowsSearchListStatus = {
+    Active: 'active',
+    Archived: 'archived',
+    Draft: 'draft',
+} as const

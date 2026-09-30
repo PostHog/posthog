@@ -33,8 +33,9 @@ SEARCH_TEXT_SEPARATOR: Final = "﷐"
 
 EXCERPT_PADDING: Final = 40
 
-# Postgres counts these ASCII characters as `\s`. RE2's `\s` omits the vertical tab, so the class names them.
-_STEP_MATCH_SPACE: Final = r"[\t\n\v\f\r \-_]*"
+# The characters that Postgres counts as `\s` under a glibc UTF-8 locale, so the step matcher finds the text that
+# the row search matched. RE2's `\s` is ASCII only and omits the vertical tab. No-break spaces are not in the set.
+_STEP_MATCH_SPACE: Final = r"[\t\n\v\f\r \x{85}\x{2000}-\x{2006}\x{2008}-\x{200A}\x{2028}\x{2029}\x{205F}\x{3000}\-_]*"
 
 _STYLE_OPEN = re.compile(r"<style", re.IGNORECASE | re.ASCII)
 _STYLE_CLOSE = re.compile(r"</style>", re.IGNORECASE | re.ASCII)
@@ -65,7 +66,7 @@ def search_pattern(term: str) -> str:
     return r"[\s\-_]*".join(re.escape(part) for part in re.split(r" +", term))
 
 
-def _step_regex(term: str) -> re2._Regexp:
+def step_regex(term: str) -> re2._Regexp:
     # The same rule as search_pattern, compiled with RE2. The term comes from the request and the text can be a whole
     # email, and RE2 matches in linear time where Python's backtracking `re` can take exponential time.
     return re2.compile("(?i)" + _STEP_MATCH_SPACE.join(re2.escape(part) for part in re.split(r" +", term)))
@@ -229,13 +230,12 @@ def _excerpt(text: str, regex: re2._Regexp) -> str:
     return f"{prefix}{collapsed[start:end]}{suffix}"
 
 
-def find_step_matches(actions: object, draft: object, term: str) -> list[StepSearchMatch]:
-    """The steps whose text matches the search term, one entry per step with the first field that matched.
+def find_step_matches(actions: object, draft: object, regex: re2._Regexp) -> list[StepSearchMatch]:
+    """The steps whose text matches `regex` from `step_regex`, one entry per step with the first field that matched.
 
     A staged step is listed only when its live version did not match, so each step appears once, with the text a
     person most likely looks at.
     """
-    regex = _step_regex(term)
     matches: dict[str, StepSearchMatch] = {}
     for step in iter_step_search_texts(actions, draft):
         if step.action_id in matches or regex.search(step.text) is None:

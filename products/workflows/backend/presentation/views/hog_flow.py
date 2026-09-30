@@ -78,6 +78,7 @@ from posthog.api.hog_invocation_results import (
     tag_invocation_results_query,
 )
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
@@ -186,6 +187,7 @@ from products.workflows.backend.models.hog_flow.search_text import (
     StepSearchVersion,
     find_step_matches,
     search_pattern,
+    step_regex,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
@@ -2864,8 +2866,22 @@ class HogFlowSearchResultSerializer(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(HogFlowSearchStepMatchSerializer(many=True))
     def get_matched_steps(self, instance: HogFlow) -> list[dict[str, str]]:
-        matches = find_step_matches(instance.actions, instance.draft, self.context["search_term"])
+        matches = find_step_matches(instance.actions, instance.draft, self.context["step_regex"])
         return cast(list[dict[str, str]], HogFlowSearchStepMatchSerializer(matches, many=True).data)
+
+
+# What a search result reads: its model fields, `team` for the access level, and the step content that the matched
+# steps come from.
+_SEARCH_RESULT_FIELDS: Final[tuple[str, ...]] = (
+    *(
+        field
+        for field in HogFlowSearchResultSerializer.Meta.fields
+        if field not in ("user_access_level", "matched_steps")
+    ),
+    "team",
+    "actions",
+    "draft",
+)
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
@@ -4752,6 +4768,17 @@ def _action_content_matches(regex_pattern: str) -> RawSQL:
     return RawSQL(" OR ".join(clauses), params, output_field=models.BooleanField())
 
 
+def search_hog_flows(queryset: QuerySet[HogFlow], term: str) -> QuerySet[HogFlow]:
+    pattern = search_pattern(term)
+    # Rows saved before `search_text` existed stay null until the rebuild command runs, so they match the source
+    # columns the way the list search does.
+    by_stored_text = Q(search_text__iregex=pattern)
+    by_source_columns = Q(search_text__isnull=True) & (
+        Q(name__iregex=pattern) | Q(description__iregex=pattern) | Q(_action_content_matches(pattern))
+    )
+    return queryset.filter(by_stored_text | by_source_columns).select_related("created_by").only(*_SEARCH_RESULT_FIELDS)
+
+
 class StaleWorkflowUpdateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -4826,6 +4853,45 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
     )
 
 
+_LIST_FILTER_PARAMETERS: Final[list[OpenApiParameter]] = [
+    OpenApiParameter(
+        "created_by",
+        OpenApiTypes.UUID,
+        description="Filter to workflows created by the user with this uuid.",
+    ),
+    OpenApiParameter(
+        "type",
+        OpenApiTypes.STR,
+        description="Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
+    ),
+    OpenApiParameter(
+        "origin_product",
+        OpenApiTypes.STR,
+        enum=HogFlow.OriginProduct.values,
+        description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+    ),
+    OpenApiParameter(
+        "trigger",
+        OpenApiTypes.STR,
+        description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
+    ),
+    OpenApiParameter(
+        "broadcast_eligible",
+        OpenApiTypes.BOOL,
+        description="Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
+    ),
+    OpenApiParameter(
+        "broadcast_status",
+        OpenApiTypes.STR,
+        description=(
+            "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, "
+            "sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and "
+            "whether a schedule still has sends to come."
+        ),
+    ),
+]
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
     metrics=extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricResponseSerializer),
@@ -4839,41 +4905,7 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                 OpenApiTypes.STR,
                 description="Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
             ),
-            OpenApiParameter(
-                "created_by",
-                OpenApiTypes.UUID,
-                description="Filter to workflows created by the user with this uuid.",
-            ),
-            OpenApiParameter(
-                "type",
-                OpenApiTypes.STR,
-                description="Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
-            ),
-            OpenApiParameter(
-                "origin_product",
-                OpenApiTypes.STR,
-                enum=HogFlow.OriginProduct.values,
-                description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
-            ),
-            OpenApiParameter(
-                "trigger",
-                OpenApiTypes.STR,
-                description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
-            ),
-            OpenApiParameter(
-                "broadcast_eligible",
-                OpenApiTypes.BOOL,
-                description="Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
-            ),
-            OpenApiParameter(
-                "broadcast_status",
-                OpenApiTypes.STR,
-                description=(
-                    "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, "
-                    "sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and "
-                    "whether a schedule still has sends to come."
-                ),
-            ),
+            *_LIST_FILTER_PARAMETERS,
         ]
     ),
 )
@@ -5051,7 +5083,7 @@ class HogFlowViewSet(
         return page
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        if self.action == "list":
+        if self.action in ("list", "search"):
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
 
@@ -5170,44 +5202,35 @@ class HogFlowViewSet(
         # TODO(team-workflows): Somehow implement version lookups
         return super().safely_get_object(queryset)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=HogFlowSearchQuerySerializer,
+        parameters=_LIST_FILTER_PARAMETERS,
+        responses={
+            200: HogFlowSearchResultSerializer(many=True),
+            400: OpenApiResponse(
+                description="`q` is missing, blank, too long or holds an unsupported character, or a filter is invalid."
+            ),
+        },
         summary="Search workflows",
         description=(
-            "Workflows whose name, description or step content matches the search term, newest created first. "
-            "Each row lists the steps that matched. Rows carry metadata only, not the step graph."
+            "Workflows whose name, description or step content matches the search term, most recently updated "
+            "first, the same order as the list. Takes the list's filters. Each row lists the steps that matched. "
+            "Rows carry metadata only, not the step graph."
         ),
-        parameters=[HogFlowSearchQuerySerializer],
-        responses={200: HogFlowSearchResultSerializer(many=True)},
     )
-    @action(
-        detail=False, methods=["GET"], url_path="search", pagination_class=HogFlowSearchPagination, filter_backends=[]
-    )
-    def search(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        query = HogFlowSearchQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
-        term: str = query.validated_data["q"]
-        pattern = search_pattern(term)
+    @action(detail=False, methods=["GET"], url_path="search", pagination_class=HogFlowSearchPagination)
+    def search(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        term: str = request.validated_query_data["q"]
 
-        # The routing mixin applies the access-level filter to `list` only.
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
+        # The routing mixin applies the access-level filter to `list` only, so this repeats it the same way.
         if not is_service_auth(request):
-            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+            queryset = self.user_access_control.filter_queryset_by_access_level(
+                queryset, include_all_if_admin=request.GET.get("admin_include_all") == "true"
+            )
 
-        # Rows saved before `search_text` existed stay null until the rebuild command runs, so they match the
-        # source columns the way the list search does.
-        by_stored_text = Q(search_text__iregex=pattern)
-        by_source_columns = Q(search_text__isnull=True) & (
-            Q(name__iregex=pattern) | Q(description__iregex=pattern) | Q(_action_content_matches(pattern))
-        )
-        queryset = (
-            queryset.filter(by_stored_text | by_source_columns)
-            .select_related("created_by")
-            .defer("search_text", "encrypted_inputs", "draft_encrypted_inputs")
-            .order_by("-created_at", "-id")
-        )
-
-        page = self.paginate_queryset(queryset)
-        context = {**self.get_serializer_context(), "search_term": term}
+        page = self.paginate_queryset(search_hog_flows(queryset, term))
+        context = {**self.get_serializer_context(), "step_regex": step_regex(term)}
         return self.get_paginated_response(HogFlowSearchResultSerializer(page, many=True, context=context).data)
 
     @staticmethod

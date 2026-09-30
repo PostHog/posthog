@@ -1,4 +1,6 @@
+import sys
 import json
+import unicodedata
 from datetime import UTC, datetime
 from io import StringIO
 from typing import TYPE_CHECKING
@@ -24,6 +26,8 @@ from products.workflows.backend.models.hog_flow.search_text import (
     SEARCH_TEXT_SEPARATOR,
     email_body_text,
     find_step_matches,
+    search_pattern,
+    step_regex,
 )
 
 if TYPE_CHECKING:
@@ -194,7 +198,7 @@ class TestHogFlowSearchMatching(APIBaseTest):
 
 
 class TestHogFlowSearchAPI(APIBaseTest):
-    def _search(self, query: str, **params: int) -> "_MonkeyPatchedResponse":
+    def _search(self, query: str, **params: str | int) -> "_MonkeyPatchedResponse":
         query_params: dict[str, str | int] = {"q": query, **params}
         return self.client.get(_search_url(self.team.id), query_params)
 
@@ -211,21 +215,26 @@ class TestHogFlowSearchAPI(APIBaseTest):
         (step,) = row["matched_steps"]
         assert step["excerpt"] == "…before the part that matters. Your renewal date moved to the first of the month.…"
 
-    def test_search_pages_newest_created_first_with_one_search_scan(self) -> None:
-        for index, name in enumerate(("Oldest seat", "Middle seat", "Newest seat")):
-            flow = HogFlow.objects.create(team=self.team, name=name, created_by=self.user)
-            HogFlow.objects.filter(id=flow.id).update(created_at=datetime(2026, 1, index + 1, tzinfo=UTC))
-        HogFlow.objects.create(team=self.team, name="Unrelated", created_by=self.user)
+    def test_search_pages_in_list_order_with_list_filters_in_one_query(self) -> None:
+        for day, name in ((3, "Latest seat"), (2, "Recent seat"), (1, "Stale seat")):
+            flow = HogFlow.objects.create(team=self.team, name=name, created_by=self.user, status=HogFlow.State.DRAFT)
+            HogFlow.objects.filter(id=flow.id).update(updated_at=datetime(2026, 1, day, tzinfo=UTC))
+        HogFlow.objects.create(
+            team=self.team, name="Archived seat", created_by=self.user, status=HogFlow.State.ARCHIVED
+        )
+        HogFlow.objects.create(team=self.team, name="Unrelated", created_by=self.user, status=HogFlow.State.DRAFT)
 
         with CaptureQueriesContext(connection) as queries:
-            response = self._search("seat", limit=2)
+            response = self._search("seat", limit=2, status="draft")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert [row["name"] for row in response.json()["results"]] == ["Newest seat", "Middle seat"]
+        assert [row["name"] for row in response.json()["results"]] == ["Latest seat", "Recent seat"]
         assert response.json()["count"] == 3
         assert response.json()["next"] is not None
-        search_scans = [query["sql"] for query in queries.captured_queries if "~*" in query["sql"]]
-        assert len(search_scans) == 1, search_scans
+        hog_flow_reads = [
+            query["sql"] for query in queries.captured_queries if 'FROM "posthog_hogflow"' in query["sql"]
+        ]
+        assert len(hog_flow_reads) == 1, hog_flow_reads
 
     def test_search_counts_matches_when_the_page_is_past_the_end(self) -> None:
         HogFlow.objects.create(team=self.team, name="Seat reminder", created_by=self.user)
@@ -245,11 +254,16 @@ class TestHogFlowSearchAPI(APIBaseTest):
     def test_partial_save_refreshes_search_text(
         self, _name: str, changed: str, update_fields: list[str], query: str, expect_reload: bool
     ) -> None:
-        flow = HogFlow.objects.create(team=self.team, name="Onboarding", status=HogFlow.State.ACTIVE)
+        created = HogFlow.objects.create(team=self.team, name="Onboarding", status=HogFlow.State.ACTIVE)
+        flow = HogFlow.objects.get(id=created.id)
+        # Another save changes the live steps after `flow` was loaded, so `flow` holds stale actions.
+        created.actions = [_email_step("email_1", "Invoice email", subject="Your invoice for March")]
+        created.save()
+        flow.description = "Unsaved note"
         if changed == "name":
             flow.name = "Renamed onboarding"
         else:
-            flow.draft = {"actions": [_email_step("email_1", "Access email", subject="Your beta access starts today")]}
+            flow.draft = {"actions": [_email_step("email_2", "Access email", subject="Your beta access starts today")]}
             flow.draft_updated_at = datetime(2026, 1, 1, tzinfo=UTC)
 
         with patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers") as reload:
@@ -257,6 +271,8 @@ class TestHogFlowSearchAPI(APIBaseTest):
 
         assert reload.called is expect_reload
         assert [row["id"] for row in self._search(query).json()["results"]] == [str(flow.id)]
+        assert [row["id"] for row in self._search("invoice for march").json()["results"]] == [str(flow.id)]
+        assert self._search("unsaved note").json()["results"] == []
 
     def test_save_of_a_deferred_instance_writes_only_its_loaded_fields(self) -> None:
         flow = HogFlow.objects.create(team=self.team, name="Seat reminder", description="Kept as stored")
@@ -270,6 +286,7 @@ class TestHogFlowSearchAPI(APIBaseTest):
         assert '"description" =' not in update
         assert '"actions" =' not in update
         assert [row["name"] for row in self._search("seat waitlist").json()["results"]] == ["Seat waitlist"]
+        assert [row["name"] for row in self._search("kept as stored").json()["results"]] == ["Seat waitlist"]
 
     @parameterized.expand([("write", False), ("dry_run", True)])
     def test_rebuild_command_fills_missing_and_stale_search_text(self, _name: str, dry_run: bool) -> None:
@@ -280,9 +297,11 @@ class TestHogFlowSearchAPI(APIBaseTest):
 
         call_command("rebuild_hog_flow_search_text", page_size=1, dry_run=dry_run, stdout=StringIO())
 
-        names = {row["name"] for row in self._search("seat").json()["results"]}
-        assert names == ({"Seat reminder"} if dry_run else {"Seat reminder", "Seat waitlist"})
-        assert HogFlow.objects.filter(team=self.team, search_text__isnull=True).exists() is dry_run
+        stored = dict(HogFlow.objects.filter(id__in=[missing.id, stale.id]).values_list("name", "search_text"))
+        if dry_run:
+            assert stored == {"Seat reminder": None, "Seat waitlist": "Old name"}
+        else:
+            assert stored == {"Seat reminder": "Seat reminder", "Seat waitlist": "Seat waitlist"}
 
     def test_personal_api_key_with_read_scope_can_search(self) -> None:
         HogFlow.objects.create(team=self.team, name="Seat reminder", created_by=self.user)
@@ -345,12 +364,36 @@ class TestEmailBodyTextMatchesSql(TestCase):
         assert email_body_text(email) == expected
 
 
+class TestStepMatchSpaceMatchesSql(TestCase):
+    def test_step_matcher_counts_the_same_characters_as_space_as_postgres(self) -> None:
+        spaces = [
+            chr(point)
+            for point in range(sys.maxunicode + 1)
+            if chr(point).isspace() or unicodedata.category(chr(point)).startswith("Z")
+        ]
+        texts = [f"seat{space}reminder" for space in spaces]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT text ~* %s FROM unnest(%s::text[]) WITH ORDINALITY AS t(text, position) ORDER BY position",
+                [search_pattern("seat reminder"), texts],
+            )
+            postgres = [matched for (matched,) in cursor.fetchall()]
+
+        regex = step_regex("seat reminder")
+        disagreeing = [
+            f"U+{ord(space):04X}"
+            for space, text, matched in zip(spaces, texts, postgres)
+            if (regex.search(text) is not None) != matched
+        ]
+        assert disagreeing == []
+
+
 class TestFindStepMatches(SimpleTestCase):
     def test_term_of_many_separators_matches_without_backtracking(self) -> None:
         target = "e" + " -" * 14 + " q"
         body = "e" + " -" * 40 + " x. Then the " + target + " line."
         actions = [_email_step("email_1", "Notice", text=body)]
 
-        (match,) = find_step_matches(actions, None, target)
+        (match,) = find_step_matches(actions, None, step_regex(target))
 
         assert match.excerpt.endswith(f"{target} line.")

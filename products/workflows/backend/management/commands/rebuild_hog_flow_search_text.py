@@ -61,7 +61,8 @@ def _positive_int(value: str) -> int:
 class Command(BaseCommand):
     help = (
         "Fill and rebuild HogFlow.search_text from each workflow's name, description and step content. "
-        "Safe to rerun: it writes only the rows whose stored text differs."
+        "Safe to rerun: it writes only the rows whose stored text differs. Run it after any bulk write that changes "
+        "those fields without save()."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:

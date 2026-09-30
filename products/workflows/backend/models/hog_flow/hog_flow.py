@@ -233,18 +233,26 @@ class HogFlow(UUIDTModel):
         update_fields = None if kwargs.get("update_fields") is None else set(kwargs["update_fields"])
         deferred = self.get_deferred_fields()
         if update_fields is None and deferred and not self._state.adding:
-            # Django saves only the loaded fields of an instance with deferred fields. Fix that set before the
-            # rebuild below loads the deferred source fields, so the save does not also write them.
+            # Django saves only the loaded fields of an instance with deferred fields. Name that set here, so the
+            # search text can join it and the deferred source fields are read from the row.
             update_fields = {field.name for field in self._meta.concrete_fields if not field.primary_key}
             update_fields -= {self._meta.get_field(attname).name for attname in deferred}
             kwargs["update_fields"] = update_fields
         if update_fields is None or not SEARCH_TEXT_SOURCE_FIELDS.isdisjoint(update_fields):
-            self.search_text = build_search_text(
-                name=self.name, description=self.description, actions=self.actions, draft=self.draft
-            )
+            self.search_text = build_search_text(**self._search_text_sources(update_fields))
             if update_fields is not None:
                 kwargs["update_fields"] = update_fields | {"search_text"}
         super().save(*args, **kwargs)
+
+    def _search_text_sources(self, update_fields: set[str] | None) -> dict[str, Any]:
+        """The source values that the row holds after this save: this instance's values for the fields the save
+        writes, and the stored values for the others."""
+        unwritten = set() if update_fields is None else SEARCH_TEXT_SOURCE_FIELDS - update_fields
+        sources: dict[str, Any] = {field: getattr(self, field) for field in SEARCH_TEXT_SOURCE_FIELDS - unwritten}
+        if unwritten:
+            stored = HogFlow.objects.filter(pk=self.pk).values(*unwritten).first()
+            sources.update(stored or dict.fromkeys(unwritten))
+        return sources
 
 
 @receiver(post_save, sender=HogFlow)

@@ -1311,7 +1311,7 @@ export const getHogFlowsSearchListUrl = (projectId: string, params: HogFlowsSear
 }
 
 /**
- * Workflows whose name, description or step content matches the search term, newest created first. Each row lists the steps that matched. Rows carry metadata only, not the step graph.
+ * Workflows whose name, description or step content matches the search term, most recently updated first, the same order as the list. Takes the list's filters. Each row lists the steps that matched. Rows carry metadata only, not the step graph.
  * @summary Search workflows
  */
 export const hogFlowsSearchList = async (
