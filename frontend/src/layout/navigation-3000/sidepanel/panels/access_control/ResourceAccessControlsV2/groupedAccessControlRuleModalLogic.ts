@@ -73,6 +73,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -93,6 +94,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
             | 'offline_evaluation_ingestion'
@@ -138,6 +140,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     ) => boolean
     modalTitle: 'Update default access' | 'Update member access' | 'Update role access'
@@ -207,6 +210,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -227,6 +231,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
             | 'offline_evaluation_ingestion'
@@ -272,6 +277,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     ) => string | undefined
     resourceLevelOptions: (
@@ -328,6 +334,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -348,6 +355,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
             | 'offline_evaluation_ingestion'
@@ -393,6 +401,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session',
         resourceLabel: string
     ) => (
@@ -462,6 +471,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -482,6 +492,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
             | 'offline_evaluation_ingestion'
@@ -527,6 +538,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     ) => boolean
 }
@@ -596,6 +608,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -616,6 +629,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
             | 'offline_evaluation_ingestion'
@@ -661,6 +675,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session',
             AccessControlLevel | null
         >
@@ -737,6 +752,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -757,6 +773,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
             | 'offline_evaluation_ingestion'
@@ -802,6 +819,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     }
     setResourceLevels: (levels: Record<APIScopeObject, FormAccessLevel>) => {
@@ -858,6 +876,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -878,6 +897,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
             | 'offline_evaluation_ingestion'
@@ -923,6 +943,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session',
             FormAccessLevel
         >
@@ -1018,6 +1039,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1038,6 +1060,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
                 | 'offline_evaluation_ingestion'
@@ -1083,6 +1106,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
                 FormAccessLevel
             >,
@@ -1141,6 +1165,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1161,6 +1186,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
                 | 'offline_evaluation_ingestion'
@@ -1206,6 +1232,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
         ) => boolean
         resourceInheritedReasonTooltip: (
@@ -1263,6 +1290,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'health_issue'
                     | 'heatmap'
                     | 'hog_flow'
+                    | 'hog_flow_proposal'
                     | 'hog_function'
                     | 'ingestion_warning'
                     | 'insight'
@@ -1283,6 +1311,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'marketing_analytics'
                     | 'mcp_analytics'
                     | 'mcp_builtin_agent'
+                    | 'mcp_registry'
                     | 'metrics'
                     | 'notebook'
                     | 'offline_evaluation_ingestion'
@@ -1328,6 +1357,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'warehouse_view'
                     | 'web_analytics'
                     | 'webhook'
+                    | 'wizard_run'
                     | 'wizard_session'
             ) => boolean,
             entry: AccessControlSettingsEntry
@@ -1385,6 +1415,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1405,6 +1436,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
                 | 'offline_evaluation_ingestion'
@@ -1450,6 +1482,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
         ) => string | undefined
         resourceLevelOptions: (
@@ -1508,6 +1541,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1528,6 +1562,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
                 | 'offline_evaluation_ingestion'
@@ -1573,6 +1608,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
                 FormAccessLevel
             >
@@ -1630,6 +1666,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1650,6 +1687,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
                 | 'offline_evaluation_ingestion'
@@ -1695,6 +1733,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
             resourceLabel: string
         ) => (
@@ -1763,6 +1802,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1783,6 +1823,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
                 | 'offline_evaluation_ingestion'
@@ -1828,6 +1869,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
                 FormAccessLevel
             >
@@ -1885,6 +1927,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1905,6 +1948,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
                 | 'offline_evaluation_ingestion'
@@ -1950,6 +1994,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
         ) => boolean
     }

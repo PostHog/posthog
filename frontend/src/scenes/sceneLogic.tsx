@@ -86,6 +86,30 @@ const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
     }
 }
 
+/**
+ * Moves a member of a blocked organization off a path the block closes. Returns true when it navigated.
+ */
+function leaveBlockedOrganizationPath(): boolean {
+    const { currentOrganizationBlockPage, isPathInAnotherOrganization, isPathOpenWhileBlocked } =
+        organizationLogic.values
+    if (!currentOrganizationBlockPage) {
+        return false
+    }
+    const { pathname, search, hash } = router.values.location
+    if (isPathInAnotherOrganization(pathname)) {
+        // The client keeps the blocked organization's project whatever the URL says, so the scene would
+        // read that project's data. A page load lets the server switch the member into the project's
+        // organization, or send them to the block page.
+        window.location.href = pathname + search + hash
+        return true
+    }
+    if (isPathOpenWhileBlocked(pathname)) {
+        return false
+    }
+    router.actions.replace(currentOrganizationBlockPage)
+    return true
+}
+
 // `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
 // location is the homepage has to derive it the same way.
 const homepageTargetPathname = (homepage: SceneTab): string => {
@@ -872,6 +896,24 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
+                if (organizationLogic.values.currentOrganizationBlockPage) {
+                    // Decide the block here. A redirect from a `locationChanged` listener does not hold,
+                    // because this route handler still opens the scene of the original URL after that
+                    // listener runs. The onboarding and project-creation redirects below stay off: they
+                    // only lead to pages that are closed while blocked, so they loop against the block page.
+                    if (!leaveBlockedOrganizationPath()) {
+                        actions.loadScene(sceneId, sceneKey, params, method)
+                    }
+                    return
+                }
+
+                if (sceneId === Scene.OrganizationDeactivated || sceneId === Scene.OrganizationPendingDeletion) {
+                    // The organization is open again, so let the member back in, as the server does. The server
+                    // only matches the bare block path, and the router writes it with a `/project/<id>` prefix.
+                    router.actions.replace(urls.projectRoot())
+                    return
+                }
+
                 if (sceneId !== Scene.InviteSignup) {
                     // Redirect to org/project creation if there's no org/project respectively, unless using invite
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
@@ -1119,6 +1161,10 @@ export const sceneLogic = kea<sceneLogicType>([
         }
 
         mapping['/*'] = (_, __, { method }) => {
+            // This route skips `openScene`, so it applies the organization block itself, as the server does.
+            if (leaveBlockedOrganizationPath()) {
+                return
+            }
             return actions.loadScene(Scene.Error404, undefined, emptySceneParams, method)
         }
 

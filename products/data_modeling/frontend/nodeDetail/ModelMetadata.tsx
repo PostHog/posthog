@@ -7,11 +7,15 @@ import { UserBasicType } from '~/types'
 
 export function ModelMetadata({
     createdBy,
+    createdByEmail,
+    createdByLabel,
     createdAt,
     updatedAt,
     loading,
 }: {
     createdBy?: UserBasicType | null
+    createdByEmail?: string | null
+    createdByLabel?: string | null
     createdAt?: string | null
     updatedAt?: string | null
     loading?: boolean
@@ -25,8 +29,10 @@ export function ModelMetadata({
                         <LemonSkeleton className="h-5 w-20" />
                     ) : createdBy ? (
                         <ProfilePicture user={createdBy} showName size="sm" />
+                    ) : createdByEmail ? (
+                        <ProfilePicture user={{ email: createdByEmail }} showName size="sm" />
                     ) : (
-                        'Unknown'
+                        (createdByLabel ?? 'Unknown')
                     )}
                 </dd>
             </div>

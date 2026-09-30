@@ -713,6 +713,42 @@ describe("AgentServer HTTP Mode", () => {
       });
     }, 30000);
 
+    it("reports the initialization phase the runtime agent published", async () => {
+      const s = createServer();
+      await s.start();
+      const { extNotification } = (
+        s as unknown as {
+          createCloudClient(payload: {
+            run_id: string;
+            task_id: string;
+            team_id: number;
+            user_id: number;
+            distinct_id: string;
+          }): {
+            extNotification(
+              method: string,
+              params: Record<string, unknown>,
+            ): Promise<void>;
+          };
+        }
+      ).createCloudClient({
+        run_id: "test-run-id",
+        task_id: "test-task-id",
+        team_id: 1,
+        user_id: 1,
+        distinct_id: "user-1",
+      });
+
+      await extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+        status: "setup_hooks",
+      });
+
+      const response = await fetch(`http://localhost:${port}/health`);
+      expect(await response.json()).toMatchObject({
+        initializationPhase: "setup_hooks",
+      });
+    }, 30000);
+
     it.each([
       {
         label: "uses a valid run-state system prompt",

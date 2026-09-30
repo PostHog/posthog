@@ -74,6 +74,8 @@ interface ProjectTreeBaseProps {
     onItemClicked?: (item: TreeDataItem | undefined) => void
     /** Replaces the tree's own tooltip, so a caller can match the tooltips of the rows around the tree. */
     renderItemTooltip?: (item: TreeDataItem) => ReactNode | undefined
+    /** A docs link under the item's tooltip, for callers whose rows link to a product's docs. */
+    renderItemTooltipDocLink?: (item: TreeDataItem) => string | undefined
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
 }
@@ -498,6 +500,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     </ContextMenuGroup>
                 )
             }}
+            renderItemTooltipDocLink={props.renderItemTooltipDocLink}
             renderItemTooltip={(item) => {
                 if (props.renderItemTooltip) {
                     return props.renderItemTooltip(item)

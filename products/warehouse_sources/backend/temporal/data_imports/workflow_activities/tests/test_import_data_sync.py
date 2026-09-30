@@ -22,6 +22,7 @@ from posthog.integration_secrets.errors import (
     SecretMissingError,
 )
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -66,6 +67,9 @@ class _FakeAsyncCM:
 
     async def __aexit__(self, *args):
         return False
+
+    def run_on_shutdown(self, callback):
+        pass
 
 
 def _passthrough(fn):
@@ -151,6 +155,32 @@ class TestGetModelsPrefetchesSource(BaseTest):
 
         with self.assertNumQueries(0):
             models.job.folder_path()
+
+
+class TestSchemaSyncHistory(BaseTest):
+    @parameterized.expand(
+        [
+            (ExternalDataJob.Status.COMPLETED, True, True, True),
+            (ExternalDataJob.Status.FAILED, True, True, False),
+            (ExternalDataJob.Status.RUNNING, True, True, False),
+            (ExternalDataJob.Status.COMPLETED, False, True, False),
+            (ExternalDataJob.Status.COMPLETED, True, False, False),
+        ]
+    )
+    def test_only_a_completed_job_for_this_team_and_schema_counts(
+        self, status: str, same_schema: bool, same_team: bool, expected: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Gladly"
+        )
+        schema = ExternalDataSchema.objects.create(name="contact_timestamps", team=self.team, source=source)
+        ExternalDataJob.objects.create(team=self.team, pipeline=source, schema=schema, status=status)
+
+        has_completed_job = cast(Any, module._has_completed_schema_job).func(
+            schema.id if same_schema else uuid.uuid4(), self.team.pk if same_team else self.team.pk + 1
+        )
+
+        assert has_completed_job is expected
 
 
 @pytest.mark.asyncio
@@ -336,6 +366,28 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
 
     assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_worker_shutdown_is_reraised_unwrapped_as_a_handoff_not_an_exception():
+    error = WorkerShuttingDownError("5", "import_data_activity_sync", "data-warehouse-task-queue", 2, "wf", "wt")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = {"worker that is shutting down"}
+
+    logger = mock.MagicMock()
+    logger.ainfo = mock.AsyncMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(WorkerShuttingDownError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    logger.ainfo.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 
 
@@ -918,18 +970,32 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(
 
 
 @pytest.mark.asyncio
-async def test_reset_run_drops_last_synced_at_with_the_cursor():
-    # A reset must re-walk the whole reconcile window, not only what changed since the last sync.
+@pytest.mark.parametrize(
+    "last_synced_at,has_completed_job,expected_has_ever_synced",
+    [
+        pytest.param(None, False, False, id="never_synced"),
+        pytest.param(None, True, True, id="deleted_table"),
+        pytest.param(datetime(2026, 6, 14), False, True, id="successful_sync"),
+    ],
+)
+async def test_reset_run_drops_cursors_but_preserves_sync_history(
+    last_synced_at: datetime | None, has_completed_job: bool, expected_has_ever_synced: bool
+) -> None:
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
     schema = _incremental_schema(is_incremental=True, lookback_seconds=3600)
-    with _patched_activity_reaching_run(source, schema):
+    schema.last_synced_at = last_synced_at
+    with (
+        _patched_activity_reaching_run(source, schema),
+        mock.patch.object(module, "_has_completed_schema_job", new=mock.AsyncMock(return_value=has_completed_job)),
+    ):
         await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), reset_pipeline=True))
 
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.db_incremental_field_last_value is None
     assert source_inputs.last_synced_at is None
+    assert source_inputs.schema_has_ever_synced is expected_has_ever_synced
 
 
 @pytest.mark.asyncio
@@ -938,6 +1004,7 @@ async def test_pending_delta_revive_extracts_full_table_not_incremental_slice():
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
     schema = _incremental_schema(is_incremental=True, lookback_seconds=3600)
+    schema.last_synced_at = datetime(2026, 6, 14)
     schema.incremental_field_earliest_value = "2026-01-01T00:00:00"
     # The model reads this marker out of the persisted config through a property. Set both, because
     # the mock cannot run the property, and the config carries the shape a real revive leaves behind.
@@ -957,6 +1024,8 @@ async def test_pending_delta_revive_extracts_full_table_not_incremental_slice():
     # replaces the whole table with the rows after the watermark.
     assert source_inputs.db_incremental_field_last_value is None
     assert source_inputs.db_incremental_field_earliest_value is None
+    assert source_inputs.last_synced_at is None
+    assert source_inputs.schema_has_ever_synced is True
     # The stored watermark stays put, so a completed rebuild advances it from the rows it read.
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
 

@@ -2001,6 +2001,16 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["content"] == "abcd"
 
+    def test_list_text_filter_finds_an_old_note_past_the_cap(self) -> None:
+        # The filter has to run before the cap and ignore case, or a run searching for one entity
+        # still gets only the newest notes back.
+        SignalScoutNote.objects.create(team=self.team, content="the /checkout spike is expected")
+        SignalScoutNote.objects.create(team=self.team, content="watch the EU signup funnel")
+        SignalScoutNote.objects.create(team=self.team, content="billing reports go to the billing folks")
+        response = self.client.get(self._list_url(), data={"text": "CHECKOUT", "limit": "1"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["content"] for row in response.json()] == ["the /checkout spike is expected"]
+
     def test_list_excludes_expired_notes_by_default(self) -> None:
         SignalScoutNote.objects.create(
             team=self.team, content="stale steering", expires_at=timezone.now() - timedelta(days=1)
