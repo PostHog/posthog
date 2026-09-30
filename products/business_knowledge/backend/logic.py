@@ -1885,6 +1885,13 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
             )
         return get_for_team(source.id, team_id) or source
 
+    # A late or duplicate run must not wipe a source that another run already finished.
+    if source.status != SourceStatus.PROCESSING:
+        return source
+    # Batches commit one at a time and chunk ids are deterministic, so a retried
+    # activity first drops what the attempt before it wrote, even if it then fails early.
+    _delete_crawl_documents(source=source, team_id=team_id)
+
     try:
         # Re-validate the entry URL (DNS may have rebound between claim and ingest).
         normalized = _validate_url(source.source_url)
@@ -1911,11 +1918,7 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
     if not safe_urls:
         return _mark_error("Crawl discovered no safe URLs to fetch.")
 
-    # Search reads only READY sources, so batches written while the source is
-    # PROCESSING stay hidden until the last one lands. A failed crawl deletes them.
-    # A retried activity finds the rows of the attempt before it, and chunk ids are
-    # deterministic, so those rows go first.
-    _delete_crawl_documents(source=source, team_id=team_id)
+    # Search reads only READY sources, so committed batches stay hidden until the last one lands.
     first_error = ""
     written_any = False
     try:
@@ -2058,16 +2061,26 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             pass
     vanished_ids = [d.id for url, d in existing_by_url.items() if url not in discovered_set]
 
-    # One transaction per batch. A refresh that fails part way keeps the batches
-    # it already wrote. Each of them holds complete pages, and the chunk cap is
-    # checked before every commit.
     any_changes = False
+    # Tombstone docs whose URL vanished from discovery before any batch, so the
+    # chunk cap check below does not count their chunks. Chunks go away now; the
+    # sweep hard-deletes the doc row after a grace period (preserves the id in
+    # case the page comes back soon).
+    if vanished_ids:
+        with transaction.atomic():
+            now = timezone.now()
+            KnowledgeChunk.objects.filter(team_id=team_id, document_id__in=vanished_ids).delete()
+            KnowledgeDocument.objects.filter(team_id=team_id, id__in=vanished_ids, tombstoned_at__isnull=True).update(
+                tombstoned_at=now, updated_at=now
+            )
+        any_changes = True
+
+    # A refresh that fails part way keeps the batches it already committed. The cap is checked before every commit.
     outcomes = crawl.iter_fetch(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
     for batch in batched(outcomes, CRAWL_WRITE_BATCH_SIZE, strict=False):
         with transaction.atomic():
             fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
             for outcome in batch:
-                # Popped so the new text of a written page is not kept for the rest of the refresh.
                 existing = existing_by_url.pop(outcome.url, None)
                 if outcome.status == "not_modified":
                     # Still touch the etag so a rotation stays fresh.
@@ -2109,18 +2122,6 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 
     with transaction.atomic():
         fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
-
-        # Tombstone docs whose URL vanished from discovery. Chunks go away
-        # now; the sweep hard-deletes the doc row after a grace
-        # period (preserves the id in case the page comes back soon).
-        if vanished_ids:
-            now = timezone.now()
-            KnowledgeChunk.objects.filter(team_id=team_id, document_id__in=vanished_ids).delete()
-            KnowledgeDocument.objects.filter(team_id=team_id, id__in=vanished_ids, tombstoned_at__isnull=True).update(
-                tombstoned_at=now, updated_at=now
-            )
-            any_changes = True
-
         fresh.status = SourceStatus.READY
         fresh.last_refresh_at = timezone.now()
         fresh.last_refresh_status = RefreshStatus.SUCCESS if any_changes else RefreshStatus.NOT_MODIFIED
