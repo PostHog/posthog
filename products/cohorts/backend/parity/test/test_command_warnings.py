@@ -9,7 +9,7 @@ from parameterized import parameterized
 from products.cohorts.backend.management.commands.compare_cohort_membership import (
     _ALL_MODE_FLAGS,
     _MODE_FLAGS,
-    DEFAULT_THRESHOLD_PCT,
+    DEFAULT_MAX_WINDOW_DAYS,
     Command,
     PopulationCohortState,
     RecomputeCohortState,
@@ -66,9 +66,6 @@ class TestCollectWarnings(SimpleTestCase):
 
 
 _UNSET_FLAGS: dict[str, Any] = {
-    "threshold": None,
-    "warmup_sample": None,
-    "no_classify": False,
     "at": None,
     "run_id": None,
     "grace_minutes": None,
@@ -84,19 +81,20 @@ class TestRejectFlags(SimpleTestCase):
             # Every mode-specific flag defaults to None (False for a store_true) precisely so a value
             # that happens to equal the documented default is still rejected rather than silently
             # ignored by another oracle.
-            ("recompute_rejects_explicit_documented_default", "recompute", {"threshold": DEFAULT_THRESHOLD_PCT}, True),
-            ("recompute_rejects_explicit_zero", "recompute", {"warmup_sample": 0}, True),
-            ("recompute_rejects_store_true", "recompute", {"no_classify": True}, True),
+            (
+                "population_rejects_explicit_documented_default",
+                "population",
+                {"max_window_days": DEFAULT_MAX_WINDOW_DAYS},
+                True,
+            ),
+            ("population_rejects_explicit_zero", "population", {"grace_minutes": 0}, True),
             ("recompute_rejects_population_flag", "recompute", {"with_ids": True}, True),
             ("recompute_accepts_own_flag", "recompute", {"grace_minutes": 0}, False),
             ("population_rejects_recompute_flag", "population", {"at": "2026-07-30T00:00:00Z"}, True),
-            ("population_rejects_old_pipeline_flag", "population", {"threshold": 1.0}, True),
             ("population_accepts_own_flag", "population", {"with_ids": True}, False),
             # max_oracle_members is owned by two modes; collapsing the registry back to single-owner
             # would make population reject the cap it needs against oversized cohortpeople reads.
             ("population_accepts_shared_max_oracle_members", "population", {"max_oracle_members": 5}, False),
-            ("old_pipeline_rejects_population_flag", "old-pipeline", {"with_ids": True}, True),
-            ("old_pipeline_accepts_own_flag", "old-pipeline", {"no_classify": True}, False),
             ("nothing_set", "population", {}, False),
         ]
     )
