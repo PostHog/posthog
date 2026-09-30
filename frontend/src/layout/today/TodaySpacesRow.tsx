@@ -1,4 +1,5 @@
 import { PreviewCard } from '@base-ui/react/preview-card'
+import { useId } from 'react'
 
 import { Button, cn } from '@posthog/quill'
 
@@ -22,6 +23,8 @@ interface TodaySpacesRowProps {
     actionCount?: 1 | 2
     /** What the hover card shows for this row. The row has no card without it. */
     preview?: TodayPreviewPayload
+    /** Read by screen readers, which cannot reach the hover card. */
+    description?: string | null
 }
 
 export function TodaySpacesRow({
@@ -34,7 +37,9 @@ export function TodaySpacesRow({
     badge,
     actionCount = 1,
     preview,
+    description,
 }: TodaySpacesRowProps): JSX.Element {
+    const descriptionId = useId()
     const row = (
         <div className="group/row relative flex min-w-0 items-center">
             <Button
@@ -42,6 +47,7 @@ export function TodaySpacesRow({
                 left
                 render={<LinkPrimitive to={to} />}
                 aria-current={active ? 'page' : undefined}
+                aria-describedby={description ? descriptionId : undefined}
                 data-attr={dataAttr}
                 className={cn(
                     'min-w-0 text-muted-foreground',
@@ -53,6 +59,11 @@ export function TodaySpacesRow({
                 <span className="flex size-3.5 shrink-0 items-center justify-center">{icon}</span>
                 <span className="min-w-0 flex-1 truncate">{label}</span>
             </Button>
+            {description && (
+                <span id={descriptionId} className="sr-only">
+                    {description}
+                </span>
+            )}
             {(action || badge) && (
                 <div className="absolute right-1 flex min-w-0 items-center gap-0.5">
                     {action && (

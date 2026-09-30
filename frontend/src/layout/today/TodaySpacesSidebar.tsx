@@ -16,7 +16,7 @@ import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
 import { TodayRecentSearchField } from './TodayRecentSearchField'
 import { TodaySessionRow } from './TodaySessionRow'
 import { TodaySpaceActions } from './TodaySpaceActions'
-import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
+import { TodayWorkSectionId, isLockedSpace, spaceKindLabel, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem } from './todayWorkItems'
 import { useTodaySectionLayout } from './useTodaySectionLayout'
@@ -278,6 +278,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         action={<TodaySpaceActions space={space} />}
                                         actionCount={2}
                                         preview={{ kind: 'space', space }}
+                                        description={spaceKindLabel(space)}
                                     />
                                 ))}
                                 {visibleSpaces.length <= 1 && (

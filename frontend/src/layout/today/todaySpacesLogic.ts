@@ -62,6 +62,13 @@ export function isLockedSpace(space: Pick<ChannelDTOApi, 'channel_type' | 'syste
     return space.system_role === 'personal' || space.channel_type === 'personal' || space.channel_type === 'private'
 }
 
+export function spaceKindLabel(space: Pick<ChannelDTOApi, 'channel_type' | 'system_role'>): string {
+    if (space.system_role === 'personal' || space.channel_type === 'personal') {
+        return 'Personal space'
+    }
+    return space.channel_type === 'private' ? 'Private space' : 'Space'
+}
+
 export function starredSpaces(spaces: ChannelDTOApi[]): ChannelDTOApi[] {
     return [
         ...spaces.filter((space) => space.system_role === 'personal'),

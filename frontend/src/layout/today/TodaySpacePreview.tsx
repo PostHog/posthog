@@ -10,17 +10,10 @@ import { ChannelDTOApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/gen
 
 import { todayPreviewCardLogic } from './todayPreviewCardLogic'
 import { TodayPreviewFacts } from './TodayPreviewFacts'
-import { isLockedSpace, spaceLabel } from './todaySpacesLogic'
+import { isLockedSpace, spaceKindLabel, spaceLabel } from './todaySpacesLogic'
 
 const MAX_PEOPLE = 3
 const MAX_REPOSITORIES = 3
-
-function spaceKind(space: ChannelDTOApi): string {
-    if (space.system_role === 'personal' || space.channel_type === 'personal') {
-        return 'Personal space'
-    }
-    return space.channel_type === 'private' ? 'Private space' : 'Space'
-}
 
 function listNames(names: string[], max: number): string {
     const shown = names.slice(0, max).join(', ')
@@ -30,7 +23,8 @@ function listNames(names: string[], max: number): string {
 /** Who can see the space. `undefined` while a private space's members load. */
 function spacePeople(
     space: ChannelDTOApi,
-    members: TaskUserBasicInfoApi[] | null | undefined
+    members: TaskUserBasicInfoApi[] | undefined,
+    failed: boolean
 ): string | null | undefined {
     if (space.system_role === 'personal' || space.channel_type === 'personal') {
         return 'Only you'
@@ -39,13 +33,13 @@ function spacePeople(
         return 'Everyone in this project'
     }
     if (members === undefined) {
-        return undefined
+        return failed ? null : undefined
     }
-    return members?.length ? listNames(members.map(fullNameOrEmail), MAX_PEOPLE) : null
+    return members.length ? listNames(members.map(fullNameOrEmail), MAX_PEOPLE) : null
 }
 
 export function TodaySpacePreview({ space }: { space: ChannelDTOApi }): JSX.Element {
-    const { spaceMembers } = useValues(todayPreviewCardLogic)
+    const { spaceMembers, failedSpaceMemberIds } = useValues(todayPreviewCardLogic)
     const { previewOpened } = useActions(todayPreviewCardLogic)
 
     useEffect(() => {
@@ -54,7 +48,7 @@ export function TodaySpacePreview({ space }: { space: ChannelDTOApi }): JSX.Elem
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    const people = spacePeople(space, spaceMembers[space.id])
+    const people = spacePeople(space, spaceMembers[space.id], failedSpaceMemberIds.includes(space.id))
     const repositories = space.repositories.length ? listNames(space.repositories, MAX_REPOSITORIES) : null
     return (
         <>
@@ -64,7 +58,7 @@ export function TodaySpacePreview({ space }: { space: ChannelDTOApi }): JSX.Elem
                 </span>
                 <span className="min-w-0 font-semibold text-foreground wrap-anywhere">{spaceLabel(space)}</span>
             </div>
-            <div className="text-xs text-muted-foreground">{spaceKind(space)}</div>
+            <div className="text-xs text-muted-foreground">{spaceKindLabel(space)}</div>
             {people === undefined ? (
                 <Skeleton className="h-3 w-40" />
             ) : (

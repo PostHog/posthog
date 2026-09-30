@@ -37,6 +37,15 @@ export interface TodayWorkGroup {
 
 const LAST_MESSAGE_MAX_CHARS = 240
 
+const RUN_STATUS_LABELS: Record<string, string> = {
+    not_started: 'Not started',
+    queued: 'Queued',
+    in_progress: 'Running',
+    completed: 'Completed',
+    failed: 'Failed',
+    cancelled: 'Stopped',
+}
+
 const FINISHED_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const ACTIVE_RUN_STATUSES = new Set(['not_started', 'queued', 'in_progress'])
 
@@ -100,6 +109,10 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         pullRequests: [],
         lastMessage: null,
     }
+}
+
+export function runStatusLabel(status: string | null): string {
+    return status ? (RUN_STATUS_LABELS[status] ?? status) : 'No runs yet'
 }
 
 export function lastRunMessage(output: TaskRunDetailDTOApi['output'] | undefined): string | null {

@@ -10,16 +10,7 @@ import { todayPreviewCardLogic } from './todayPreviewCardLogic'
 import { TodayPreviewFacts } from './TodayPreviewFacts'
 import { TodaySessionStatusIcon } from './TodaySessionStatusIcon'
 import { todaySpacesLogic } from './todaySpacesLogic'
-import { TodayWorkItem } from './todayWorkItems'
-
-const RUN_STATUS_LABELS: Record<string, string> = {
-    not_started: 'Not started',
-    queued: 'Queued',
-    in_progress: 'Running',
-    completed: 'Completed',
-    failed: 'Failed',
-    cancelled: 'Stopped',
-}
+import { TodayWorkItem, runStatusLabel } from './todayWorkItems'
 
 export function TodaySessionPreview({ item }: { item: TodayWorkItem }): JSX.Element {
     const { spaceNames } = useValues(todaySpacesLogic)
@@ -31,7 +22,6 @@ export function TodaySessionPreview({ item }: { item: TodayWorkItem }): JSX.Elem
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    const status = item.status ? (RUN_STATUS_LABELS[item.status] ?? item.status) : 'No runs yet'
     return (
         <>
             <div className="flex min-w-0 items-start gap-2">
@@ -43,7 +33,7 @@ export function TodaySessionPreview({ item }: { item: TodayWorkItem }): JSX.Elem
                 </span>
             </div>
             <div className="text-xs text-muted-foreground">
-                {status}
+                {runStatusLabel(item.status)}
                 {item.timestamp && ` · Active ${dayjs(item.timestamp).fromNow()}`}
             </div>
             {item.lastMessage && (

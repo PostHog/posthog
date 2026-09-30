@@ -11,7 +11,7 @@ import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLo
 import { TodaySessionRenameInput } from './TodaySessionRenameInput'
 import { TodaySessionStatusIcon } from './TodaySessionStatusIcon'
 import { TodaySpacesRow } from './TodaySpacesRow'
-import { TodayWorkItem, activeCloudRunId, analysisRunId, canHandOff } from './todayWorkItems'
+import { TodayWorkItem, activeCloudRunId, analysisRunId, canHandOff, runStatusLabel } from './todayWorkItems'
 
 interface TodaySessionRowProps {
     item: TodayWorkItem
@@ -38,6 +38,7 @@ export function TodaySessionRow({ item, pinned, dataAttr, surface }: TodaySessio
             active={location.pathname.endsWith('/ai') && searchParams.task === item.id}
             dataAttr={dataAttr}
             preview={{ kind: 'session', item }}
+            description={[runStatusLabel(item.status), item.lastMessage].filter(Boolean).join('. ')}
             badge={
                 pullRequest ? (
                     <TaskPullRequestChip
