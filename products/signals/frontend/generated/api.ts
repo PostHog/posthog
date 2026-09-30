@@ -48,6 +48,8 @@ import type {
     RecordStructuredOutputRequestApi,
     RecordStructuredOutputResponseApi,
     RememberRequestApi,
+    ReportReadStateRequestApi,
+    ReportReadStateResponseApi,
     ReportSignalsResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
@@ -1190,6 +1192,23 @@ export const signalsReportsPrCiStatuses = async (
     })
 }
 
+export const getSignalsReportsReadStateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/read_state/`
+}
+
+export const signalsReportsReadStateCreate = async (
+    projectId: string,
+    reportReadStateRequestApi: ReportReadStateRequestApi,
+    options?: RequestInit
+): Promise<ReportReadStateResponseApi> => {
+    return apiMutator<ReportReadStateResponseApi>(getSignalsReportsReadStateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reportReadStateRequestApi),
+    })
+}
+
 export const getSignalsReportsRefreshMetricsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/reports/refresh_metrics/`
 }
@@ -1706,7 +1725,7 @@ export const getSignalsScoutRecordCheckResultUrl = (projectId: string, runId: st
 }
 
 /**
- * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it. `inconclusive` with the `awaiting_data` reason looks again later, and any other reason ends the check. Send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
  * @summary Record the verdict on a report check
  */
 export const signalsScoutRecordCheckResult = async (

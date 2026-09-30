@@ -313,8 +313,8 @@ from products.wizard.backend.facade.temporal import (
     WORKFLOWS as WIZARD_WORKFLOWS,
 )
 
-# When adding modules to a queue, also update the corresponding CI trigger
-# in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
+# When adding modules to a queue, also add their paths to that fleet's filter in the
+# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,

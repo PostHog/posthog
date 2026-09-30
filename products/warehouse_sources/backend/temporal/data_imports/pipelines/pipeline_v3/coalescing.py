@@ -17,9 +17,7 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
         ExportSignalMessage,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-        PendingBatch,
-    )
+    from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
 
 # CDC batches resolve positions against the table between writes, and a batch bound for external
 # destinations is delivered per batch, so neither is folded into a set.

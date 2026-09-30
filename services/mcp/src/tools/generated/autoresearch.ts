@@ -104,7 +104,7 @@ const autoresearchList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
@@ -180,7 +180,7 @@ const autoresearchModelsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
@@ -331,7 +331,7 @@ const autoresearchSuggestionsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
@@ -711,7 +711,7 @@ const autoresearchTrainingRunsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
