@@ -41,6 +41,7 @@ class TestRedactWebhookUrlsInDestinationNames(TestMigrations):
         self.user_webhook = make(self.user_webhook_name, {"source": "internal-events", "events": []})
 
     def test_only_alert_managed_webhook_names_are_redacted(self) -> None:
+        assert self.apps is not None
         HogFunction = self.apps.get_model("cdp", "HogFunction")
         FileSystem = self.apps.get_model("posthog", "FileSystem")
 
