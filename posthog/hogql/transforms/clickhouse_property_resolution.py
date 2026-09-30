@@ -442,111 +442,46 @@ def _is_declared_array_path(
 
 
 def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
-    # Inspect the per-row variant only to choose its string format. Every branch casts the
-    # whole Dynamic value, so mixed numeric variants are never filtered by a typed projection.
-    dynamic_type = ast.Call(
-        name="dynamicType",
-        args=[ast.Call(name="accurateCast", args=[clone_expr(value), _sentinel("Dynamic")])],
-        type=ast.StringType(nullable=False),
-    )
-    # ClickHouse infers DateTime for ISO strings at ingest, and toString renders it as a wall clock in the
-    # session timezone with no zone marker. Take the wall clock from a UTC-typed cast instead, keep the
-    # fractional digits of the plain rendering (they don't depend on the zone), and mark the text 'Z'.
-    utc_wall_clock = ast.Call(
-        name="substring",
-        args=[
-            ast.Call(
-                name="toString",
-                args=[
-                    ast.Call(
-                        name="accurateCastOrNull",
-                        args=[clone_expr(value), _sentinel("DateTime64(9, 'UTC')")],
-                    )
-                ],
-                type=ast.StringType(nullable=True),
-            ),
-            ast.Constant(value=1),
-            ast.Constant(value=19),
-        ],
-        type=ast.StringType(nullable=True),
-    )
-    fractional_seconds = ast.Call(
-        name="substring",
-        args=[
-            ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-            ast.Constant(value=20),
-            ast.Constant(value=10),  # '.' plus at most nine digits
-        ],
-        type=ast.StringType(nullable=False),
-    )
-    datetime_string = ast.Call(
-        name="concat",
-        args=[
-            ast.Call(
-                name="replaceOne",
-                args=[utc_wall_clock, _sentinel(" "), _sentinel("T")],
-                type=ast.StringType(nullable=True),
-            ),
-            fractional_seconds,
-            _sentinel("Z"),
-        ],
-        type=ast.StringType(nullable=False),
-    )
-    datetime_expr: ast.Expr
-    if as_json:
-        datetime_expr = ast.Call(
-            name="concat",
-            args=[_sentinel('"'), datetime_string, _sentinel('"')],
-            type=ast.StringType(nullable=False),
-        )
-    else:
-        datetime_expr = datetime_string
-
-    json_value = ast.Call(
-        name="toJSONString",
-        args=[clone_expr(value)],
-        type=ast.StringType(nullable=False),
-    )
     json_value = ast.Call(
         name="nullIf",
-        args=[ast.Call(name="nullIf", args=[json_value, _sentinel("[]")]), _sentinel("{}")],
+        args=[
+            ast.Call(
+                name="nullIf",
+                args=[
+                    ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
+                    _sentinel("[]"),
+                ],
+            ),
+            _sentinel("{}"),
+        ],
         type=ast.StringType(nullable=True),
     )
-    scalar_expr: ast.Expr = json_value
-    if not as_json:
-        scalar_expr = ast.Call(
-            name="if",
+    if as_json:
+        return json_value
+
+    # Arrays and maps read as JSON text, like the raw property blob. Their plain text starts with '[' or '{',
+    # which a string can too, but a string's JSON form starts with '"'. toJSONString runs only for those rows.
+    # Compared by character code so no brace literal reaches callers that str.format the printed SQL.
+    def starts_with_container(expr: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="in",
             args=[
-                ast.Or(
-                    exprs=[
-                        ast.Call(
-                            name="startsWith",
-                            args=[clone_expr(dynamic_type), _sentinel(family)],
-                            type=ast.BooleanType(nullable=False),
-                        )
-                        for family in ("Array", "Map", "Tuple")
-                    ]
-                ),
-                json_value,
-                ast.Call(
-                    name="toString",
-                    args=[clone_expr(value)],
-                    type=ast.StringType(nullable=False),
-                ),
+                ast.Call(name="ascii", args=[expr]),
+                ast.Tuple(exprs=[ast.Constant(value=ord("[")), ast.Constant(value=ord("{"))]),
             ],
-            type=ast.StringType(nullable=False),
+            type=ast.BooleanType(nullable=False),
         )
 
+    plain = ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
+    json_text = ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
     return ast.Call(
         name="if",
         args=[
-            ast.Call(
-                name="startsWith", args=[dynamic_type, _sentinel("DateTime")], type=ast.BooleanType(nullable=False)
-            ),
-            datetime_expr,
-            scalar_expr,
+            ast.And(exprs=[starts_with_container(clone_expr(plain)), starts_with_container(json_text)]),
+            json_value,
+            plain,
         ],
-        type=ast.StringType(nullable=False),
+        type=ast.StringType(nullable=True),
     )
 
 
@@ -710,16 +645,12 @@ _JSON_KEY_PATH_FUNCTIONS = _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS | {
 
 def _names_temporary_event_property(key: ast.Expr) -> ast.Expr:
     """The SQL form of `is_temporary_event_property`, for a key that is computed per row."""
-    root = ast.ArrayAccess(
-        array=_call("splitByChar", [_const("."), _call("toString", [key])]),
-        property=_const(1),
-        type=ast.StringType(nullable=True),
-    )
+    name = _call("toString", [key])
     return _call(
         "or",
         [
-            _call("has", [ast.Array(exprs=[_const(name) for name in sorted(TEMPORARY_EVENT_PROPERTY_ROOTS)]), root]),
-            _call("startsWith", [clone_expr(root), _const(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)]),
+            _call("has", [ast.Array(exprs=[_const(root) for root in sorted(TEMPORARY_EVENT_PROPERTY_ROOTS)]), name]),
+            _call("startsWith", [clone_expr(name), _const(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)]),
         ],
     )
 

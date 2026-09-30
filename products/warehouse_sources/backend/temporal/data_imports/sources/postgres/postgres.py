@@ -384,18 +384,24 @@ _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # and "too many connections for role" once a role's own CONNECTION LIMIT is hit. Supabase's
 # Supavisor session-mode pooler reports its own variant when every client slot it exposes is in use
 # ("(EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size:
-# <n>"). All of these are transient capacity conditions on the customer's database or pooler — a
-# slot frees the moment another connection closes (or a session ends) — so a fresh connect after a
-# short backoff usually succeeds. Retried in-process on the read/sync connect path (see
+# <n>"). Supavisor also has an instance-wide sibling: when the pooler's total client-facing
+# connection count (across every tenant it serves, not just this one) hits its own configured cap,
+# it refuses new connects with "FATAL:  (EMAXCONN) max client connections reached, limit: <n>" — the
+# same transient capacity class, since a slot frees the moment any tenant's connection closes. All of
+# these are transient capacity conditions on the customer's database or pooler — a slot frees the
+# moment another connection closes (or a session ends) — so a fresh connect after a short backoff
+# usually succeeds. Retried in-process on the read/sync connect path (see
 # `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`); kept retryable and intentionally
-# NOT added to `get_non_retryable_errors` (see source.py). The Supavisor match is on the stable
-# "max clients reached in session mode" phrase, excluding the volatile pool_size and the
-# "(EMAXCONNSESSION)" code (mirrors the `PostgresErrors` validation mapping in source.py).
+# NOT added to `get_non_retryable_errors` (see source.py). The Supavisor matches are on the stable
+# "max clients reached in session mode" / "max client connections reached" phrases, excluding the
+# volatile pool_size/limit numbers and the "(EMAXCONNSESSION)" / "(EMAXCONN)" codes (mirrors the
+# `PostgresErrors` validation mapping in source.py).
 _CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
     "sorry, too many clients already",
     "remaining connection slots are reserved",
     "too many connections for role",
     "max clients reached in session mode",
+    "max client connections reached",
 )
 
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
@@ -2533,6 +2539,10 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
         logger.debug(f"EXPLAIN raised an exception: {e}")
 
 
+KEYSET_PLAN_WARNING_MIN_ROWS = 100_000
+_PLAN_ROWS_ESTIMATE = re.compile(r"\brows=(\d+)")
+
+
 def _check_keyset_page_plan(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger) -> None:
     """Warn when a keyset page is not reading an index in key order.
 
@@ -2555,8 +2565,22 @@ def _check_keyset_page_plan(cursor: psycopg.Cursor, query: sql.Composed, logger:
     # Only the outermost node matters — a sort *under* a LIMIT is the per-page cost this looks for,
     # and a seq scan means the key's index was not used at all.
     problems = [marker for marker in ("Seq Scan", "Sort ", "Sort\n", "Incremental Sort") if marker in plan]
-    if problems:
-        logger.warning(f"Keyset page not served by an index scan in key order: reason=bad_keyset_plan found={problems}")
+    if not problems:
+        return
+
+    # The largest node estimate is the rows past the seek key, which is close to the whole table on
+    # the first seeking page. Below the threshold, a seq scan or a sort is the planner's correct choice
+    # and costs nothing per page. Warning there would bury the large tables this check exists for. A
+    # plan without estimates still warns, because it cannot show that the table is small.
+    estimated_rows = max((int(rows) for rows in _PLAN_ROWS_ESTIMATE.findall(plan)), default=None)
+    if estimated_rows is not None and estimated_rows < KEYSET_PLAN_WARNING_MIN_ROWS:
+        logger.debug(f"Keyset page plan uses {problems} on a small table: estimated_rows={estimated_rows}")
+        return
+
+    logger.warning(
+        f"Keyset page not served by an index scan in key order: reason=bad_keyset_plan "
+        f"found={problems} estimated_rows={estimated_rows}"
+    )
 
 
 def _get_primary_keys(

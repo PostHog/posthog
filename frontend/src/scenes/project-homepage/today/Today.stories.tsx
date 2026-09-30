@@ -40,7 +40,7 @@ const SPACES = [
         name: 'checkout',
         channel_type: 'public',
         github_integration: null,
-        repositories: [],
+        repositories: ['example-org/web', 'example-org/billing'],
         auto_archive_after_days: null,
         created_at: '2026-09-02T09:00:00Z',
         starred: true,
@@ -71,7 +71,10 @@ const PINNED_SESSIONS = [
         title: 'Fix the flaky checkout test',
         archived: false,
         last_activity_at: '2026-09-28T17:40:00Z',
-        latest_run: { status: 'in_progress' },
+        latest_run: { status: 'in_progress', environment: 'cloud', output: null },
+        description_preview: 'The checkout test fails about once in ten runs. Find the race and make the test stable.',
+        repository: 'example-org/webapp',
+        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
     },
 ]
 
@@ -82,14 +85,25 @@ const RECENT_SESSIONS = [
         title: 'Add a retry to the billing webhook',
         archived: false,
         last_activity_at: '2026-09-28T18:05:00Z',
-        latest_run: { status: 'completed' },
+        latest_run: {
+            id: 'run-1',
+            status: 'completed',
+            environment: 'cloud',
+            output: { pr_url: 'https://github.com/example-org/webapp/pull/421' },
+        },
+        description_preview: 'Retry the billing webhook three times with a backoff before it reports a failure.',
+        repository: 'example-org/webapp',
+        created_by: { id: 179, first_name: 'John', last_name: 'Baker', email: 'john@example.com' },
     },
     {
         id: 'task-2',
         title: 'Investigate the drop in trial starts',
         archived: false,
         last_activity_at: '2026-09-27T11:20:00Z',
-        latest_run: { status: 'failed' },
+        latest_run: { status: 'failed', environment: 'cloud', output: null },
+        description_preview: 'Trial starts dropped last week. Find the step where people leave.',
+        repository: null,
+        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
     },
 ]
 
@@ -176,11 +190,15 @@ const meta: Meta = {
                     },
                 ],
                 '/api/projects/:team_id/task_channels/': SPACES,
+                '/api/projects/:team_id/task_channels/:id/': (req) => [
+                    200,
+                    SPACES.find((space) => space.id === req.params.id) ?? SPACES[0],
+                ],
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const results = params.get('pinned')
                         ? PINNED_SESSIONS
-                        : params.get('created_by')
+                        : params.get('created_by') || params.get('channel') === 'space-checkout'
                           ? RECENT_SESSIONS
                           : []
                     return [200, { results, count: results.length, next: null, previous: null }]
@@ -200,7 +218,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-09-28 18:30:00',
         pageUrl: urls.projectHomepage(),
-        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS],
         testOptions: { waitForLoadersToDisappear: true },
     },
 }
@@ -246,6 +264,18 @@ export const SpacesPane: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
     },
+}
+
+export const SpacePage: Story = {
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+export const SpacesBrowse: Story = {
+    parameters: { pageUrl: urls.taskSpaces() },
+}
+
+export const SpaceSettingsTab: Story = {
+    parameters: { pageUrl: urls.taskSpaceSettings('space-checkout') },
 }
 
 export const LibraryAllObjects: Story = {

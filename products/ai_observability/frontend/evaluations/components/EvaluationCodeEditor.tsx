@@ -6,6 +6,7 @@ import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon
 
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { useOpenAi } from '~/scenes/max/useOpenAi'
 import { urls } from '~/scenes/urls'
 
@@ -372,6 +373,7 @@ export function EvaluationCodeEditor(): JSX.Element {
     const { evaluation, hogTestResultsLoading } = useValues(llmEvaluationLogic)
     const { setHogSource, setAllowsNA, testHogOnSample } = useActions(llmEvaluationLogic)
     const { openAi } = useOpenAi()
+    const { todayRailEnabled } = useValues(todayShellLogic)
 
     if (!evaluation || evaluation.evaluation_type !== 'hog') {
         return <div>Loading...</div>
@@ -430,25 +432,27 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 Test on sample
                             </LemonButton>
                         </Tooltip>
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            icon={<IconSparkles />}
-                            onClick={() =>
-                                openAi('Help me write Hog evaluation code for this evaluation', {
-                                    evaluation: {
-                                        id: evaluation.id,
-                                        name: evaluation.name,
-                                        description: evaluation.description,
-                                        evaluation_type: evaluation.evaluation_type,
-                                        hog_source: evaluation.evaluation_config.source,
-                                    },
-                                })
-                            }
-                            data-attr="llma-evaluation-generate-with-ai"
-                        >
-                            Generate with AI
-                        </LemonButton>
+                        {!todayRailEnabled && (
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconSparkles />}
+                                onClick={() =>
+                                    openAi('Help me write Hog evaluation code for this evaluation', {
+                                        evaluation: {
+                                            id: evaluation.id,
+                                            name: evaluation.name,
+                                            description: evaluation.description,
+                                            evaluation_type: evaluation.evaluation_type,
+                                            hog_source: evaluation.evaluation_config.source,
+                                        },
+                                    })
+                                }
+                                data-attr="llma-evaluation-generate-with-ai"
+                            >
+                                Generate with AI
+                            </LemonButton>
+                        )}
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Expected output:</span>

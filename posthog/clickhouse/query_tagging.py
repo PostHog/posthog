@@ -129,6 +129,7 @@ class Feature(StrEnum):
     EVENTS_VALUES_API = "events_values_api"
     SESSIONS_VALUES_API = "sessions_values_api"
     USAGE_REPORT = "usage_report"
+    API_QUERIES_BUDGET = "api_queries_budget"
     DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"

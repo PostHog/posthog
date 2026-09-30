@@ -35,7 +35,13 @@ import { OnboardingReplayButton } from '../../../components/onboarding/Onboardin
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
-export function TaskComposer(): JSX.Element {
+export interface TaskComposerProps {
+    /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
+    variant?: 'page' | 'inline'
+}
+
+export function TaskComposer({ variant = 'page' }: TaskComposerProps): JSX.Element {
+    const inline = variant === 'inline'
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
     const {
@@ -82,13 +88,23 @@ export function TaskComposer(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
-            <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
-                    {/* Temporary migration affordance — delete with the rest of the onboarding takeover
-                        once everyone is on the new PostHog AI. */}
-                    {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
-                </Welcome>
+        <div
+            className={
+                inline
+                    ? 'flex flex-col'
+                    : 'flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4'
+            }
+        >
+            <div
+                className={inline ? 'w-full flex flex-col gap-4' : 'w-full max-w-2xl flex flex-col items-center gap-4'}
+            >
+                {!inline && (
+                    <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
+                        {/* Temporary migration affordance — delete with the rest of the onboarding takeover
+                            once everyone is on the new PostHog AI. */}
+                        {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
+                    </Welcome>
+                )}
 
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}
