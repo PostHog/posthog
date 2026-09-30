@@ -13,6 +13,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.pull_request_timelines import query_pull_request_timelines
+from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import pr_friction
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
@@ -246,6 +247,21 @@ class TestPRFrictionView(_WarehouseMixin):
             self._seed_depot_ci()
         self._seed()
         rows = self._view_rows()
+
+        if not with_depot_ci:
+            [source] = resolve_job_source_tables(self.team)
+            assert source.pull_requests is not None
+            raw_query = pr_friction.build_query(
+                source_id=source.source_id,
+                pull_requests_table=source.pull_requests,
+                workflow_runs_table=source.github_workflow_runs,
+                workflow_jobs_table=source.github_workflow_jobs,
+                issue_events_table=source.issue_events,
+                reviews_table=source.reviews,
+            )
+            response = execute_hogql_query(query=f"SELECT * FROM ({raw_query})", team=self.team)
+            assert {row[2]: dict(zip(response.columns, row)) for row in response.results} == rows
+
         timelines = query_pull_request_timelines(
             curated=CuratedGitHubSource.for_team(self.team),
             scope=DeliveryScope(kind=DeliveryScopeKind.AUTHOR, author="alice"),
