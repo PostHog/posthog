@@ -3,7 +3,13 @@ import type {
   SignalReportOrderingField,
   SignalReportPriority,
   SignalReportStatus,
+  SignalReportsQueryParams,
 } from "@posthog/shared/types";
+import {
+  INBOX_SCOPE_FOR_YOU,
+  type InboxScope,
+  parseTeammateInboxScope,
+} from "./reportMembership";
 
 export const INBOX_PIPELINE_STATUSES = [
   "ready",
@@ -136,6 +142,29 @@ export function buildArchiveListOrdering(
   return direction === "desc" ? `-${field}` : field;
 }
 
+/**
+ * Merges rows from separate relevance-sorted responses into one list by the
+ * server's `relevance_key`. Rows without a key keep their order after the
+ * keyed rows, so an older server degrades to the order it sent.
+ */
+export function sortReportsByRelevanceKey(
+  reports: SignalReport[],
+): SignalReport[] {
+  const keyed: SignalReport[] = [];
+  const unkeyed: SignalReport[] = [];
+  for (const report of reports) {
+    if (report.personal_inbox?.relevance_key != null) keyed.push(report);
+    else unkeyed.push(report);
+  }
+  // Plain code-unit compare, not localeCompare: the key is an ordinal string.
+  keyed.sort((left, right) => {
+    const a = left.personal_inbox?.relevance_key ?? "";
+    const b = right.personal_inbox?.relevance_key ?? "";
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+  return [...keyed, ...unkeyed];
+}
+
 const PRIORITY_RANK: Record<SignalReportPriority, number> = {
   P0: 0,
   P1: 1,
@@ -195,4 +224,86 @@ export function buildPriorityFilterParam(
     return undefined;
   }
   return Array.from(new Set(priorities)).join(",");
+}
+
+export type InboxScopeParams = Pick<
+  SignalReportsQueryParams,
+  "scope" | "suggested_reviewers"
+>;
+
+/**
+ * Reviewer-scope params for the report list and its counts. Lists and counts
+ * must share these, or a badge counts rows its list never shows.
+ *
+ * `ready` is false while the legacy For you still waits for the current user's
+ * uuid. With the personal inbox on, the server resolves the viewer itself.
+ */
+export function buildInboxScopeParams(input: {
+  /** Null skips the scope, for surfaces that list the whole project. */
+  scope: InboxScope | null;
+  personalInboxEnabled: boolean;
+  currentUserUuid: string | null;
+}): { params: InboxScopeParams; ready: boolean } {
+  const { scope, personalInboxEnabled, currentUserUuid } = input;
+  if (scope == null) return { params: {}, ready: true };
+  const teammateUuid = parseTeammateInboxScope(scope);
+  if (teammateUuid) {
+    return {
+      params: {
+        suggested_reviewers: buildSuggestedReviewerFilterParam([teammateUuid]),
+      },
+      ready: true,
+    };
+  }
+  if (scope !== INBOX_SCOPE_FOR_YOU) return { params: {}, ready: true };
+  if (personalInboxEnabled) return { params: { scope: "for_me" }, ready: true };
+  return {
+    params: {
+      suggested_reviewers: currentUserUuid
+        ? buildSuggestedReviewerFilterParam([currentUserUuid])
+        : undefined,
+    },
+    ready: currentUserUuid != null,
+  };
+}
+
+/**
+ * The user's sort choice. Null means they have not picked one, so For you
+ * with the personal inbox on defaults to relevance.
+ */
+export type InboxSortChoice = "relevance" | "field" | null;
+
+/** Whether relevance order applies. Only the personal For you list offers it. */
+export function isInboxRelevanceSortActive(input: {
+  personalInboxEnabled: boolean;
+  scope: InboxScope | null;
+  sortChoice: InboxSortChoice;
+}): boolean {
+  return (
+    input.personalInboxEnabled &&
+    input.scope === INBOX_SCOPE_FOR_YOU &&
+    input.sortChoice !== "field"
+  );
+}
+
+/**
+ * Order params for the report list. Relevance goes out only with
+ * `scope=for_me`, because the server rejects it for any other scope, and
+ * without `ordering`, which would override it.
+ */
+export function buildInboxOrderParams(input: {
+  scopeParams: InboxScopeParams;
+  sortChoice: InboxSortChoice;
+  field: SignalReportOrderingField;
+  direction: "asc" | "desc";
+  groupByStatus: boolean;
+}): Pick<SignalReportsQueryParams, "ordering" | "sort"> {
+  if (input.scopeParams.scope === "for_me" && input.sortChoice !== "field") {
+    return { sort: "relevance" };
+  }
+  return {
+    ordering: input.groupByStatus
+      ? buildSignalReportListOrdering(input.field, input.direction)
+      : buildArchiveListOrdering(input.field, input.direction),
+  };
 }

@@ -2,6 +2,8 @@ import type { SignalReport, SignalReportPriority } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
   buildArchiveListOrdering,
+  buildInboxOrderParams,
+  buildInboxScopeParams,
   buildPriorityFilterParam,
   buildSignalReportListOrdering,
   buildSuggestedReviewerFilterParam,
@@ -9,8 +11,16 @@ import {
   INBOX_PIPELINE_STATUS_FILTER,
   INBOX_PIPELINE_STATUSES,
   INBOX_REFETCH_INTERVAL_MS,
+  isInboxRelevanceSortActive,
   sortInboxReports,
+  sortReportsByRelevanceKey,
 } from "./reportFiltering";
+import {
+  INBOX_SCOPE_ENTIRE_PROJECT,
+  INBOX_SCOPE_FOR_YOU,
+  type InboxScope,
+  teammateInboxScope,
+} from "./reportMembership";
 
 describe("inbox pipeline statuses", () => {
   it("derives the API filter from the typed status list", () => {
@@ -228,5 +238,150 @@ describe("buildPriorityFilterParam", () => {
     },
   ])("buildPriorityFilterParam($input) → $expected", ({ input, expected }) => {
     expect(buildPriorityFilterParam(input)).toBe(expected);
+  });
+});
+
+describe("personal inbox list params", () => {
+  function listParams(input: {
+    scope: InboxScope | null;
+    personalInboxEnabled: boolean;
+    sortChoice?: "relevance" | "field" | null;
+  }) {
+    const scoped = buildInboxScopeParams({
+      scope: input.scope,
+      personalInboxEnabled: input.personalInboxEnabled,
+      currentUserUuid: "user-1",
+    });
+    return {
+      ...scoped.params,
+      ...buildInboxOrderParams({
+        scopeParams: scoped.params,
+        sortChoice: input.sortChoice ?? null,
+        field: "priority",
+        direction: "asc",
+        groupByStatus: true,
+      }),
+    };
+  }
+
+  it.each([
+    {
+      name: "flag on, For you, default sort asks for the ranked personal inbox",
+      input: { scope: INBOX_SCOPE_FOR_YOU, personalInboxEnabled: true },
+      expected: { scope: "for_me", sort: "relevance" },
+    },
+    {
+      name: "flag on, For you, explicit field sort keeps it",
+      input: {
+        scope: INBOX_SCOPE_FOR_YOU,
+        personalInboxEnabled: true,
+        sortChoice: "field" as const,
+      },
+      expected: { scope: "for_me", ordering: "status,priority,-created_at" },
+    },
+    {
+      name: "flag on, entire project never sends relevance",
+      input: {
+        scope: INBOX_SCOPE_ENTIRE_PROJECT,
+        personalInboxEnabled: true,
+        sortChoice: "relevance" as const,
+      },
+      expected: { ordering: "status,priority,-created_at" },
+    },
+    {
+      name: "flag on, teammate keeps the reviewer filter and field order",
+      input: {
+        scope: teammateInboxScope("mate-1"),
+        personalInboxEnabled: true,
+        sortChoice: "relevance" as const,
+      },
+      expected: {
+        suggested_reviewers: "mate-1",
+        ordering: "status,priority,-created_at",
+      },
+    },
+    {
+      name: "flag off, For you stays on the reviewer filter",
+      input: {
+        scope: INBOX_SCOPE_FOR_YOU,
+        personalInboxEnabled: false,
+        sortChoice: "relevance" as const,
+      },
+      expected: {
+        suggested_reviewers: "user-1",
+        ordering: "status,priority,-created_at",
+      },
+    },
+    {
+      name: "ignored scope sends neither",
+      input: { scope: null, personalInboxEnabled: true },
+      expected: { ordering: "status,priority,-created_at" },
+    },
+  ])("$name", ({ input, expected }) => {
+    expect(listParams(input)).toStrictEqual(expected);
+  });
+
+  it("waits for the user only on the legacy For you", () => {
+    const base = { scope: INBOX_SCOPE_FOR_YOU, currentUserUuid: null };
+    expect(
+      buildInboxScopeParams({ ...base, personalInboxEnabled: false }).ready,
+    ).toBe(false);
+    expect(
+      buildInboxScopeParams({ ...base, personalInboxEnabled: true }).ready,
+    ).toBe(true);
+  });
+
+  it.each([
+    [true, INBOX_SCOPE_FOR_YOU, null, true],
+    [true, INBOX_SCOPE_FOR_YOU, "relevance", true],
+    [true, INBOX_SCOPE_FOR_YOU, "field", false],
+    [true, INBOX_SCOPE_ENTIRE_PROJECT, "relevance", false],
+    [false, INBOX_SCOPE_FOR_YOU, "relevance", false],
+  ] as const)(
+    "relevance active: flag %s, scope %s, choice %s -> %s",
+    (personalInboxEnabled, scope, sortChoice, expected) => {
+      expect(
+        isInboxRelevanceSortActive({ personalInboxEnabled, scope, sortChoice }),
+      ).toBe(expected);
+    },
+  );
+});
+
+describe("sortReportsByRelevanceKey", () => {
+  function ranked(id: string, relevanceKey?: string): SignalReport {
+    return makeReport({
+      id,
+      personal_inbox: {
+        reasons: ["suggested_reviewer"],
+        action_state: "action_available",
+        next_action: null,
+        observed_at: null,
+        policy_version: "personal-inbox-v1",
+        relevance_key: relevanceKey,
+      },
+    });
+  }
+
+  it("merges two responses into the server's order, unkeyed rows last in place", () => {
+    const pullRequests = [ranked("pr-a", "0|1"), ranked("pr-b", "1|0")];
+    const decisions = [
+      ranked("decision-a", "0|0"),
+      makeReport({ id: "old-server" }),
+      ranked("decision-b", "0|2"),
+      ranked("no-key"),
+    ];
+
+    expect(
+      sortReportsByRelevanceKey([...pullRequests, ...decisions]).map(
+        (report) => report.id,
+      ),
+    ).toEqual([
+      "decision-a",
+      "pr-a",
+      "decision-b",
+      "pr-b",
+      "old-server",
+      "no-key",
+    ]);
   });
 });

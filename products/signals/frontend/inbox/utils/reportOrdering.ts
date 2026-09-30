@@ -1,4 +1,4 @@
-import type { InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
+import type { InboxSortDirection, InboxListSortField } from '../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../types'
 
 /**
@@ -46,11 +46,27 @@ function timestampKey(value: string): string {
     return value.includes('.') ? value : value.replace(/(Z|[+-]\d\d:?\d\d)$/, '.000000$1')
 }
 
+/**
+ * Orders by the server's relevance key, which encodes the whole ranking, so the client never
+ * re-derives it. Rows without a key sort last and keep their input order.
+ */
+function compareByRelevance(a: SignalReport, b: SignalReport): number {
+    const keyA = a.personal_inbox?.relevance_key
+    const keyB = b.personal_inbox?.relevance_key
+    if (keyA == null || keyB == null) {
+        return keyA == null ? (keyB == null ? 0 : 1) : -1
+    }
+    return compareStrings(keyA, keyB)
+}
+
 /** Comparator over reports for the given sort selection. Stable input order breaks remaining ties. */
 export function compareSignalReports(
-    field: InboxSortField,
+    field: InboxListSortField,
     direction: InboxSortDirection
 ): (a: SignalReport, b: SignalReport) => number {
+    if (field === 'relevance') {
+        return compareByRelevance
+    }
     const dir = direction === 'desc' ? -1 : 1
     return (a, b) => {
         const primary =

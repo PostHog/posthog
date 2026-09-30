@@ -58,6 +58,21 @@ export const Narrow: Story = {
   decorators: [containerAt(420)],
 };
 
+/** Personal inbox row: the viewer's next step, with why the report is theirs on hover. */
+export const PersonalInboxNextStep: Story = {
+  args: {
+    report: report({
+      personal_inbox: {
+        reasons: ["suggested_reviewer", "claimed"],
+        action_state: "action_available",
+        next_action: { kind: "review_pr", pull_request_url: null },
+        observed_at: "2026-08-06T10:00:00Z",
+        policy_version: "personal-inbox-v1",
+      },
+    }),
+  },
+};
+
 /** Still-researching report: no headline yet, dimmed status. */
 export const Pending: Story = {
   args: {

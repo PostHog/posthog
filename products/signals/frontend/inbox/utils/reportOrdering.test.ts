@@ -1,5 +1,19 @@
+import type { PersonalInboxEntryApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { SignalReport, SignalReportStatus } from '../types'
 import { compareSignalReports } from './reportOrdering'
+
+function personal(overrides: Partial<PersonalInboxEntryApi>): PersonalInboxEntryApi {
+    return {
+        reasons: ['suggested_reviewer'],
+        action_state: 'action_available',
+        next_action: null,
+        observed_at: null,
+        policy_version: 'personal-inbox-v1',
+        relevance_key: '',
+        ...overrides,
+    }
+}
 
 function report(id: string, overrides: Partial<SignalReport>): SignalReport {
     return {
@@ -52,6 +66,22 @@ describe('compareSignalReports', () => {
         ]
         rows.sort(compareSignalReports('created_at', 'desc'))
         expect(rows.map((r) => r.id)).toEqual(['new-ready', 'new-resolved', 'old-resolved'])
+    })
+
+    // Each per-state response is ranked by the server. The merge interleaves them by the server's
+    // key, and a row without one goes last.
+    it('merges relevance rows from two responses by the server key', () => {
+        const needsDecision = [
+            report('nd-1', { personal_inbox: personal({ relevance_key: '0|a' }) }),
+            report('nd-2', { personal_inbox: personal({ relevance_key: '2|a' }) }),
+        ]
+        const monitoring = [
+            report('mon-no-key', { personal_inbox: null }),
+            report('mon-1', { personal_inbox: personal({ relevance_key: '1|a' }) }),
+            report('mon-2', { personal_inbox: personal({ relevance_key: '3|a' }) }),
+        ]
+        const rows = [...needsDecision, ...monitoring].sort(compareSignalReports('relevance', 'asc'))
+        expect(rows.map((r) => r.id)).toEqual(['nd-1', 'mon-1', 'nd-2', 'mon-2', 'mon-no-key'])
     })
 
     // DRF omits the fractional seconds when the microseconds are zero, and plain string order then

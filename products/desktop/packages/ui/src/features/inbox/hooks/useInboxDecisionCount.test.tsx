@@ -11,6 +11,9 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
     getSignalReports: mockGetSignalReports,
   }),
 }));
+vi.mock("@posthog/ui/features/feature-flags/usePersonalInboxEnabled", () => ({
+  usePersonalInboxEnabled: () => false,
+}));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   AUTH_SCOPED_QUERY_META: {},
   useCurrentUser: () => ({ data: null }),

@@ -1,6 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type PersonalInboxEntryApi,
     type ReportChartApi,
     type ReportMetricApi,
     type SignalReportPullRequestApi,
@@ -137,6 +138,8 @@ export interface SignalReport {
     billing_exempt_reason?: string | null
     /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
     refund_ineligibility_reason?: string | null
+    /** Why the report is in the viewer's personal inbox and what they can do next. Only set on personal inbox lists. */
+    personal_inbox?: PersonalInboxEntryApi | null
 }
 
 export enum SignalReportStatus {

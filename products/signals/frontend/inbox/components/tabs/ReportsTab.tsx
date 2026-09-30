@@ -176,12 +176,14 @@ function ReportsEmptyState(): JSX.Element {
     )
 }
 
-function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
+function emptyListCopy(scope: InboxScope, narrowed: boolean, personalInbox: boolean): string {
     if (narrowed) {
         return 'No reports match the current filters.'
     }
     if (scope === INBOX_SCOPE_FOR_YOU) {
-        return 'No reports suggested for you yet. Switch the scope to see the entire project.'
+        return personalInbox
+            ? 'Nothing needs you right now. Switch the scope to see the entire project.'
+            : 'No reports suggested for you yet. Switch the scope to see the entire project.'
     }
     return 'No reports here yet.'
 }
@@ -198,7 +200,8 @@ export function ReportsTab(): JSX.Element {
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
-    const { hasActiveFilters, visibleStateFilter, scope, sortField, sortDirection } = useValues(inboxFiltersLogic)
+    const { hasActiveFilters, visibleStateFilter, scope, activeSort, isPersonalInboxEnabled } =
+        useValues(inboxFiltersLogic)
     const sections = useSectionStates()
     useInboxViewedEvent(sections)
 
@@ -227,7 +230,7 @@ export function ReportsTab(): JSX.Element {
         InboxReportSectionKey,
         SignalReport[]
     >
-    const rows = mergeReportRows(reportsBySection, selectedSections, sortField, sortDirection)
+    const rows = mergeReportRows(reportsBySection, selectedSections, activeSort.field, activeSort.direction)
     useReportImpressions(rows, selectedSections)
     // Multi-select ranges over this order, and drops any id the merged list no longer holds.
     useSelectableReportList(rows.map(({ report }) => report.id))
@@ -352,7 +355,9 @@ export function ReportsTab(): JSX.Element {
                         </LemonButton>
                     </div>
                 ) : (
-                    <p className="px-1 py-2 text-sm text-tertiary">{emptyListCopy(scope, narrowed)}</p>
+                    <p className="px-1 py-2 text-sm text-tertiary">
+                        {emptyListCopy(scope, narrowed, isPersonalInboxEnabled)}
+                    </p>
                 )
             ) : (
                 <div className="@container flex flex-col gap-1.5">

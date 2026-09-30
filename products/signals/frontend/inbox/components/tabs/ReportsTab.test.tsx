@@ -251,6 +251,7 @@ describe('ReportsTab', () => {
             stateFilter: ['not-actionable'],
             sortField: 'priority',
             sortDirection: 'asc',
+            hasUserChosenSort: false,
             searchQuery: '',
         })
 

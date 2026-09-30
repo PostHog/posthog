@@ -2115,12 +2115,14 @@ describe("PostHogAPIClient", () => {
         client.getSignalReports({
           actionability: "immediately_actionable,requires_human_input",
           count_only: true,
+          scope: "for_me",
+          sort: "relevance",
         }),
       ).resolves.toEqual({ count: 3, results: [] });
 
       const request = fetch.mock.calls[0]?.[0] as { url: URL };
       expect(request.url.toString()).toBe(
-        "http://localhost:8000/api/projects/123/signals/reports/?actionability=immediately_actionable%2Crequires_human_input&count_only=true",
+        "http://localhost:8000/api/projects/123/signals/reports/?scope=for_me&sort=relevance&actionability=immediately_actionable%2Crequires_human_input&count_only=true",
       );
     });
   });

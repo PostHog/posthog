@@ -8,6 +8,7 @@ import {
   LifebuoyIcon,
   ListNumbers,
   PlugIcon,
+  SparkleIcon,
   TrendUp,
   VideoIcon,
 } from "@phosphor-icons/react";
@@ -150,6 +151,27 @@ export const INBOX_SORT_MENU_OPTIONS: readonly FilterOption<string>[] =
     label: option.label,
     icon: option.icon,
   }));
+
+/** Server-ranked order. Only the personal For you list can ask for it. */
+export const INBOX_RELEVANCE_SORT_KEY = "relevance";
+
+export const INBOX_RELEVANCE_SORT_MENU_OPTION: FilterOption<string> = {
+  value: INBOX_RELEVANCE_SORT_KEY,
+  label: "Most relevant first",
+  icon: <SparkleIcon size={14} />,
+};
+
+const INBOX_SORT_MENU_OPTIONS_WITH_RELEVANCE: readonly FilterOption<string>[] =
+  [INBOX_RELEVANCE_SORT_MENU_OPTION, ...INBOX_SORT_MENU_OPTIONS];
+
+/** Sort rows for a surface, with relevance first when the list can use it. */
+export function inboxSortMenuOptions(
+  relevanceAvailable: boolean,
+): readonly FilterOption<string>[] {
+  return relevanceAvailable
+    ? INBOX_SORT_MENU_OPTIONS_WITH_RELEVANCE
+    : INBOX_SORT_MENU_OPTIONS;
+}
 
 export function inboxSortOptionFromKey(
   key: string,

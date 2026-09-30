@@ -1,4 +1,7 @@
-import { INBOX_SCOPE_ENTIRE_PROJECT } from "@posthog/core/inbox/reportMembership";
+import {
+  INBOX_SCOPE_ENTIRE_PROJECT,
+  INBOX_SCOPE_FOR_YOU,
+} from "@posthog/core/inbox/reportMembership";
 import type {
   SignalReport,
   SignalReportsQueryParams,
@@ -19,6 +22,13 @@ const mockClient = vi.hoisted(() => ({
 }));
 const filterMocks = vi.hoisted(() => ({
   sourceProductFilter: [] as string[],
+  sortChoice: null as "relevance" | "field" | null,
+  scope: "entire-project" as string,
+  personalInboxEnabled: false,
+}));
+
+vi.mock("@posthog/ui/features/feature-flags/usePersonalInboxEnabled", () => ({
+  usePersonalInboxEnabled: () => filterMocks.personalInboxEnabled,
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -33,7 +43,7 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
 vi.mock("@posthog/ui/features/inbox/stores/inboxReviewerScopeStore", () => ({
   useInboxReviewerScopeStore: (
     selector: (state: { scope: string }) => unknown,
-  ) => selector({ scope: INBOX_SCOPE_ENTIRE_PROJECT }),
+  ) => selector({ scope: filterMocks.scope }),
 }));
 
 vi.mock("@posthog/ui/features/inbox/stores/inboxSignalsFilterStore", () => ({
@@ -42,6 +52,7 @@ vi.mock("@posthog/ui/features/inbox/stores/inboxSignalsFilterStore", () => ({
       searchQuery: "",
       sortField: "priority",
       sortDirection: "desc",
+      sortChoice: filterMocks.sortChoice,
       sourceProductFilter: filterMocks.sourceProductFilter,
       priorityFilter: [],
       prFilter: "all",
@@ -118,6 +129,7 @@ function renderCounts(options?: {
   hasImplementationPr?: boolean;
   actionabilityFilter?: string;
   withPullRequestCount?: boolean;
+  allowRelevanceSort?: boolean;
 }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -132,6 +144,9 @@ describe("useInboxAllReports", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     filterMocks.sourceProductFilter = [];
+    filterMocks.sortChoice = null;
+    filterMocks.scope = INBOX_SCOPE_ENTIRE_PROJECT;
+    filterMocks.personalInboxEnabled = false;
     mockGetSignalReports.mockImplementation(async (params) =>
       fakeServer(params),
     );
@@ -226,5 +241,58 @@ describe("useInboxAllReports", () => {
     expect(
       mockGetSignalReports.mock.calls.some(([params]) => params?.count_only),
     ).toBe(false);
+  });
+
+  describe("personal inbox", () => {
+    function countParams(): SignalReportsQueryParams[] {
+      return mockGetSignalReports.mock.calls
+        .map(([params]) => params as SignalReportsQueryParams)
+        .filter((params) => params?.count_only);
+    }
+
+    it("asks the server for the ranked personal inbox, and counts the same rows", async () => {
+      filterMocks.personalInboxEnabled = true;
+      filterMocks.scope = INBOX_SCOPE_FOR_YOU;
+
+      renderCounts({ allowRelevanceSort: true, withReportsCount: true });
+
+      await waitFor(() => expect(countParams()).toHaveLength(2));
+      const list = pipelineRequests()[0];
+      expect(list).toMatchObject({ scope: "for_me", sort: "relevance" });
+      expect(list?.ordering).toBeUndefined();
+      expect(list?.suggested_reviewers).toBeUndefined();
+      for (const params of countParams()) {
+        expect(params.scope).toBe("for_me");
+        expect(params.suggested_reviewers).toBeUndefined();
+      }
+    });
+
+    it("never sends relevance outside For you", async () => {
+      filterMocks.personalInboxEnabled = true;
+      filterMocks.sortChoice = "relevance";
+
+      renderCounts({ allowRelevanceSort: true });
+
+      await waitFor(() => expect(pipelineRequests()).toHaveLength(1));
+      expect(pipelineRequests()[0]?.sort).toBeUndefined();
+      expect(pipelineRequests()[0]?.scope).toBeUndefined();
+      expect(pipelineRequests()[0]?.ordering).toBe(
+        "status,-priority,-created_at",
+      );
+    });
+
+    it("keeps the reviewer filter and field order with the flag off", async () => {
+      filterMocks.scope = INBOX_SCOPE_FOR_YOU;
+
+      renderCounts({ allowRelevanceSort: true });
+
+      await waitFor(() => expect(pipelineRequests()).toHaveLength(1));
+      expect(pipelineRequests()[0]).toMatchObject({
+        suggested_reviewers: "user-1",
+        ordering: "status,-priority,-created_at",
+      });
+      expect(pipelineRequests()[0]?.scope).toBeUndefined();
+      expect(pipelineRequests()[0]?.sort).toBeUndefined();
+    });
   });
 });

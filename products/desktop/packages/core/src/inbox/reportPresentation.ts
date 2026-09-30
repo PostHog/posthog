@@ -1,5 +1,8 @@
 import type {
   SignalReportActionability,
+  SignalReportPersonalInbox,
+  SignalReportPersonalInboxNextActionKind,
+  SignalReportPersonalInboxReason,
   SignalReportStatus,
 } from "@posthog/shared/types";
 
@@ -261,4 +264,47 @@ export function splitReportSummary(
     });
   }
   return { lede: lede.join("\n").trim(), sections };
+}
+
+const PERSONAL_NEXT_ACTION_LABELS: Record<
+  SignalReportPersonalInboxNextActionKind,
+  string
+> = {
+  review_finding: "Review finding",
+  answer_question: "Answer question",
+  review_pr: "Review PR",
+  check_pr: "Check PR status",
+  resolve_blocker: "Resolve blocker",
+  continue_work: "Continue work",
+};
+
+/**
+ * The viewer's next step on a personal inbox row, or null when there is none
+ * to show (closed, or a value this build does not know).
+ */
+export function personalInboxNextStepLabel(
+  personalInbox: SignalReportPersonalInbox | null | undefined,
+): string | null {
+  if (!personalInbox || personalInbox.action_state === "closed") return null;
+  if (personalInbox.next_action) {
+    return PERSONAL_NEXT_ACTION_LABELS[personalInbox.next_action.kind] ?? null;
+  }
+  if (personalInbox.action_state === "waiting") return "Waiting";
+  if (personalInbox.action_state === "unknown") return "State unknown";
+  return null;
+}
+
+const PERSONAL_REASON_TEXT: Record<SignalReportPersonalInboxReason, string> = {
+  suggested_reviewer: "You're a suggested reviewer.",
+  claimed: "You claimed this.",
+};
+
+/** Why the report is in the viewer's inbox, one sentence per reason. */
+export function personalInboxReasonText(
+  personalInbox: SignalReportPersonalInbox | null | undefined,
+): string | null {
+  const sentences = (personalInbox?.reasons ?? [])
+    .map((reason) => PERSONAL_REASON_TEXT[reason])
+    .filter(Boolean);
+  return sentences.length > 0 ? sentences.join(" ") : null;
 }

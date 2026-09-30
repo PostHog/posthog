@@ -1,13 +1,11 @@
 import {
+  buildInboxScopeParams,
   buildPriorityFilterParam,
-  buildSuggestedReviewerFilterParam,
 } from "@posthog/core/inbox/reportFiltering";
-import {
-  INBOX_SCOPE_FOR_YOU,
-  parseTeammateInboxScope,
-} from "@posthog/core/inbox/reportMembership";
+import { INBOX_SCOPE_FOR_YOU } from "@posthog/core/inbox/reportMembership";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { usePersonalInboxEnabled } from "@posthog/ui/features/feature-flags/usePersonalInboxEnabled";
 import { useInboxReports } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
@@ -32,16 +30,18 @@ export function useInboxDecisionCount(options?: {
   const priorityFilter = useInboxSignalsFilterStore((state) =>
     ignoreFilters ? EMPTY_FILTER_ARRAY : state.priorityFilter,
   );
+  const personalInboxEnabled = usePersonalInboxEnabled();
   const isForYou = scope === INBOX_SCOPE_FOR_YOU;
-  const teammateUuid = parseTeammateInboxScope(scope);
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({
     client,
-    enabled: enabled && isForYou && teammateUuid === null,
+    enabled: enabled && isForYou && !personalInboxEnabled,
   });
-  const reviewerUuid =
-    teammateUuid ?? (isForYou ? (currentUser?.uuid ?? null) : null);
-  const scopeReady = !isForYou || reviewerUuid !== null;
+  const { params: scopeParams, ready: scopeReady } = buildInboxScopeParams({
+    scope,
+    personalInboxEnabled,
+    currentUserUuid: currentUser?.uuid ?? null,
+  });
   const query = useInboxReports(
     {
       status: "ready",
@@ -50,9 +50,7 @@ export function useInboxDecisionCount(options?: {
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
-      suggested_reviewers: reviewerUuid
-        ? buildSuggestedReviewerFilterParam([reviewerUuid])
-        : undefined,
+      ...scopeParams,
       count_only: true,
     },
     {

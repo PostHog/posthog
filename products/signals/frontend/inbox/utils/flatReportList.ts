@@ -1,4 +1,4 @@
-import type { InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
+import type { InboxSortDirection, InboxListSortField } from '../logics/inboxFiltersLogic'
 import {
     INBOX_REPORT_SECTION_KEYS,
     INBOX_STAFF_ONLY_REPORT_SECTION_KEYS,
@@ -42,7 +42,7 @@ export function selectedFlatListSections(
 export function mergeReportRows(
     reportsBySection: Record<InboxReportSectionKey, SignalReport[]>,
     selectedSections: InboxReportSectionKey[],
-    sortField: InboxSortField,
+    sortField: InboxListSortField,
     sortDirection: InboxSortDirection
 ): MergedReportRow[] {
     const seen = new Set<string>()

@@ -25,10 +25,11 @@ export function InboxPane({ className }: { className?: string }): ReactElement {
   const resetFilters = useInboxSignalsFilterStore(
     (state) => state.resetFilters,
   );
-  const oldestFirst = useInboxSignalsFilterStore(
+  const oldestFirstField = useInboxSignalsFilterStore(
     (state) =>
       state.sortField === "created_at" && state.sortDirection === "asc",
   );
+  const oldestFirst = oldestFirstField && !inbox.relevanceSort;
   // The report being read, taken from the location so the row stays marked
   // across a reload or a restored tab.
   const selectedReportId = useRouterState({
@@ -51,6 +52,8 @@ export function InboxPane({ className }: { className?: string }): ReactElement {
       isFetchingNextPage={inbox.isFetchingNextPage}
       hasNextPage={inbox.hasNextPage}
       hasActiveFilters={hasActiveFilters}
+      isError={inbox.isError}
+      personalInbox={inbox.isPersonalInbox}
       oldestFirst={oldestFirst}
       filterControl={
         <>
@@ -72,6 +75,7 @@ export function InboxPane({ className }: { className?: string }): ReactElement {
       )}
       onClearFilters={resetFilters}
       onLoadMore={inbox.loadMore}
+      onRetry={inbox.retry}
     />
   );
 }

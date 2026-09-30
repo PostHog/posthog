@@ -341,6 +341,85 @@ export const ReportCardStates: Story = {
     ),
 }
 
+const personalInboxReports: SignalReport[] = [
+    makeReport({
+        id: 'personal-review-finding',
+        title: 'Checkout button throws on Safari 17',
+        priority: 'P1',
+        source_products: ['error_tracking'],
+        personal_inbox: {
+            reasons: ['suggested_reviewer'],
+            action_state: 'action_available',
+            next_action: { kind: 'review_finding', pull_request_url: null },
+            observed_at: '2026-06-10T09:00:00Z',
+            policy_version: 'personal-inbox-v1',
+            relevance_key: '0',
+        },
+    }),
+    makeReport({
+        id: 'personal-answer-question',
+        title: 'Decide how trial users see the usage cap',
+        priority: 'P2',
+        status: SignalReportStatus.PENDING_INPUT,
+        actionability: 'requires_human_input',
+        source_products: ['conversations'],
+        personal_inbox: {
+            reasons: ['suggested_reviewer', 'claimed'],
+            action_state: 'action_available',
+            next_action: { kind: 'answer_question', pull_request_url: null },
+            observed_at: '2026-06-10T09:00:00Z',
+            policy_version: 'personal-inbox-v1',
+            relevance_key: '1',
+        },
+    }),
+    makeReport({
+        id: 'personal-waiting',
+        title: 'Agent is still researching the export timeout',
+        priority: 'P3',
+        status: SignalReportStatus.IN_PROGRESS,
+        source_products: ['llm_analytics'],
+        personal_inbox: {
+            reasons: ['claimed'],
+            action_state: 'waiting',
+            next_action: null,
+            observed_at: '2026-06-10T09:00:00Z',
+            policy_version: 'personal-inbox-v1',
+            relevance_key: '2',
+        },
+    }),
+    makeReport({
+        id: 'personal-unknown',
+        title: 'Report the change may already cover',
+        priority: 'P2',
+        source_products: ['github'],
+        personal_inbox: {
+            reasons: ['suggested_reviewer'],
+            action_state: 'unknown',
+            next_action: null,
+            observed_at: null,
+            policy_version: 'personal-inbox-v1',
+            relevance_key: '3',
+        },
+    }),
+]
+
+/** The next step on rows of the personal For-you inbox, at the list width and in a narrow scene. */
+export const PersonalInboxNextSteps: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_PERSONAL_INBOX] },
+    render: () => (
+        <CardList>
+            {personalInboxReports.map((report) => (
+                <ReportCard key={report.id} report={report} />
+            ))}
+            <div className="@container mt-4 flex w-[420px] flex-col gap-1.5">
+                {personalInboxReports.map((report) => (
+                    <ReportCard key={report.id} report={report} />
+                ))}
+            </div>
+        </CardList>
+    ),
+}
+
 export const Skeleton: Story = {
     // Skeletons render permanently, so the VR runner must not wait for loaders to disappear.
     parameters: { testOptions: { waitForLoadersToDisappear: false } },

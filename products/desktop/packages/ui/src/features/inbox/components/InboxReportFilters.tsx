@@ -13,13 +13,15 @@ import {
 } from "@posthog/quill";
 import {
   INBOX_PRIORITY_OPTIONS,
+  INBOX_RELEVANCE_SORT_KEY,
   INBOX_REPORT_STATE_OPTIONS,
-  INBOX_SORT_OPTIONS,
   inboxPriorityFilterLabel,
   inboxReportStateFilterLabel,
+  inboxSortMenuOptions,
   inboxSortOptionFromKey,
   inboxSortOptionKey,
 } from "@posthog/ui/features/inbox/filterOptions";
+import { useInboxRelevanceSort } from "@posthog/ui/features/inbox/hooks/useInboxRelevanceSort";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 
 export function InboxReportFilters(): React.JSX.Element {
@@ -28,6 +30,10 @@ export function InboxReportFilters(): React.JSX.Element {
     (state) => state.sortDirection,
   );
   const setSort = useInboxSignalsFilterStore((state) => state.setSort);
+  const setRelevanceSort = useInboxSignalsFilterStore(
+    (state) => state.setRelevanceSort,
+  );
+  const relevanceSort = useInboxRelevanceSort();
   const priorityFilter = useInboxSignalsFilterStore(
     (state) => state.priorityFilter,
   );
@@ -41,7 +47,10 @@ export function InboxReportFilters(): React.JSX.Element {
     (state) => state.toggleReportState,
   );
 
-  const activeSortKey = inboxSortOptionKey(sortField, sortDirection);
+  const sortOptions = inboxSortMenuOptions(relevanceSort.available);
+  const activeSortKey = relevanceSort.active
+    ? INBOX_RELEVANCE_SORT_KEY
+    : inboxSortOptionKey(sortField, sortDirection);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -112,11 +121,15 @@ export function InboxReportFilters(): React.JSX.Element {
 
       <Select
         value={activeSortKey}
-        items={INBOX_SORT_OPTIONS.map((option) => ({
-          value: inboxSortOptionKey(option.field, option.direction),
+        items={sortOptions.map((option) => ({
+          value: option.value,
           label: option.label,
         }))}
         onValueChange={(key) => {
+          if (key === INBOX_RELEVANCE_SORT_KEY) {
+            setRelevanceSort();
+            return;
+          }
           const option = inboxSortOptionFromKey(key ?? "");
           if (option) setSort(option.field, option.direction);
         }}
@@ -125,16 +138,14 @@ export function InboxReportFilters(): React.JSX.Element {
           <span>Sort:</span>
           <SelectValue>
             {(selected: string) =>
-              inboxSortOptionFromKey(selected)?.label ?? selected
+              sortOptions.find((option) => option.value === selected)?.label ??
+              selected
             }
           </SelectValue>
         </SelectTrigger>
         <SelectContent align="start" side="bottom" sideOffset={6}>
-          {INBOX_SORT_OPTIONS.map((option) => (
-            <SelectItem
-              key={inboxSortOptionKey(option.field, option.direction)}
-              value={inboxSortOptionKey(option.field, option.direction)}
-            >
+          {sortOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
               {option.label}
             </SelectItem>
           ))}

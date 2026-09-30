@@ -10,6 +10,7 @@ describe("inboxSignalsFilterStore", () => {
     useInboxSignalsFilterStore.setState({
       sortField: "total_weight",
       sortDirection: "desc",
+      sortChoice: null,
       searchQuery: "",
       sourceProductFilter: [],
       priorityFilter: [],
@@ -36,6 +37,16 @@ describe("inboxSignalsFilterStore", () => {
     const state = useInboxSignalsFilterStore.getState();
     expect(state.sortField).toBe("created_at");
     expect(state.sortDirection).toBe("asc");
+    // A picked field sort must outrank the relevance default.
+    expect(state.sortChoice).toBe("field");
+  });
+
+  it("choosing relevance keeps the field sort for lists without relevance", () => {
+    useInboxSignalsFilterStore.getState().setSort("priority", "asc");
+    useInboxSignalsFilterStore.getState().setRelevanceSort();
+    const state = useInboxSignalsFilterStore.getState();
+    expect(state.sortChoice).toBe("relevance");
+    expect(state.sortField).toBe("priority");
   });
 
   it("setSearchQuery updates query", () => {
@@ -259,4 +270,22 @@ describe("inboxSignalsFilterStore", () => {
       (state as unknown as Record<string, unknown>).suggestedReviewerFilter,
     ).toBeUndefined();
   });
+
+  it.each([
+    ["the default sort as no choice", "created_at", "desc", null],
+    ["a changed sort as an explicit choice", "priority", "asc", "field"],
+  ] as const)(
+    "migrates %s",
+    (_label, sortField, sortDirection, expectedChoice) => {
+      localStorage.setItem(
+        "inbox-signals-filter-storage",
+        JSON.stringify({ version: 3, state: { sortField, sortDirection } }),
+      );
+
+      useInboxSignalsFilterStore.persist.rehydrate();
+      const state = useInboxSignalsFilterStore.getState();
+      expect(state.sortChoice).toBe(expectedChoice);
+      expect(state.sortField).toBe(sortField);
+    },
+  );
 });

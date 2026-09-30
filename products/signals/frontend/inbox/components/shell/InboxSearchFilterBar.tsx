@@ -5,8 +5,8 @@ import { IconChevronDown, IconFlag, IconRefresh, IconSearch, IconSort, IconTarge
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import {
+    availableInboxSortOptions,
     INBOX_PRIORITY_OPTIONS,
-    INBOX_SORT_OPTIONS,
     INBOX_SOURCE_OPTIONS,
     PRIORITY_ACCENT,
     PRIORITY_MEANING,
@@ -100,14 +100,18 @@ export function InboxSearchFilterBar({
     onRefresh,
     refreshing,
 }: InboxSearchFilterBarProps): JSX.Element {
-    const { searchQuery, sortField, sortDirection, sourceProductFilter, scoutFilter, priorityFilter } =
+    const { searchQuery, activeSort, isRelevanceSortAvailable, sourceProductFilter, scoutFilter, priorityFilter } =
         useValues(inboxFiltersLogic)
     const { setSearchQuery, setSort, toggleSourceProduct, toggleScout, clearScoutFilter, togglePriority } =
         useActions(inboxFiltersLogic)
     const { scoutConfigs } = useValues(scoutFleetLogic)
 
-    const activeSort = INBOX_SORT_OPTIONS.find((o) => o.field === sortField && o.direction === sortDirection)
-    const activeSortKey = inboxSortOptionKey(sortField, sortDirection)
+    const sortOptions = availableInboxSortOptions(isRelevanceSortAvailable)
+    const activeSortOption = sortOptions.find(
+        (o) => o.field === activeSort.field && o.direction === activeSort.direction
+    )
+    const activeSortKey = inboxSortOptionKey(activeSort.field, activeSort.direction)
+    const defaultSortKey = isRelevanceSortAvailable ? inboxSortOptionKey('relevance', 'asc') : 'priority:asc'
 
     // Selected scouts always stay listed (even if their config was since deleted) so they can be untoggled.
     const scoutNames = [...new Set([...(scoutConfigs ?? []).map((c) => c.skill_name), ...scoutFilter])].sort((a, b) =>
@@ -132,16 +136,16 @@ export function InboxSearchFilterBar({
             <div className="flex flex-wrap items-center justify-end gap-2 ml-auto max-w-full">
                 <FilterPopover
                     label="Sort"
-                    value={activeSort?.label ?? 'Priority first'}
+                    value={activeSortOption?.label ?? 'Priority first'}
                     icon={<IconSort />}
-                    active={activeSortKey !== 'priority:asc'}
+                    active={activeSortKey !== defaultSortKey}
                 >
-                    {INBOX_SORT_OPTIONS.map((option) => (
+                    {sortOptions.map((option) => (
                         <FilterItem
                             key={inboxSortOptionKey(option.field, option.direction)}
                             icon={option.icon}
                             label={option.label}
-                            active={sortField === option.field && sortDirection === option.direction}
+                            active={activeSort.field === option.field && activeSort.direction === option.direction}
                             onClick={() => setSort(option.field, option.direction)}
                         />
                     ))}

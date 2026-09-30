@@ -1,15 +1,12 @@
 import {
+  buildInboxScopeParams,
   buildPriorityFilterParam,
-  buildSuggestedReviewerFilterParam,
   INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
   INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
-import {
-  INBOX_SCOPE_FOR_YOU,
-  parseTeammateInboxScope,
-} from "@posthog/core/inbox/reportMembership";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { usePersonalInboxEnabled } from "@posthog/ui/features/feature-flags/usePersonalInboxEnabled";
 import { useInboxReports } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
@@ -35,22 +32,20 @@ export interface InboxSectionCounts {
 export function useInboxSectionCounts(): InboxSectionCounts {
   const scope = useInboxReviewerScopeStore((s) => s.scope);
   const priorityFilter = useInboxSignalsFilterStore((s) => s.priorityFilter);
+  const personalInboxEnabled = usePersonalInboxEnabled();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
 
-  const isForYou = scope === INBOX_SCOPE_FOR_YOU;
-  const teammateUuid = parseTeammateInboxScope(scope);
-  const reviewerUuid =
-    teammateUuid ?? (isForYou ? (currentUser?.uuid ?? null) : null);
-
+  const { params: scopeParams, ready: scopeReady } = buildInboxScopeParams({
+    scope,
+    personalInboxEnabled,
+    currentUserUuid: currentUser?.uuid ?? null,
+  });
   const shared = {
     priority: buildPriorityFilterParam(priorityFilter),
-    suggested_reviewers: reviewerUuid
-      ? buildSuggestedReviewerFilterParam([reviewerUuid])
-      : undefined,
+    ...scopeParams,
     count_only: true,
   };
-  const scopeReady = !isForYou || reviewerUuid != null;
   const options = {
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
@@ -94,6 +89,6 @@ export function useInboxSectionCounts(): InboxSectionCounts {
       needsPrQuery.isLoading ||
       resolvedQuery.isLoading ||
       dismissedQuery.isLoading ||
-      (isForYou && reviewerUuid == null),
+      !scopeReady,
   };
 }

@@ -16,7 +16,12 @@ import {
     SignalReportStatus,
 } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
-import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntireProject } from './reportListLogic'
+import {
+    buildReportListApiParams,
+    INBOX_REPORT_SECTION_LIST_PARAMS,
+    reportListLogic,
+    shouldDefaultToEntireProject,
+} from './reportListLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 const REFRESH_METRICS_URL = '/api/projects/:team_id/signals/reports/refresh_metrics/'
@@ -50,6 +55,7 @@ describe('reportListLogic', () => {
             scope: INBOX_SCOPE_FOR_YOU as InboxScope,
             hasUserChosenScope: false,
             hasResolvedUser: true,
+            personalInboxEnabled: false,
             count: 0 as number | null,
         }
 
@@ -77,8 +83,109 @@ describe('reportListLogic', () => {
             ['user not resolved yet', { hasResolvedUser: false }],
             // Count request in flight / failed (null) is not treated as "zero".
             ['count not loaded', { count: null }],
+            // An empty personal inbox means nothing needs the user; project reports would hide that.
+            ['the personal inbox is on', { personalInboxEnabled: true }],
         ])('stays put when %s', (_label, override) => {
             expect(shouldDefaultToEntireProject({ ...base, ...override })).toBe(false)
+        })
+    })
+
+    describe('buildReportListApiParams', () => {
+        const base = {
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            searchQuery: '',
+            sort: { field: 'relevance', direction: 'asc' } as const,
+            sourceProductFilter: [],
+            scoutFilter: [],
+            priorityFilter: [],
+            scope: INBOX_SCOPE_FOR_YOU as InboxScope,
+            scopeReviewerUuid: 'user-uuid' as string | undefined,
+            personalInboxEnabled: true,
+        }
+        const pick = (params: Record<string, string | undefined>): Record<string, string | undefined> => ({
+            scope: params.scope,
+            sort: params.sort,
+            ordering: params.ordering,
+            suggested_reviewers: params.suggested_reviewers,
+        })
+
+        it.each<[string, Partial<Parameters<typeof buildReportListApiParams>[0]>, Record<string, string | undefined>]>([
+            // The server ignores `sort` when `ordering` is present, so relevance must go alone.
+            [
+                'sends the personal scope and relevance alone',
+                {},
+                { scope: 'for_me', sort: 'relevance', ordering: undefined, suggested_reviewers: undefined },
+            ],
+            [
+                'keeps a picked sort on the personal scope',
+                { sort: { field: 'created_at', direction: 'desc' } },
+                {
+                    scope: 'for_me',
+                    sort: undefined,
+                    ordering: '-created_at,status,-updated_at',
+                    suggested_reviewers: undefined,
+                },
+            ],
+            // `sort=relevance` without `scope=for_me` is a 400.
+            [
+                'never sends relevance for the entire project',
+                { scope: INBOX_SCOPE_ENTIRE_PROJECT as InboxScope, scopeReviewerUuid: undefined },
+                {
+                    scope: undefined,
+                    sort: undefined,
+                    ordering: 'priority,status,-updated_at',
+                    suggested_reviewers: undefined,
+                },
+            ],
+            [
+                'keeps the reviewer filter with the personal inbox off',
+                { personalInboxEnabled: false, sort: { field: 'priority', direction: 'asc' } },
+                {
+                    scope: undefined,
+                    sort: undefined,
+                    ordering: 'priority,status,-updated_at',
+                    suggested_reviewers: 'user-uuid',
+                },
+            ],
+        ])('%s', (_name, override, expected) => {
+            expect(pick(buildReportListApiParams({ ...base, ...override }))).toEqual(expected)
+        })
+
+        // The count must describe the same selection as the rows, and relevance is the For-you
+        // default once the flag is on.
+        it('requests the count with the personal scope and relevance by default', async () => {
+            const countQueries: Record<string, string>[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: ({ request }) => {
+                        const params = Object.fromEntries(new URL(request.url).searchParams)
+                        if (params.count_only === 'true') {
+                            countQueries.push(params)
+                        }
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    },
+                },
+            })
+            localStorage.clear()
+            initKeaTests()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_PERSONAL_INBOX], {
+                [FEATURE_FLAGS.SIGNALS_PERSONAL_INBOX]: true,
+            })
+            const logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(countQueries.length).toBeGreaterThan(0)
+            for (const query of countQueries) {
+                expect(query).toMatchObject({ scope: 'for_me', sort: 'relevance', view: 'needs_decision' })
+                expect(query.ordering).toBeUndefined()
+                expect(query.suggested_reviewers).toBeUndefined()
+            }
+            logic.unmount()
         })
     })
 

@@ -17,6 +17,7 @@ import {
     inboxFiltersLogic,
     InboxFilterState,
     parseFilterSearchParams,
+    resolveInboxSort,
 } from './inboxFiltersLogic'
 
 jest.mock('posthog-js')
@@ -29,6 +30,7 @@ const DEFAULT_STATE: InboxFilterState = {
     stateFilter: ['monitoring', 'needs-decision'],
     sortField: 'priority',
     sortDirection: 'asc',
+    hasUserChosenSort: false,
     searchQuery: '',
 }
 
@@ -71,6 +73,7 @@ describe('inboxFiltersLogic', () => {
                     stateFilter: ['monitoring', 'resolved'],
                     sortField: 'created_at',
                     sortDirection: 'desc',
+                    hasUserChosenSort: true,
                     searchQuery: 'checkout crash',
                 },
                 {
@@ -91,6 +94,17 @@ describe('inboxFiltersLogic', () => {
             // An unchecked-everything selection means every state. It must survive the URL rewrite
             // that follows each toggle, or hydration would put the default selection straight back.
             ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
+            // A picked "Priority first" must reach the recipient, whose default can be relevance.
+            [
+                'an explicitly chosen default sort',
+                { ...DEFAULT_STATE, hasUserChosenSort: true },
+                { sort: 'priority:asc' },
+            ],
+            [
+                'the relevance sort',
+                { ...DEFAULT_STATE, sortField: 'relevance', hasUserChosenSort: true },
+                { sort: 'relevance:asc' },
+            ],
         ])('round-trips %s through encode/decode', (_name, state, expectedParams) => {
             expect(filterSearchParams(state)).toEqual(expectedParams)
             expect(parseFilterSearchParams(expectedParams)).toEqual(state)
@@ -115,6 +129,42 @@ describe('inboxFiltersLogic', () => {
                 priorityFilter: ['P1'],
                 stateFilter: ['monitoring'],
             })
+        })
+    })
+
+    describe('resolveInboxSort', () => {
+        const priority = { sortField: 'priority', sortDirection: 'asc' } as const
+        const relevance = { field: 'relevance', direction: 'asc' }
+
+        it.each([
+            ['defaults For you to relevance', { ...priority, hasUserChosenSort: false }, true, relevance],
+            [
+                'keeps a picked "Priority first" on For you',
+                { ...priority, hasUserChosenSort: true },
+                true,
+                { field: 'priority', direction: 'asc' },
+            ],
+            [
+                'keeps a persisted non-default sort on For you',
+                { sortField: 'created_at', sortDirection: 'desc', hasUserChosenSort: false },
+                true,
+                { field: 'created_at', direction: 'desc' },
+            ],
+            // The server rejects relevance outside `scope=for_me`, so it must never reach another scope.
+            [
+                'drops a stored relevance sort where relevance is unavailable',
+                { sortField: 'relevance', sortDirection: 'asc', hasUserChosenSort: true },
+                false,
+                { field: 'priority', direction: 'asc' },
+            ],
+            [
+                'keeps the priority default where relevance is unavailable',
+                { ...priority, hasUserChosenSort: false },
+                false,
+                { field: 'priority', direction: 'asc' },
+            ],
+        ] as const)('%s', (_name, stored, relevanceAvailable, expected) => {
+            expect(resolveInboxSort({ ...stored, relevanceAvailable })).toEqual(expected)
         })
     })
 
