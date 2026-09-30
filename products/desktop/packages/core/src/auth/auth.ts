@@ -8,16 +8,24 @@ import {
   type BackoffOptions,
   type CloudRegion,
   getCloudUrlFromRegion,
+  isCredentialOriginAllowed,
   NotAuthenticatedError,
   OAUTH_SCOPE_VERSION,
   sleepWithBackoff,
   TypedEventEmitter,
   withTimeout,
 } from "@posthog/shared";
-import { inject, injectable, postConstruct, preDestroy } from "inversify";
+import {
+  inject,
+  injectable,
+  optional,
+  postConstruct,
+  preDestroy,
+} from "inversify";
 import { z } from "zod";
 import {
   AUTH_CONNECTIVITY,
+  AUTH_FETCH_EXTRA_ORIGINS,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
   AUTH_SESSION_STORE,
@@ -130,6 +138,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     private readonly logger: RootLogger,
     @inject(AUTH_TOKEN_OVERRIDE)
     private readonly tokenOverride: string | null,
+    @inject(AUTH_FETCH_EXTRA_ORIGINS)
+    @optional()
+    private readonly extraFetchOrigins: readonly string[] | undefined = [],
   ) {
     super();
   }
@@ -265,6 +276,18 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     init: RequestInit = {},
   ): Promise<Response> {
     const initialAuth = await this.getValidAccessToken();
+    const url = typeof input === "string" ? input : input.url;
+    if (
+      !isCredentialOriginAllowed(
+        url,
+        initialAuth.apiHost,
+        this.extraFetchOrigins ?? [],
+      )
+    ) {
+      throw new Error(
+        `Refusing to send PostHog credentials to ${safeOrigin(url)}`,
+      );
+    }
     let response = await this.executeAuthenticatedFetch(
       fetchImpl,
       input,
@@ -1679,5 +1702,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       ...partial,
     };
     this.emit(AuthServiceEvent.StateChanged, this.getState());
+  }
+}
+
+function safeOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "an invalid URL";
   }
 }

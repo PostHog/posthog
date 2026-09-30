@@ -106,6 +106,7 @@ export {
   configureCustomCloud,
   customCloudSchema,
   getCustomCloud,
+  isCredentialOriginAllowed,
   isCustomCloudHost,
   normalizeCustomCloud,
 } from "./custom-cloud";
@@ -390,6 +391,7 @@ export {
   getRelativeDateGroup,
 } from "./time";
 export { singleLineTitle } from "./title-text";
+export { tomlBasicString } from "./toml";
 export {
   mcpToolKey,
   parseMcpToolName,
