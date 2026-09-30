@@ -124,6 +124,7 @@ This check retains the UTM source catalogue's time window and top-500 limit, so 
 Missing signals mean insufficient evidence to recommend a connection, not proof that traffic is organic.
 The medium count describes only matched events in the lookback window; zero can also mean no events matched that integration.
 This changes setup recommendations and diagnostic actions, not report attribution or connected-source sync checks.
+
 ## Resuming Persona imports
 
 Persona incremental and append imports on V3 can continue a failed pass in a later job.

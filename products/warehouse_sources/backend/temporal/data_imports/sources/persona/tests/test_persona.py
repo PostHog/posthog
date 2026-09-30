@@ -315,10 +315,14 @@ class TestIncrementalWatermarkGuard:
 
 class TestResume:
     @pytest.mark.parametrize("reset_first_job", [False, True])
+    @pytest.mark.parametrize(
+        "endpoint,sync_type,incremental_field",
+        [("events", "append", "created_at"), ("verifications", "incremental", "inquiry_created_at")],
+    )
     @pytest.mark.asyncio
     @time_machine.travel("2025-03-01T00:00:00Z", tick=False)
     async def test_persona_successor_keeps_the_page_window_and_pass_high_water_mark(
-        self, reset_first_job: bool
+        self, reset_first_job: bool, endpoint: str, sync_type: str, incremental_field: str
     ) -> None:
         redis = FakeRedis()
         window = datetime(2025, 1, 1, tzinfo=UTC)
@@ -326,10 +330,10 @@ class TestResume:
         schema = ExternalDataSchema(
             team_id=1,
             source_id=uuid4(),
-            name="events",
-            sync_type="append",
+            name=endpoint,
+            sync_type=sync_type,
             sync_type_config={
-                "incremental_field": "created_at",
+                "incremental_field": incremental_field,
                 "incremental_field_type": IncrementalFieldType.DateTime,
                 "incremental_field_last_value": window.isoformat(),
             },
@@ -339,10 +343,33 @@ class TestResume:
             adebug=AsyncMock(), ainfo=AsyncMock(), awarning=AsyncMock(), aerror=AsyncMock(), aexception=AsyncMock()
         )
         shutdown = WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
+        prefix = "inq" if endpoint == "verifications" else "evt"
         rows = [
-            {"id": f"evt_{index}", "attributes": {"created-at": f"2025-02-{5 - index:02d}T00:00:00Z"}}
+            {"id": f"{prefix}_{index}", "attributes": {"created-at": f"2025-02-{5 - index:02d}T00:00:00Z"}}
             for index in range(4)
         ]
+        list_pages = iter([{"data": rows, "links": {"next": "next-page"}}, {"data": rows[1:], "links": {"next": None}}])
+        hydrated: list[str] = []
+
+        def fetch_page(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            path = urlparse(url).path
+            if not path.startswith("/api/v1/inquiries/"):
+                return next(list_pages)
+            inquiry_id = path.rsplit("/", 1)[-1]
+            hydrated.append(inquiry_id)
+            # A verification created after its inquiry, so a pass high-water mark read off the
+            # verification's own created-at would land past the inquiry window.
+            return {
+                "data": {"type": "inquiry", "id": inquiry_id},
+                "included": [
+                    {
+                        "type": "verification/selfie",
+                        "id": f"ver_{inquiry_id}",
+                        "attributes": {"created-at": "2025-02-20T00:00:00Z"},
+                    }
+                ],
+            }
+
         pipeline_module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
         persona_module = "products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona"
 
@@ -385,7 +412,7 @@ class TestResume:
                 )
             )
             producer = stack.enter_context(patch(f"{pipeline_module}.PostgresProducer")).return_value
-            producer.sync_type = "append"
+            producer.sync_type = sync_type
             producer.is_resume_checkpoint_durable.return_value = True
             writer = stack.enter_context(patch(f"{pipeline_module}.S3BatchWriter")).return_value
             writer.write_batch.side_effect = lambda table, index: BatchWriteResult(
@@ -396,28 +423,20 @@ class TestResume:
             stack.enter_context(
                 patch(f"{persona_module}.Batcher", side_effect=lambda **kwargs: Batcher(**{**kwargs, "chunk_size": 2}))
             )
-            fetch = stack.enter_context(
-                patch(
-                    f"{persona_module}._fetch_page",
-                    side_effect=[
-                        {"data": rows, "links": {"next": "next-page"}},
-                        {"data": rows[1:], "links": {"next": None}},
-                    ],
-                )
-            )
+            fetch = stack.enter_context(patch(f"{persona_module}._fetch_page", side_effect=fetch_page))
 
             for job_number in (1, 2):
                 job_id = f"job-{job_number}"
                 reset_pipeline = reset_first_job and job_number == 1
                 inputs = SourceInputs(
-                    schema_name="events",
+                    schema_name=endpoint,
                     schema_id=str(schema.id),
                     source_id=str(source.id),
                     team_id=1,
                     should_use_incremental_field=True,
                     db_incremental_field_last_value=window,
                     db_incremental_field_earliest_value=None,
-                    incremental_field="created_at",
+                    incremental_field=incremental_field,
                     incremental_field_type=IncrementalFieldType.DateTime,
                     job_id=job_id,
                     logger=logger,
@@ -426,7 +445,7 @@ class TestResume:
                 manager = PersonaSource().get_resumable_source_manager(inputs)
                 resource = persona_source(
                     api_key="persona_test",
-                    endpoint="events",
+                    endpoint=endpoint,
                     logger=logger,
                     resumable_source_manager=manager,
                     should_use_incremental_field=True,
@@ -459,9 +478,16 @@ class TestResume:
                 else:
                     await pipeline.run()
 
-            first_query, second_query = [parse_qs(urlparse(call.args[1]).query) for call in fetch.call_args_list]
+            first_query, second_query = [
+                parse_qs(urlparse(call.args[1]).query)
+                for call in fetch.call_args_list
+                if not urlparse(call.args[1]).path.startswith("/api/v1/inquiries/")
+            ]
             assert "page[after]" not in first_query
-            assert second_query["page[after]"] == ["evt_0"]
+            assert second_query["page[after]"] == [f"{prefix}_0"]
+            if endpoint == "verifications":
+                # The successor hydrates only the inquiries past the confirmed checkpoint.
+                assert hydrated == ["inq_0", "inq_1", "inq_2", "inq_3", "inq_1", "inq_2", "inq_3"]
             assert (
                 first_query["filter[created-at-start]"]
                 == second_query["filter[created-at-start]"]
