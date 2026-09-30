@@ -3537,7 +3537,7 @@ Diffed against: <https://gerrit-review.googlesource.com/Documentation/rest-api-c
 - [ ] `groups/{group-id}/groups` — included subgroups, needed to expand nested group membership (low)
 - [ ] `groups/{group-id}/log.audit` — membership change history over time (low)
 
-Note: Not dynamic — settings.py hardcodes 4 endpoints. The changes stream requests o=MESSAGES/DETAILED_LABELS/CURRENT_REVISION/DETAILED_ACCOUNTS, so review messages and label votes already ride inside the change row; inline comments and per-file stats do not. Also checked rest-api-projects.html, rest-api-accounts.html, rest-api-groups.html.
+Note: Not dynamic — settings.py hardcodes 8 endpoints. The changes stream requests o=MESSAGES/DETAILED_LABELS/CURRENT_REVISION/DETAILED_ACCOUNTS, so review messages and label votes already ride inside the change row; inline comments come from change_comments and current-revision per-file stats from change_files. Also checked rest-api-projects.html, rest-api-accounts.html, rest-api-groups.html.
 
 ## Giphy — gaps
 

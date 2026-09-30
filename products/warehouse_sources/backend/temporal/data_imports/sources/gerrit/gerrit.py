@@ -373,24 +373,24 @@ def validate_credentials(
         return False, _connection_error_message(e)
 
 
-def _derive_rows(
+def _derive_batches(
     config: GerritEndpointConfig,
     rows: list[dict[str, Any]],
     api_base: str,
     fetch: Callable[[str, frozenset[int]], Optional[str]],
-) -> Iterator[dict[str, Any]]:
+) -> Iterator[list[dict[str, Any]]]:
     """Turn a page of listing rows into the endpoint's rows: the rows themselves, the files of
     each change's current revision, or the child rows fetched per parent."""
     if config.expand_current_files:
-        for change in rows:
-            yield from _current_revision_file_rows(config, change)
+        yield [file_row for change in rows for file_row in _current_revision_file_rows(config, change)]
         return
 
     fanout = config.fanout
     if fanout is None:
-        yield from rows
+        yield rows
         return
 
+    # One batch per parent so a page of fan-out children is never held in memory at once.
     for parent in rows:
         path = _fanout_path(fanout, parent)
         if path is None:
@@ -398,7 +398,7 @@ def _derive_rows(
         body = fetch(f"{api_base}{path}", fanout.ignore_statuses)
         if body is None:
             continue
-        yield from _fanout_rows_from_response(config, fanout, parent, parse_gerrit_response(body))
+        yield _fanout_rows_from_response(config, fanout, parent, parse_gerrit_response(body))
 
 
 def get_rows(
@@ -480,14 +480,14 @@ def get_rows(
             break
 
         offset += len(rows)
-        batch = list(_derive_rows(config, rows, api_base, fetch))
-        if batch:
-            yield batch
+        for batch in _derive_batches(config, rows, api_base, fetch):
+            if batch:
+                yield batch
 
         if not has_more:
             break
 
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it —
+        # Save AFTER yielding every batch of the page so a crash re-yields the last page rather than skipping it —
         # merge dedupes on the primary key.
         resumable_source_manager.save_state(GerritResumeConfig(offset=offset))
 

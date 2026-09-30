@@ -281,7 +281,7 @@ class TestGetRows:
         ]
 
     @pytest.mark.parametrize(
-        "endpoint, parent_body, child_responses, expected_child_paths, expected_rows",
+        "endpoint, parent_body, child_responses, expected_child_paths, expected_batches",
         [
             (
                 "group_members",
@@ -289,14 +289,21 @@ class TestGetRows:
                 # External groups have no member list and answer 405.
                 [_response(text=")]}'\n" + '[{"_account_id": 7, "name": "Ada"}]'), _response(status_code=405)],
                 ["/a/groups/abc123/members/", "/a/groups/ldap%3Acn%3Deng/members/"],
-                [{"_account_id": 7, "name": "Ada", "group_uuid": "abc123"}],
+                [[{"_account_id": 7, "name": "Ada", "group_uuid": "abc123"}]],
             ),
             (
                 "project_branches",
-                '{"plugins/replication": {"id": "plugins%2Freplication"}}',
-                [_response(text=")]}'\n" + '[{"ref": "refs/heads/main", "revision": "abc"}]')],
-                ["/a/projects/plugins%2Freplication/branches/"],
-                [{"ref": "refs/heads/main", "revision": "abc", "project": "plugins/replication"}],
+                '{"plugins/replication": {"id": "plugins%2Freplication"}, "gerrit": {"id": "gerrit"}}',
+                [
+                    _response(text=")]}'\n" + '[{"ref": "refs/heads/main", "revision": "abc"}]'),
+                    _response(text=")]}'\n" + '[{"ref": "refs/heads/stable", "revision": "def"}]'),
+                ],
+                ["/a/projects/plugins%2Freplication/branches/", "/a/projects/gerrit/branches/"],
+                # One batch per parent, so a page of fan-out children is never buffered whole.
+                [
+                    [{"ref": "refs/heads/main", "revision": "abc", "project": "plugins/replication"}],
+                    [{"ref": "refs/heads/stable", "revision": "def", "project": "gerrit"}],
+                ],
             ),
             (
                 "change_comments",
@@ -312,38 +319,40 @@ class TestGetRows:
                 ],
                 ["/a/changes/plugins%2Freplication~12/comments", "/a/changes/gerrit~13/comments"],
                 [
-                    {
-                        "path": "src/a.py",
-                        "id": "c1",
-                        "line": 3,
-                        "_change_number": 12,
-                        "project": "plugins/replication",
-                        "change_updated": "u12",
-                        "change_created": "c12",
-                    },
-                    {
-                        "path": "src/a.py",
-                        "id": "c2",
-                        "in_reply_to": "c1",
-                        "_change_number": 12,
-                        "project": "plugins/replication",
-                        "change_updated": "u12",
-                        "change_created": "c12",
-                    },
-                    {
-                        "path": "/COMMIT_MSG",
-                        "id": "c3",
-                        "_change_number": 12,
-                        "project": "plugins/replication",
-                        "change_updated": "u12",
-                        "change_created": "c12",
-                    },
+                    [
+                        {
+                            "path": "src/a.py",
+                            "id": "c1",
+                            "line": 3,
+                            "_change_number": 12,
+                            "project": "plugins/replication",
+                            "change_updated": "u12",
+                            "change_created": "c12",
+                        },
+                        {
+                            "path": "src/a.py",
+                            "id": "c2",
+                            "in_reply_to": "c1",
+                            "_change_number": 12,
+                            "project": "plugins/replication",
+                            "change_updated": "u12",
+                            "change_created": "c12",
+                        },
+                        {
+                            "path": "/COMMIT_MSG",
+                            "id": "c3",
+                            "_change_number": 12,
+                            "project": "plugins/replication",
+                            "change_updated": "u12",
+                            "change_created": "c12",
+                        },
+                    ],
                 ],
             ),
         ],
     )
     def test_fanout_fetches_children_per_parent(
-        self, endpoint, parent_body, child_responses, expected_child_paths, expected_rows
+        self, endpoint, parent_body, child_responses, expected_child_paths, expected_batches
     ):
         session, session_patcher = _patch_session([_response(text=")]}'\n" + parent_body), *child_responses])
 
@@ -365,7 +374,7 @@ class TestGetRows:
 
         child_urls = [call.args[0] for call in session.get.call_args_list[1:]]
         assert child_urls == [f"https://gerrit.example.com{path}" for path in expected_child_paths]
-        assert batches == [expected_rows]
+        assert batches == expected_batches
 
     def test_fanout_child_error_other_than_ignored_statuses_fails_the_sync(self):
         parent_body = ")]}'\n" + '{"gerrit": {"id": "gerrit"}}'
