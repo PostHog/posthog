@@ -69,6 +69,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
     is_byte_bounded_extraction_enabled,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import (
+    SourceCursorManager,
+    build_cursor_manager,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
     is_transient_egress_proxy_error,
 )
@@ -88,7 +92,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -109,6 +112,9 @@ class ImportDataActivityInputs:
     fast_return_eligible: bool = False
     # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
     scheduled_full_refresh: bool = False
+    # Fixed for the job lifetime so a flag change between activity attempts cannot mix a stale
+    # keyset checkpoint with a server-cursor retry that reset the destination table.
+    keyset_full_load_enabled: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -120,6 +126,7 @@ class ImportDataActivityInputs:
             "reset_pipeline": self.reset_pipeline,
             "fast_return_eligible": self.fast_return_eligible,
             "scheduled_full_refresh": self.scheduled_full_refresh,
+            "keyset_full_load_enabled": self.keyset_full_load_enabled,
         }
 
 
@@ -516,6 +523,11 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     source_type=source_type,
                 )
 
+            # A reset or a revive empties the table, so the run starts from no cursor, like the watermark above.
+            source_cursor_manager = build_cursor_manager(
+                new_source, schema.sync_type_config if use_stored_cursors else None, logger
+            )
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
@@ -548,7 +560,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 byte_bounded_extraction=byte_bounded_extraction,
+                keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
+                source_cursor=source_cursor_manager,
             )
 
             try:
@@ -603,31 +617,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     raise TypeError(
                         f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
                     )
-            except CDCHandledExternally:
-                await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
-
-                await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
-                    billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)
-                )
-
-                # Pause the per-schema schedule — CDCExtractionWorkflow handles this
-                # schema now. The schedule is unpaused if the schema transitions back
-                # to snapshot mode (e.g., after a TRUNCATE or re-enable after grace period).
-                try:
-                    from products.data_warehouse.backend.facade.api import pause_external_data_schedule
-
-                    await database_sync_to_async_pool(pause_external_data_schedule)(str(inputs.schema_id))
-                    await logger.ainfo("Paused per-schema schedule for CDC streaming schema")
-                except Exception:
-                    await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
-
-                # This activity finalized the job itself just above, so the workflow must not
-                # write a second terminal status — see PipelineResult for the ownership contract.
-                return PipelineResult(
-                    should_trigger_cdp_producer=False,
-                    consumer_manages_job_status=True,
-                    skip_post_import_activities=True,
-                )
             except SourceExtractionNotImplementedError as e:
                 # Web refuses to create a source whose implementation it does not have, so the
                 # stub is only reachable while this worker still runs the build from before the
@@ -654,6 +643,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
                 resumable_source_manager=resumable_source_manager,
+                source_cursor_manager=source_cursor_manager,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -945,8 +935,10 @@ async def _run(
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
     resumable_source_manager: ResumableSourceManager | None,
+    source_cursor_manager: SourceCursorManager[Any] | None = None,
 ) -> PipelineResult:
     try:
+        reset_pipeline = reset_pipeline or source_response.destination_reset_required
         models = await _get_models(job_inputs.run_id)
 
         use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
@@ -963,6 +955,7 @@ async def _run(
                 shutdown_monitor,
                 resumable_source_manager,
                 models=models,
+                source_cursor_manager=source_cursor_manager,
             )
         else:
             pipeline = PipelineNonDLT(
@@ -973,6 +966,7 @@ async def _run(
                 shutdown_monitor,
                 resumable_source_manager,
                 models=models,
+                source_cursor_manager=source_cursor_manager,
             )
 
         result = await pipeline.run()

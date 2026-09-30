@@ -5,6 +5,7 @@ import {
     IconBolt,
     IconChat,
     IconChevronDown,
+    IconConfetti,
     IconDirectedGraph,
     IconExternal,
     IconFilter,
@@ -1240,6 +1241,25 @@ function TriggersSection(): JSX.Element {
                         aria-label="Resolve comments on your PRs"
                         checked={settings?.resolve_comments ?? true}
                         onChange={(checked) => updateSettings({ resolve_comments: checked })}
+                        disabledReason={switchDisabledReason}
+                    />
+                </div>
+                <div className="flex items-center gap-4 p-4">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                        <IconConfetti className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold">Celebrate clean reviews</div>
+                        <div className="text-xs text-secondary">
+                            When a review of your pull request finds nothing to raise, the review comment shows a fun
+                            image. Turn this off to end clean reviews with the text summary only.
+                        </div>
+                    </div>
+                    <LemonSwitch
+                        aria-label="Celebrate clean reviews"
+                        data-attr="review-hog-celebrate-clean-reviews"
+                        checked={settings?.celebrate_clean_reviews ?? true}
+                        onChange={(checked) => updateSettings({ celebrate_clean_reviews: checked })}
                         disabledReason={switchDisabledReason}
                     />
                 </div>

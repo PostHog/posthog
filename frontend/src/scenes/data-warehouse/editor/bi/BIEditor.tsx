@@ -39,7 +39,6 @@ import {
     BIShelf,
     BIField,
     BISortDirection,
-    PIVOT_TABLE_QUERY_LIMIT,
     getBIDataSourceKey,
     isDateTimeBIField,
     isNumericBIField,
@@ -131,10 +130,6 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
         setValueAggregation,
         setValueCustomExpression,
     } = useActions(logic)
-    const limitOptions =
-        config.chartType === ChartDisplayType.TwoDimensionalHeatmap
-            ? LIMIT_OPTIONS.filter(({ value }) => value <= PIVOT_TABLE_QUERY_LIMIT)
-            : LIMIT_OPTIONS
 
     return (
         <div
@@ -197,7 +192,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                         />
                         <LemonSelect
                             value={config.limit}
-                            options={limitOptions}
+                            options={LIMIT_OPTIONS}
                             onChange={setLimit}
                             renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
                             aria-label="Query row limit"

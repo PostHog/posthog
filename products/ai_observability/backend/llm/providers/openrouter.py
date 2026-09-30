@@ -8,9 +8,12 @@ import logging
 from collections.abc import Generator
 from typing import Any
 
+from django.core.cache import cache
+
 import httpx
 import openai
 
+from products.ai_observability.backend.llm.errors import UnsupportedModelError
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -29,6 +32,48 @@ OPENROUTER_HEADERS = {
     "X-Title": "PostHog",
 }
 
+# The default model list only has text-output models, so ask for every output modality.
+OPENROUTER_ALL_MODELS_URL = f"{OPENROUTER_BASE_URL}/models?output_modalities=all"
+NON_CHAT_MODELS_CACHE_KEY = "ai_observability:openrouter:non_chat_models"
+NON_CHAT_MODELS_CACHE_TTL_SECONDS = 60 * 60
+NON_CHAT_MODELS_FETCH_TIMEOUT_SECONDS = 5.0
+# Short, so a catalogue outage adds the fetch timeout at most once a minute.
+NON_CHAT_MODELS_UNAVAILABLE_TTL_SECONDS = 60
+_CATALOGUE_UNAVAILABLE = "unavailable"
+
+
+def _non_chat_model_ids() -> frozenset[str] | None:
+    """IDs of OpenRouter models that cannot produce text, such as decision models.
+
+    Returns None when the catalogue is unavailable, so callers fail open.
+    """
+    cached = cache.get(NON_CHAT_MODELS_CACHE_KEY)
+    if cached == _CATALOGUE_UNAVAILABLE:
+        return None
+    if cached is not None:
+        return frozenset(cached)
+    try:
+        response = httpx.get(OPENROUTER_ALL_MODELS_URL, timeout=NON_CHAT_MODELS_FETCH_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        models = response.json()["data"]
+        ids = sorted(
+            model["id"]
+            for model in models
+            if "text" not in (model.get("architecture") or {}).get("output_modalities", ["text"])
+        )
+    except Exception:
+        logger.warning("Could not fetch the OpenRouter model catalogue", exc_info=True)
+        cache.set(NON_CHAT_MODELS_CACHE_KEY, _CATALOGUE_UNAVAILABLE, NON_CHAT_MODELS_UNAVAILABLE_TTL_SECONDS)
+        return None
+    cache.set(NON_CHAT_MODELS_CACHE_KEY, ids, NON_CHAT_MODELS_CACHE_TTL_SECONDS)
+    return frozenset(ids)
+
+
+def is_non_chat_model(model: str) -> bool:
+    """True only when OpenRouter lists the model and says it cannot produce text."""
+    ids = _non_chat_model_ids()
+    return ids is not None and model in ids
+
 
 class OpenRouterAdapter(OpenAIAdapter):
     """OpenRouter provider that reuses OpenAI's completion/streaming logic."""
@@ -45,7 +90,14 @@ class OpenRouterAdapter(OpenAIAdapter):
         analytics: AnalyticsContext,
         base_url: str | None = None,
     ) -> CompletionResponse:
-        return super().complete(request, api_key, analytics, base_url=OPENROUTER_BASE_URL)
+        # Read the catalogue only on the failure path, so successful calls pay no extra latency.
+        try:
+            return super().complete(request, api_key, analytics, base_url=OPENROUTER_BASE_URL)
+        except Exception as e:
+            # A non-chat model fails in several shapes (a 400, a 404, unreadable output).
+            if is_non_chat_model(request.model):
+                raise UnsupportedModelError(request.model) from e
+            raise
 
     def stream(
         self,

@@ -154,6 +154,7 @@ function ReportSectionContent({
 const RESULT_ORDER: Record<EvaluationOutputType, string[]> = {
     boolean: ['pass', 'fail', 'na'],
     numeric: ['pass', 'fail', 'na'],
+    categorical: ['pass', 'fail', 'na'],
     sentiment: ['positive', 'neutral', 'negative'],
 }
 
@@ -225,7 +226,7 @@ function getBooleanPassRate(
 
 export function summarizeEvaluationReportResults(metrics: EvaluationReportStoredMetrics): string {
     const resultMetrics = getResultMetrics(metrics)
-    if (['boolean', 'numeric'].includes(metrics.output_type ?? 'boolean')) {
+    if (['boolean', 'numeric', 'categorical'].includes(metrics.output_type ?? 'boolean')) {
         const passRate = getBooleanPassRate(metrics, resultMetrics)
         const summaryParts = passRate == null ? [] : [`Pass rate ${formatResultRate(passRate, 1)}`]
         summaryParts.push(
@@ -251,7 +252,7 @@ export function summarizeEvaluationReportResults(metrics: EvaluationReportStored
 
 function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): JSX.Element {
     const resultMetrics = getResultMetrics(metrics)
-    const isBooleanMetrics = ['boolean', 'numeric'].includes(metrics.output_type ?? 'boolean')
+    const isBooleanMetrics = ['boolean', 'numeric', 'categorical'].includes(metrics.output_type ?? 'boolean')
     const passRate = isBooleanMetrics ? getBooleanPassRate(metrics, resultMetrics) : undefined
     const passRateDiff =
         passRate == null || metrics.previous_pass_rate == null ? null : passRate - metrics.previous_pass_rate
@@ -262,8 +263,19 @@ function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): J
 
     return (
         <div className="bg-bg-light border rounded p-3 mb-3">
-            {metrics.output_type === 'numeric' && passingRule && (
+            {metrics.output_type === 'numeric' && passingRule && 'threshold' in passingRule && (
                 <p className="text-sm text-muted">{`Passing rule used for this report: score ${passingRule.operator === 'gte' ? '≥' : '≤'} ${passingRule.threshold}`}</p>
+            )}
+            {metrics.output_type === 'categorical' && passingRule && 'categories' in passingRule && (
+                <p className="text-sm text-muted">
+                    Passing categories used for this report:{' '}
+                    {passingRule.categories
+                        .map(
+                            (key) => metrics.output_config?.options?.find((option) => option.key === key)?.label ?? key
+                        )
+                        .join(', ') || 'None'}
+                    . Every returned category must pass.
+                </p>
             )}
             <div className="flex items-center gap-6 flex-wrap text-sm">
                 <div>

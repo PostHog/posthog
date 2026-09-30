@@ -925,6 +925,7 @@ def _link(team_id: int, source: SignalReport, target: SignalReport, kind: Report
         ("duplicate_of_resolved", "duplicate_of"),
         ("duplicate_of_with_pr", "duplicate_of"),
         ("duplicate_chain_with_pr_midway", "duplicate_of"),
+        ("later_duplicate_of_with_pr", "duplicate_of"),
         ("depends_on_without_pr", "blocked_by_dependency"),
         ("depends_on_with_open_pr", None),
         ("incoming_part_of", "plan_parent"),
@@ -994,6 +995,16 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
             _attach_open_pr(midway, 23)
             _link(team.id, midway, root, ReportLinkKind.DUPLICATE_OF)
             _link(team.id, report, midway, ReportLinkKind.DUPLICATE_OF)
+        elif link == "later_duplicate_of_with_pr":
+            # The oldest claim holds no work, so only the later claim shows the fix is in flight.
+            oldest = _report()
+            later = _report()
+            _attach_open_pr(later, 24)
+            _link(team.id, report, oldest, ReportLinkKind.DUPLICATE_OF)
+            _link(team.id, report, later, ReportLinkKind.DUPLICATE_OF)
+            SignalReportArtefact.objects.filter(
+                team_id=team.id, report_id=report.id, content__contains=str(oldest.id)
+            ).update(created_at=timezone.now() - timedelta(minutes=5))
         elif link == "depends_on_without_pr":
             _link(team.id, report, _report(), ReportLinkKind.DEPENDS_ON)
         elif link == "depends_on_with_open_pr":

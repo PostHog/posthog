@@ -550,6 +550,36 @@ class TestMeasurePartitionBytes:
         assert list(sizes.keys()) == [None]
         assert sizes[None] > 0
 
+    def test_partitioned_null_value_groups_under_none(self, tmp_path):
+        table = pa.table(
+            {
+                PARTITION_KEY: pa.array([None, "2024-01", "2024-01"], type=pa.string()),
+                "id": pa.array([1, 2, 3], type=pa.int64()),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "n"), table, partition_by=[PARTITION_KEY])
+        sizes = measure_partition_bytes(deltalake.DeltaTable(str(tmp_path / "n")))
+        assert set(sizes.keys()) == {None, "2024-01"}
+        assert all(v > 0 for v in sizes.values())
+
+    def test_survives_get_add_actions_offset_overflow(self, tmp_path):
+        """A table with enough add-action stats can overflow Arrow's 32-bit string offsets inside
+        `get_add_actions` (`Offset overflow error`, see the error-tracking issue this guards against).
+        Measuring partition bytes must not depend on that call succeeding."""
+        delta = _write_month_partitioned(
+            str(tmp_path / "t"),
+            [
+                (1, datetime.datetime(2024, 1, 5)),
+                (2, datetime.datetime(2024, 2, 2)),
+            ],
+        )
+        with patch.object(
+            deltalake.DeltaTable, "get_add_actions", side_effect=Exception("Offset overflow error: 2229224676")
+        ):
+            sizes = measure_partition_bytes(delta)
+        assert set(sizes.keys()) == {"2024-01", "2024-02"}
+        assert all(v > 0 for v in sizes.values())
+
 
 class TestRewriteIntoTemp:
     def test_rebuckets_finer_preserving_all_rows(self, tmp_path):

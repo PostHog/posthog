@@ -98,6 +98,7 @@ function posthogCORSResponse(info: MockResolverInfo): Response {
 
 export const defaultMocks: Mocks = {
     get: {
+        '/api/projects/:team_id/marketing_analytics/source_validation/': { errors_by_source: {} },
         '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,

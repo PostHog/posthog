@@ -12,7 +12,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
+import { loadAppMetricsTimeSeries } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -32,8 +32,14 @@ import type {
     PipelineJobStatsResponseApi,
     PipelineRowsStatsResponseApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
-import { externalDataDestinationsList } from 'products/warehouse_sources/frontend/generated/api'
-import type { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import {
+    externalDataDestinationsList,
+    externalDataSourcesList,
+} from 'products/warehouse_sources/frontend/generated/api'
+import type {
+    ExternalDataDestinationApi,
+    ExternalDataSourceSerializersApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 /** Windows `job_stats` accepts. Anything else is a 400. */
 export type PipelineStatsWindow = 1 | 7 | 30
@@ -83,9 +89,13 @@ export interface pipelineOverviewSceneLogicValues {
     failedRuns: PipelineActivityRowApi[]
     destinations: ExternalDataDestinationApi[] | null
     destinationsLoading: boolean
-    destinationRowTotals: Record<string, { total: number }> | null
-    destinationRowTotalsLoading: boolean
-    rowsByDestination: { id: string; name: string; type: string; rows: number }[]
+    sources: ExternalDataSourceSerializersApi[] | null
+    sourcesLoading: boolean
+    syncingTableCount: number
+    lastUpdatedAt: string | null
+    destinationRowSeries: { labels: string[]; series: { id: string; values: number[] }[] } | null
+    destinationRowSeriesLoading: boolean
+    rowsByDestination: { key: string; label: string; data: number[]; type: 'area'; fill: { opacity: number } }[]
     hasIssues: boolean
     loadingFirstTime: boolean
 }
@@ -97,7 +107,8 @@ export interface pipelineOverviewSceneLogicActions {
     loadHealthIssues: () => any
     loadRecentFailures: () => any
     loadDestinations: () => any
-    loadDestinationRowTotals: () => any
+    loadSources: () => any
+    loadDestinationRowSeries: () => any
     refresh: () => { value: true }
     loadEverything: () => { value: true }
     pollStats: () => { value: true }
@@ -128,6 +139,14 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         window: [
             7 as PipelineStatsWindow,
             { setWindow: (_: unknown, { window }: { window: PipelineStatsWindow }) => window },
+        ],
+        // Stamped when the polled numbers land, so the page can show that they are live rather
+        // than leaving a reader to guess whether a static count is stale.
+        lastUpdatedAt: [
+            null as string | null,
+            {
+                loadJobStatsSuccess: () => new Date().toISOString(),
+            },
         ],
     }),
     loaders(({ values }: any) => ({
@@ -161,26 +180,67 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
          * alone — so a raw `instance_id` breakdown mixes all three. The destination-keyed rows
          * are picked out in `rowsByDestination` by matching against the team's real destinations.
          */
-        destinationRowTotals: [
-            null as Record<string, { total: number }> | null,
+        sources: [
+            null as ExternalDataSourceSerializersApi[] | null,
             {
-                loadDestinationRowTotals: async () =>
-                    await loadAppMetricsTotals(
-                        {
-                            appSource: WAREHOUSE_APP_SOURCE,
-                            metricName: 'rows_synced',
-                            breakdownBy: ['instance_id'],
-                            // Both bounds are interpolated into `toDateTime(...)`, so they have to
-                            // be absolute timestamps. The upper bound sits an hour ahead because
-                            // the comparison is exclusive and rows land continuously.
-                            dateFrom: dayjs().subtract(values.window, 'day').toISOString(),
-                            dateTo: dayjs().add(1, 'hour').toISOString(),
-                            // Bounded so a team with many schemas cannot silently truncate the
-                            // destination rows out of the result.
-                            limit: 500,
-                        },
-                        values.currentTeam?.timezone ?? 'UTC'
-                    ),
+                loadSources: async () => {
+                    const sources: ExternalDataSourceSerializersApi[] = []
+                    let offset = 0
+                    let hasNextPage = true
+
+                    while (hasNextPage) {
+                        const page = await externalDataSourcesList(String(values.currentTeamId), { limit: 100, offset })
+                        sources.push(...(page.results ?? []))
+                        offset += page.results?.length ?? 0
+                        hasNextPage = Boolean(page.next) && (page.results?.length ?? 0) > 0
+                    }
+
+                    return sources
+                },
+            },
+        ],
+        destinationRowSeries: [
+            null as { labels: string[]; series: { id: string; values: number[] }[] } | null,
+            {
+                loadDestinationRowSeries: async () => {
+                    const destinations = values.destinations ?? []
+                    if (destinations.length === 0) {
+                        return { labels: [], series: [] }
+                    }
+                    const interval = values.window === 1 ? ('hour' as const) : ('day' as const)
+                    // Both bounds are interpolated into `toDateTime(...)`, so they have to be
+                    // absolute. The upper bound sits an hour ahead because the comparison is
+                    // exclusive and rows land continuously.
+                    const dateFrom = dayjs().subtract(values.window, 'day').toISOString()
+                    const dateTo = dayjs().add(1, 'hour').toISOString()
+                    // One request per destination, filtered on `instanceId`, rather than one
+                    // breakdown over every instance. The breakdown is capped at 100 rows, and a
+                    // team with thousands of tables pushes every destination out of that cap.
+                    const answers = await Promise.all(
+                        destinations.map(async (destination: ExternalDataDestinationApi) => ({
+                            id: destination.id,
+                            response: await loadAppMetricsTimeSeries(
+                                {
+                                    appSource: WAREHOUSE_APP_SOURCE,
+                                    metricName: 'rows_synced',
+                                    instanceId: destination.id,
+                                    interval,
+                                    dateFrom,
+                                    dateTo,
+                                },
+                                values.currentTeam?.timezone ?? 'UTC'
+                            ),
+                        }))
+                    )
+                    return {
+                        labels: answers.find((a) => a.response.labels.length > 0)?.response.labels ?? [],
+                        series: answers.map((a) => ({
+                            id: a.id,
+                            // Without a breakdown the response carries a single unnamed series.
+                            values: a.response.series[0]?.values ?? [],
+                        })),
+                    }
+                },
             },
         ],
         recentFailures: [
@@ -189,6 +249,12 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                 loadRecentFailures: async () =>
                     await dataWarehouseCompletedActivityRetrieve(String(values.currentTeamId), {
                         outcome: 'failed',
+                        // Imports only. Without this a team with many failing views fills every
+                        // page with them and this list renders empty.
+                        kind: 'import',
+                        // The window control sits in this section's own header. Without this the
+                        // endpoint falls back to its own 30-day default and ignores the control.
+                        cutoff_days: values.window,
                         // Over-fetch: the endpoint has no sync-only filter, so view runs are
                         // dropped client-side and a page of them would otherwise show nothing.
                         limit: 50,
@@ -206,6 +272,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             (healthIssues: DataHealthIssuesResponseApi | null): DataHealthIssueApi[] =>
                 (healthIssues?.results ?? [])
                     .filter((issue) => SYNC_ISSUE_TYPES.includes(issue.type))
+                    // A webhook table is pushed to on the vendor's schedule, never pulled on
+                    // ours, so it has no last sync and cannot have "stopped".
+                    .filter((issue) => issue.sync_type !== 'webhook')
                     .sort((a, b) => (ISSUE_SEVERITY[a.status] ?? 99) - (ISSUE_SEVERITY[b.status] ?? 99)),
         ],
         failingSyncCount: [
@@ -213,26 +282,53 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             (healthIssues: DataHealthIssuesResponseApi | null): number =>
                 (healthIssues?.results ?? []).filter((issue) => issue.type === 'external_data_sync').length,
         ],
-        /** Rows written per destination over the window, biggest first. */
+        /** One chart series per destination, biggest first so the legend matches the stack. */
         rowsByDestination: [
-            (s: any) => [s.destinationRowTotals, s.destinations],
+            (s: any) => [s.destinationRowSeries, s.destinations],
             (
-                totals: Record<string, { total: number }> | null,
+                answer: { labels: string[]; series: { id: string; values: number[] }[] } | null,
                 destinations: ExternalDataDestinationApi[] | null
-            ): { id: string; name: string; type: string; rows: number }[] => {
-                if (!totals || !destinations) {
+            ): {
+                key: string
+                label: string
+                data: number[]
+                type: 'area'
+                fill: { opacity: number }
+            }[] => {
+                if (!answer || !destinations) {
                     return []
                 }
-                return destinations
-                    .map((destination) => ({
-                        id: destination.id,
-                        name: destination.name,
-                        type: destination.type,
-                        rows: totals[destination.id]?.total ?? 0,
+                const byId = new Map(destinations.map((d) => [d.id, d]))
+                return answer.series
+                    .map((s) => ({
+                        key: s.id,
+                        label: byId.get(s.id)?.name ?? s.id,
+                        data: s.values,
+                        type: 'area' as const,
+                        // `fill` is what makes an area series fill; `type` alone draws a line.
+                        // The chart stacks area series and offers no way not to, so the section
+                        // copy says the total is row-writes rather than rows.
+                        fill: { opacity: 0.25 },
+                        total: s.values.reduce((a, b) => a + b, 0),
                     }))
-                    .filter((row) => row.rows > 0)
-                    .sort((a, b) => b.rows - a.rows)
+                    .filter((s) => s.total > 0)
+                    .sort((a, b) => b.total - a.total)
+                    .map(({ total: _total, ...rest }) => rest)
             },
+        ],
+        /**
+         * Tables PostHog imports on a schedule. Counts schemas switched on rather than every
+         * schema a source offers, so it matches what the pipeline actually runs.
+         */
+        syncingTableCount: [
+            (s: any) => [s.sources],
+            (sources: ExternalDataSourceSerializersApi[] | null): number =>
+                (sources ?? []).reduce(
+                    (total, source) =>
+                        total +
+                        ((source.schemas ?? []) as { should_sync?: boolean }[]).filter((s) => s.should_sync).length,
+                    0
+                ),
         ],
         /** Whether anything is wrong. The health section is hidden when nothing is. */
         hasIssues: [(s: any) => [s.issuesBySeverity], (issues: DataHealthIssueApi[]): boolean => issues.length > 0],
@@ -254,20 +350,24 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         ],
     }),
     listeners(({ actions }: any) => ({
-        // Only the run counts are windowed. Rows are reported per billing period and health is
-        // current state, so neither changes with the window.
+        // Health is current state and rows are reported per billing period, so neither is
+        // windowed. Everything else is.
         setWindow: () => {
             actions.loadJobStats()
-            actions.loadDestinationRowTotals()
+            actions.loadDestinationRowSeries()
+            actions.loadRecentFailures()
         },
         refresh: () => actions.loadEverything(),
+        // The series are fetched one destination at a time, so the destination list has to land
+        // first. Chaining on success is what guarantees that on a reload as well as on mount.
+        loadDestinationsSuccess: () => actions.loadDestinationRowSeries(),
         loadEverything: () => {
             actions.loadJobStats()
             actions.loadRowsStats()
             actions.loadHealthIssues()
             actions.loadRecentFailures()
             actions.loadDestinations()
-            actions.loadDestinationRowTotals()
+            actions.loadSources()
         },
         // Only the headline numbers poll. Reloading the tables under someone mid-read moves rows
         // they are looking at, and they change far less often than the counts do.

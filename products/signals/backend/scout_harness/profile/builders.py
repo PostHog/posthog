@@ -66,7 +66,7 @@ from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade import api as warehouse_sources
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.api import get_workflow_activity_summary
 
 logger = logging.getLogger(__name__)
 
@@ -603,21 +603,18 @@ def _recent_hog_flows(team: Team) -> dict[str, Any]:
     HogFlow's `status` enum carries the flow's lifecycle state directly; we surface
     it as-is so the agent can distinguish drafts from active flows.
     """
-    qs = HogFlow.objects.filter(team=team)
-    total = qs.count()
-    active = qs.exclude(status="archived").count()
-    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "name", "status", "updated_at")
+    summary = get_workflow_activity_summary(team_id=team.id, recent_limit=RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
-        "active_count": active,
+        "total_count": summary.total_count,
+        "active_count": summary.active_count,
         "recent": [
             {
-                "id": str(row["id"]),
-                "name": row["name"] or "",
-                "status": row["status"],
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                "id": flow.id,
+                "name": flow.name,
+                "status": flow.status,
+                "updated_at": flow.updated_at.isoformat() if flow.updated_at else None,
             }
-            for row in recent
+            for flow in summary.recent
         ],
     }
 
