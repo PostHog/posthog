@@ -1,91 +1,136 @@
 # Checking and applying workflow files from GitHub Actions
 
-This job checks every workflow file on a pull request and applies them on a push to the default branch.
-It needs only curl and jq, which GitHub's Ubuntu runners have, so nothing is installed.
+Two jobs: one checks every workflow file on a pull request, the other applies them on a push to the default branch.
+They need only bash, curl and jq, which GitHub's Ubuntu runners have, so nothing is installed.
 Check errors show as annotations on the file in the pull request.
 
 ## Set it up
 
-1. In PostHog, create a project secret API key with the workflows scope (`hog_flow:read` and `hog_flow:write`). A personal API key with the same scopes also works.
-2. In the repository, add the key as the Actions secret `POSTHOG_API_KEY`.
-3. Add the project id as the Actions variable `POSTHOG_PROJECT_ID`. On PostHog Cloud EU, or on your own PostHog, also add `POSTHOG_HOST`, for example `https://eu.posthog.com`.
-4. Save the job below as `.github/workflows/posthog-workflows.yml`. Change `workflows/` and `main` if your files or your default branch live elsewhere.
+1. In PostHog, create two project secret API keys: one with the workflows read scope (`hog_flow:read`) for checks, one with the write scope (`hog_flow:write`) for applies. If your project's secret keys do not offer these scopes yet, use personal API keys with the same scopes.
+2. In the repository settings, add the read key as the Actions secret `POSTHOG_API_KEY`, and the project id as the Actions variable `POSTHOG_PROJECT_ID`. On PostHog Cloud EU, or on your own PostHog, also add the variable `POSTHOG_HOST`, for example `https://eu.posthog.com`.
+3. Create the environment `posthog-workflow-files`, limit its deployment branches to the default branch, and add the write key to it as the environment secret `POSTHOG_API_KEY`. Do this before the first push, because GitHub creates a missing environment without that limit. The limit keeps the write key away from pull request runs.
+4. Save the two files below. Change `workflows/` and `main` if your files or your default branch live elsewhere.
 
-When the secret is empty, the job prints one line and succeeds. Pull requests from forks get no secrets, so they pass this way.
+When the secret is empty, each job prints one line and succeeds. Pull requests from forks get no secrets, so they pass this way.
 
-To keep the write key away from pull request runs, keep a `hog_flow:read` key as the repository secret. Then run the apply as its own job in a GitHub environment that only the default branch may deploy to, and store the `hog_flow:write` key on that environment under the same name.
+## `.github/scripts/posthog-workflow-files.sh`
 
-## The job
+```bash
+#!/usr/bin/env bash
+# Checks or applies every workflow file in workflows/: bash posthog-workflow-files.sh check|apply
+set -euo pipefail
+mode="$1"
+if [[ -z "${POSTHOG_API_KEY:-}" ]]; then
+  echo "No POSTHOG_API_KEY secret is set, so no workflow file was sent to PostHog."
+  exit 0
+fi
+[[ "${POSTHOG_PROJECT_ID:-}" =~ ^[0-9]+$ ]] || { echo "Set the POSTHOG_PROJECT_ID variable to your project id."; exit 1; }
+shopt -s nullglob
+files=(workflows/*.yaml workflows/*.yml)
+((${#files[@]} > 0)) || { echo "No workflow files in workflows/."; exit 0; }
+
+umask 077
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+printf 'Authorization: Bearer %s\n' "$POSTHOG_API_KEY" > "$work/auth"
+host="${POSTHOG_HOST:-https://us.posthog.com}"
+url="${host%/}/api/projects/${POSTHOG_PROJECT_ID}/hog_flows/code_${mode}/"
+helpers='
+def line: tostring | gsub("[\r\n]+"; " ");
+def data: tostring | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
+def prop: data | gsub(":"; "%3A") | gsub(","; "%2C");
+def count(list): list // [] | length;
+'
+
+failed=0
+for file in "${files[@]}"; do
+  rm -f "$work/response"
+  code=$(jq -Rs '{content: .}' "$file" | curl --silent --show-error --max-time 60 --header "@$work/auth" \
+    --header 'Content-Type: application/json' --data-binary @- \
+    --output "$work/response" --write-out '%{http_code}' "$url") || code=000
+  if [[ "$code" == 000 ]]; then
+    echo "$file: could not reach $url"
+    failed=1
+  elif [[ "$code" == 2* ]] && jq -e 'type == "object"' "$work/response" > /dev/null 2>&1; then
+    jq -r --arg file "$file" "$helpers"'
+      .plan as $plan
+      | "\($file): \(.result // $plan.result) \(.workflow.key // $plan.workflow.key // "a new workflow"): \(count($plan.added_steps)) added, \(count($plan.changed_steps)) changed, \(count($plan.removed_steps)) removed",
+        (($plan.removed_steps // [])[] | "  removes \(.name | line), \(if .runs == null then "people in it not counted" else "\(.runs) people in it" end)"),
+        ((.warnings // [])[] | "\($file): warning: \(.message | line)\n  fix: \(.fix | line)")' "$work/response"
+  elif jq -e '.errors | type == "array"' "$work/response" > /dev/null 2>&1; then
+    jq -r --arg file "$file" "$helpers"'.errors[]
+      | (if .line then ":\(.line)" + (if .column then ":\(.column)" else "" end) else "" end) as $at
+      | "\($file)\($at): \(.status): \(.message | line)\n  why: \(.why | line)\n  fix: \(.fix | line)",
+        "::error file=\($file | prop)\(if .line then ",line=\(.line)" else "" end)\(if .column then ",col=\(.column)" else "" end),title=\(.status | prop)::\("\(.message)\n\(.fix)" | data)"' \
+      "$work/response"
+    failed=1
+  else
+    echo "$file: PostHog answered HTTP $code: $(head -c 300 "$work/response" 2> /dev/null | tr -s '\r\n' ' ')"
+    failed=1
+  fi
+done
+exit "$failed"
+```
+
+## `.github/workflows/posthog-workflow-files.yml`
 
 ```yaml
-name: PostHog workflows
+name: PostHog workflow files
 
 on:
   pull_request:
-    paths: ['workflows/**']
+    paths: ['workflows/**', '.github/scripts/posthog-workflow-files.sh', '.github/workflows/posthog-workflow-files.yml']
   push:
     branches: [main]
-    paths: ['workflows/**']
+    paths: ['workflows/**', '.github/scripts/posthog-workflow-files.sh', '.github/workflows/posthog-workflow-files.yml']
 
 permissions:
   contents: read
 
 concurrency:
-  group: posthog-workflows-${{ github.head_ref || github.ref }}
+  group: posthog-workflow-files-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  workflows:
+  check:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - name: Check or apply workflow files
+      - name: Check workflow files
         env:
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID }}
-          POSTHOG_HOST: ${{ vars.POSTHOG_HOST || 'https://us.posthog.com' }}
-          MODE: ${{ github.event_name == 'push' && 'apply' || 'check' }}
-        run: |
-          if [ -z "$POSTHOG_API_KEY" ]; then
-            echo "No POSTHOG_API_KEY secret is set, so no workflow file was checked or applied."
-            exit 0
-          fi
-          printf 'Authorization: Bearer %s\n' "$POSTHOG_API_KEY" > "$RUNNER_TEMP/posthog-auth"
-          url="${POSTHOG_HOST%/}/api/projects/$POSTHOG_PROJECT_ID/hog_flows/code_$MODE/"
-          failed=0
-          for file in workflows/*.yaml; do
-            code=$(jq -Rs '{content: .}' "$file" | curl --silent --show-error --max-time 60 \
-              --header "@$RUNNER_TEMP/posthog-auth" --header 'Content-Type: application/json' \
-              --data-binary @- --output "$RUNNER_TEMP/response.json" --write-out '%{http_code}' "$url") || code=000
-            if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then
-              jq -r --arg file "$file" '
-                (.plan.added_steps | length) as $added | (.plan.removed_steps | length) as $removed
-                | "\($file): \(.result // .plan.result) \(.workflow.key // .plan.workflow.key // "a new workflow"), \($added) step(s) added, \($removed) removed",
-                  ((.warnings // [])[] | "\($file): warning: \(.message)\n  fix: \(.fix)")' "$RUNNER_TEMP/response.json"
-            elif jq -e '.errors | type == "array"' "$RUNNER_TEMP/response.json" > /dev/null 2>&1; then
-              jq -r --arg file "$file" '.errors[]
-                | "\($file):\(.line // 1):\(.column // 1): \(.status): \(.message)\n  why: \(.why)\n  fix: \(.fix)",
-                  "::error file=\($file),line=\(.line // 1),col=\(.column // 1),title=\(.status)::\(.message) \(.fix)"' \
-                "$RUNNER_TEMP/response.json"
-              failed=1
-            else
-              echo "$file: PostHog answered HTTP $code: $(head -c 300 "$RUNNER_TEMP/response.json" 2> /dev/null)"
-              failed=1
-            fi
-          done
-          exit "$failed"
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+        run: bash .github/scripts/posthog-workflow-files.sh check
+
+  apply:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: posthog-workflow-files
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Apply workflow files
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID }}
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+        run: bash .github/scripts/posthog-workflow-files.sh apply
 ```
 
 ## What it does
 
-- On a pull request it calls `code_check`, which writes nothing, and prints the plan for each file. A file with mistakes prints `file:line:column: status: message`, then `why` and `fix`, and fails the job.
-- On a push to the default branch it calls `code_apply` for each file. Each file prints `created`, `updated` or `unchanged`. An apply through the API writes live, and the file's `status` sets the workflow's status.
+- On a pull request, `check` calls `code_check`, which writes nothing. Each file prints one line with the result and the steps added, changed and removed, then each removed step with the people in it. A file with mistakes prints `file:line:column: status: message`, then `why` and `fix`, and fails the job.
+- On a push to the default branch, `apply` calls `code_apply` for each file. Each file prints `created`, `updated` or `unchanged`. An apply through the API writes live, and the file's `status` sets the workflow's status.
 - Warnings, such as people in a removed step, print under the file and never fail the job. Read them on the pull request before you merge.
-- One concurrency group per branch keeps two applies from racing, and never cancels an apply.
-- Deleting a file deletes nothing in PostHog. Archive the workflow in PostHog.
+- A running apply is never cancelled. A queued one gives way to the newest push, which applies every file anyway.
+- Deleting a file deletes nothing in PostHog. Delete the file, then archive the workflow in PostHog.
 
 The same two calls work from any CI system:
 

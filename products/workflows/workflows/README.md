@@ -3,7 +3,7 @@
 This folder holds workflows that PostHog runs in its own project, kept as YAML files.
 A CI job checks them on every pull request that changes this folder, and applies them when the change lands on `master`.
 
-Each file is one workflow.
+Each `.yaml` file is one workflow. The job reads no other extension.
 The `key` in the file is the workflow's identity in the project, so it never changes, and the file name matches it.
 The fields are described by the JSON Schema PostHog serves at `GET /api/projects/:id/hog_flows/code_schema/`.
 The [writing-workflows-as-code](../skills/writing-workflows-as-code/SKILL.md) skill explains how to write, check and apply a file.
@@ -32,11 +32,11 @@ It uses the [posthog-workflows-action](https://github.com/Silthus/posthog-workfl
 
 Applying a file replaces the workflow's content in PostHog, including any edit made in the workflow editor, so change the file instead.
 The file also sets the status: `status: draft` keeps a workflow off, and a person turns it on by changing the file to `status: active`.
-Deleting a file does not delete its workflow.
+To retire a workflow, delete its file, then archive the workflow in PostHog. Deleting the file alone deletes nothing, and archiving a workflow whose file remains is undone by the next apply.
 
 ## Settings
 
-A repository admin sets these out of band:
+A repository admin sets these in the repository settings. Create the environment, limited to `master`, before this job first runs on `master`: GitHub creates a missing environment without that limit.
 
 | Name                              | Kind                                                 | Holds                                                                         |
 | --------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- |
@@ -50,5 +50,5 @@ A repository admin sets these out of band:
 
 - The job calls the `code_check` and `code_apply` endpoints, so set its keys only after those endpoints serve in production ([#108920](https://github.com/PostHog/posthog/pull/108920)). Until then the job passes without doing anything.
 - A project secret API key authenticates on the workflows endpoints only once [#104202](https://github.com/PostHog/posthog/pull/104202) merges.
-- Marking an applied workflow as managed by code, and recording the file and commit it came from, waits for [#103540](https://github.com/PostHog/posthog/pull/103540). Until then the job sends only the file.
+- Marking an applied workflow as managed by code, and recording the file and commit it came from, waits for [#103540](https://github.com/PostHog/posthog/pull/103540), and then for the job to send them. Until then an applied workflow stays editable in PostHog, and the next apply replaces any edit.
 - The welcome email names the email sender `1` as a placeholder. Before the workflow is turned on, change `integration_ids` to the id of a sender in the project, listed in PostHog under Workflows, Channels.
