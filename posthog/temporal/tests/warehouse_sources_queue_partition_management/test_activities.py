@@ -30,6 +30,10 @@ BUCKET = "data-warehouse"
 BASE = f"{BUCKET}/data_pipelines_extract"
 
 
+def _keys(entry: str) -> list[str]:
+    return [f"{entry.rstrip('/')}/part-0.parquet"]
+
+
 def _build_s3_mock(
     entries: list[str],
     *,
@@ -41,12 +45,14 @@ def _build_s3_mock(
         s3.ls.side_effect = ls_raises
     else:
         s3.ls.return_value = entries
+    s3.find.side_effect = lambda path, prefix: [f"{path}/{prefix}part-0.parquet"]
 
     if delete_raises:
 
-        def _delete(path: str, recursive: bool) -> None:
-            if path in delete_raises:
-                raise delete_raises[path]
+        def _delete(paths: list[str]) -> None:
+            for entry, error in delete_raises.items():
+                if paths == _keys(entry):
+                    raise error
 
         s3.delete.side_effect = _delete
     return s3
@@ -93,7 +99,7 @@ def test_cutoff_boundaries(partition_date: date, should_delete: bool, note: str)
     assert errors == []
     if should_delete:
         assert deleted == [name]
-        s3.delete.assert_called_once_with(entries[0], recursive=True)
+        s3.delete.assert_called_once_with(_keys(entries[0]))
     else:
         assert deleted == []
         s3.delete.assert_not_called()
@@ -116,7 +122,7 @@ def test_skips_entries_without_dt_prefix() -> None:
 
     assert deleted == ["dt=2020-01-01"]
     assert errors == []
-    s3.delete.assert_called_once_with(f"{BASE}/dt=2020-01-01", recursive=True)
+    s3.delete.assert_called_once_with(_keys(f"{BASE}/dt=2020-01-01"))
 
 
 @pytest.mark.parametrize(
@@ -154,8 +160,8 @@ def test_handles_entries_with_and_without_trailing_slash() -> None:
     assert set(deleted) == {"dt=2020-01-01", "dt=2020-02-02"}
     assert errors == []
     assert s3.delete.call_count == 2
-    s3.delete.assert_any_call(f"{BASE}/dt=2020-01-01/", recursive=True)
-    s3.delete.assert_any_call(f"{BASE}/dt=2020-02-02", recursive=True)
+    s3.delete.assert_any_call(_keys(f"{BASE}/dt=2020-01-01/"))
+    s3.delete.assert_any_call(_keys(f"{BASE}/dt=2020-02-02"))
 
 
 def test_uses_basename_for_date_parsing_not_full_path() -> None:
@@ -167,7 +173,7 @@ def test_uses_basename_for_date_parsing_not_full_path() -> None:
 
     assert deleted == ["dt=2020-01-01"]
     assert errors == []
-    s3.delete.assert_called_once_with(entries[0], recursive=True)
+    s3.delete.assert_called_once_with(_keys(entries[0]))
 
 
 # S3 listing edges
@@ -265,22 +271,32 @@ def test_failure_does_not_mark_unrelated_skipped_entries() -> None:
 
     assert deleted == []
     assert errors == ["Failed to delete S3 partition dt=2020-01-01: x"]
-    s3.delete.assert_called_once_with(f"{BASE}/dt=2020-01-01", recursive=True)
+    s3.delete.assert_called_once_with(_keys(f"{BASE}/dt=2020-01-01"))
 
 
 # Call shape
 
 
-def test_calls_delete_with_recursive_true() -> None:
+@pytest.mark.parametrize(
+    "listed_keys",
+    [
+        [f"{BASE}/dt=2020-01-01/1/job/part-0.parquet", f"{BASE}/dt=2020-01-01/2/job/part-0.parquet"],
+        [],
+    ],
+)
+def test_deletes_the_listed_keys_of_an_old_folder(listed_keys: list[str]) -> None:
     entries = [f"{BASE}/dt=2020-01-01"]
     errors: list[str] = []
 
     with _patched_s3(entries) as s3:
-        _cleanup_old_s3_extractions(TODAY, errors)
+        s3.find.side_effect = None
+        s3.find.return_value = listed_keys
+        deleted = _cleanup_old_s3_extractions(TODAY, errors)
 
-    # without recursive=True we'd leak every parquet file under the prefix
-    _, kwargs = s3.delete.call_args
-    assert kwargs == {"recursive": True}
+    assert deleted == ["dt=2020-01-01"]
+    assert errors == []
+    s3.find.assert_called_once_with(BASE, prefix="dt=2020-01-01/")
+    assert s3.delete.call_args_list == ([call(listed_keys)] if listed_keys else [])
 
 
 def test_uses_full_entry_path_when_deleting() -> None:
@@ -291,7 +307,8 @@ def test_uses_full_entry_path_when_deleting() -> None:
     with _patched_s3(entries) as s3:
         _cleanup_old_s3_extractions(TODAY, errors)
 
-    s3.delete.assert_called_once_with(full_path, recursive=True)
+    s3.find.assert_called_once_with("s3://some-bucket/data_pipelines_extract", prefix="dt=2020-01-01/")
+    s3.delete.assert_called_once_with(_keys(full_path))
 
 
 def test_uses_configured_bucket_prefix() -> None:

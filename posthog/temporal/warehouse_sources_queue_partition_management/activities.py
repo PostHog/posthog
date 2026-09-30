@@ -297,7 +297,13 @@ def _cleanup_old_s3_extractions(today: date, errors: list[str]) -> list[str]:
             continue
         if partition_date < cutoff:
             try:
-                s3.delete(entry, recursive=True)
+                # A recursive delete, and find() on an empty folder, check the folder with HeadObject,
+                # which returns 403 under the worker's prefix-scoped S3 grant. Listing from the parent
+                # with a prefix, then deleting the listed keys, needs only list and delete.
+                parent = entry.rstrip("/").rsplit("/", 1)[0]
+                keys = s3.find(parent, prefix=f"{name}/")
+                if keys:
+                    s3.delete(keys)
                 deleted.append(name)
                 logger.debug("s3_extraction_partition_deleted", partition=name)
             except Exception as e:
