@@ -4781,9 +4781,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         # feed (weighted-score and jev-shadow arms), and the jev arm must rank on the cached
         # probabilities alone, with unjudged and judged-low rows in the recency filler tier.
         scanner = self._create_scanner(name="m")
-        jev_high_result = self._monitor_result("no")
-        jev_high_result["model_output"]["notability_reason"] = "The user paid twice for one order."
-        jev_high = self._succeeded_observation(scanner, "jev-high", 40, jev_high_result)
+        jev_high = self._succeeded_observation(scanner, "jev-high", 40, self._monitor_result("no"))
         self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
         jev_low = self._succeeded_observation(scanner, "jev-low", 10, self._monitor_result("yes"))
         store_watch_ranks(
@@ -4813,14 +4811,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             [item["observation"]["session_id"] for item in items],
             ["jev-high", "jev-low", "signal"],
         )
-        self.assertEqual(
-            items[0]["reason"],
-            {
-                "kind": "jev_watchable",
-                "jev_probability": 0.95,
-                "notability_reason": "The user paid twice for one order.",
-            },
-        )
+        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.95})
         self.assertEqual(items[1]["reason"], {"kind": "unviewed_recent"})
         self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"})
 
@@ -4829,9 +4820,10 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         # watchable row from days ago never reaches the weighted feed. The jev arm must fetch it
         # back from the cache and rank it first.
         scanner = self._create_scanner(name="m")
-        old_interesting = self._succeeded_observation(
-            scanner, "old-interesting", 60 * 24 * 2, self._monitor_result("yes")
-        )
+        interesting_result = self._monitor_result("yes")
+        interesting_result["model_output"]["notability"] = 0.9
+        interesting_result["model_output"]["notability_reason"] = "The user paid twice for one order."
+        old_interesting = self._succeeded_observation(scanner, "old-interesting", 60 * 24 * 2, interesting_result)
         for index in range(100):
             self._succeeded_observation(scanner, f"routine-{index}", index + 1, self._monitor_result("no"))
         store_watch_ranks(
@@ -4847,7 +4839,17 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             resp = self.client.get(self.feed_url)
         items = resp.json()["results"]
         self.assertEqual(items[0]["observation"]["session_id"], "old-interesting")
-        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.9})
+        # The scan found the session notable, so its own sentence reaches the card's reason.
+        self.assertEqual(
+            items[0]["reason"],
+            {
+                "kind": "jev_watchable",
+                "jev_probability": 0.9,
+                "notability_reason": "The user paid twice for one order.",
+            },
+        )
+        # The 100 routine rows are filler: they pad the one finding only to the feed's floor.
+        self.assertEqual(len(items), 3)
 
     def test_viewed_orders_within_tiers_but_never_sinks_a_signal_below_plain_rows(self) -> None:
         # Seen-state is a within-tier order, not a top-level one: a signal the reader saw yesterday
