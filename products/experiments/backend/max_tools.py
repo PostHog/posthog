@@ -18,8 +18,7 @@ from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolAccessDeniedError
 
-# Pages that register the create_experiment tool with an `entry_point`. The context comes from the client, so any
-# other value is dropped rather than recorded on `experiment created`.
+# Pages that pass an `entry_point`. It comes from the client, so other values aren't recorded on `experiment created`
 AI_ENTRY_POINTS = frozenset({"experiment_wizard_guide", "experiments_list"})
 
 CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
@@ -118,8 +117,6 @@ class CreateExperimentTool(MaxTool):
         if not feature_flag_key or not feature_flag_key.strip():
             return "Feature flag key cannot be empty", {"error": "invalid_flag_key"}
 
-        # The page that registered this tool (e.g. the create wizard's guide) passes where PostHog AI was
-        # opened from, so `experiment created` can attribute AI-created experiments to an entry point
         entry_point = self.context.get("entry_point") if isinstance(self.context, dict) else None
         analytics_properties = (
             {"ai_entry_point": entry_point} if isinstance(entry_point, str) and entry_point in AI_ENTRY_POINTS else None

@@ -48,8 +48,6 @@ export function ExperimentWizardGuide(): JSX.Element {
     const { currentStep } = useValues(experimentWizardLogic)
     const { reportExperimentWizardAskAiClicked } = useActions(eventUsageLogic)
 
-    // Same create_experiment tool and prompt as the "New experiment" button on the experiments list, but with no
-    // suggestion dropdown, so the user just finishes the pre-filled prompt
     const { openMax } = useMaxTool({
         identifier: 'create_experiment',
         initialMaxPrompt: 'Create an experiment for ',

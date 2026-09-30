@@ -2556,7 +2556,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment wizard ask ai clicked', { current_step: currentStep })
         },
         reportExperimentsListAiBadgeClicked: () => {
-            // The PostHog AI badge on the experiments list's "New experiment" button
             posthog.capture('experiments list ai badge clicked')
         },
         reportExperimentViewed: ({ experiment, duration }) => {

@@ -1524,7 +1524,6 @@ class ExperimentService:
             analytics_metadata["allow_unknown_events"] = True
         if request is not None:
             analytics_metadata.update(_deprecated_fields_in_request(request))
-        # Caller-specific properties, e.g. which PostHog AI entry point created the experiment
         if analytics_properties:
             analytics_metadata.update(analytics_properties)
 
