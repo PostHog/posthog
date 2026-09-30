@@ -2,26 +2,10 @@ import json
 from dataclasses import replace
 from typing import Any
 
-from django.db import models
-
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.contracts import WorkflowCodePlanResult
 from products.workflows.backend.services.workflow_code.compiler import EXIT_NODE_ID, TRIGGER_NODE_ID
-
-
-class WorkflowCodePlanResult(models.TextChoices):
-    CREATE = "create"
-    UPDATE = "update"
-    STAGE = "stage"
-    UNCHANGED = "unchanged"
-
-
-class WorkflowCodeApplyResult(models.TextChoices):
-    CREATED = "created"
-    UPDATED = "updated"
-    STAGED = "staged"
-    UNCHANGED = "unchanged"
-
 
 _METADATA_FIELDS = ("name", "description")
 _CONTENT_FIELDS = ("exit_condition", "variables", "edges")

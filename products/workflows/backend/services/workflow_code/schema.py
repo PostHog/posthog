@@ -7,13 +7,13 @@ from typing import Any
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
+from products.workflows.backend.facade.contracts import WorkflowCodeErrorStatus
 from products.workflows.backend.services.workflow_code.document import WorkflowDocument, shown
 from products.workflows.backend.services.workflow_code.errors import (
     DocumentError,
     DocumentInvalid,
     DocumentPath,
     PointsAt,
-    WorkflowCodeErrorStatus,
     describe_path,
 )
 

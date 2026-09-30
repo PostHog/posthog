@@ -11,7 +11,6 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
-    ComparableContents,
     EmailDomainDnsRecord,
     EmailDomainVerification,
     RecentWorkflow,
@@ -33,10 +32,15 @@ from products.workflows.backend.services.email_sending_controls import (
     unsuspend_email_sending,
 )
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+from products.workflows.backend.services.publish_impact import build_publish_impact
 from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
 )
+from products.workflows.backend.services.workflow_code.renderer import render_workflow as render_workflow_code
+from products.workflows.backend.services.workflow_code.schema import workflow_document_schema as workflow_code_schema
+from products.workflows.backend.services.workflow_code.service import WorkflowCode
+from products.workflows.backend.services.workflow_code.yaml_loader import MAX_CONTENT_BYTES as MAX_WORKFLOW_CODE_BYTES
 from products.workflows.backend.services.workflow_content import (
     DRAFT_CONTENT_FIELDS,
     snapshot_content_fields,
@@ -75,16 +79,21 @@ __all__ = [
     # The workflows views reach the save path and its helpers only through this facade, per the
     # import contract. These serve this product's presentation layer, not other products.
     "DRAFT_CONTENT_FIELDS",
+    "MAX_WORKFLOW_CODE_BYTES",
     "TemplateCache",
+    "WorkflowCode",
     "WorkflowWriter",
+    "build_publish_impact",
     "compute_action_redirects",
     "partition_flow_secrets",
+    "render_workflow_code",
     "secret_keys_for_action",
     "snapshot_content_fields",
     "strip_content_secrets",
     "strip_secrets_from_content",
     "trigger_has_audience",
     "unstage_workflow_proposals",
+    "workflow_code_schema",
 ]
 
 
@@ -253,21 +262,6 @@ def workflow_writer(
     contract lets the workflows views reach product internals only through this facade.
     """
     return WorkflowWriter(team=team, user=user, was_impersonated=was_impersonated, report_usage=report_usage)
-
-
-def comparable_workflow_contents(
-    workflow: HogFlow, validated_data: dict[str, Any], *, with_draft: bool
-) -> ComparableContents:
-    """The workflow's content and the content a validated payload would give it, as the revision history
-    compares them, so equal means no new version. With ``with_draft``, a staged draft counts as stored.
-
-    For this product's own presentation layer only, for the same reason as ``workflow_writer``.
-    """
-    from products.workflows.backend.services.workflow_writes import (  # noqa: PLC0415 - heavy DRF import: the service reads the viewset module's content helpers
-        comparable_contents,
-    )
-
-    return comparable_contents(workflow, validated_data, with_draft=with_draft)
 
 
 def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str, str]:

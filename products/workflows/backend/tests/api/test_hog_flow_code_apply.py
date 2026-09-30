@@ -28,7 +28,7 @@ from products.workflows.backend.tests.api.test_hog_flow_code_check import (
 )
 
 REPORT_USER_ACTION = "products.workflows.backend.presentation.views.hog_flow_code.report_user_action"
-FIND_WORKFLOW = "products.workflows.backend.presentation.views.hog_flow_code._find_workflow"
+FIND_WORKFLOW = "products.workflows.backend.services.workflow_code.service.WorkflowCode._find_workflow"
 MCP = {"x-posthog-client": "mcp"}
 
 RENAMED_DELAY_AND_A_NEW_STEP = SAMPLE.replace("name: Wait three days", "name: Wait a few days").replace(

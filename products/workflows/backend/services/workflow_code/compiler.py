@@ -4,6 +4,7 @@ from typing import Any, Protocol
 
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.contracts import WorkflowCodeErrorStatus
 from products.workflows.backend.services.workflow_code.document import (
     BranchStep,
     Condition,
@@ -21,7 +22,6 @@ from products.workflows.backend.services.workflow_code.errors import (
     DocumentError,
     DocumentInvalid,
     DocumentPath,
-    WorkflowCodeErrorStatus,
     describe_path,
 )
 

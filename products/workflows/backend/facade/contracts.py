@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
@@ -208,3 +209,66 @@ class ComparableContents:
 
 class StaleWorkflowWrite(Exception):
     """The workflow changed after the client loaded it, so the write would overwrite someone else's edit."""
+
+
+class WorkflowStatus(StrEnum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class WorkflowCodeErrorStatus(StrEnum):
+    INVALID_YAML = "invalid_yaml"
+    YAML_FEATURE_NOT_ALLOWED = "yaml_feature_not_allowed"
+    DUPLICATE_KEY = "duplicate_key"
+    CONTENT_TOO_LARGE = "content_too_large"
+    UNSUPPORTED_VERSION = "unsupported_version"
+    MISSING_FIELD = "missing_field"
+    UNKNOWN_FIELD = "unknown_field"
+    INVALID_VALUE = "invalid_value"
+    UNKNOWN_TYPE = "unknown_type"
+    DUPLICATE_STEP_ID = "duplicate_step_id"
+    SECRET_INPUT = "secret_input"
+    UNKNOWN_TEMPLATE = "unknown_template"
+    INVALID_WORKFLOW = "invalid_workflow"
+    STATUS_CHANGE_NOT_ALLOWED = "status_change_not_allowed"
+    CONFLICT = "conflict"
+
+
+class WorkflowCodePlanResult(StrEnum):
+    CREATE = "create"
+    UPDATE = "update"
+    STAGE = "stage"
+    UNCHANGED = "unchanged"
+
+
+class WorkflowCodeApplyResult(StrEnum):
+    CREATED = "created"
+    UPDATED = "updated"
+    STAGED = "staged"
+    UNCHANGED = "unchanged"
+
+
+@frozen
+class WorkflowCodeError:
+    """One mistake in a workflow file, placed where the file's author can find it."""
+
+    status: WorkflowCodeErrorStatus
+    message: str
+    why: str
+    fix: str
+    path: str | None
+    line: int | None
+    column: int | None
+
+
+class WorkflowCodeRejected(Exception):
+    """PostHog refuses a workflow file and writes nothing from it."""
+
+    def __init__(self, errors: tuple[WorkflowCodeError, ...]) -> None:
+        super().__init__(f"{len(errors)} error(s) in the workflow file")
+        self.errors = errors
+
+    @property
+    def is_conflict(self) -> bool:
+        return any(error.status == WorkflowCodeErrorStatus.CONFLICT for error in self.errors)

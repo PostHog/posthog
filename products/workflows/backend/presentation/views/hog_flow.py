@@ -131,6 +131,7 @@ from products.workflows.backend.facade.api import (
     DRAFT_CONTENT_FIELDS,
     TemplateCache,
     WorkflowWriter,
+    build_publish_impact,
     create_batch_job,
     partition_flow_secrets,
     secret_keys_for_action,
@@ -183,7 +184,6 @@ from products.workflows.backend.presentation.views.message_assets import (
     fetch_message_asset_html,
     fetch_message_assets,
 )
-from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
 from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.account_audience import (
     ACCOUNT_BATCH_SIZE,
