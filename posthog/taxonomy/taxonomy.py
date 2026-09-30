@@ -2947,6 +2947,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
             "examples": ["actions__N__inputs__email", "query"],
         },
+        "$mcp_validation_fields": {
+            "label": "MCP validation fields",
+            "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
+            "examples": ["id:invalid_type", "filters.groups:required"],
+        },
+        "$mcp_input_keys": {
+            "label": "MCP input keys",
+            "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Recorded by the @posthog/mcp SDK helper: names the tool declares, including its aliases, capped at 20. Undeclared names become one `[redacted]` entry. Names only, never values. Group by it with $mcp_input_aliases_used to see how agents spell a parameter.",
+            "examples": ["id", "experimentId", "filters, key, name"],
+        },
+        "$mcp_input_aliases_used": {
+            "label": "MCP input aliases used",
+            "description": "Declared parameter aliases the call relied on, as `alias:canonical` (for example `experimentId:id`). Present only when the call did not send the canonical name and used one of its aliases instead. Both names come from the tool's own alias map. Recorded by the @posthog/mcp SDK helper. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": ["experimentId:id", "flagKey:key"],
+        },
+        "$mcp_exec_verb": {
+            "label": "MCP exec verb",
+            "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
+            "examples": ["call", "info", "unrecognized"],
+        },
+        "$mcp_exec_target_tool": {
+            "label": "MCP exec target tool",
+            "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
+            "examples": ["experiment-get", "unrecognized"],
+        },
         "$mcp_auth_method": {
             "label": "MCP auth method",
             "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection — for example when a user works around a broken OAuth flow by switching to a personal API key.",
@@ -2976,6 +3001,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP server name",
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": ["PostHog"],
+        },
+        "$mcp_server_build": {
+            "label": "MCP server build",
+            "description": "The exact immutable build identifier that the MCP host supplies, such as a Git commit SHA or container image digest. Use it to connect an event to deployed code when one server version has multiple builds.",
+            "examples": ["b3b941584bae0123"],
         },
         "$mcp_server_version": {
             "label": "MCP server version",
@@ -3898,6 +3928,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$group_key": {
             "label": "Group key",
             "description": "Specified group key",
+            "type": "String",
+            # Not a row in the group's property JSON — it is the group's key column. Marked
+            # virtual so the property definitions API still offers it as a selectable filter.
+            "virtual": True,
         },
         "$virt_revenue": {
             "description": "The total revenue for this group. This will always be the current total revenue even when referring to a group via events.",

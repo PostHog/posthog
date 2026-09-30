@@ -3376,7 +3376,7 @@ Note: Ticket conversations and canned responses are per-parent sub-resources, so
 
 ## Freshsales — gaps
 
-Today (13): `completed_tasks`, `contacts`, `deal_pipelines`, `deal_stages`, `deals`, `leads`, `lifecycle_stages`, `open_tasks`, `owners`, `past_appointments`, `sales_accounts`, `sales_activities`, `upcoming_appointments`
+Today (18): `completed_tasks`, `contacts`, `deal_pipelines`, `deal_stages`, `deals`, `lead_sources`, `leads`, `lifecycle_stages`, `list_contacts`, `lists`, `open_tasks`, `owners`, `past_appointments`, `sales_accounts`, `sales_activities`, `sales_activity_outcomes`, `sales_activity_types`, `upcoming_appointments`
 
 Diffed against: <https://developers.freshworks.com/crm/api/>
 
@@ -3384,12 +3384,12 @@ Diffed against: <https://developers.freshworks.com/crm/api/>
 - [x] `/api/selector/deal_stages` — lookup resolving deal_stage_id, required for any pipeline or conversion analysis (high)
 - [x] `/api/selector/deal_pipelines` — lookup resolving deal_pipeline_id on deals (high)
 - [x] `/api/selector/lifecycle_stages` — lookup resolving lifecycle_stage_id on contacts and accounts (high)
-- [ ] `/api/selector/lead_sources` — lookup resolving lead_source_id - the core attribution dimension (high)
-- [ ] `/api/selector/sales_activity_types (+ /sales_activity_outcomes)` — lookups resolving type and outcome IDs on the sales_activities already synced (high)
+- [x] `/api/selector/lead_sources` — lookup resolving lead_source_id - the core attribution dimension (high). Added as `lead_sources`.
+- [x] `/api/selector/sales_activity_types (+ /sales_activity_outcomes)` — lookups resolving type and outcome IDs on the sales_activities already synced (high). Added as `sales_activity_types` and `sales_activity_outcomes`.
 - [ ] `/api/selector/contact_statuses` — lookup resolving contact_status_id (medium)
 - [ ] `/api/selector/territories` — lookup resolving territory_id for regional breakdowns (medium)
-- [ ] `/api/lists (+ /lists/{id} contacts)` — marketing lists and their contact membership (medium)
-- [ ] `/api/cpq/products` — product catalog referenced by deals and quotes (medium)
+- [x] `/api/lists (+ /lists/{id} contacts)` — marketing lists and their contact membership (medium). Added as `lists` and `list_contacts` (fan-out over `lists` to `/api/contacts/lists/{id}`).
+- ~~`/api/cpq/products`~~ — not listable: the API reference documents create, view by id, update, delete and bulk actions on `/api/cpq/products`, but no endpoint that lists the catalog (medium)
 - [ ] `/api/cpq/cpq_documents (+ /{id}/related_products)` — quotes/documents with their product line items - quoted vs won revenue (medium)
 - [ ] `/api/contacts/{id}/activities.json` — per-contact activity timeline (notes, calls, emails) not reachable from any synced table (medium)
 
@@ -3465,18 +3465,18 @@ Note: Fulcrum's REST reference nav lists 182 pages. PostHog covers nearly every 
 
 ## FullStory — **thin**
 
-Today (1): `users`
+Today (4): `events`, `segments`, `sessions`, `users`
 
 Diffed against: <https://developer.fullstory.com/server/sessions/introduction/>
 
-- [ ] `v1 segments/{id}/export + operations (session and event export)` — the entire session and event stream — Fullstory's headline data and the reason to sync it at all; requires the async export job pattern (high)
-- [ ] `v2 sessions/{uid} (list sessions per user)` — session replay URLs and session metadata joined to the users already synced; drivable by iterating the users table (high)
-- [ ] `v1 segments (list segments)` — lookup naming each segment, and the handle needed to scope any export (high)
-- [ ] `v2 sessions/{id}/events (get session events)` — per-session event detail for funnel and rage-click analysis (medium)
+- [x] `v1 segments/{id}/export + operations (session and event export)` — the entire session and event stream — Fullstory's headline data and the reason to sync it at all; requires the async export job pattern (high). Added as `events`: an append-only event export of the built-in `everyone` segment, one export job per day window, incremental on `EventStart`.
+- [x] `v2 sessions/{uid} (list sessions per user)` — session replay URLs and session metadata joined to the users already synced; drivable by iterating the users table (high). Added as `sessions` (fan-out over identified `users`). The endpoint is unpaginated and returns each user's most recent sessions only.
+- [x] `v1 segments (list segments)` — lookup naming each segment, and the handle needed to scope any export (high). Added as `segments`.
+- [ ] `v2 sessions/{id}/events (get session events)` — per-session event detail for funnel and rage-click analysis (medium). Skipped: Fullstory documents the real-time Sessions API as not intended for data export, it would need a second fan-out level (one request per session), and `events` already carries the same events in bulk.
 - [ ] `v2 datasets (list datasets)` — lookup describing the exportable datasets available to the account (medium)
 - [ ] `v1 exports/get-user-events` — per-user event history, an alternative to the segment export for smaller pulls (medium)
 
-Note: The source hard-codes ENDPOINTS = ("users",) in fullstory/fullstory.py with a comment that session/event data only exists behind Fullstory's async Data Export jobs — that is accurate for bulk pulls. Note the v2 /sessions list endpoint is per-user (requires uid, email or session_uid) and is not paginated, so it would have to be driven off the synced users table rather than listed directly. Bulk session and event data comes from the v1 segment-export / operations workflow, which is async but resumable.
+Note: `events` uses the v1 segment-export / operations workflow, which is async but resumable. The v2 /sessions list endpoint is per-user (requires uid, email or session_uid) and is not paginated, so `sessions` is driven off the identified users listing rather than listed directly.
 
 ## FusionAuth — gaps
 
@@ -3484,10 +3484,10 @@ Today (4): `AuditLogs`, `EventLogs`, `LoginRecords`, `Users`
 
 Diffed against: <https://raw.githubusercontent.com/FusionAuth/fusionauth-openapi/main/openapi.yaml>
 
-- [ ] `application (GET /api/application, POST /api/application/search)` — lookup that resolves the applicationId stamped on every login record, registration and audit entry (high)
-- [ ] `tenant (POST /api/tenant/search)` — lookup resolving the tenantId on users and login records — the top-level isolation dimension (high)
-- [ ] `group (POST /api/group/search)` — lookup naming the groups referenced by user memberships (high)
-- [ ] `group/member (POST /api/group/member/search)` — the user-to-group membership table; group-level access analysis is impossible without it (high)
+- [x] `application (GET /api/application, POST /api/application/search)` — lookup that resolves the applicationId stamped on every login record, registration and audit entry (high)
+- [x] `tenant (POST /api/tenant/search)` — lookup resolving the tenantId on users and login records — the top-level isolation dimension (high)
+- [x] `group (POST /api/group/search)` — lookup naming the groups referenced by user memberships (high)
+- [x] `group/member (POST /api/group/member/search)` — the user-to-group membership table; group-level access analysis is impossible without it (high)
 - [ ] `user/registration (GET /api/user/registration/{userId}/{applicationId})` — which users are registered to which applications, with roles and registration dates (medium)
 - [ ] `user/consent (GET /api/user/consent, POST /api/consent/search)` — consent grants per user plus the consent definition lookup — compliance reporting (medium)
 - [ ] `entity + entity/grant (POST /api/entity/search, /api/entity/grant/search)` — non-user entities and the grants linking them to users — the machine-to-machine authorization graph (medium)
@@ -3505,10 +3505,10 @@ Today (7): `accounts`, `articles`, `engagements`, `features`, `kc_bots`, `segmen
 
 Diffed against: <https://jsapi.apiary.io/apis/gainsightpx.apib>
 
-- [ ] `events/feature_match` — feature usage events — the headline Gainsight PX metric, and the join from the features table we already sync to actual usage (high)
-- [ ] `events/pageView` — the core page-view event stream underpinning any adoption or navigation analysis (high)
-- [ ] `events/session` — session-level events giving visit frequency, duration and stickiness (high)
-- [ ] `events/engagementView` — who saw and interacted with each engagement — the only way to measure the engagements table's performance (high)
+- [x] `events/feature_match` — feature usage events — the headline Gainsight PX metric, and the join from the features table we already sync to actual usage (high)
+- [x] `events/pageView` — the core page-view event stream underpinning any adoption or navigation analysis (high)
+- [x] `events/session` — session-level events giving visit frequency, duration and stickiness (high)
+- [x] `events/engagementView` — who saw and interacted with each engagement — the only way to measure the engagements table's performance (high)
 - [ ] `survey/responses` — NPS/CES/survey answers, a headline reporting object with no substitute (high)
 - [ ] `events/custom` — customer-defined events captured by PX, typically the business-critical ones (high)
 - [ ] `events/segment_match` — segment entry/exit events that resolve the segments table into per-user membership over time (medium)
@@ -3522,14 +3522,14 @@ Note: Fetched the Swagger 2.0 spec behind the Apiary docs (api.aptrinsic.com). P
 
 ## Gerrit — gaps
 
-Today (4): `accounts`, `changes`, `groups`, `projects`
+Today (8): `accounts`, `change_comments`, `change_files`, `changes`, `group_members`, `groups`, `project_branches`, `projects`
 
 Diffed against: <https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html>
 
-- [ ] `changes/{change-id}/comments` — inline review comments per change — the core code-review signal, not covered by the MESSAGES option (high)
-- [ ] `groups/{group-id}/members` — join table resolving accounts to the groups we already sync (high)
-- [ ] `changes/{change-id}/revisions/{revision-id}/files` — per-file insertions/deletions for code churn and review-size analysis (high)
-- [ ] `projects/{project-name}/branches` — lookup resolving the branch string carried on every change (medium)
+- [x] `changes/{change-id}/comments` — inline review comments per change — the core code-review signal, not covered by the MESSAGES option (high)
+- [x] `groups/{group-id}/members` — join table resolving accounts to the groups we already sync (high)
+- [x] `changes/{change-id}/revisions/{revision-id}/files` — per-file insertions/deletions for code churn and review-size analysis (high)
+- [x] `projects/{project-name}/branches` — lookup resolving the branch string carried on every change (medium)
 - [ ] `changes/{change-id}/reviewers` — explicit reviewer and CC list per change, including reviewers who never voted (medium)
 - [ ] `projects/{project-name}/labels` — label definitions that resolve the label names appearing in change votes (medium)
 - [ ] `projects/{project-name}/tags` — release tags per project for cut-to-ship analysis (medium)
@@ -3537,7 +3537,7 @@ Diffed against: <https://gerrit-review.googlesource.com/Documentation/rest-api-c
 - [ ] `groups/{group-id}/groups` — included subgroups, needed to expand nested group membership (low)
 - [ ] `groups/{group-id}/log.audit` — membership change history over time (low)
 
-Note: Not dynamic — settings.py hardcodes 4 endpoints. The changes stream requests o=MESSAGES/DETAILED_LABELS/CURRENT_REVISION/DETAILED_ACCOUNTS, so review messages and label votes already ride inside the change row; inline comments and per-file stats do not. Also checked rest-api-projects.html, rest-api-accounts.html, rest-api-groups.html.
+Note: Not dynamic — settings.py hardcodes 8 endpoints. The changes stream requests o=MESSAGES/DETAILED_LABELS/CURRENT_REVISION/DETAILED_ACCOUNTS, so review messages and label votes already ride inside the change row; inline comments come from change_comments and current-revision per-file stats from change_files. Also checked rest-api-projects.html, rest-api-accounts.html, rest-api-groups.html.
 
 ## Giphy — gaps
 
@@ -3556,14 +3556,14 @@ Note: Read-only content-search API with an inherently small analytical surface; 
 
 ## GitBook — gaps
 
-Today (8): `change_requests`, `collections`, `comments`, `members`, `organizations`, `sites`, `spaces`, `teams`
+Today (12): `change_requests`, `collections`, `comments`, `members`, `organizations`, `pages`, `site_answers`, `site_questions`, `sites`, `spaces`, `team_members`, `teams`
 
 Diffed against: <https://api.gitbook.com/openapi.json>
 
-- [ ] `/spaces/{spaceId}/content/pages` — the page inventory per space — the primary documentation object, currently absent entirely (high)
-- [ ] `/orgs/{organizationId}/sites/{siteId}/questions` — questions readers ask GitBook AI on published sites — the headline docs-effectiveness signal (high)
-- [ ] `/orgs/{organizationId}/sites/{siteId}/answers` — the answers served for those questions, including whether the docs could answer (high)
-- [ ] `/orgs/{organizationId}/teams/{teamId}/members` — join table resolving the members and teams we already sync (high)
+- [x] `/spaces/{spaceId}/content/pages` — the page inventory per space — the primary documentation object, currently absent entirely (high)
+- [x] `/orgs/{organizationId}/sites/{siteId}/questions` — questions readers ask GitBook AI on published sites — the headline docs-effectiveness signal (high)
+- [x] `/orgs/{organizationId}/sites/{siteId}/answers` — the answers served for those questions, including whether the docs could answer (high)
+- [x] `/orgs/{organizationId}/teams/{teamId}/members` — join table resolving the members and teams we already sync (high)
 - [ ] `/orgs/{organizationId}/sites/{siteId}/question-stats` — aggregated question volume and resolution rate per site (medium)
 - [ ] `/orgs/{organizationId}/sites/{siteId}/findings` — detected content gaps per site, the actionable output of site scans (medium)
 - [ ] `/orgs/{organizationId}/sites/{siteId}/insights/visitor-segments` — published-site visitor breakdown dimensions (medium)
@@ -3581,10 +3581,10 @@ Today (6): `commits`, `issues`, `labels`, `milestones`, `pull_requests`, `releas
 
 Diffed against: <https://demo.gitea.com/swagger.v1.json>
 
-- [ ] `/repos/{owner}/{repo}/issues/comments` — repo-wide issue and PR comments in one listable call — the main discussion signal, entirely absent (high)
-- [ ] `/repos/{owner}/{repo}/pulls/{index}/reviews` — PR review verdicts and reviewers, required for any review-throughput analysis (high)
-- [ ] `/repos/{owner}/{repo}/actions/runs` — Gitea Actions CI runs — no CI data is synced at all today (high)
-- [ ] `/repos/{owner}/{repo}/issues/{index}/timeline` — state and assignment transition history behind issue cycle time (high)
+- [x] `/repos/{owner}/{repo}/issues/comments` — repo-wide issue and PR comments in one listable call — the main discussion signal, entirely absent (high)
+- [x] `/repos/{owner}/{repo}/pulls/{index}/reviews` — PR review verdicts and reviewers, required for any review-throughput analysis (high)
+- [x] `/repos/{owner}/{repo}/actions/runs` — Gitea Actions CI runs — no CI data is synced at all today (high)
+- [x] `/repos/{owner}/{repo}/issues/{index}/timeline` — state and assignment transition history behind issue cycle time (high)
 - [ ] `/repos/{owner}/{repo}/actions/jobs` — job-level CI granularity for duration and failure attribution (medium)
 - [ ] `/repos/{owner}/{repo}/branches` — branch inventory with protection and last-commit metadata (medium)
 - [ ] `/repos/{owner}/{repo}/tags` — git tags — releases are synced but the underlying tags are not (medium)
@@ -3602,10 +3602,10 @@ Today (6): `honeytokens`, `members`, `secret_incidents`, `secret_occurrences`, `
 
 Diffed against: <https://api.gitguardian.com/v1/openapi.json>
 
-- [ ] `/v1/secret_detectors` — lookup resolving the detector name/family stamped on every incident and occurrence we already sync (high)
-- [ ] `/v1/incidents/secrets/{incident_id}/activity-logs` — incident state-transition history — remediation MTTR cannot be computed from current status alone (high)
-- [ ] `/v1/honeytokens_events` — honeytoken trigger events across the org; honeytokens are synced but the events they exist to capture are not (high)
-- [ ] `/v1/teams/{team_id}/team_memberships` — join table between the members and teams we already sync (high)
+- [x] `/v1/secret_detectors` — lookup resolving the detector name/family stamped on every incident and occurrence we already sync (high)
+- [x] `/v1/incidents/secrets/{incident_id}/activity-logs` — incident state-transition history — remediation MTTR cannot be computed from current status alone (high)
+- [x] `/v1/honeytokens_events` — honeytoken trigger events across the org; honeytokens are synced but the events they exist to capture are not (high)
+- [x] `/v1/teams/{team_id}/team_memberships` — join table between the members and teams we already sync (high)
 - [ ] `/v1/incidents/secrets/{incident_id}/notes` — analyst remediation notes attached to each incident (medium)
 - [ ] `/v1/custom_tags` — lookup resolving the custom tag IDs applied to incidents (medium)
 - [ ] `/v1/audit_logs` — org-wide audit trail of who changed what in GitGuardian (medium)

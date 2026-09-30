@@ -257,6 +257,7 @@ export const FEATURE_FLAGS = {
     ACTION_REFERENCE_COUNT: 'action-reference-count', // owner: @andyzzhao #team-product-analytics, gates bulk action reference counting on actions list
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AI_GATEWAY: 'ai-gateway', // owner: #team-agent-infra, gates the AI gateway UI and llm_gateway:read on project secret API keys
+    AI_OBSERVABILITY_TRACE_REDESIGN: 'ai-observability-trace-redesign', // owner: #team-ai-observability, gates the redesigned trace view
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_15_MINUTE_INTERVAL: 'alerts-15-minute-interval', // owner: #team-analytics-platform, gates 15-minute insight alert interval
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
@@ -298,7 +299,6 @@ export const FEATURE_FLAGS = {
     DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
     DATA_MODELING_INCREMENTAL_VIEWS: 'data-modeling-incremental-views', // owner: #team-data-modeling
     DATA_QUALITY_CHECKS: 'data-quality-checks', // owner: #team-data-modeling
-    DATA_WAREHOUSE_COLUMN_STATISTICS: 'data-warehouse-column-statistics', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-modeling
@@ -454,6 +454,7 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
     POSTHOG_AI_QUEUE_MESSAGES_SYSTEM: 'posthog-ai-queue-messages-system', // owner: #team-posthog-ai
     POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-desktop
+    POSTHOG_CODE_TASK_ANALYSIS: 'posthog-code-task-analysis', // owner: #team-desktop
     POSTHOG_CONNECT: 'posthog-connect', // owner: @Gilbert09, gates the "connect another PostHog project" personal integration
     POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING: 'posthog-desktop-cloud-compute-billing', // owner: #team-desktop
     PRODUCT_ANALYTICS_CHART_ALTERNATIVES: 'product-analytics-chart-gallery', // owner: #team-product-analytics
@@ -598,7 +599,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
     WIZARD_RUN_SYNC: 'wizard-run-sync', // owner: #team-growth multivariate=wizard-session,wizard-run — selects the Wizard sync widget
-    WIZARD_UI_ENABLED: 'wizard-ui-enabled', // owner: @fercgomes #team-growth — gates the /wizard/runs interface and its sidebar entry
+    WIZARD_UI_ENABLED: 'wizard-ui-enabled', // owner: @fercgomes #team-growth — gates the /wizard/runs interface
     WORKFLOW_AI_TASK_ACTION: 'workflow-ai-task-action', // owner: @mayteio #team-workflows
     WORKFLOW_RUN_SCOUT_ACTION: 'workflow-run-scout-action', // owner: #team-workflows
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
