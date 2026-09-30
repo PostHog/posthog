@@ -15,8 +15,13 @@ import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/request
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { parseErrorMessage, pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
+import {
+    captureRerunAfterStatusExpired,
+    isExpiredQueryStatusError,
+    parseErrorMessage,
+    pollForResults,
+} from '~/queries/query'
+import { DashboardFilter, HogQLVariable, QueryStatus, TileFilters } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -347,21 +352,50 @@ export async function getInsightWithRetry(
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
                     try {
-                        const asyncApiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
-                            refresh: 'force_async',
-                            from_dashboard: dashboardId,
-                            client_query_id: queryId,
-                            session_id: currentSessionId(),
-                            ...(filtersOverride ? { filters_override: filtersOverride } : {}),
-                            ...(variablesOverride ? { variables_override: variablesOverride } : {}),
-                            ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
-                        })}`
+                        const asyncApiUrl = (asyncRefresh: 'force_async' | 'async'): string =>
+                            `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
+                                refresh: asyncRefresh,
+                                from_dashboard: dashboardId,
+                                client_query_id: queryId,
+                                session_id: currentSessionId(),
+                                ...(filtersOverride ? { filters_override: filtersOverride } : {}),
+                                ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                                ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
+                            })}`
                         // The async call returns an insight with a query_status object
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                        const insightResponse = await api.get(asyncApiUrl, methodOptions)
+                        const insightResponse = await api.get(asyncApiUrl('force_async'), methodOptions)
 
                         if (insightResponse?.query_status?.id) {
-                            const finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                            let finalStatus: QueryStatus
+                            try {
+                                finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                            } catch (e) {
+                                // pollForResults pauses in a hidden tab, so the status can expire before the next poll.
+                                // The insights endpoint ignores client_query_id and names the run by its cache key, so
+                                // the rerun in executeQuery never sees this poll. Submit once more with async, which
+                                // reads the result that the finished run cached.
+                                if (!isExpiredQueryStatusError(e)) {
+                                    throw e
+                                }
+                                const rerun = await captureRerunAfterStatusExpired('dashboard_tile', async () => {
+                                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                                    const rerunResponse = await api.get(asyncApiUrl('async'), methodOptions)
+                                    if (rerunResponse?.query_status?.id && !rerunResponse.query_status.complete) {
+                                        return {
+                                            status: await pollForResults(rerunResponse.query_status.id, methodOptions),
+                                        }
+                                    }
+                                    if (rerunResponse?.result == null) {
+                                        throw new Error('The rerun returned no result')
+                                    }
+                                    return { insight: getQueryBasedInsightModel(rerunResponse) }
+                                })
+                                if ('insight' in rerun) {
+                                    return rerun.insight
+                                }
+                                finalStatus = rerun.status
+                            }
                             if (finalStatus.complete && !finalStatus.error) {
                                 const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                     refresh: 'force_cache',

@@ -69,6 +69,15 @@ export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
 
 /**
+ * The server keeps a query's status in Redis for 20 minutes. A 404 on a status poll after that
+ * means the server forgot the query, which most likely finished and cached its result. A managed
+ * warehouse that is down also answers 404, but a rerun cannot fix that one.
+ */
+export function isExpiredQueryStatusError(e: any): boolean {
+    return e?.status === 404 && e?.code !== MANAGED_WAREHOUSE_UNAVAILABLE_CODE
+}
+
+/**
  * Parse error message that may be in ErrorDetail string format.
  * Backend sometimes serializes ValidationError.detail as a string like:
  * "[ErrorDetail(string='Message', code='code')]"
@@ -240,29 +249,43 @@ async function executeQuery<N extends DataNode>(
         // A warehouse that is down also answers 404. Do not retry that one. A shared or exported
         // view may only read, so it cannot submit at all; report the expired status rather than
         // the permission error the server would answer with.
-        if (
-            retriedAfterExpiry ||
-            e?.status !== 404 ||
-            e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE ||
-            isSharedView()
-        ) {
+        if (retriedAfterExpiry || !isExpiredQueryStatusError(e) || isSharedView()) {
             throw e
         }
-        return await executeQuery(
-            queryNode,
-            methodOptions,
-            refresh === 'force_async' ? 'async' : refresh,
-            queryId,
-            setPollResponse,
-            filtersOverride,
-            variablesOverride,
-            false,
-            limitContext,
-            acceptStaleCache,
-            true
+        return await captureRerunAfterStatusExpired('query', () =>
+            executeQuery(
+                queryNode,
+                methodOptions,
+                refresh === 'force_async' ? 'async' : refresh,
+                queryId,
+                setPollResponse,
+                filtersOverride,
+                variablesOverride,
+                false,
+                limitContext,
+                acceptStaleCache,
+                true
+            )
         )
     }
     return statusResponse.results
+}
+
+/** Records whether a rerun after an expired status poll recovers, because the 404 alone does not show it. */
+export async function captureRerunAfterStatusExpired<T>(
+    source: 'query' | 'dashboard_tile',
+    rerun: () => Promise<T>
+): Promise<T> {
+    try {
+        const result = await rerun()
+        posthog.capture('query rerun after status expired', { source, recovered: true })
+        return result
+    } catch (e) {
+        if (!isAbortError(e)) {
+            posthog.capture('query rerun after status expired', { source, recovered: false })
+        }
+        throw e
+    }
 }
 
 // Return data for a given query
