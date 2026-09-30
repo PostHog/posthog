@@ -49,8 +49,48 @@ const SPACES = [
 ]
 
 const CONVERSATIONS = [
-    { id: 'chat-1', title: 'Why did signups spike on Monday?', status: 'idle', type: 'assistant' },
-    { id: 'chat-2', title: 'Weekly retention by plan', status: 'idle', type: 'assistant' },
+    {
+        id: 'chat-1',
+        title: 'Why did signups spike on Monday?',
+        status: 'idle',
+        type: 'assistant',
+        updated_at: '2026-09-28T16:10:00Z',
+    },
+    {
+        id: 'chat-2',
+        title: 'Weekly retention by plan',
+        status: 'idle',
+        type: 'assistant',
+        updated_at: '2026-09-25T09:00:00Z',
+    },
+]
+
+const PINNED_SESSIONS = [
+    {
+        id: 'task-pinned',
+        title: 'Fix the flaky checkout test',
+        archived: false,
+        last_activity_at: '2026-09-28T17:40:00Z',
+        latest_run: { status: 'in_progress' },
+    },
+]
+
+const RECENT_SESSIONS = [
+    ...PINNED_SESSIONS,
+    {
+        id: 'task-1',
+        title: 'Add a retry to the billing webhook',
+        archived: false,
+        last_activity_at: '2026-09-28T18:05:00Z',
+        latest_run: { status: 'completed' },
+    },
+    {
+        id: 'task-2',
+        title: 'Investigate the drop in trial starts',
+        archived: false,
+        last_activity_at: '2026-09-27T11:20:00Z',
+        latest_run: { status: 'failed' },
+    },
 ]
 
 const LIBRARY = [
@@ -136,7 +176,15 @@ const meta: Meta = {
                     },
                 ],
                 '/api/projects/:team_id/task_channels/': SPACES,
-                '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/tasks/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const results = params.get('pinned')
+                        ? PINNED_SESSIONS
+                        : params.get('created_by')
+                          ? RECENT_SESSIONS
+                          : []
+                    return [200, { results, count: results.length, next: null, previous: null }]
+                },
                 '/api/environments/:team_id/conversations/': { results: CONVERSATIONS, next: null },
                 '/api/environments/:team_id/file_system/': ({ request }) => {
                     const type = new URL(request.url).searchParams.get('type')
