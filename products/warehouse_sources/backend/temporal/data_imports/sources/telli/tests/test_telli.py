@@ -112,6 +112,30 @@ def test_completed_resume_does_not_restart_listing() -> None:
         assert not http.calls
 
 
+@pytest.mark.parametrize(
+    "endpoint,path,body",
+    [
+        ("calls", "/v1/list-calls", {"calls": [{"call_id": "call-1"}], "next_cursor": "stuck"}),
+        (
+            "contacts",
+            "/v2/contacts",
+            {"data": [{"id": "contact-1"}], "pageInfo": {"nextCursor": "stuck"}},
+        ),
+    ],
+)
+def test_repeated_cursor_raises_without_clearing_checkpoint(endpoint: str, path: str, body: dict[str, Any]) -> None:
+    manager = MagicMock(spec=ResumableSourceManager)
+    manager.can_resume.return_value = False
+    with responses.RequestsMock() as http:
+        http.get(f"https://api.telli.com{path}", json=body)
+        http.get(f"https://api.telli.com{path}", json=body)
+        response = telli_source("test-telli-key", endpoint, 1, "test-job", manager)
+        with pytest.raises(ValueError, match="not advancing"):
+            list(cast(Iterable[object], response.items()))
+
+    manager.save_state.assert_called_once_with(TelliResumeConfig(cursor="stuck"))
+
+
 @pytest.mark.parametrize("status", [429, 500, 503])
 def test_transient_failure_keeps_page_and_cursor(status: int) -> None:
     manager = MagicMock(spec=ResumableSourceManager)

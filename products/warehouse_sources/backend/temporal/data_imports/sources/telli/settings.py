@@ -22,7 +22,12 @@ ENDPOINTS: dict[str, TelliEndpoint] = {
             "path": "/v1/list-calls",
             "data_selector": "calls",
             "params": {"limit": PAGE_SIZE},
-            "paginator": {"type": "cursor", "cursor_path": "next_cursor", "cursor_param": "cursor"},
+            "paginator": {
+                "type": "cursor",
+                "cursor_path": "next_cursor",
+                "cursor_param": "cursor",
+                "raise_on_repeated_cursor": True,
+            },
         },
         primary_key="call_id",
         partition_key="triggered_at_iso",
@@ -33,7 +38,12 @@ ENDPOINTS: dict[str, TelliEndpoint] = {
             "path": "/v2/contacts",
             "data_selector": "data",
             "params": {"limit": PAGE_SIZE},
-            "paginator": {"type": "cursor", "cursor_path": "pageInfo.nextCursor", "cursor_param": "cursor"},
+            "paginator": {
+                "type": "cursor",
+                "cursor_path": "pageInfo.nextCursor",
+                "cursor_param": "cursor",
+                "raise_on_repeated_cursor": True,
+            },
         },
     ),
     "agents": TelliEndpoint(
@@ -41,7 +51,12 @@ ENDPOINTS: dict[str, TelliEndpoint] = {
             "path": "/v2/agents",
             "data_selector": "data",
             "params": {"limit": PAGE_SIZE},
-            "paginator": {"type": "cursor", "cursor_path": "pageInfo.nextCursor", "cursor_param": "cursor"},
+            "paginator": {
+                "type": "cursor",
+                "cursor_path": "pageInfo.nextCursor",
+                "cursor_param": "cursor",
+                "raise_on_repeated_cursor": True,
+            },
         },
     ),
     "contact_properties": TelliEndpoint(

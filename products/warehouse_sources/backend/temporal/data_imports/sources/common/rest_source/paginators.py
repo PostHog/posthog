@@ -188,11 +188,13 @@ class JSONResponseCursorPaginator(BasePaginator):
         cursor_path: TJsonPath = "cursors.next",
         cursor_param: str = "cursor",
         param_location: ParamLocation = "query",
+        raise_on_repeated_cursor: bool = False,
     ) -> None:
         super().__init__()
         self.cursor_path = cursor_path
         self.cursor_param = cursor_param
         self.param_location = param_location
+        self.raise_on_repeated_cursor = raise_on_repeated_cursor
         self._cursor_value: Optional[str] = None
         self._previous_cursor_value: Optional[str] = None
 
@@ -212,7 +214,10 @@ class JSONResponseCursorPaginator(BasePaginator):
 
         next_cursor = values[0]
         if next_cursor == self._previous_cursor_value:
-            raise ValueError("Cursor pagination is not advancing (repeated cursor)")
+            if self.raise_on_repeated_cursor:
+                raise ValueError("Cursor pagination is not advancing (repeated cursor)")
+            self._has_next_page = False
+            return
 
         self._previous_cursor_value = next_cursor
         self._cursor_value = next_cursor
