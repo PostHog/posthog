@@ -1,4 +1,4 @@
-import { Background, BackgroundVariant, FitViewOptions, ReactFlow, useReactFlow, useStore } from '@xyflow/react'
+import { Background, BackgroundVariant, FitViewOptions, ReactFlow, useReactFlow } from '@xyflow/react'
 import { useValues } from 'kea'
 import { useEffect, useId, useMemo } from 'react'
 
@@ -8,6 +8,7 @@ import { DataModelingEdge, DataModelingNode } from '~/types'
 import { ElkDirection } from './autolayout'
 import { initialLineageGraphLayout, lineageGraphLogic } from './lineageGraphLogic'
 import { LINEAGE_NODE_TYPES, LineageVariant } from './LineageNode'
+import { useNodesMeasured } from './useNodesMeasured'
 
 export interface LineageGraphLoadingProps {
     center?: Pick<DataModelingNode, 'name' | 'type'>
@@ -76,13 +77,7 @@ export function LineageGraphLoading({
     variant,
 }: LineageGraphLoadingProps): JSX.Element {
     const { fitView, viewportInitialized } = useReactFlow()
-    // react-flow resolves a queued fit as soon as the first node reports its size, which centers
-    // the viewport on that one node and never corrects itself.
-    const nodesMeasured = useStore(
-        (state) =>
-            state.nodeLookup.size > 0 &&
-            [...state.nodeLookup.values()].every((node) => node.measured.width && node.measured.height)
-    )
+    const nodesMeasured = useNodesMeasured()
     const { isDarkModeOn } = useValues(themeLogic)
     const reactId = useId()
     const idPrefix = useMemo(() => `lineage-loading-${reactId.replaceAll(':', '')}`, [reactId])

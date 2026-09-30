@@ -13,7 +13,7 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { ReactNode, useEffect, useRef } from 'react'
+import { ReactNode, useEffect, useMemo, useRef } from 'react'
 
 import { IconArchive } from '@posthog/icons'
 
@@ -24,6 +24,7 @@ import { ElkDirection } from './autolayout'
 import { LineageGraphLoading } from './LineageGraphLoading'
 import { lineageGraphLogic } from './lineageGraphLogic'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
+import { useNodesMeasured } from './useNodesMeasured'
 
 export type { LineageVariant, LineageNodeState, LineageNodeCallbacks } from './LineageNode'
 
@@ -62,6 +63,7 @@ export interface LineageGraphProps {
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     const { fitView, viewportInitialized } = useReactFlow()
+    const nodesMeasured = useNodesMeasured()
     const { isDarkModeOn } = useValues(themeLogic)
     const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, focusNodeIds, searchFocusRequest } = props
     const { layout } = useValues(
@@ -74,8 +76,28 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     )
     const fittedLayout = useRef<typeof layout>(null)
 
+    // Decorating on every render would hand react-flow new node objects, which drops the sizes it
+    // measured — so the fit below would keep waiting and the edges would keep being redrawn.
+    const decoratedNodes = useMemo(
+        () =>
+            layout?.nodes.map((rfNode) => {
+                const node = rfNode.data.node as DataModelingNode
+                return {
+                    ...rfNode,
+                    data: {
+                        ...rfNode.data,
+                        state: { isCurrent: node.id === currentNodeId, ...nodeState?.(node) },
+                        callbacks: nodeCallbacks?.(node) ?? {
+                            onClick: onNodeClick ? () => onNodeClick(node) : undefined,
+                        },
+                    },
+                }
+            }) ?? [],
+        [currentNodeId, layout, nodeCallbacks, nodeState, onNodeClick]
+    )
+
     useEffect(() => {
-        if (!viewportInitialized || !layout || props.loading || fittedLayout.current === layout) {
+        if (!viewportInitialized || !nodesMeasured || !layout || props.loading || fittedLayout.current === layout) {
             return
         }
         fittedLayout.current = layout
@@ -88,7 +110,16 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             padding: props.fitViewOptions?.padding ?? 0.2,
             duration: 400,
         })
-    }, [fitView, focusNodeIds, layout, props.fitViewOptions, props.loading, searchFocusRequest, viewportInitialized])
+    }, [
+        fitView,
+        focusNodeIds,
+        layout,
+        nodesMeasured,
+        props.fitViewOptions,
+        props.loading,
+        searchFocusRequest,
+        viewportInitialized,
+    ])
 
     useEffect(() => {
         if (!viewportInitialized || !focusNodeIds || !layout || props.loading) {
@@ -128,21 +159,6 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             />
         )
     }
-
-    // Cheap per-render pass: current-node highlight, state, and callbacks change without relayout
-    const decoratedNodes = layout.nodes.map((rfNode) => {
-        const node = rfNode.data.node as DataModelingNode
-        return {
-            ...rfNode,
-            data: {
-                ...rfNode.data,
-                state: { isCurrent: node.id === currentNodeId, ...nodeState?.(node) },
-                callbacks: nodeCallbacks?.(node) ?? {
-                    onClick: onNodeClick ? () => onNodeClick(node) : undefined,
-                },
-            },
-        }
-    })
 
     return (
         <ReactFlow
