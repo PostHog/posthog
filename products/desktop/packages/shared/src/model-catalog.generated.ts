@@ -72,9 +72,16 @@ export type ByRuntimeAdapter<T> = Record<RuntimeAdapter, T>;
 /** Efforts per adapter, absent where the adapter has no fallback. */
 type FallbackEfforts = Partial<ByRuntimeAdapter<readonly ReasoningEffort[]>>;
 
+export interface LongContextCost {
+  aboveInputTokens: number;
+  inputPerMtok: number;
+  outputPerMtok: number;
+}
+
 export interface ModelCost {
   inputPerMtok: number;
   outputPerMtok: number;
+  longContext?: LongContextCost;
 }
 
 export interface CatalogModel {
@@ -89,12 +96,12 @@ export interface CatalogModel {
       means generally available. Governs display only — the server decides
       whether a run may use it. */
   accessFlag?: string;
-  /** List price in US dollars per million tokens. Absent for a model no
+  /** Base list price in US dollars per million tokens. Absent for a model no
       public price list covers, which a picker shows with no cost at all. */
   cost?: ModelCost;
   /** Per-token cost against Claude Sonnet 5, ready to render: `2.5×`,
-      `≈0.55×`. Prefixed when input and output rates diverge enough that one
-      number flatters either. Absent whenever `cost` is. */
+      `≈0.55×`, or `1× base`. Prefixed when input and output rates diverge
+      enough that one number flatters either. Absent whenever `cost` is. */
   costMultiplier?: string;
   /** The rates behind the multiplier, ready to render. Absent whenever
       `cost` is. */
@@ -400,6 +407,24 @@ export const MODELS: readonly CatalogModel[] = [
     costSummary: "Input $2 · Output $10 per 1M tokens",
   },
   {
+    id: "gpt-6.1-sol",
+    runtimeAdapter: "codex",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    label: "GPT-6.1 Sol",
+    cost: {
+      inputPerMtok: 2,
+      outputPerMtok: 10,
+      longContext: {
+        aboveInputTokens: 272000,
+        inputPerMtok: 4,
+        outputPerMtok: 15,
+      },
+    },
+    costMultiplier: "1× base",
+    costSummary:
+      "Per 1M tokens: $2 input/$10 output to 272K; $4 input/$15 output above",
+  },
+  {
     id: "gpt-6-luna",
     runtimeAdapter: "codex",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
@@ -499,6 +524,11 @@ export const FAMILY_REASONING_EFFORTS: readonly ModelFamily[] = [
   {
     runtimeAdapter: "codex",
     prefix: "gpt-6-sol",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+  },
+  {
+    runtimeAdapter: "codex",
+    prefix: "gpt-6.1-sol",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
   },
   {
