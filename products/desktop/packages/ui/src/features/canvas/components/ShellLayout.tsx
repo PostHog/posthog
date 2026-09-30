@@ -33,6 +33,7 @@ import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFram
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import { useCanvasFrameStore } from "@posthog/ui/features/canvas/freeform/canvasFrameStore";
 import { CANVAS_QUERY_KEY } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
+import { useCanvasCommentsEnabled } from "@posthog/ui/features/canvas/hooks/useCanvasCommentsEnabled";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
@@ -287,15 +288,16 @@ function CanvasBreadcrumb({
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
   const commentTarget = {
-    scope: "desktop_canvas" as const,
+    scope: "canvas" as const,
     itemId: dashboardId,
   };
   const commentTaskId = canvasCommentTaskId(
     dashboard?.generationTaskId,
     versions,
   );
+  const commentsEnabled = useCanvasCommentsEnabled(commentTaskId);
   const comments = useCommentsQuery(
-    commentTaskId ? commentTarget : null,
+    commentsEnabled ? commentTarget : null,
     commentTaskId ?? "",
     { live: true },
   );
@@ -321,7 +323,7 @@ function CanvasBreadcrumb({
       }
       trailing={
         <>
-          {commentTaskId && (
+          {commentsEnabled && (
             <Button size="sm" variant="outline" onClick={openComments}>
               <ChatCircleIcon />
               Comments

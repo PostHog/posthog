@@ -184,6 +184,14 @@ export const PropertyMatchingVersionEnumApi = {
     Number2: 2,
 } as const
 
+export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
+
+export const FlagEvaluationsModeEnumApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+} as const
+
 export interface StaffTeamConfigApi {
     /** Team id. */
     team_id: number
@@ -201,6 +209,12 @@ export interface StaffTeamConfigApi {
     max_feature_flags_override: number | null
     /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
     effective_max_feature_flags: number
+    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support deploys, so 2 acts as 1 until then. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
     feature_flag_count: number
 }
@@ -227,6 +241,63 @@ export interface StaffTeamConfigMutationApi {
      * @nullable
      */
     max_feature_flags_override?: number | null
+}
+
+export interface StaffFlagEvaluationsModeMutationApi {
+    /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing $feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /**
+     * Teams whose organizations to move (max 50). The mode belongs to the organization, so the write moves every team of each organization that owns one of these teams.
+     * @minItems 1
+     * @maxItems 50
+     */
+    team_ids: number[]
+    /** Also lower organizations that are above the target mode. Once ingestion acts on mode 2, lowering an organization from 2 leaves a gap in the events table for the time it spent on 2. */
+    allow_downgrade?: boolean
+    /** Report what the write would change, and write nothing. */
+    dry_run?: boolean
+}
+
+export interface StaffOrganizationModeChangeApi {
+    /** The organization's mode before the write.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    current_mode: FlagEvaluationsModeEnumApi
+    /** The target mode.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    target_mode: FlagEvaluationsModeEnumApi
+    /** Organization id. */
+    organization_id: string
+    /** Organization name. */
+    organization_name: string
+    /** Teams of the organization. They all read the organization's mode. */
+    team_count: number
+    /** True when the write moved the organization to the target mode, or would on a dry run. */
+    changed: boolean
+    /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
+    left_above_mode: boolean
+}
+
+export interface StaffFlagEvaluationsModeResponseApi {
+    /** The target mode of the request.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** True when the request wrote nothing. */
+    dry_run: boolean
+    /** One entry per organization the request covers, oldest organization first. */
+    organizations: StaffOrganizationModeChangeApi[]
 }
 
 export interface StaffTeamResultApi {
@@ -600,6 +671,7 @@ export interface FeatureFlagApi {
     is_remote_configuration?: boolean | null
     /** @nullable */
     has_encrypted_payloads?: boolean | null
+    /** Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness. */
     readonly status: string
     /** Specifies where this feature flag should be evaluated
      *
@@ -1347,7 +1419,7 @@ export interface FeatureFlagRolloutSummaryApi {
 }
 
 export interface FeatureFlagStatusResponseApi {
-    /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+    /** Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving state, and this response carries no serving-state field: read the `active` field of the flag itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted reports 'active', because disabled flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
@@ -1535,7 +1607,7 @@ export const BulkDeleteFiltersTypeEnumApi = {
  * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
  */
 export interface BulkDeleteFiltersApi {
-    /** Filter by active state.
+    /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
      *
      * * `true` - true
      * * `false` - false
@@ -1995,7 +2067,7 @@ export type FeatureFlagsStaffTeamsListParams = {
      */
     limit?: number
     /**
-     * Search string matched against team id (exact), api_token (exact), team name (partial), or organization name (partial). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
+     * Search string matched against team id (exact), api_token (exact), team name (partial), organization name (partial), or organization id (exact). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
      * @minLength 1
      */
     search: string
@@ -2055,6 +2127,9 @@ export const FeatureFlagRequestUsageListTimeInterval = {
 } as const
 
 export type FeatureFlagsListParams = {
+    /**
+     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+     */
     active?: FeatureFlagsListActive
     /**
      * Filter by archived state. When omitted, archived flags are excluded.

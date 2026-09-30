@@ -124,8 +124,10 @@ class Run(ProductTeamModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
 
-    status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
-    run_type = models.CharField(max_length=64, default=RunType.OTHER)
+    status = models.CharField(
+        max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING.value
+    )
+    run_type = models.CharField(max_length=64, default=RunType.OTHER.value)
 
     # Git context
     commit_sha = models.CharField(max_length=40)
@@ -134,10 +136,10 @@ class Run(ProductTeamModel):
 
     # Purpose and review
     purpose = models.CharField(
-        max_length=20, choices=[(p.value, p.value) for p in RunPurpose], default=RunPurpose.REVIEW
+        max_length=20, choices=[(p.value, p.value) for p in RunPurpose], default=RunPurpose.REVIEW.value
     )
     review_decision = models.CharField(
-        max_length=20, choices=[(d.value, d.value) for d in ReviewDecision], default=ReviewDecision.PENDING
+        max_length=20, choices=[(d.value, d.value) for d in ReviewDecision], default=ReviewDecision.PENDING.value
     )
     # Legacy — derived from review_decision, kept for backward compat during migration
     approved = models.BooleanField(default=False)
@@ -227,7 +229,7 @@ class RunSnapshot(ProductTeamModel):
     )
 
     result = models.CharField(
-        max_length=20, choices=[(r.value, r.value) for r in SnapshotResult], default=SnapshotResult.UNCHANGED
+        max_length=20, choices=[(r.value, r.value) for r in SnapshotResult], default=SnapshotResult.UNCHANGED.value
     )
     # Why this snapshot was classified as UNCHANGED (empty for CHANGED/NEW/REMOVED)
     classification_reason = models.CharField(
@@ -393,7 +395,7 @@ class QuarantinedIdentifier(ProductTeamModel):
     source = models.CharField(
         max_length=10,
         choices=[(a.value, a.value) for a in ActorType],
-        default=ActorType.HUMAN,
+        default=ActorType.HUMAN.value,
     )
 
     expires_at = models.DateTimeField(null=True, blank=True)
