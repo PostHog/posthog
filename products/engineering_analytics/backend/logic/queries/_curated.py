@@ -692,8 +692,14 @@ class ConcurrentReads:
 
     def run(self) -> None:
         if settings.TEST:
+            errors: list[Exception] = []
             for work in self._work:
-                work()
+                try:
+                    work()
+                except Exception as error:
+                    errors.append(error)
+            if errors:
+                raise errors[0]
             return
         run_in_parallel_threads(
             [partial(_closing_connection, work) for work in self._work],
