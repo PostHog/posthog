@@ -4,7 +4,7 @@ import { useMemo, useRef } from 'react'
 import { IconSearch } from '@posthog/icons'
 
 import { resolveQuickFilterOption, withSelectedOption } from 'lib/components/QuickFilters/quickFilterOptions'
-import { quickFilterValuesLogic } from 'lib/components/QuickFilters/quickFilterValuesLogic'
+import { discoveredValuesMessage, quickFilterValuesLogic } from 'lib/components/QuickFilters/quickFilterValuesLogic'
 import {
     Button,
     Combobox,
@@ -21,54 +21,33 @@ import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
 
 const ANY_VALUE = '__any__'
-const LOADING_VALUE = '__loading__'
-const ERROR_VALUE = '__error__'
-const EMPTY_VALUE = '__empty__'
-const STATUS_VALUES = [LOADING_VALUE, ERROR_VALUE, EMPTY_VALUE]
-
-function statusMessage(statusValue: string, search: string): string {
-    if (statusValue === LOADING_VALUE) {
-        return 'Loading values…'
-    }
-    if (statusValue === ERROR_VALUE) {
-        return "Couldn't load values. Close and reopen the dropdown to try again."
-    }
-    return search ? 'No matching values in the last 7 days' : 'No values found in the last 7 days'
-}
+const STATUS_VALUE = '__status__'
 
 export interface DiscoveredValuesQuickFilterSelectProps {
     filter: QuickFilter
+    context: QuickFilterContext
     selectedOptionId: string | null
     onChange: (option: QuickFilterOption | null) => void
 }
 
 export function DiscoveredValuesQuickFilterSelect({
     filter,
+    context,
     selectedOptionId,
     onChange,
 }: DiscoveredValuesQuickFilterSelectProps): JSX.Element {
-    const valuesLogic = quickFilterValuesLogic({
-        context: QuickFilterContext.ErrorTrackingIssueFilters,
-        propertyName: filter.property_name,
-    })
+    const valuesLogic = quickFilterValuesLogic({ context, propertyName: filter.property_name })
     const { discoveredOptions, discoveredValuesStatus, search } = useValues(valuesLogic)
     const { setSearch } = useActions(valuesLogic)
     const triggerRef = useRef<HTMLButtonElement>(null)
 
     const anyLabel = `Any ${filter.name.toLowerCase()}`
+    const statusMessage = discoveredValuesMessage(discoveredValuesStatus, search, discoveredOptions.length)
 
     const items = useMemo(() => {
         const optionIds = withSelectedOption(discoveredOptions, selectedOptionId).map((option) => option.id)
-        let statusItem: string | null = null
-        if (discoveredValuesStatus === 'loading') {
-            statusItem = LOADING_VALUE
-        } else if (discoveredValuesStatus === 'error') {
-            statusItem = ERROR_VALUE
-        } else if (discoveredOptions.length === 0) {
-            statusItem = EMPTY_VALUE
-        }
-        return [ANY_VALUE, ...optionIds, ...(statusItem ? [statusItem] : [])]
-    }, [discoveredOptions, discoveredValuesStatus, selectedOptionId])
+        return [ANY_VALUE, ...optionIds, ...(statusMessage ? [STATUS_VALUE] : [])]
+    }, [discoveredOptions, selectedOptionId, statusMessage])
 
     return (
         <Combobox
@@ -91,7 +70,7 @@ export function DiscoveredValuesQuickFilterSelect({
                 }
             }}
             onValueChange={(value: string | null) => {
-                if (!value || STATUS_VALUES.includes(value)) {
+                if (!value || value === STATUS_VALUE) {
                     return
                 }
                 onChange(value === ANY_VALUE ? null : resolveQuickFilterOption(filter, value))
@@ -100,7 +79,7 @@ export function DiscoveredValuesQuickFilterSelect({
             <ComboboxTrigger
                 ref={triggerRef}
                 render={<Button variant="outline" size="default" left className="justify-between gap-3" />}
-                aria-label={filter.name}
+                aria-label={`${filter.name}: ${selectedOptionId ?? anyLabel}`}
             >
                 <span className="max-w-60 truncate">{selectedOptionId ?? anyLabel}</span>
             </ComboboxTrigger>
@@ -121,10 +100,10 @@ export function DiscoveredValuesQuickFilterSelect({
                 </ComboboxInput>
                 <ComboboxList>
                     {(value: string) =>
-                        STATUS_VALUES.includes(value) ? (
+                        value === STATUS_VALUE ? (
                             <ComboboxItem key={value} value={value} disabled className="text-sm">
                                 <Text size="sm" variant="muted" className="italic">
-                                    {statusMessage(value, search)}
+                                    {statusMessage}
                                 </Text>
                             </ComboboxItem>
                         ) : (

@@ -217,13 +217,13 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
             }
 
             const updatedOption = resolveQuickFilterOption(filter, currentSelection.optionId)
-            // After a switch to auto-discovery, a manual option id resolves to the id itself as the value.
-            // Keep an auto-discovered selection only when its stored value and property still match.
-            const keepsAutoDiscoveredValue =
+            // An auto-discovery filter resolves any option id to itself as the value, so a stale manual
+            // option id also resolves. Only a stored value and property that still match are valid.
+            const selectionStillMatches =
                 filter.type !== 'auto-discovery' ||
                 (currentSelection.propertyName === filter.property_name &&
                     currentSelection.value === updatedOption?.value)
-            if (updatedOption && keepsAutoDiscoveredValue) {
+            if (updatedOption && selectionStillMatches) {
                 actions.setQuickFilterValue(filter.id, filter.property_name, updatedOption)
             } else {
                 actions.clearQuickFilter(filter.id)
@@ -234,8 +234,9 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
             posthog.capture(QuickFiltersEvents.QuickFilterSelected, {
                 name: filter?.name,
                 property_name: filter?.property_name,
-                label: option.label,
-                value: option.value,
+                filter_type: filter?.type,
+                // Auto-discovered values are raw event data, which can hold personal data, so only send author-written options
+                ...(filter?.type === 'manual-options' && { label: option.label, value: option.value }),
                 context: props.context,
             })
             actions.quickFiltersChanged()

@@ -1,11 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
 
+import { QuickFiltersEvents } from './consts'
 import { quickFiltersLogic } from './quickFiltersLogic'
 import { quickFiltersSectionLogic } from './quickFiltersSectionLogic'
 
@@ -137,6 +139,39 @@ describe('quickFiltersSectionLogic', () => {
                     },
                 },
             })
+        })
+    })
+
+    describe('selection analytics', () => {
+        it.each([
+            {
+                description: 'sends the label and value of a manual option',
+                filter: mockQuickFilters[0],
+                option: mockOption1,
+                expectedValues: { label: 'Production', value: 'production' },
+            },
+            {
+                description: 'leaves out an auto-discovered value, which is raw event data',
+                filter: mockQuickFilters[3],
+                option: { id: 'v1', value: 'v1', label: 'v1', operator: PropertyOperator.Exact },
+                expectedValues: {},
+            },
+        ])('$description', async ({ filter, option, expectedValues }) => {
+            await expectLogic(
+                quickFiltersLogic({ context: QuickFilterContext.ErrorTrackingIssueFilters })
+            ).toDispatchActions(['loadQuickFiltersSuccess'])
+            const capture = jest.spyOn(posthog, 'capture').mockReturnValue(undefined)
+
+            logic.actions.setQuickFilterValue(filter.id, filter.property_name, option)
+
+            expect(capture).toHaveBeenCalledWith(QuickFiltersEvents.QuickFilterSelected, {
+                name: filter.name,
+                property_name: filter.property_name,
+                filter_type: filter.type,
+                context: QuickFilterContext.ErrorTrackingIssueFilters,
+                ...expectedValues,
+            })
+            capture.mockRestore()
         })
     })
 

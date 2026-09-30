@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonSelect, LemonSelectSection, Spinner } from '@posthog/lemon-ui'
+import { LemonSearchableSelect, LemonSelect, LemonSelectOption, Spinner } from '@posthog/lemon-ui'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
 
-import { resolveQuickFilterOption, withSelectedOption } from './quickFilterOptions'
-import { DiscoveredValuesStatus, quickFilterValuesLogic } from './quickFilterValuesLogic'
+import { withSelectedOption } from './quickFilterOptions'
+import { discoveredValuesMessage, quickFilterValuesLogic } from './quickFilterValuesLogic'
 
 interface QuickFilterSelectorProps {
     filter: Pick<QuickFilter, 'name' | 'property_name' | 'type' | 'options'>
@@ -16,28 +16,43 @@ interface QuickFilterSelectorProps {
     onChange: (option: QuickFilterOption | null) => void
 }
 
-export function QuickFilterSelector({
-    filter,
-    context,
-    selectedOptionId,
-    onChange,
-}: QuickFilterSelectorProps): JSX.Element {
-    if (filter.type === 'auto-discovery') {
-        return (
-            <DiscoveredValuesSelector
-                filter={filter}
-                context={context}
-                selectedOptionId={selectedOptionId}
-                onChange={onChange}
-            />
-        )
-    }
+type SelectValue = string | null
+
+function selectOptions(filterName: string, options: QuickFilterOption[]): LemonSelectOption<SelectValue>[] {
+    return [
+        { value: null, label: `Any ${filterName.toLowerCase() || 'items'}` },
+        ...options.map((option) => ({ value: option.id, label: option.label })),
+    ]
+}
+
+function selectedValue(options: QuickFilterOption[], selectedOptionId: string | null): SelectValue {
+    return selectedOptionId && options.some((option) => option.id === selectedOptionId) ? selectedOptionId : null
+}
+
+function findOption(options: QuickFilterOption[], optionId: SelectValue): QuickFilterOption | null {
+    return optionId === null ? null : (options.find((option) => option.id === optionId) ?? null)
+}
+
+export function QuickFilterSelector(props: QuickFilterSelectorProps): JSX.Element {
+    return props.filter.type === 'auto-discovery' ? (
+        <DiscoveredValuesSelector {...props} />
+    ) : (
+        <ManualOptionsSelector {...props} />
+    )
+}
+
+function ManualOptionsSelector({ filter, selectedOptionId, onChange }: QuickFilterSelectorProps): JSX.Element {
+    const options = useMemo(() => selectOptions(filter.name, filter.options), [filter.name, filter.options])
+
     return (
-        <QuickFilterOptionsSelect
-            filter={filter}
-            options={filter.options}
-            selectedOptionId={selectedOptionId}
-            onChange={onChange}
+        <LemonSelect
+            value={selectedValue(filter.options, selectedOptionId)}
+            onChange={(optionId) => onChange(findOption(filter.options, optionId))}
+            options={options}
+            size="small"
+            placeholder={filter.name || 'Filter name'}
+            dropdownMatchSelectWidth={false}
+            truncateText={{ maxWidthClass: 'max-w-60' }}
         />
     )
 }
@@ -49,90 +64,46 @@ function DiscoveredValuesSelector({
     onChange,
 }: QuickFilterSelectorProps): JSX.Element {
     const valuesLogic = quickFilterValuesLogic({ context, propertyName: filter.property_name })
-    const { discoveredOptions, discoveredValuesStatus } = useValues(valuesLogic)
+    const { discoveredOptions, discoveredValuesStatus, search } = useValues(valuesLogic)
     const { setSearch } = useActions(valuesLogic)
+
     const options = useMemo(
         () => withSelectedOption(discoveredOptions, selectedOptionId),
         [discoveredOptions, selectedOptionId]
     )
-
-    return (
-        <QuickFilterOptionsSelect
-            filter={filter}
-            options={options}
-            selectedOptionId={selectedOptionId}
-            onChange={onChange}
-            discoveredValuesStatus={discoveredValuesStatus}
-            onOpen={() => setSearch('')}
-        />
-    )
-}
-
-function discoveredValuesFooter(status: DiscoveredValuesStatus, optionCount: number): JSX.Element | string | undefined {
-    if (status === 'loading') {
-        return (
-            <span className="flex items-center gap-1">
-                <Spinner textColored />
-                Loading values…
-            </span>
-        )
-    }
-    if (status === 'error') {
-        return "Couldn't load values. Close and reopen the dropdown to try again."
-    }
-    return optionCount === 0 ? 'No values found in the last 7 days.' : undefined
-}
-
-function QuickFilterOptionsSelect({
-    filter,
-    options,
-    selectedOptionId,
-    onChange,
-    discoveredValuesStatus,
-    onOpen,
-}: Omit<QuickFilterSelectorProps, 'context'> & {
-    options: QuickFilterOption[]
-    discoveredValuesStatus?: DiscoveredValuesStatus
-    onOpen?: () => void
-}): JSX.Element {
-    const label = filter.name || 'Filter name'
+    const message = discoveredValuesMessage(discoveredValuesStatus, search, discoveredOptions.length)
     const sections = useMemo(
-        (): LemonSelectSection<string | null>[] => [
+        () => [
             {
-                options: [
-                    { value: null, label: `Any ${filter.name.toLowerCase() || 'items'}` },
-                    ...options.map((opt) => ({
-                        value: opt.id,
-                        label: opt.label,
-                    })),
-                ],
-                footer: discoveredValuesStatus
-                    ? discoveredValuesFooter(discoveredValuesStatus, options.length)
-                    : undefined,
+                options: selectOptions(filter.name, options),
+                footer:
+                    discoveredValuesStatus === 'loading' ? (
+                        <span className="flex items-center gap-1">
+                            <Spinner textColored />
+                            {message}
+                        </span>
+                    ) : (
+                        (message ?? undefined)
+                    ),
             },
         ],
-        [options, filter.name, discoveredValuesStatus]
+        [filter.name, options, discoveredValuesStatus, message]
     )
 
-    const displayValue = useMemo(() => {
-        if (selectedOptionId === null) {
-            return null
-        }
-        return options.some((opt) => opt.id === selectedOptionId) ? selectedOptionId : null
-    }, [selectedOptionId, options])
-
     return (
-        <LemonSelect
-            value={displayValue}
-            onChange={(selectedId) => {
-                onChange(selectedId === null ? null : resolveQuickFilterOption({ ...filter, options }, selectedId))
-            }}
+        <LemonSearchableSelect
+            value={selectedValue(options, selectedOptionId)}
+            onChange={(optionId) => onChange(findOption(options, optionId))}
             options={sections}
+            searchPlaceholder="Search values"
+            searchInputDataAttr="quick-filter-values-search"
+            onSearchChange={setSearch}
+            filterOptionsLocally={false}
             size="small"
-            placeholder={label}
+            placeholder={filter.name || 'Filter name'}
             dropdownMatchSelectWidth={false}
             truncateText={{ maxWidthClass: 'max-w-60' }}
-            menu={onOpen ? { onVisibilityChange: (visible) => visible && onOpen() } : undefined}
+            menu={{ onVisibilityChange: (visible) => visible && setSearch('') }}
         />
     )
 }

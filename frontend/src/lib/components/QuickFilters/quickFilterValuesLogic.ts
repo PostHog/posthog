@@ -27,6 +27,24 @@ const SEARCH_DEBOUNCE_MS = 200
 
 export type DiscoveredValuesStatus = 'loading' | 'loaded' | 'error'
 
+/** The status line for a discovered-values dropdown, or null when the values need no explanation. */
+export function discoveredValuesMessage(
+    status: DiscoveredValuesStatus,
+    search: string,
+    valueCount: number
+): string | null {
+    if (status === 'loading') {
+        return 'Loading values…'
+    }
+    if (status === 'error') {
+        return "Couldn't load values. Close and reopen the dropdown to try again."
+    }
+    if (valueCount > 0) {
+        return null
+    }
+    return search ? 'No matching values in the last 7 days.' : 'No values found in the last 7 days.'
+}
+
 export interface QuickFilterValuesLogicProps {
     context: QuickFilterContext
     propertyName: string
@@ -153,8 +171,13 @@ export const quickFilterValuesLogic: LogicWrapper<quickFilterValuesLogicType> = 
             actions.loadValues(search)
         },
         loadValues: async ({ search }) => {
+            if (!values.currentProjectId) {
+                // Report a failure rather than stay in 'loading', so opening the dropdown again retries
+                actions.setValuesFailed(search)
+                return
+            }
             cache.pendingSearches ??= new Set<string>()
-            if (cache.pendingSearches.has(search) || !values.currentProjectId) {
+            if (cache.pendingSearches.has(search)) {
                 return
             }
             cache.pendingSearches.add(search)
