@@ -73,13 +73,6 @@ export const SIGNALS_PR_REFUNDS_FLAG = featureFlagKeys.SIGNALS_PR_REFUNDS_FLAG;
 export const CHANNEL_REPORTS_FLAG = featureFlagKeys.CHANNEL_REPORTS_FLAG;
 
 /**
- * The global reports inbox: one sectioned, keyboard-triageable page for every
- * report, reclaiming the inbox nav slot from the channel-reports takeover.
- * The per-space sidebar list stays the working set beside it.
- */
-export const REPORTS_INBOX_FLAG = featureFlagKeys.REPORTS_INBOX_FLAG;
-
-/**
  * One-report-at-a-time keyboard triage inside the reports inbox. On by
  * default in dev builds for iteration (see useTriageFocusEnabled); off in
  * production until it stabilizes.

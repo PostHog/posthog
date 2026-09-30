@@ -1,5 +1,140 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - clicks 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports clicks",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(clicks), 0))",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - cost 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports cost",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'USD'), 'USD', toFloat(cost), coalesce(toDate(date), today()))))",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - impressions 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports impressions",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(impressions), 0))",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - reported_conversion (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - reported_conversion 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(purchases14d), 0))",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - reported_conversion_value (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - reported_conversion_value 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'USD'), 'USD', ifNull(toFloat(sales14d), 0), coalesce(toDate(date), today()))))",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - roas (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports roas",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - roas 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports roas",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'USD'), 'USD', ifNull(toFloat(sales14d), 0), coalesce(toDate(date), today())))) / nullIf(SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'USD'), 'USD', toFloat(cost), coalesce(toDate(date), today())))), 0)",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
 exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - clicks 1`] = `
 {
   "custom_name": "prefix.campaign_report clicks",
@@ -698,7 +833,7 @@ exports[`marketing analytics utils createMarketingTile snapshots OpenAIAds - cos
   "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
-  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(currency_code, 'USD'), 'USD', toFloat(spend), coalesce(toDate(start_time), today())))) + throwIf(countIf(empty(coalesce(currency_code, ''))) > 0, 'OpenAI Ads currency is missing. Fully resync campaign_insights, then try again.')",
+  "math_hogql": "(SUM(toFloat(convertCurrency(coalesce(currency_code, 'USD'), 'USD', toFloat(spend), coalesce(toDate(start_time), today())))) + throwIf(countIf(empty(coalesce(currency_code, ''))) > 0, 'OpenAI Ads currency is missing. Fully resync campaign_insights, then try again.'))",
   "name": "openai",
   "table_name": "prefix.campaign_insights",
   "timestamp_field": "start_time",
@@ -1077,6 +1212,141 @@ exports[`marketing analytics utils createMarketingTile snapshots RedditAds - roa
   "name": "reddit",
   "table_name": "prefix.campaign_report",
   "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - clicks 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance clicks",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(referrals), 0))",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - cost 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance cost",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "(SUM(toFloat(convertCurrency(coalesce(currency_code, 'USD'), 'USD', toFloat(gross_cost), coalesce(toDate(datetime), today())))) + throwIf(countIf(empty(coalesce(currency_code, ''))) > 0, 'Rokt Ads currency is missing. Fully resync CampaignPerformance, then try again.'))",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - impressions 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance impressions",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(impressions), 0))",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - reported_conversion (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - reported_conversion 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(conversions), 0))",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - reported_conversion_value (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - reported_conversion_value 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency('USD', 'USD', ifNull(toFloat(conversion_value), 0), coalesce(toDate(datetime), today()))))",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - roas (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance roas",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - roas 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance roas",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency('USD', 'USD', ifNull(toFloat(conversion_value), 0), coalesce(toDate(datetime), today())))) / nullIf((SUM(toFloat(convertCurrency(coalesce(currency_code, 'USD'), 'USD', toFloat(gross_cost), coalesce(toDate(datetime), today())))) + throwIf(countIf(empty(coalesce(currency_code, ''))) > 0, 'Rokt Ads currency is missing. Fully resync CampaignPerformance, then try again.')), 0)",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
 }
 `;
 

@@ -76,25 +76,55 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         return task
 
-    def test_task_artifact_comments_require_a_visible_owning_task(self) -> None:
+    @parameterized.expand([("task_artifact",), ("task_preview",), ("task_browser",)])
+    def test_task_comments_require_a_visible_owning_task(self, scope: str) -> None:
         task = self._task_artifact_target()
+        item_id = {
+            "task_artifact": "artifact-1",
+            "task_preview": f"{task.id}:3000",
+            "task_browser": f"{task.id}:browser",
+        }[scope]
         payload: dict[str, Any] = {
             "content": "Review this",
-            "scope": "task_artifact",
-            "item_id": "artifact-1",
+            "scope": scope,
+            "item_id": item_id,
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
         }
 
         created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
         assert created.status_code == status.HTTP_201_CREATED
-        without_task = self.client.get(f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1")
+        without_task = self.client.get(f"/api/projects/{self.team.id}/comments?scope={scope}&item_id={item_id}")
         assert without_task.json()["results"] == []
-        unscoped = self.client.get(f"/api/projects/{self.team.id}/comments?item_id=artifact-1")
+        unscoped = self.client.get(f"/api/projects/{self.team.id}/comments?item_id={item_id}")
         assert unscoped.json()["results"] == []
         with_task = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope={scope}&item_id={item_id}&task_id={task.id}"
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
+
+    @parameterized.expand(
+        [
+            ("preview_on_another_task", "task_preview", "{other}:3000"),
+            ("preview_without_port", "task_preview", "{task}"),
+            ("preview_with_bad_port", "task_preview", "{task}:http"),
+            ("browser_on_another_task", "task_browser", "{other}:browser"),
+            ("browser_without_suffix", "task_browser", "{task}"),
+            ("browser_with_a_port", "task_browser", "{task}:3000"),
+        ]
+    )
+    def test_task_comment_item_must_belong_to_the_task(self, _name: str, scope: str, item_template: str) -> None:
+        task = self._task_artifact_target()
+        other = self._task_artifact_target()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Review this",
+                "scope": scope,
+                "item_id": item_template.format(task=task.id, other=other.id),
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @mock.patch("posthog.api.comments.send_mention_notifications")
     @mock.patch("posthog.api.comments.produce_discussion_mention_events")
@@ -302,6 +332,57 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         }
         assert detail.json()["comments"][0]["canvas_version_id"] == "version-2"
         assert detail.json()["next"] is None
+
+    @parameterized.expand(
+        [
+            ("preview", "task_preview", "{task}:3000", {"kind": "document"}, "preview", "Preview of port 3000"),
+            (
+                "browser_page",
+                "task_browser",
+                "{task}:browser",
+                {"kind": "document", "origin": "https://example.com", "path": "/pricing"},
+                "browser",
+                "https://example.com/pricing",
+            ),
+            (
+                "browser_page_with_a_huge_path",
+                "task_browser",
+                "{task}:browser",
+                {"kind": "document", "origin": "https://example.com", "path": "/" + "a" * 5000},
+                "browser",
+                ("https://example.com/" + "a" * 5000)[:500],
+            ),
+            (
+                "browser_without_page",
+                "task_browser",
+                "{task}:browser",
+                {"kind": "document"},
+                "browser",
+                "In-app browser",
+            ),
+        ]
+    )
+    def test_task_comments_list_preview_and_browser_targets(
+        self, _name: str, scope: str, item_template: str, anchor: dict, expected_type: str, expected_name: str
+    ) -> None:
+        task = self._task_artifact_target()
+        item_id = item_template.format(task=task.id)
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope=scope,
+            item_id=item_id,
+            item_context={"taskId": str(task.id), "anchor": anchor},
+            content="Check this",
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        comments = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/")
+
+        assert comments.status_code == status.HTTP_200_OK
+        assert [(row["id"], row["target"]) for row in comments.json()["comments"]] == [
+            (str(root.id), {"id": item_id, "type": expected_type, "name": expected_name})
+        ]
 
     def test_task_comment_retrieval_tolerates_malformed_stored_context(self) -> None:
         task = self._task_artifact_target()

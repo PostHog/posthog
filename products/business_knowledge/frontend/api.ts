@@ -2,6 +2,11 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { apiMutator } from '../../../frontend/src/lib/api-orval-mutator'
 import {
+    businessKnowledgePlaygroundChatsAskCreate,
+    businessKnowledgePlaygroundChatsCreate,
+    businessKnowledgePlaygroundChatsDestroy,
+    businessKnowledgePlaygroundChatsList,
+    businessKnowledgePlaygroundChatsRetrieve,
     businessKnowledgeSourcesCreate,
     businessKnowledgeSourcesDestroy,
     businessKnowledgeSourcesDocumentsList,
@@ -17,6 +22,9 @@ import type {
     BusinessKnowledgeSourcesListSourceType,
     CrawlModeEnumApi,
     KnowledgeSourceApi,
+    PlaygroundChatApi,
+    PlaygroundChatListApi,
+    SandboxQuestionApi,
     KnowledgeSourceDocumentApi,
 } from './generated/api.schemas'
 
@@ -123,6 +131,27 @@ export async function updateSource(id: string, payload: UpdateSourcePayload): Pr
 
 export async function deleteSource(id: string): Promise<void> {
     await businessKnowledgeSourcesDestroy(String(getCurrentTeamId()), id)
+}
+
+export async function listPlaygroundChats(): Promise<PlaygroundChatListApi[]> {
+    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()))
+}
+
+export async function createPlaygroundChat(): Promise<PlaygroundChatApi> {
+    return await businessKnowledgePlaygroundChatsCreate(String(getCurrentTeamId()))
+}
+
+export async function getPlaygroundChat(chatId: string): Promise<PlaygroundChatApi> {
+    return await businessKnowledgePlaygroundChatsRetrieve(String(getCurrentTeamId()), chatId)
+}
+
+export async function askPlaygroundChat(chatId: string, question: string): Promise<PlaygroundChatApi> {
+    const body: SandboxQuestionApi = { question }
+    return await businessKnowledgePlaygroundChatsAskCreate(String(getCurrentTeamId()), chatId, body)
+}
+
+export async function deletePlaygroundChat(chatId: string): Promise<void> {
+    await businessKnowledgePlaygroundChatsDestroy(String(getCurrentTeamId()), chatId)
 }
 
 export async function refreshSource(id: string): Promise<KnowledgeSourceApi> {

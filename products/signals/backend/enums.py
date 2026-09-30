@@ -30,6 +30,14 @@ class ReportLinkKind(StrEnum):
     RECURRENCE_OF = "recurrence_of"
 
 
+class ReportLinkWritePath(StrEnum):
+    # Which surface wrote a `report_link`. `EMIT` writes it with the report, before auto-start reads
+    # the link gates. `EDIT` writes it on a report that exists, possibly after auto-start ran.
+    EMIT = "emit"
+    EDIT = "edit"
+    PIPELINE = "pipeline"
+
+
 REPORT_LINK_KIND_LABELS: dict[ReportLinkKind, str] = {
     ReportLinkKind.DEPENDS_ON: "Depends on",
     ReportLinkKind.PART_OF: "Part of",

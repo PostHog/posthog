@@ -268,6 +268,7 @@ export function normalizeTaskResponse(
       ? {}
       : { signal_report: dto.signal_report }),
     ...(dto.internal === undefined ? {} : { internal: dto.internal }),
+    ...(dto.origin_key === undefined ? {} : { origin_key: dto.origin_key }),
     ...(runtime === undefined ? {} : { runtime }),
     ...(dto.channel === undefined ? {} : { channel: dto.channel }),
     ...(latestRun === undefined ? {} : { latest_run: latestRun }),

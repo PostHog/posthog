@@ -6,6 +6,7 @@ from uuid import UUID
 from django.db.models import Count, Q, QuerySet
 
 from posthog.models import Comment
+from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES
 
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.models import TaskArtifact, TaskRun, TaskThreadMessage
@@ -18,6 +19,7 @@ LIST_CONTENT_BYTES = 1024
 SELECTED_TEXT_BYTES = 1024
 DETAIL_CONTENT_BUDGET_BYTES = 64 * 1024
 ANCHOR_QUOTE_BYTES = 4096
+TASK_ITEM_COMMENT_SCOPES = sorted(DESKTOP_COMMENT_SCOPES - {"task"})
 
 
 class InvalidTaskCommentCursor(ValueError):
@@ -117,7 +119,7 @@ def _comments(team_id: int, task_id: UUID) -> QuerySet[Comment]:
         Comment.objects.filter(team_id=team_id, deleted=False)
         .filter(
             Q(scope="task", item_id=task_id_string)
-            | Q(scope__in=["task_artifact", "desktop_canvas"], item_context__taskId=task_id_string)
+            | Q(scope__in=TASK_ITEM_COMMENT_SCOPES, item_context__taskId=task_id_string)
         )
         .filter(Q(item_context__isnull=True) | ~Q(item_context__has_key="is_emoji") | Q(item_context__is_emoji=False))
     )
@@ -144,6 +146,19 @@ def _canvas_names(*, team_id: int, task_id: UUID, canvas_ids: Sequence[str]) -> 
     return names
 
 
+_MAX_BROWSER_TARGET_NAME_CHARS = 500
+
+
+def _browser_target_name(comment: Comment) -> str:
+    anchor = _item_context(comment).get("anchor")
+    origin = anchor.get("origin") if isinstance(anchor, dict) else None
+    if not isinstance(origin, str) or not origin:
+        return "In-app browser"
+    path = anchor.get("path") if isinstance(anchor, dict) else None
+    name = f"{origin}{path}" if isinstance(path, str) else origin
+    return name[:_MAX_BROWSER_TARGET_NAME_CHARS]
+
+
 def _target(comment: Comment, target_names: dict[tuple[str, str], str]) -> contracts.TaskCommentTargetDTO:
     if comment.scope == "task":
         return contracts.TaskCommentTargetDTO(id=str(comment.item_id), type="task", name="This task")
@@ -152,6 +167,13 @@ def _target(comment: Comment, target_names: dict[tuple[str, str], str]) -> contr
         return contracts.TaskCommentTargetDTO(
             id=item_id, type="artifact", name=target_names.get(("artifact", item_id), item_id or "Artifact")
         )
+    if comment.scope == "task_preview":
+        port = item_id.rpartition(":")[2]
+        return contracts.TaskCommentTargetDTO(
+            id=item_id, type="preview", name=f"Preview of port {port}" if port.isdigit() else "Preview"
+        )
+    if comment.scope == "task_browser":
+        return contracts.TaskCommentTargetDTO(id=item_id, type="browser", name=_browser_target_name(comment))
     return contracts.TaskCommentTargetDTO(
         id=item_id, type="canvas", name=target_names.get(("canvas", item_id), item_id or "Canvas")
     )

@@ -4,11 +4,11 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { EvaluationResultTag, compareEvaluationResults } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
+import { EvaluationRunTimestampCell } from '../../components/EvaluationRunTimestampCell'
 import { evaluationIsDetector } from '../constants'
 import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
@@ -50,7 +50,10 @@ export function EvaluationRunsTable(): JSX.Element {
         runsBackfillId,
     } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns, setRunsDates } = useActions(llmEvaluationLogic)
-    const showOutcomeFilters = evaluation?.output_type === 'numeric' || evaluationSupportsRunOutcomes(evaluation)
+    const showOutcomeFilters =
+        evaluation?.output_type === 'numeric' ||
+        evaluation?.output_type === 'categorical' ||
+        evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
     // Every run in this table belongs to `evaluation`, so its polarity applies to the whole column.
     const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
@@ -97,7 +100,7 @@ export function EvaluationRunsTable(): JSX.Element {
         {
             title: 'Timestamp',
             key: 'timestamp',
-            render: (_, run) => <TZLabel time={run.timestamp} />,
+            render: (_, run) => <EvaluationRunTimestampCell run={run} />,
             sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         },
         {
@@ -113,6 +116,7 @@ export function EvaluationRunsTable(): JSX.Element {
                     run={run}
                     trueIsFailure={trueIsFailure}
                     passingRule={evaluation?.output_config.passing_rule}
+                    categoryOptions={evaluation?.output_config.options}
                 />
             ),
             sorter: (a, b) => compareEvaluationResults(b, a, { trueIsFailure }),

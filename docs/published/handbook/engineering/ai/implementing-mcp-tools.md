@@ -313,6 +313,7 @@ Product teams own their definitions and control which operations are exposed as 
          Human-friendly description for the LLM.
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
+       category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
        exclude_params: [field] # hide params from tool input
        include_params: [field] # whitelist params (excludes all others)
        response: # filter response fields (applied per-item on list endpoints)
@@ -348,6 +349,8 @@ Product teams own their definitions and control which operations are exposed as 
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
+
+   A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 
    #### Custom input schemas
 

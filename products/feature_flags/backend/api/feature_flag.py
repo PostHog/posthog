@@ -1508,6 +1508,11 @@ class FeatureFlagSerializer(
         if not team:
             return attrs
 
+        # A copy between projects carries the source flag's fields only, so the target's own
+        # requirements cannot be met by the payload. The copy endpoint has always skipped them.
+        if self.context.get("skip_team_flag_requirements"):
+            return attrs
+
         self._validate_evaluation_contexts_requirement(attrs, request, team, creation_context)
         self._validate_tags_requirement(attrs, team, creation_context)
 

@@ -121,6 +121,7 @@ import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
+import { SCREEN_CAPTURE_SERVICE } from "@posthog/platform/screen-capture";
 import { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
 import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
@@ -254,6 +255,7 @@ import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
 import { MissionControlService } from "../platform-adapters/electron-mission-control";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
+import { ElectronScreenCapture } from "../platform-adapters/electron-screen-capture";
 import { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
 import { ElectronStoragePaths } from "../platform-adapters/electron-storage-paths";
 import { ElectronUpdater } from "../platform-adapters/electron-updater";
@@ -352,6 +354,7 @@ export const container = new TypedContainer<MainBindings>({
 });
 
 container.bind(URL_LAUNCHER_SERVICE).to(ElectronUrlLauncher);
+container.bind(SCREEN_CAPTURE_SERVICE).to(ElectronScreenCapture);
 container.bind(STORAGE_PATHS_SERVICE).to(ElectronStoragePaths);
 container.bind(APP_META_SERVICE).to(ElectronAppMeta);
 container.bind(DIALOG_SERVICE).to(ElectronDialog);

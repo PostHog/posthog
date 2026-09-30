@@ -1000,6 +1000,15 @@ def _signal_tail_sections(
     ]
 
 
+def report_disposition_instructions(report_channel: str) -> str:
+    return {
+        "none": "",
+        "emit": _AUTHORING_REPORT_EMIT_ONLY,
+        "edit": _EDITING_REPORT_EDIT_ONLY,
+        "both": _AUTHORING_VS_EDITING_REPORT_BOTH,
+    }[report_channel]
+
+
 def _report_tail_sections(
     *,
     can_emit: bool,
@@ -1023,7 +1032,7 @@ def _report_tail_sections(
     if can_emit and can_edit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
-            _AUTHORING_VS_EDITING_REPORT_BOTH,
+            report_disposition_instructions("both"),
             _REVISING_A_REPORT,
             _REPORT_SCRATCHPAD_POINTER,
             _SUGGESTED_REVIEWERS_REPORT,
@@ -1036,7 +1045,7 @@ def _report_tail_sections(
     elif can_emit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
-            _AUTHORING_REPORT_EMIT_ONLY,
+            report_disposition_instructions("emit"),
             _REPORT_SCRATCHPAD_POINTER,
             _SUGGESTED_REVIEWERS_REPORT,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
@@ -1048,7 +1057,7 @@ def _report_tail_sections(
     else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
-            _EDITING_REPORT_EDIT_ONLY,
+            report_disposition_instructions("edit"),
             _REVISING_A_REPORT,
             _REPORT_SCRATCHPAD_POINTER,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
@@ -1201,10 +1210,23 @@ in these instructions. If what you find contradicts what it expects, that contra
 verdict, so record it.
 
 Close the run by calling `scout-check-record-result` with the `check_id` from the block, an
-`outcome` of `passed`, `failed`, or `errored`, and an `explanation` a person reading the report will
-understand. Record what you actually established: `failed` retires the check, so it is for a
-conclusion rather than a suspicion, and `errored` is the honest answer when you could not settle it
-either way. Nothing else closes the check, so a run that investigates and does not call the tool
+`outcome`, and an `explanation` a person reading the report will understand. Record what you
+actually established:
+
+- `passed` or `failed` when the evidence meets the bar the check states. Do not ask for more
+  certainty than the check asks for. `failed` retires the check, so it is for a conclusion rather
+  than a suspicion.
+- `inconclusive` when your tools worked but the evidence cannot settle the question. Give a
+  `reason`: `awaiting_data` when the data can still arrive (a rollout lag, a soak not complete, too
+  few samples so far), and the check looks again later. `unmeasurable` when the data the check
+  needs is not captured. `needs_manual_verification` when only a person or another environment can
+  verify it. `no_fix_to_measure` only when nothing was changed to fix the claim, so no window after a
+  fix exists. A report resolved without a pull request still has one: it starts when the report
+  resolved.
+- `errored` only when a tool, a query, or a model call failed and stopped you. An unsettled
+  question is `inconclusive`, not `errored`.
+
+Nothing else closes the check, so a run that investigates and does not call the tool
 leaves the report with an unanswered follow-up. Say in your run summary what you recorded."""
 
 

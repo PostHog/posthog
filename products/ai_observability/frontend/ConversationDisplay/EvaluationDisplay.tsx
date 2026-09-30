@@ -20,11 +20,13 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     const traceId = eventProperties.$ai_trace_id
     const targetEventId = eventProperties.$ai_target_event_id
     const evaluationId = eventProperties.$ai_evaluation_id
+    const evaluation = evaluations?.find((evaluation) => evaluation.id === evaluationId)
     const resultRun = {
         status: 'completed' as const,
         skipped: isExplicitEvaluationPass(eventProperties.$ai_evaluation_skipped),
         ...normalizeEvaluationResultProperties({
             rawScore: eventProperties.$ai_evaluation_numeric_result,
+            rawCategories: eventProperties.$ai_evaluation_categorical_result,
             rawScoreMin: eventProperties.$ai_evaluation_numeric_result_min,
             rawScoreMax: eventProperties.$ai_evaluation_numeric_result_max,
             rawResult: eventProperties.$ai_evaluation_result,
@@ -41,9 +43,8 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
             <div className="flex flex-wrap gap-2">
                 <EvaluationResultTag
                     run={resultRun}
-                    passingRule={
-                        evaluations?.find((evaluation) => evaluation.id === evaluationId)?.output_config.passing_rule
-                    }
+                    passingRule={evaluation?.output_config.passing_rule}
+                    categoryOptions={evaluation?.output_config.options}
                     trueIsFailure={detectorEvaluationIds.includes(evaluationId)}
                 />
                 {evaluationName && (

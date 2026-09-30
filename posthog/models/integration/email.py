@@ -14,8 +14,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
-from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS, SESProvider
-
 from . import model
 
 
@@ -26,10 +24,6 @@ class EmailIntegration:
         if integration.kind != "email":
             raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
-
-    @property
-    def ses_provider(self) -> SESProvider:
-        return SESProvider()
 
     @classmethod
     def create_native_integration(
@@ -55,9 +49,12 @@ class EmailIntegration:
 
         # Create domain in the appropriate provider
         if provider == "ses":
-            ses = SESProvider()
+            from products.workflows.backend.facade.api import (
+                create_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            )
+
             org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
-            ses.create_email_domain(
+            create_ses_email_domain(
                 domain,
                 mail_from_subdomain=mail_from_subdomain,
                 team_id=team_id,
@@ -102,8 +99,11 @@ class EmailIntegration:
 
         # Update domain in the appropriate provider
         if provider == "ses":
-            ses = SESProvider()
-            ses.update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+            from products.workflows.backend.facade.api import (
+                update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            )
+
+            update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
@@ -126,13 +126,21 @@ class EmailIntegration:
 
         # Use the appropriate provider for verification
         if provider == "ses":
-            verification_result = self.ses_provider.verify_email_domain(
+            from products.workflows.backend.facade.api import (
+                verify_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            )
+
+            verification_result = verify_ses_email_domain(
                 domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
             )
         elif provider == "maildev":
+            from products.workflows.backend.facade.api import (
+                get_maildev_mock_dns_records,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            )
+
             verification_result = {
                 "status": "success",
-                "dnsRecords": MAILDEV_MOCK_DNS_RECORDS,
+                "dnsRecords": get_maildev_mock_dns_records(),
             }
         else:
             raise ValueError(f"Invalid provider: {provider}")
