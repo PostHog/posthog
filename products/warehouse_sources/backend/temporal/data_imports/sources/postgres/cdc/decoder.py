@@ -445,6 +445,10 @@ class PgOutputDecoder:
             for name, value in old_columns.items()
             if name in key_change_columns and name in columns and columns[name] != value
         }
+        # A key column outside the old tuple has no old value, and capture would fill it with the new
+        # value, which builds an old key that never existed. The update then stays an upsert.
+        if not key_change_columns.issubset(old_columns):
+            previous_values = {}
         self._buffer_event(
             ChangeEvent(
                 operation="U",

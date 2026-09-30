@@ -599,6 +599,7 @@ class CDCExtractActivity:
             for table, key_columns in self.pk_columns_by_table.items()
             if any(unique_columns <= set(key_columns) for unique_columns in enforced_keys.get(table, []))
         }
+        self.log.info("cdc_key_change_split_tables", tables=sorted(self.split_key_columns))
         self.reader.set_key_change_columns(
             {
                 event_name: self.split_key_columns[schema_name]
@@ -685,11 +686,7 @@ class CDCExtractActivity:
         Merged on its new key alone, the update leaves the old key's row live in the consolidated
         table and open in the history table. The delete carries only the old key, like a Postgres
         delete under the default replica identity, so delete enrichment fills the rest of the row.
-
-        Only a merge key that an immediately enforced unique index covers is split. Any other key can
-        be held by two rows at once: a deferrable constraint allows it until the transaction commits,
-        and a key the user chose may not be unique at all. The second row's delete would then remove
-        a key that a row still holds, so such a table keeps upserting on the new key instead.
+        Only tables in `split_key_columns` split; `get_enforced_unique_keys` says why.
         """
         if event.previous_values is None:
             return (event,)

@@ -217,6 +217,14 @@ class TestPgOutputDecoder:
             ("full_identity_row_keeps_only_the_key", b"O", [("t", "41"), ("t", "Alice")], ["id"], {"id": 41}),
             ("no_old_tuple", b"K", None, ["id"], None),
             ("table_without_a_splittable_key", b"K", [("t", "41"), None], None, None),
+            ("key_column_outside_the_identity", b"K", [("t", "41"), None], ["id", "name"], None),
+            (
+                "full_identity_row_covers_a_wider_key",
+                b"O",
+                [("t", "41"), ("t", "Alice")],
+                ["id", "name"],
+                {"id": 41, "name": "Alice"},
+            ),
         ]
     )
     def test_update_with_old_key(

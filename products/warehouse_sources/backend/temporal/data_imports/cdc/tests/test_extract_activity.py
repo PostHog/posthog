@@ -1789,17 +1789,18 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("key_changed", ["id"], [{"id"}], {"id": 1}, [("D", 1, None), ("I", 2, 7)]),
+            ("key_changed", ["id"], [{"id"}], True, {"id": 1}, [("D", 1, None), ("I", 2, 7)]),
             (
                 "one_column_of_a_composite_key_changed",
                 ["id", "tenant_id"],
                 [{"id"}],
+                True,
                 {"id": 1},
                 [("D", 1, 7), ("I", 2, 7)],
             ),
-            ("other_column_changed", ["id"], [{"id"}], {"name": "Alice"}, [("U", 2, 7)]),
-            ("no_enforced_unique_index", ["id"], [], {"id": 1}, [("U", 2, 7)]),
-            ("unique_index_wider_than_the_merge_key", ["id"], [{"id", "tenant_id"}], {"id": 1}, [("U", 2, 7)]),
+            ("other_column_changed", ["id"], [{"id"}], True, {"name": "Alice"}, [("U", 2, 7)]),
+            ("no_enforced_unique_index", ["id"], [], False, {"id": 1}, [("U", 2, 7)]),
+            ("unique_index_wider_than_the_merge_key", ["id"], [{"id", "tenant_id"}], False, {"id": 1}, [("U", 2, 7)]),
         ]
     )
     def test_an_update_that_changes_the_key_removes_the_old_key(
@@ -1807,6 +1808,7 @@ class TestBufferedIngressCapture:
         _name: str,
         primary_key: list[str],
         enforced_unique_keys: list[set[str]],
+        qualifies: bool,
         previous_values: dict[str, object],
         expected_rows: list[tuple[str, int, int | None]],
     ) -> None:
@@ -1829,9 +1831,8 @@ class TestBufferedIngressCapture:
         buffered = capture.buffer.write_batch.call_args.kwargs["table"]
         rows = zip(*(buffered.column(name).to_pylist() for name in (CDC_OP_COLUMN, "id", "tenant_id")))
         assert list(rows) == expected_rows
-        splits = any(set(columns) <= set(primary_key) for columns in enforced_unique_keys)
         key_change_columns = capture.reader.set_key_change_columns.call_args.args[0]
-        assert key_change_columns.get("public.users") == (primary_key if splits else None)
+        assert key_change_columns.get("public.users") == (primary_key if qualifies else None)
         assert set(buffered.column(CDC_SEQ_COLUMN).to_pylist()) == {0x200}
 
     def test_wal_events_reach_the_schema_they_belong_to(self):
