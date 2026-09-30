@@ -40,19 +40,26 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 
 Revenue goals no longer exist. Do not look for `goals`.
 
-If `project-get` fails, fall back to the managed views. Each configured event builds its own views with `source_label = 'revenue_analytics.events.<event_name>'`, where every non-alphanumeric character in the name becomes `_`:
+If `project-get` fails, fall back to the managed views. There is no cross-source view. Each configured event builds its own views named `revenue_analytics.events.<event_name>.<kind>_events_revenue_view`, where every non-alphanumeric character in the event name becomes `_`. List the event charge views:
 
 ```sql
-SELECT source_label, event_name, count() AS charges, max(timestamp) AS last_charge
-FROM revenue_analytics.all.revenue_analytics_charge
-WHERE source_label LIKE 'revenue_analytics.events.%'
-  AND timestamp > now() - INTERVAL 90 DAY
-GROUP BY source_label, event_name
+SELECT table_name
+FROM system.information_schema.tables
+WHERE table_name LIKE 'revenue_analytics.events.%.charge_events_revenue_view'
+```
+
+To check the volume of one event, query its view:
+
+```sql
+SELECT event_name, count() AS charges, max(timestamp) AS last_charge
+FROM revenue_analytics.events.<event_name>.charge_events_revenue_view
+WHERE timestamp > now() - INTERVAL 90 DAY
+GROUP BY event_name
 ```
 
 The fallback has limits. Say so in any finding that relies on it:
 
-- It lists only events with charges in the window. A configured event with no volume does not appear, so the fallback cannot tell "not configured" from "stopped firing".
+- A view name carries the event name with `_` in place of special characters. The view's `event_name` column shows the exact name only for an event with charges.
 - It does not show the property mapping. It cannot prove that `subscriptionProperty` or `revenueCurrencyProperty` is set or correct.
 - It does not show `filter_test_accounts`.
 
@@ -72,7 +79,7 @@ If neither source is present, write one scratchpad entry:
 
 Close out empty. Future revenue runs read this entry cold and short-circuit fast. Re-running with the same key idempotently refreshes the timestamp — the entry stays until revenue analytics actually becomes active, at which point the next run rewrites or deletes it.
 
-If `project-get` failed and the fallback query returned no rows, do not write the `not-in-use:` entry. The fallback cannot prove that no event is configured. Close out empty and say in the run summary that the config was unreadable.
+If `project-get` failed and the fallback listing failed or found no event charge views, do not write the `not-in-use:` entry. The fallback cannot prove that no event is configured. Close out empty and say in the run summary that the config was unreadable.
 
 ## How a run works
 
@@ -132,13 +139,21 @@ Detect: events configured with revenue + currency but no subscription property; 
 
 #### Currency mix surprise
 
-`execute-sql` on `revenue_analytics.all.revenue_analytics_charge`:
+There is no cross-source charge view. List the charge view of every source:
+
+```sql
+SELECT table_name
+FROM system.information_schema.tables
+WHERE table_name LIKE '%.charge_revenue_view' OR table_name LIKE '%.charge_events_revenue_view'
+```
+
+Then run `execute-sql` on each charge view:
 
 ```sql
 SELECT source_label, original_currency, count(), sum(original_amount)
-FROM revenue_analytics.all.revenue_analytics_charge
+FROM <charge_view>
 WHERE timestamp > now() - INTERVAL 30 DAY
-GROUP BY 1, 2 ORDER BY 1, 3 DESC
+GROUP BY 1, 2 ORDER BY 3 DESC
 ```
 
 A currency that's never appeared before, or whose share suddenly jumped, usually means either (a) the team is selling into a new market — write a scratchpad entry, no report, or (b) currency property is misconfigured and revenue is being mis-tagged. The (b) case shows up as a single dominant currency on a non-USD team or vice versa. Read each `source_label` on its own, because `revenueCurrencyProperty` controls only event charges. For a `revenue_analytics.events.<event>` label, cross-reference that event's `revenue_analytics_config.events[].revenueCurrencyProperty` from `project-get` to tell them apart: `{static: "USD"}` tags every charge of that event with one currency, and `{property: ...}` reads it from the event. A warehouse label (e.g. `stripe.<prefix>`) takes its currency from the source's own data, so do not blame the event config for a shift there.
@@ -204,7 +219,7 @@ Direct calls (read-only):
 - `external-data-sync-logs` — failure history; one-off vs recurring upstream issues.
 - `read-data-schema events` / `read-data-schema event_properties` — confirm revenue event + properties still flow.
 - `query-trends` — validate event-volume drops with a 14-day window and weekly comparison.
-- `execute-sql` against `revenue_analytics.all.revenue_analytics_<charge|customer|mrr|revenue_item|subscription>` — managed views are the source of truth. Per-source views also exist: `<source>.<prefix>.revenue_analytics_<view_type>` (data warehouse) and `revenue_analytics.events.<event_name>.revenue_analytics_<view_type>` (events).
+- `execute-sql` against the managed views, which are the source of truth. There is no cross-source view. Each source has its own views, where `<kind>` is `charge`, `customer`, `mrr`, `product`, `revenue_item`, or `subscription`: `<source>.<prefix>.<kind>_revenue_view` (data warehouse, `<prefix>.` is absent when the source has no prefix) and `revenue_analytics.events.<event_name>.<kind>_events_revenue_view` (events). List them from `system.information_schema.tables`.
 - `execute-sql` against `system.insights` / `system.dashboards` — find revenue insights and dashboards that depend on a failing source (blast radius).
 - `dashboards-get-all` / `dashboard-get` — the built-in revenue dashboard and any custom revenue dashboards.
 - `health-issues-list` — platform-detected issues on warehouse sources, where revenue is one of the highest-priority downstream consumers. Pass `kind="external_data_failure"`, `status="active"` and `dismissed=false` on every call: the endpoint excludes nothing by default, so without all three you rank resolved rows and ones a human already waved off. It serves 50 rows by default (250 max) ordered severity-first, so read `count` and page with `offset` when it exceeds the rows you hold.
