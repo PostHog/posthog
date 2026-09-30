@@ -66,10 +66,14 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                     logger.exception("Failed to create partition", partition=partition_name)
 
         cutoff = today - timedelta(days=RETENTION_DAYS)
+        failed_default_expiries: set[str] = set()
         for table in PARTITIONED_TABLES:
             for partition_name in _list_partitions(conn, table):
                 if partition_name.endswith("_default"):
-                    await sync_to_async(_expire_default_partition_rows)(conn, table, partition_name, cutoff, errors)
+                    if not await sync_to_async(_expire_default_partition_rows)(
+                        conn, table, partition_name, cutoff, errors
+                    ):
+                        failed_default_expiries.add(partition_name)
                     continue
                 partition_date = _partition_date(partition_name)
                 if partition_date is None:
@@ -94,7 +98,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                         errors.append(f"Failed to drop {partition_name}: {e}")
                         logger.exception("Failed to drop partition", partition=partition_name)
 
-        alerts = await sync_to_async(_find_partition_alerts)(conn, today)
+        alerts = await sync_to_async(_find_partition_alerts)(conn, today, failed_default_expiries)
 
     result = PartitionResult(ensured=ensured, dropped=dropped, errors=errors)
 
@@ -161,8 +165,8 @@ def _drop_partition(conn: psycopg.Connection, partition_name: str) -> None:
 
 def _expire_default_partition_rows(
     conn: psycopg.Connection, table: str, partition_name: str, cutoff: date, errors: list[str]
-) -> None:
-    """Apply retention to rows in the default partition.
+) -> bool:
+    """Apply retention to rows in the default partition, and return whether it finished.
 
     Rows land in the default partition only for days that had no daily partition. Retention
     removes data by dropping daily partitions, so without this step those rows stay forever.
@@ -191,9 +195,10 @@ def _expire_default_partition_rows(
     except Exception as e:
         errors.append(f"Failed to expire old rows in {partition_name}: {e}")
         logger.exception("Failed to expire old default partition rows", partition=partition_name)
-        return
+        return False
     if deleted:
         logger.warning("Expired old default partition rows", partition=partition_name, deleted=deleted)
+    return True
 
 
 def _terminalize_stranded_runs(
@@ -278,7 +283,7 @@ def _terminalize_stranded_runs(
     )
 
 
-def _find_partition_alerts(conn: psycopg.Connection, today: date) -> list[str]:
+def _find_partition_alerts(conn: psycopg.Connection, today: date, failed_default_expiries: set[str]) -> list[str]:
     """Return one Slack message for each problem that needs someone to act.
 
     A missing partition for today does not alert. After rows for today land in the default
@@ -297,11 +302,14 @@ def _find_partition_alerts(conn: psycopg.Connection, today: date) -> list[str]:
         existing: set[date] = set()
         for partition_name in _list_partitions(conn, table):
             if partition_name.endswith("_default"):
-                row = conn.execute(
-                    f"SELECT EXISTS (SELECT 1 FROM {partition_name} WHERE created_at < %s)", [stuck_before_at]
-                ).fetchone()
-                if row and row[0]:
-                    stuck.append(f"• `{partition_name}`: rows created before {stuck_before.isoformat()}")
+                # A finished expiry leaves no row this old, so scan the partition only when this run's expiry
+                # failed. The scan has no created_at index to use, and a default partition can hold days of rows.
+                if partition_name in failed_default_expiries:
+                    row = conn.execute(
+                        f"SELECT EXISTS (SELECT 1 FROM {partition_name} WHERE created_at < %s)", [stuck_before_at]
+                    ).fetchone()
+                    if row and row[0]:
+                        stuck.append(f"• `{partition_name}`: rows created before {stuck_before.isoformat()}")
                 continue
             partition_date = _partition_date(partition_name)
             if partition_date is not None:
