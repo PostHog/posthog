@@ -7,7 +7,33 @@ Each row shows the harness name and logo, its call count, and its percentage of 
 
 Colors stay consistent when rankings change. Claude harnesses use terracotta shades, OpenAI harnesses use green shades, and VS Code uses blue.
 Monochrome brands such as Cursor and Grok use a neutral color that adapts to light and dark themes. Other harnesses use brand colors or stable palette colors.
-The existing **Other** category stays gray and includes calls whose client identity does not match a recognized harness.
+The **Other harnesses** bar stays gray.
 
-Scroll within the card to see every harness. Percentages include all returned harnesses, including rows below the visible area and Other.
+The chart shows the six harnesses with the most calls as separate bars.
+The **Other harnesses** bar combines all other harnesses and the calls that do not match a recognized harness.
+Percentages include the calls in **Other harnesses**.
+Select **Show all harnesses** to see every harness in a table.
 Hover over a bar to see the full harness name, calls, share, sessions, and error rate.
+
+## How harnesses are identified
+
+The chart counts `$mcp_tool_call` events.
+It does not count sessions or users.
+Each tool call counts one time, for one harness.
+
+PostHog assigns each tool call to a harness from the client identity on the event.
+It checks these signals in this order and uses the first one that has a value:
+
+1. The `x-anthropic-client` vendor header, captured as `$mcp_vendor_client`.
+2. The User-Agent (`$mcp_client_user_agent`), if it identifies Claude Code.
+3. The User-Agent, if it identifies Grok.
+4. The client name from the MCP `initialize` request (`$mcp_client_name`).
+5. The product name and surface from any other User-Agent.
+
+PostHog then maps the result to a harness name, for example **Claude Code**, **Cursor**, or **OpenAI Codex**.
+A client that does not match a recognized harness goes into **Other**.
+A `(via mcp-remote)` suffix and differences in letter case do not change the result.
+
+The dashboard chart counts tool calls from all versions of the PostHog MCP SDK.
+The **By harness** table on a tool's page counts only tool calls from the current SDK.
+So the two views can show different call counts for the same harness.
