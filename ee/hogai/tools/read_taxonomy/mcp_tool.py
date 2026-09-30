@@ -3,6 +3,7 @@ from django.db import OperationalError
 from prometheus_client import Counter
 
 from posthog.api.statement_timeout import is_query_canceled
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
@@ -15,6 +16,12 @@ READ_TAXONOMY_TIMED_OUT_COUNTER = Counter(
     "read_taxonomy_timed_out_total",
     "read_taxonomy reads cancelled by the statement timeout.",
     labelnames=["query_kind"],
+)
+
+READ_TAXONOMY_CLICKHOUSE_TRANSIENT_COUNTER = Counter(
+    "read_taxonomy_clickhouse_transient_total",
+    "read_taxonomy reads that failed with a transient ClickHouse error.",
+    labelnames=["query_kind", "error_type"],
 )
 
 
@@ -43,6 +50,15 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
             return await _execute_query()
         except ValueError as e:
             raise MaxToolRetryableError(str(e))
+        except CH_TRANSIENT_ERRORS as e:
+            # The taxonomy reads are read-only, so one unchanged retry is safe. Without this branch the
+            # caller gets the generic internal error, which tells it not to retry and names no cause.
+            READ_TAXONOMY_CLICKHOUSE_TRANSIENT_COUNTER.labels(
+                query_kind=args.query.kind, error_type=type(e).__name__
+            ).inc()
+            raise MaxToolTransientError(
+                "The analytics database was temporarily unable to read the taxonomy, usually because it is busy"
+            ) from e
         except OperationalError as e:
             # Only a statement cancelled by statement_timeout (SQLSTATE 57014) is worth a retry.
             # Let connection loss, shutdown, deadlocks, and the like reach the generic handler so

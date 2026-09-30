@@ -5,6 +5,8 @@ from django.db import OperationalError
 
 from parameterized import parameterized
 
+from posthog.errors import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
+
 from ee.hogai.tool_errors import MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import ReadEventProperties, ReadEvents, ReadTaxonomyToolArgs
 from ee.hogai.tools.read_taxonomy.mcp_tool import ReadTaxonomyMCPTool
@@ -53,6 +55,22 @@ class TestReadTaxonomyMCPTool(NonAtomicBaseTest):
                 await self.tool.execute(
                     ReadTaxonomyToolArgs(query={"kind": "event_properties", "event_name": "$pageview"}),
                 )
+
+    @parameterized.expand(
+        [
+            ["capacity error is transient", ClickHouseAtCapacity(), MaxToolTransientError],
+            ["memory limit is not transient", ClickHouseQueryMemoryLimitExceeded(), ClickHouseQueryMemoryLimitExceeded],
+        ]
+    )
+    async def test_clickhouse_error_only_treats_transient_errors_as_transient(
+        self, _name: str, error: Exception, expected_exception: type[Exception]
+    ):
+        with patch(
+            "ee.hogai.tools.read_taxonomy.mcp_tool.execute_taxonomy_query",
+            side_effect=error,
+        ):
+            with self.assertRaises(expected_exception):
+                await self.tool.execute(ReadTaxonomyToolArgs(query={"kind": "events"}))
 
     async def test_schema_validates_query(self):
         validated = self.tool.args_schema.model_validate({"query": {"kind": "events"}})
