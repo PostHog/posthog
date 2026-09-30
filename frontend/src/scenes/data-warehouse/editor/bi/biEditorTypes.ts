@@ -55,6 +55,11 @@ export function getBIDataSourceKey(source: BIDataSource): string {
     return JSON.stringify([source.connectionId ?? null, source.table])
 }
 
+/** Keys an open editor by shelf too, because the same field can sit on several shelves at once. */
+export function getBIShelfEditorKey(shelf: BIShelf, fieldId: string): string {
+    return `${shelf}:${fieldId}`
+}
+
 export function getBIFieldId(source: BIDataSource, expression: string): string {
     return JSON.stringify([source.connectionId ?? null, source.table, expression])
 }

@@ -5,7 +5,7 @@ import { LemonDropdown } from '@posthog/lemon-ui'
 
 import { biEditorLogic } from '../biEditorLogic'
 import { FILTER_OPERATOR_OPTIONS } from '../biEditorOptions'
-import { BIFilter, getBIFieldPillLabel } from '../biEditorTypes'
+import { BIFilter, getBIFieldPillLabel, getBIShelfEditorKey } from '../biEditorTypes'
 import { BIFilterEditor } from './BIFilterEditor'
 import { BIPill } from './BIPill'
 
@@ -29,10 +29,11 @@ export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
         return null
     }
 
-    const visible = open || activeExpressionEditorId === filter.field.id
+    const editorKey = getBIShelfEditorKey('filters', filter.field.id)
+    const visible = open || activeExpressionEditorId === editorKey
     const close = (): void => {
         setOpen(false)
-        if (activeExpressionEditorId === filter.field.id) {
+        if (activeExpressionEditorId === editorKey) {
             setActiveExpressionEditorId(null)
         }
     }

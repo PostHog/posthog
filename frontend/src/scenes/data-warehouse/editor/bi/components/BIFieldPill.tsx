@@ -9,6 +9,7 @@ import { AGGREGATION_OPTIONS, DATE_BUCKET_OPTIONS, NUMERIC_AGGREGATIONS } from '
 import {
     BIShelf,
     getBIFieldPillLabel,
+    getBIShelfEditorKey,
     getBIValuePillLabel,
     getBIValueSortKey,
     isDateTimeBIField,
@@ -48,7 +49,7 @@ export function BIFieldPill({
     }
 
     const isMeasure = shelf === 'values'
-    const autoOpen = activeExpressionEditorId === field.id
+    const autoOpen = activeExpressionEditorId === getBIShelfEditorKey(shelf, field.id)
     const expressionTarget: ExpressionTarget | null = editing ?? (autoOpen ? 'field' : null)
     const sortKey = isMeasure ? getBIValueSortKey(config, index) : `${shelf}:${field.id}`
     const otherDimensionShelf = shelf === 'rows' ? 'columns' : 'rows'

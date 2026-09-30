@@ -33,7 +33,7 @@ import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 
 import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
 import { biEditorLogic } from './bi/biEditorLogic'
-import { BIConfig, BIEditorView, BIField } from './bi/biEditorTypes'
+import { BIConfig, BIEditorView, BIField, getBIShelfEditorKey } from './bi/biEditorTypes'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import { SELECTION_NOT_A_QUERY } from './saveCandidateProblems'
@@ -2325,11 +2325,18 @@ describe('sqlEditorLogic', () => {
                     source: { table: 'persons' },
                 }),
             ])
-            expect(biLogic.values.activeExpressionEditorId).toEqual(biLogic.values.config.rows[0].id)
+            const blankField = biLogic.values.config.rows[0]
+            expect(biLogic.values.activeExpressionEditorId).toEqual(getBIShelfEditorKey('rows', blankField.id))
             expect(logic.values.queryInput).toEqual(
                 ['SELECT', '    count(*) AS count', 'FROM persons', 'LIMIT 1000'].join('\n')
             )
             expect(router.values.hashParams.bi).toEqual(biLogic.values.config)
+
+            await expectLogic(biLogic, () =>
+                biLogic.actions.addFieldToShelf(blankField, 'filters')
+            ).toFinishAllListeners()
+
+            expect(biLogic.values.activeExpressionEditorId).toEqual(getBIShelfEditorKey('filters', blankField.id))
 
             biLogic.unmount()
         })

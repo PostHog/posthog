@@ -32,6 +32,7 @@ import {
     defaultAggregationForField,
     getBIChartFit,
     getBIDataPaneFields,
+    getBIShelfEditorKey,
     getBISortOptions,
     isBIFieldCompatible,
     normalizeBIConfig,
@@ -498,10 +499,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
         activeExpressionEditorId: [
             null as string | null,
             {
-                addBlankFieldToShelf: (_, { fieldId }) => fieldId,
+                addBlankFieldToShelf: (_, { shelf, fieldId }) => getBIShelfEditorKey(shelf, fieldId),
                 // Opens the filter editor as soon as a field lands on the filters shelf
                 addFieldToShelf: (activeExpressionEditorId, { field, shelf }) =>
-                    shelf === 'filters' ? field.id : activeExpressionEditorId,
+                    shelf === 'filters' ? getBIShelfEditorKey('filters', field.id) : activeExpressionEditorId,
                 setActiveExpressionEditorId: (_, { fieldId }) => fieldId,
                 resetConfig: () => null,
                 restoreState: () => null,
