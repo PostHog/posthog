@@ -180,27 +180,6 @@ def test_resolve_window_accepts_string_config_values():
     assert isinstance(start, dt.date)
 
 
-def test_reports_source_handles_string_config_values(monkeypatch):
-    # End-to-end: exactly what the generated config produces in production.
-    monkeypatch.setattr(ads, "_today", lambda *_a, **_kw: TODAY)
-    monkeypatch.setattr(ads, "google_adsense_session", lambda *a, **kw: mock.MagicMock())
-
-    captured: dict = {}
-    _capture_query(monkeypatch, captured)
-
-    response = google_adsense_source(
-        config=_config(start_date="2026-04-01"),
-        resource_name="daily_stats",
-        team_id=1,
-        resumable_source_manager=_resume_manager(),
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=dt.date(2026, 4, 20),
-    )
-    list(response.items())
-
-    assert captured["start_date"] == dt.date(2026, 4, 20)
-
-
 # ---------------------------------------------------------------------------
 # Request params
 # ---------------------------------------------------------------------------
@@ -1227,8 +1206,20 @@ def test_reports_source_passes_resolved_window_to_query(monkeypatch):
     assert captured["end_date"] == TODAY - dt.timedelta(days=FRESHNESS_LAG_DAYS)
 
 
-def test_reports_source_resolves_incremental_window_from_watermark(monkeypatch):
-    config = _config(start_date=TODAY - dt.timedelta(days=365))
+@pytest.mark.parametrize(
+    "start_date",
+    [
+        pytest.param("2026-04-01", id="string-config"),
+        pytest.param(TODAY - dt.timedelta(days=365), id="date-config"),
+    ],
+)
+def test_reports_source_starts_incremental_window_at_the_watermark(monkeypatch, start_date):
+    # End-to-end from a configured start_date to the captured query window. The string form
+    # is what the generated config produces in production. The cursor
+    # (db_incremental_field_last_value) is where the window starts regardless of the
+    # configured start_date: the pipeline already shifted it back by the schema's
+    # incremental lookback before get_rows runs, so the source must use it exactly as given
+    # and must NOT subtract a further lookback.
     monkeypatch.setattr(ads, "_today", lambda *_a, **_kw: TODAY)
     monkeypatch.setattr(ads, "google_adsense_session", lambda *a, **kw: mock.MagicMock())
 
@@ -1236,33 +1227,7 @@ def test_reports_source_resolves_incremental_window_from_watermark(monkeypatch):
     _capture_query(monkeypatch, captured)
 
     response = google_adsense_source(
-        config=config,
-        resource_name="daily_stats",
-        team_id=1,
-        resumable_source_manager=_resume_manager(),
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=dt.date(2026, 4, 20),
-    )
-    list(response.items())
-
-    # The cursor is the start of the window.
-    assert captured["start_date"] == dt.date(2026, 4, 20)
-
-
-def test_incremental_sync_does_not_reapply_the_lookback(monkeypatch):
-    # The pipeline already shifted db_incremental_field_last_value back by the schema's
-    # incremental lookback (source.py's default_incremental_lookback_seconds) before get_rows
-    # runs. Subtracting a lookback here too would double the trailing window, so the source
-    # must use the cursor exactly as given.
-    config = _config(start_date=TODAY - dt.timedelta(days=365))
-    monkeypatch.setattr(ads, "_today", lambda *_a, **_kw: TODAY)
-    monkeypatch.setattr(ads, "google_adsense_session", lambda *a, **kw: mock.MagicMock())
-
-    captured: dict = {}
-    _capture_query(monkeypatch, captured)
-
-    response = google_adsense_source(
-        config=config,
+        config=_config(start_date=start_date),
         resource_name="daily_stats",
         team_id=1,
         resumable_source_manager=_resume_manager(),
