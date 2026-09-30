@@ -20,7 +20,6 @@ from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 import requests
 import structlog
@@ -5194,15 +5193,11 @@ class HogFlowViewSet(
             # path that writes graph content, so it carries the base_updated_at staleness contract.
             # Draft edits race against other draft edits, so the baseline is the draft's timestamp
             # once one exists.
-            base_updated_at_raw = request.data.get("base_updated_at")
-            base_updated_at = parse_datetime(base_updated_at_raw) if base_updated_at_raw else None
-            if base_updated_at is not None and timezone.is_naive(base_updated_at):
-                base_updated_at = timezone.make_aware(base_updated_at)
-            guard_timestamp = locked.updated_at
-            if route_to_draft and locked.draft_updated_at:
-                guard_timestamp = locked.draft_updated_at
-            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
-                raise StaleWorkflowUpdateError()
+            writer = self._workflow_writer()
+            try:
+                writer.check_fresh(locked, request.data.get("base_updated_at"), stage_as_draft=route_to_draft)
+            except StaleWorkflowWrite:
+                raise StaleWorkflowUpdateError() from None
 
             # Draft edits compose on the staged draft, not on live — a second patch must see the first.
             if route_to_draft and locked.draft:
@@ -5222,7 +5217,6 @@ class HogFlowViewSet(
 
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            writer = self._workflow_writer()
             if route_to_draft:
                 writer.write_draft(locked, locked, serializer)
             else:
@@ -5287,15 +5281,11 @@ class HogFlowViewSet(
 
             # Same staleness contract as /graph: draft edits race against other draft edits, so the
             # baseline is the draft's timestamp once one exists.
-            base_updated_at_raw = request.data.get("base_updated_at")
-            base_updated_at = parse_datetime(base_updated_at_raw) if base_updated_at_raw else None
-            if base_updated_at is not None and timezone.is_naive(base_updated_at):
-                base_updated_at = timezone.make_aware(base_updated_at)
-            guard_timestamp = locked.updated_at
-            if route_to_draft and locked.draft_updated_at:
-                guard_timestamp = locked.draft_updated_at
-            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
-                raise StaleWorkflowUpdateError()
+            writer = self._workflow_writer()
+            try:
+                writer.check_fresh(locked, request.data.get("base_updated_at"), stage_as_draft=route_to_draft)
+            except StaleWorkflowWrite:
+                raise StaleWorkflowUpdateError() from None
 
             # Draft edits compose on the staged draft, not on live - a second patch must see the first.
             if route_to_draft and locked.draft:
@@ -5311,7 +5301,6 @@ class HogFlowViewSet(
 
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            writer = self._workflow_writer()
             if route_to_draft:
                 writer.write_draft(locked, locked, serializer)
             else:

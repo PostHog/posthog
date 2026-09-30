@@ -177,6 +177,16 @@ class WorkflowWriter:
         self.announce_edited(locked)
         return locked
 
+    def check_fresh(self, locked: HogFlow, base_updated_at: Optional[str], *, stage_as_draft: bool) -> None:
+        """Raise `StaleWorkflowWrite` when `locked` changed after the client loaded it at `base_updated_at`.
+        Draft edits race against other draft edits, so the baseline is the draft's stamp once a draft exists."""
+        loaded_at = _parse_client_timestamp(base_updated_at)
+        guard_timestamp = locked.updated_at
+        if stage_as_draft and locked.draft_updated_at:
+            guard_timestamp = locked.draft_updated_at
+        if loaded_at and guard_timestamp and guard_timestamp > loaded_at:
+            raise StaleWorkflowWrite()
+
     def write_live(
         self, target: HogFlow, before: Optional[HogFlow], validated: ValidatedWorkflow, **fields: Any
     ) -> None:
