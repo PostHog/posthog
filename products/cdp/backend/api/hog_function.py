@@ -1844,7 +1844,7 @@ class HogFunctionViewSet(
                 last_modified_by_id=cast(User, request.user).id,
             )
         except InvalidBatchExportFilters as e:
-            return Response({"filters": [str(e)]}, status=400)
+            return Response({"error": str(e)}, status=400)
 
         hog_function.batch_export_id = batch_export.id
         hog_function.save(update_fields=["batch_export_id"])

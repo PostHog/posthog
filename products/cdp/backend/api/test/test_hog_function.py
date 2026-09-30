@@ -3375,7 +3375,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"filters": ["Each filter must have a 'type' of one of: 'event', 'hogql', 'person'"]}
+        assert response.json() == {"error": "Each filter must have a 'type' of one of: 'event', 'hogql', 'person'"}
         assert HogFunction.objects.get(id=function_id).batch_export_id is None
 
 
