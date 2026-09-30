@@ -54,7 +54,9 @@ DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
 # Post-load triggers on the files a compaction would remove (see `removable_file_count`). The
 # averages above cannot see an incremental table's newest partition, because its older partitions
-# keep the average near one file each. The table-wide trigger covers partitions that each keep a few.
+# keep the average near one file each. The table-wide trigger covers partitions that each keep a few,
+# and only runs when the vacuum is due: an md5 table gets a small file in every bucket on each sync,
+# so a table-wide count checked on every sync would compact the whole table every time.
 DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD = 8
 DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD = 100
 
@@ -166,6 +168,13 @@ class DeltaMaintenance:
                 )
         await self._logger.adebug(json.dumps(compact_stats))
 
+    async def _vacuum_due(self, last_vacuum_version: int | None, commit_threshold: int) -> bool:
+        # The same cadence `vacuum_if_stale` applies. An unseeded watermark is never due.
+        table = await self._table.get_delta_table()
+        if table is None or last_vacuum_version is None:
+            return False
+        return await asyncio.to_thread(table.version) - last_vacuum_version >= commit_threshold
+
     async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
         """Vacuum tombstoned files once enough commits have accrued since the last vacuum.
 
@@ -228,6 +237,7 @@ class DeltaMaintenance:
         threshold: int = DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD,
         total_threshold: int = DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD,
         compact_small_files: bool = False,
+        table_wide_small_files: bool = False,
     ) -> bool:
         """Run compact + vacuum if the table is fragmented past either threshold.
 
@@ -242,7 +252,8 @@ class DeltaMaintenance:
         partition over the repartition budget that compaction can shrink. Only the non-CDC
         post-load pass sets it. The pre-write pass is a backstop for a table that arrived
         fragmented, and a CDC final lands every tick, so these triggers would compact a CDC table
-        every few ticks.
+        every few ticks. `table_wide_small_files` also enables the table-wide removable-file
+        trigger, which `run_maintenance` sets only when the vacuum is due.
 
         When `partition_count` is None it is derived from the table's actual layout (the
         distinct file directories in the delta log, no extra I/O) — only md5 partitioning
@@ -288,7 +299,7 @@ class DeltaMaintenance:
             )
             fragmented = (
                 max_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
-                or total_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD
+                or (table_wide_small_files and total_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD)
                 or compactable_over_budget
             )
             stats += (
@@ -321,7 +332,10 @@ class DeltaMaintenance:
         `last_vacuum_version` watermark, or None when nothing changed — `run_scheduled` persists it.
         """
         compacted = await self.compact_if_fragmented(
-            partition_count=partition_count, compact_small_files=compact_small_files
+            partition_count=partition_count,
+            compact_small_files=compact_small_files,
+            table_wide_small_files=compact_small_files
+            and await self._vacuum_due(last_vacuum_version, commit_threshold),
         )
         if compacted:
             table = await self._table.get_delta_table()

@@ -144,30 +144,39 @@ class TestCompactIfFragmented:
             mock_compact.assert_not_called()
             mock_vacuum.assert_not_called()
 
-    # (case_name, layout as [(partitions, file sizes in each)], compact_small_files, expected_ran)
-    _SMALL_FILE_CASES: list[tuple[str, list[tuple[int, list[int]]], bool, bool]] = [
+    # (case_name, layout as [(partitions, file sizes in each)], compact_small_files, table_wide_small_files,
+    # expected_ran)
+    _SMALL_FILE_CASES: list[tuple[str, list[tuple[int, list[int]]], bool, bool, bool]] = [
         # An incremental datetime table: every sync lands in the newest partition, and 600 cold
         # partitions hold the average near one file per partition, so the averages never fire.
-        ("hot_partition_fires", [(600, [60 * _MB]), (1, [_MB] * 9)], True, True),
+        ("hot_partition_fires", [(600, [60 * _MB]), (1, [_MB] * 9)], True, False, True),
         # The pre-write pass and CDC tables keep the average-only thresholds.
-        ("hot_partition_ignored_without_small_file_triggers", [(600, [60 * _MB]), (1, [_MB] * 9)], False, False),
-        ("hot_partition_below_threshold_skips", [(600, [60 * _MB]), (1, [_MB] * 8)], True, False),
+        ("hot_partition_ignored_without_small_file_triggers", [(600, [60 * _MB]), (1, [_MB] * 9)], False, False, False),
+        ("hot_partition_below_threshold_skips", [(600, [60 * _MB]), (1, [_MB] * 8)], True, False, False),
         # Compaction writes files between half and the whole target, and delta-rs cannot pair two of
         # them into one bin. Counting them would start a compaction that does nothing on every sync.
-        ("compaction_output_never_counts", [(600, [60 * _MB]), (1, [60 * _MB] * 20)], True, False),
+        ("compaction_output_never_counts", [(600, [60 * _MB]), (1, [60 * _MB] * 20)], True, True, False),
         # A cold tail of partitions with a few small files each, which no single partition reveals.
-        ("cold_tail_fires", [(100, [_MB] * 2)], True, True),
-        ("cold_tail_below_threshold_skips", [(99, [_MB] * 2)], True, False),
+        ("cold_tail_fires", [(100, [_MB] * 2)], True, True, True),
+        ("cold_tail_below_threshold_skips", [(99, [_MB] * 2)], True, True, False),
+        # md5 hashes new rows into every bucket, so each sync adds a small file to each one. Checked on
+        # every sync, the table-wide count would compact the whole table every time.
+        ("every_partition_grows_waits_for_table_wide_check", [(150, [20 * _MB, _MB])], True, False, False),
         # Repartition detection measures right after this pass, so a partition that its small files
         # push over the budget must compact even below the removable thresholds, or it gets split.
-        ("over_budget_partition_fires", [(1, [90 * _MB] * 6 + [_MB] * 10)], True, True),
-        ("same_files_under_budget_skip", [(1, [90 * _MB] * 4 + [_MB] * 10)], True, False),
+        ("over_budget_partition_fires", [(1, [90 * _MB] * 6 + [_MB] * 10)], True, False, True),
+        ("same_files_under_budget_skip", [(1, [90 * _MB] * 4 + [_MB] * 10)], True, False, False),
     ]
 
     @parameterized.expand(_SMALL_FILE_CASES)
     @pytest.mark.asyncio
     async def test_small_file_threshold(
-        self, _name: str, layout: list[tuple[int, list[int]]], compact_small_files: bool, expected_ran: bool
+        self,
+        _name: str,
+        layout: list[tuple[int, list[int]]],
+        compact_small_files: bool,
+        table_wide_small_files: bool,
+        expected_ran: bool,
     ):
         file_sizes = {
             f"_ph_partition_key={group}-{partition}/f{i}.parquet": size
@@ -184,7 +193,11 @@ class TestCompactIfFragmented:
             patch.object(maintenance, "_compact", AsyncMock()) as mock_compact,
             patch.object(maintenance, "_vacuum", AsyncMock()),
         ):
-            ran = await maintenance.compact_if_fragmented(partition_count=None, compact_small_files=compact_small_files)
+            ran = await maintenance.compact_if_fragmented(
+                partition_count=None,
+                compact_small_files=compact_small_files,
+                table_wide_small_files=table_wide_small_files,
+            )
 
         assert ran is expected_ran
         assert mock_compact.await_count == (1 if expected_ran else 0)
@@ -390,6 +403,37 @@ class TestRunMaintenance:
         assert result == 150
         vacuum_if_stale.assert_awaited_once_with(40, 100)
 
+    @parameterized.expand(
+        [
+            # (name, compact_small_files, last_vacuum_version, expected_table_wide) at version 200 with a
+            # 100-commit cadence. 150 commits since the last vacuum is due, 50 is not, and a watermark that
+            # was never seeded is never due.
+            ("vacuum_due", True, 50, True),
+            ("vacuum_not_due", True, 150, False),
+            ("watermark_not_seeded", True, None, False),
+            ("small_file_triggers_off", False, 50, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_table_wide_small_file_trigger_follows_the_vacuum_cadence(
+        self, _name: str, compact_small_files: bool, last_vacuum_version: int | None, expected_table_wide: bool
+    ):
+        maintenance = _make_maintenance(MagicMock(version=MagicMock(return_value=200)))
+        with (
+            patch.object(maintenance, "compact_if_fragmented", new=AsyncMock(return_value=False)) as compact,
+            patch.object(maintenance, "vacuum_if_stale", new=AsyncMock(return_value=None)),
+        ):
+            await maintenance.run_maintenance(
+                partition_count=10,
+                last_vacuum_version=last_vacuum_version,
+                commit_threshold=100,
+                compact_small_files=compact_small_files,
+            )
+
+        assert compact.await_args is not None
+        assert compact.await_args.kwargs["compact_small_files"] is compact_small_files
+        assert compact.await_args.kwargs["table_wide_small_files"] is expected_table_wide
+
 
 class TestRunScheduled:
     """run_scheduled owns the vacuum-watermark lifecycle for both call sites (pre-write defensive
@@ -411,6 +455,7 @@ class TestRunScheduled:
         run_maintenance_result: int | None | Exception = None,
         is_cdc_companion: bool = False,
         partition_count_fallback: int | None = None,
+        compact_small_files: bool = False,
     ) -> tuple[AsyncMock, MagicMock, MagicMock]:
         run_maintenance = (
             AsyncMock(side_effect=run_maintenance_result)
@@ -424,9 +469,24 @@ class TestRunScheduled:
             patch(f"{_MAINTENANCE_MODULE}.capture_exception") as capture,
         ):
             await maintenance.run_scheduled(
-                schema, is_cdc_companion=is_cdc_companion, partition_count_fallback=partition_count_fallback
+                schema,
+                is_cdc_companion=is_cdc_companion,
+                partition_count_fallback=partition_count_fallback,
+                compact_small_files=compact_small_files,
             )
         return run_maintenance, update_config, capture
+
+    @parameterized.expand([("on", True), ("off", False)])
+    @pytest.mark.asyncio
+    async def test_forwards_small_file_triggers(self, _name: str, compact_small_files: bool):
+        # Only the non-CDC post-load pass turns these triggers on, so a dropped pass-through here turns
+        # them off for every table while every caller-side test stays green.
+        run_maintenance, _, _ = await self._run(
+            _make_maintenance(MagicMock()), self._schema(), compact_small_files=compact_small_files
+        )
+
+        assert run_maintenance.await_args is not None
+        assert run_maintenance.await_args.kwargs["compact_small_files"] is compact_small_files
 
     @parameterized.expand(
         [
