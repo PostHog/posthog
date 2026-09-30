@@ -9,7 +9,7 @@ import type {
 import type { TodayReportSource } from './todaySignalReports'
 
 /** Where an item was opened from, sent with the `today item opened` event. */
-export type TodayItemOpenSurface = 'briefing' | 'sidebar'
+export type TodayItemOpenSurface = 'briefing' | 'chip' | 'sidebar'
 
 const ITEM_SOURCES: Record<TodayItemSourceEnumApi, TodayReportSource> = {
     self_driving: { label: 'Self-driving', color: 'var(--color-text-secondary)', icon: 'inbox' },

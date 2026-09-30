@@ -3,7 +3,15 @@
 from products.signals.backend.facade import api as signals
 
 from ...facade.enums import ItemGroup, ItemReason, ItemSource
-from ..candidates import Candidate, SourceContext, app_url
+from ..candidates import (
+    URGENCY_ACT_NOW,
+    URGENCY_THIS_WEEK,
+    URGENCY_TODAY,
+    URGENCY_WHEN_FREE,
+    Candidate,
+    SourceContext,
+    app_url,
+)
 from .base import Source
 
 _RELATION_ORDER = {
@@ -19,6 +27,20 @@ _REASON = {
     signals.BriefingReportRelation.URGENT_UNOWNED: ItemReason.URGENT_FOR_PROJECT,
 }
 _PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
+
+
+def _urgency(report: signals.BriefingReport) -> int:
+    """A report the person blocks, or a P0, is for now; a claim or a P1 review is for today."""
+    if report.priority == "P0" or report.relation in (
+        signals.BriefingReportRelation.WAITING_FOR_YOU,
+        signals.BriefingReportRelation.URGENT_UNOWNED,
+    ):
+        return URGENCY_ACT_NOW
+    if report.relation == signals.BriefingReportRelation.CLAIMED or report.priority == "P1":
+        return URGENCY_TODAY
+    if report.priority in ("P2", None):
+        return URGENCY_THIS_WEEK
+    return URGENCY_WHEN_FREE
 
 
 def _sort_key(report: signals.BriefingReport) -> tuple[float, ...]:
@@ -51,6 +73,7 @@ class ReportsSource(Source):
                 reason=_REASON[report.relation],
                 title=report.title,
                 url=app_url(ctx.team.id, f"inbox/{report.report_id}"),
+                urgency=_urgency(report),
                 sort_key=_sort_key(report),
                 facts={
                     "priority": report.priority,

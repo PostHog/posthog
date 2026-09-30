@@ -6,7 +6,9 @@ import { urls } from 'scenes/urls'
 
 import type { BriefingSegmentApi } from 'products/today/frontend/generated/api.schemas'
 
-import { isExternalHref, itemHref } from './todayBriefingItems'
+import { isExternalHref, itemHref, itemSource } from './todayBriefingItems'
+import { TodayChipStack } from './TodayChipStack'
+import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
 
 function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): JSX.Element {
@@ -34,6 +36,30 @@ function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): 
         </Link>
     )
     return segment.highlight ? <span className="TodayHome__highlight">{link}</span> : link
+}
+
+function PersonalBriefingChips(): JSX.Element | null {
+    const { briefingItems, hoveredItemKey } = useValues(todayLogic)
+    const { openItem, setHoveredItemKey } = useActions(todayLogic)
+    return (
+        <TodayChipStack
+            dataAttr="today-briefing-item-chip"
+            chips={briefingItems
+                .filter((item) => item.in_text)
+                .map((item) => {
+                    const source = itemSource(item)
+                    return {
+                        key: item.key,
+                        label: item.label,
+                        color: source.color,
+                        icon: <TodayIcon icon={source.icon} />,
+                        active: hoveredItemKey === item.key,
+                        onClick: () => openItem(item, 'chip'),
+                        onHoverChange: (hovered) => setHoveredItemKey(hovered ? item.key : null),
+                    }
+                })}
+        />
+    )
 }
 
 export function TodayPersonalBriefing(): JSX.Element | null {
@@ -64,7 +90,10 @@ export function TodayPersonalBriefing(): JSX.Element | null {
 
     return (
         <>
-            <p className="TodayHome__count">{personalBriefing.headline}</p>
+            <p className="TodayHome__count">
+                <span>{personalBriefing.headline}</span>
+                <PersonalBriefingChips />
+            </p>
             {personalBriefing.paragraphs.map((paragraph, index) => (
                 <p key={index}>
                     {paragraph.map((segment, segmentIndex) => (

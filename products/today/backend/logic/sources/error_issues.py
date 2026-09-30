@@ -4,7 +4,7 @@ from products.access_control.backend.facade import api as access_control
 from products.error_tracking.backend.facade import api as error_tracking
 
 from ...facade.enums import ItemGroup, ItemReason, ItemSource
-from ..candidates import Candidate, SourceContext, app_url
+from ..candidates import URGENCY_THIS_WEEK, URGENCY_TODAY, Candidate, SourceContext, app_url
 from .base import Source
 
 _SUBGROUP = 1
@@ -24,6 +24,8 @@ class ErrorIssuesSource(Source):
                 reason=ItemReason.ASSIGNED_ERROR_ISSUE,
                 title=issue.name,
                 url=app_url(ctx.team.id, f"error_tracking/{issue.issue_id}"),
+                # An issue assigned to the person by name is theirs today; one their role holds can wait.
+                urgency=URGENCY_THIS_WEEK if issue.assigned_via_role else URGENCY_TODAY,
                 sort_key=(_SUBGROUP, 1 if issue.assigned_via_role else 0, -issue.created_at.timestamp()),
                 facts={
                     "assigned_via_role": issue.assigned_via_role,

@@ -9,7 +9,7 @@ from datetime import datetime
 from posthog.models.integration import GitHubIntegration, Integration
 
 from ...facade.enums import ItemGroup, ItemReason, ItemSource
-from ..candidates import Candidate, SourceContext
+from ..candidates import URGENCY_THIS_WEEK, URGENCY_TODAY, URGENCY_WHEN_FREE, Candidate, SourceContext
 from .base import Source
 
 _SUBGROUP = 2
@@ -50,6 +50,9 @@ class GitHubSource(Source):
             (f"{scope} author:{login} status:failure", ItemReason.YOUR_PULL_REQUEST, "checks failing", 1),
             (f"{scope} author:{login} review:approved status:success", ItemReason.YOUR_PULL_REQUEST, "approved", 2),
         ]
+        # Someone waits on a review, and a red build blocks the person's own work; an approved PR
+        # only needs a merge. A draft of either kind blocks nobody, so it drops a tier.
+        urgency_for_order = {0: URGENCY_TODAY, 1: URGENCY_TODAY, 2: URGENCY_THIS_WEEK}
         candidates: list[Candidate] = []
         seen: set[str] = set()
         for query, reason, state, order in queries:
@@ -59,6 +62,7 @@ class GitHubSource(Source):
                     continue
                 seen.add(key)
                 created = _timestamp(item.get("created_at"))
+                draft = bool(item.get("draft"))
                 candidates.append(
                     Candidate(
                         key=key,
@@ -67,6 +71,7 @@ class GitHubSource(Source):
                         reason=reason,
                         title=str(item.get("title") or f"Pull request #{item.get('number')}"),
                         url=str(item.get("html_url") or ""),
+                        urgency=min(urgency_for_order[order] + int(draft), URGENCY_WHEN_FREE),
                         # Review requests wait longest first; your own PRs show the newest first.
                         sort_key=(_SUBGROUP, order, created if order == 0 else -_timestamp(item.get("updated_at"))),
                         facts={
@@ -74,7 +79,7 @@ class GitHubSource(Source):
                             "repository": _repository(item),
                             "state": state,
                             "days_open": max(int((ctx.now.timestamp() - created) // 86400), 0) if created else None,
-                            "draft": bool(item.get("draft")),
+                            "draft": draft,
                         },
                     )
                 )

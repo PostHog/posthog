@@ -12,13 +12,22 @@ from posthog.models import Team, User
 
 from products.signals.backend.facade import api as signals
 from products.today.backend.facade.enums import ItemGroup, ItemReason, ItemSource
-from products.today.backend.logic.candidates import Candidate, SourceContext
+from products.today.backend.logic.candidates import (
+    URGENCY_ACT_NOW,
+    URGENCY_THIS_WEEK,
+    URGENCY_TODAY,
+    URGENCY_WHEN_FREE,
+    Candidate,
+    SourceContext,
+)
 from products.today.backend.logic.eligibility import current_edition, due_edition
 from products.today.backend.logic.ranking import rank_candidates, select
 from products.today.backend.logic.sources import reports as report_source
 
+_GROUPS = {"report": ItemGroup.REPORT, "dashboard": ItemGroup.DASHBOARD, "ticket": ItemGroup.OTHER}
 
-def _candidate(key: str, group: ItemGroup, order: float = 0) -> Candidate:
+
+def _candidate(key: str, group: ItemGroup, order: float = 0, urgency: int = URGENCY_THIS_WEEK) -> Candidate:
     return Candidate(
         key=key,
         group=group,
@@ -26,23 +35,25 @@ def _candidate(key: str, group: ItemGroup, order: float = 0) -> Candidate:
         reason=ItemReason.WAITING_FOR_YOU,
         title=key,
         url="",
+        urgency=urgency,
         sort_key=(order,),
         facts={},
     )
 
 
 class TestRanking(SimpleTestCase):
-    def test_many_reports_do_not_push_other_text_items_out_of_the_left_bar(self) -> None:
-        reports = [_candidate(f"report:{i}", ItemGroup.REPORT, i) for i in range(14)]
-        others = [_candidate("dashboard:1", ItemGroup.DASHBOARD), _candidate("ticket:1", ItemGroup.OTHER)]
+    def test_urgency_orders_items_across_kinds_and_group_breaks_ties(self) -> None:
+        reports = [_candidate(f"report:{i}", ItemGroup.REPORT, i, URGENCY_WHEN_FREE) for i in range(14)]
+        alert = _candidate("dashboard:1", ItemGroup.DASHBOARD, urgency=URGENCY_ACT_NOW)
+        ticket = _candidate("ticket:1", ItemGroup.OTHER, urgency=URGENCY_ACT_NOW)
+        claimed = _candidate("report:99", ItemGroup.REPORT, 99, URGENCY_TODAY)
 
-        items = select(rank_candidates(reports + others))
+        items = select(rank_candidates([*reports, ticket, alert, claimed]))
 
         in_text = [item.candidate.key for item in items if item.in_text]
-        assert in_text == ["report:0", "report:1", "report:2", "dashboard:1", "ticket:1"]
+        assert in_text == ["dashboard:1", "ticket:1", "report:99", "report:0", "report:1"]
         assert len(items) == 10
-        assert {"dashboard:1", "ticket:1"} <= {item.candidate.key for item in items}
-        assert [item.rank for item in items] == sorted(item.rank for item in items)
+        assert [item.rank for item in items] == list(range(1, 11))
 
     @parameterized.expand(
         [
@@ -52,8 +63,7 @@ class TestRanking(SimpleTestCase):
         ]
     )
     def test_top_item(self, _name: str, keys: list[str], expected_top: str) -> None:
-        groups = {"report": ItemGroup.REPORT, "dashboard": ItemGroup.DASHBOARD, "ticket": ItemGroup.OTHER}
-        candidates = [_candidate(key, groups[key.split(":")[0]], int(key.split(":")[1])) for key in keys]
+        candidates = [_candidate(key, _GROUPS[key.split(":")[0]], int(key.split(":")[1])) for key in keys]
 
         items = select(rank_candidates(candidates))
 
@@ -94,12 +104,28 @@ class TestReportOrder(SimpleTestCase):
             ("unscored reports follow scored ones", [_report("a", "P1", None), _report("b", "P3", 0.1)], ["b", "a"]),
             ("no scores falls back to priority", [_report("a", "P3", None), _report("b", "P1", None)], ["b", "a"]),
             (
-                "relation beats merge chance",
+                "a report waiting for the person beats one they claimed",
                 [
+                    _report("a", "P3", 0.01, relation=signals.BriefingReportRelation.CLAIMED),
                     _report("b", "P1", 0.9),
+                ],
+                ["b", "a"],
+            ),
+            (
+                "relation beats merge chance at the same urgency",
+                [
+                    _report("b", "P1", 0.9, relation=signals.BriefingReportRelation.SUGGESTED_REVIEWER),
                     _report("a", "P3", 0.01, relation=signals.BriefingReportRelation.CLAIMED),
                 ],
                 ["a", "b"],
+            ),
+            (
+                "a P0 review request beats a P2 one the person claimed",
+                [
+                    _report("a", "P2", 0.9, relation=signals.BriefingReportRelation.CLAIMED),
+                    _report("b", "P0", None, relation=signals.BriefingReportRelation.SUGGESTED_REVIEWER),
+                ],
+                ["b", "a"],
             ),
         ]
     )

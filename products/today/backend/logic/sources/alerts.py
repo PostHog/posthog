@@ -3,7 +3,7 @@
 from products.alerts.backend.facade import api as alerts
 
 from ...facade.enums import ItemGroup, ItemReason, ItemSource
-from ..candidates import Candidate, SourceContext, app_url
+from ..candidates import URGENCY_ACT_NOW, Candidate, SourceContext, app_url
 from .base import Source
 
 
@@ -20,6 +20,7 @@ class AlertsSource(Source):
                 title=alert.name,
                 url=app_url(ctx.team.id, f"insights/{alert.insight_short_id}"),
                 # Firing alerts rank before dashboard and insight changes.
+                urgency=URGENCY_ACT_NOW,
                 sort_key=(0, -(alert.last_checked_at.timestamp() if alert.last_checked_at else 0)),
                 facts={"alert": alert.name, "insight": alert.insight_name, "state": "firing"},
             )

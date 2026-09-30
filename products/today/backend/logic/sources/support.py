@@ -3,12 +3,31 @@
 from products.conversations.backend.facade import api as conversations
 
 from ...facade.enums import ItemGroup, ItemReason, ItemSource
-from ..candidates import Candidate, SourceContext, app_url
+from ..candidates import (
+    URGENCY_ACT_NOW,
+    URGENCY_THIS_WEEK,
+    URGENCY_TODAY,
+    URGENCY_WHEN_FREE,
+    Candidate,
+    SourceContext,
+    app_url,
+)
 from .base import Source
 
 _PRIORITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 # Tickets rank before error issues and GitHub inside the "other" group.
 _SUBGROUP = 0
+
+
+def _urgency(priority: str | None, *, sla_at_risk: bool, unread: int) -> int:
+    """An SLA about to break or a critical ticket is for now; unread customer messages are for today."""
+    if sla_at_risk or priority == "critical":
+        return URGENCY_ACT_NOW
+    if priority == "high" or unread > 0:
+        return URGENCY_TODAY
+    if priority == "medium":
+        return URGENCY_THIS_WEEK
+    return URGENCY_WHEN_FREE
 
 
 class SupportSource(Source):
@@ -27,6 +46,7 @@ class SupportSource(Source):
                     reason=ItemReason.ASSIGNED_TICKET,
                     title=f"Support ticket #{ticket.ticket_number}",
                     url=app_url(ctx.team.id, f"support/tickets/{ticket.ticket_id}"),
+                    urgency=_urgency(ticket.priority, sla_at_risk=sla_at_risk, unread=ticket.unread_team_count),
                     sort_key=(
                         _SUBGROUP,
                         0 if sla_at_risk else 1,

@@ -10,6 +10,14 @@ from ..facade.enums import ItemGroup, ItemReason, ItemSource
 
 FactValue = str | int | float | bool | None
 
+# The scale every source maps its own facts onto, so items of different kinds can be compared.
+# Lower is more urgent. The writer gets the label of each tier next to the item.
+URGENCY_LABELS = {0: "act now", 1: "today", 2: "this week", 3: "when you have time"}
+URGENCY_ACT_NOW = 0
+URGENCY_TODAY = 1
+URGENCY_THIS_WEEK = 2
+URGENCY_WHEN_FREE = 3
+
 
 @frozen
 class Candidate:
@@ -19,7 +27,8 @@ class Candidate:
     reason: ItemReason
     title: str
     url: str
-    # Compared ascending inside the item's group; each source defines its own order.
+    urgency: int
+    # Compared ascending among items of the same urgency and group; each source defines its own order.
     sort_key: tuple[float, ...]
     # Short scalar facts only. Never free text written by customers.
     facts: dict[str, FactValue]
@@ -33,6 +42,7 @@ class Candidate:
             "reason": self.reason.value,
             "title": self.title,
             "url": self.url,
+            "urgency": self.urgency,
             "sort_key": list(self.sort_key),
             "facts": dict(self.facts),
         }
@@ -46,6 +56,7 @@ class Candidate:
             reason=ItemReason(payload["reason"]),
             title=payload["title"],
             url=payload["url"],
+            urgency=int(payload["urgency"]),
             sort_key=tuple(payload["sort_key"]),
             facts=dict(payload["facts"]),
         )

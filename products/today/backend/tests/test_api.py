@@ -8,13 +8,11 @@ from rest_framework import status
 
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
 from products.today.backend.models import DailyBriefing
-from products.today.backend.tests.conftest import PRODUCT_DATABASES, TodayTeamScopedTestMixin
+from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 
 
 @patch("products.today.backend.logic.briefings.sync_connect")
 class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
-    databases = PRODUCT_DATABASES
-
     def _flag(self, enabled: bool):
         return patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=enabled)
 

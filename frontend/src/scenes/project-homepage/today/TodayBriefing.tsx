@@ -6,6 +6,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { TodayAskBox } from './TodayAskBox'
+import { TodayChipStack } from './TodayChipStack'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
 import { TodayPersonalBriefing } from './TodayPersonalBriefing'
@@ -60,31 +61,18 @@ function TodayBriefingReports(): JSX.Element {
         <>
             <p className="TodayHome__count">
                 <span>{reportSummary}</span>
-                <span className="TodayChipStack">
-                    {reports.map((report, index) => (
-                        <button
-                            key={report.id}
-                            type="button"
-                            className="TodayChipStack__chip"
-                            aria-label={`Open ${report.title ?? 'report'}`}
-                            data-active={hoveredReportId === report.id}
-                            data-attr="today-briefing-chip"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={
-                                {
-                                    '--index': index,
-                                    '--tilt': index % 2 === 0 ? '-3deg' : '3deg',
-                                    '--report-color': reportSource(report).color,
-                                } as React.CSSProperties
-                            }
-                            onClick={() => openReport(report, 'chip')}
-                            onMouseEnter={() => setHoveredReportId(report.id)}
-                            onMouseLeave={() => setHoveredReportId(null)}
-                        >
-                            <TodayIcon icon={reportIcon(report)} />
-                        </button>
-                    ))}
-                </span>
+                <TodayChipStack
+                    dataAttr="today-briefing-chip"
+                    chips={reports.map((report) => ({
+                        key: report.id,
+                        label: report.title ?? 'report',
+                        color: reportSource(report).color,
+                        icon: <TodayIcon icon={reportIcon(report)} />,
+                        active: hoveredReportId === report.id,
+                        onClick: () => openReport(report, 'chip'),
+                        onHoverChange: (hovered) => setHoveredReportId(hovered ? report.id : null),
+                    }))}
+                />
             </p>
             {briefing.map((paragraph, index) => (
                 <p key={index}>

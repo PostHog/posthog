@@ -21,15 +21,6 @@ def _segment(text: str, item_key: str | None = None, highlight: bool = False) ->
     return {"text": text, "item_key": item_key, "highlight": highlight}
 
 
-def _join(links: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    joined: list[dict[str, Any]] = []
-    for index, link in enumerate(links):
-        if index:
-            joined.append(_segment(" and " if index == len(links) - 1 else ", "))
-        joined.append(link)
-    return joined
-
-
 def _lower_first(text: str) -> str:
     return text[0].lower() + text[1:] if text[:2].istitle() else text
 
@@ -66,57 +57,63 @@ def label_for(item: dict[str, Any]) -> str:
     return " ".join(item["title"].split()[:MAX_LABEL_WORDS])
 
 
+def _clause(item: dict[str, Any]) -> str:
+    """The rest of the sentence after the linked title: why the item needs the person."""
+    facts = item["facts"]
+    if item["group"] == "report":
+        text = _REPORT_REASON.get(item["reason"], "It needs you")
+        priority = facts.get("priority")
+        return f" is {priority}. {text}." if priority else f". {text}."
+    if item["source"] == "alerts":
+        return " is firing."
+    if item["group"] == "dashboard":
+        return f" shows {_lower_first(str(facts.get('metric', 'the main metric')))} {_change(facts)} this week."
+    if item["source"] == "support":
+        if facts.get("sla_at_risk_or_breached"):
+            return " has its SLA at risk."
+        if facts.get("unread_messages"):
+            return f" has {facts['unread_messages']} unread messages."
+        return f" has had no update for {facts.get('days_without_update', 0)} days."
+    if item["source"] == "error_tracking":
+        holder = "your role" if facts.get("assigned_via_role") else "you"
+        return f" is assigned to {holder}, first seen {facts.get('days_since_first_seen', 0)} days ago."
+    if item["source"] == "github":
+        days = facts.get("days_open")
+        state = str(facts.get("state") or "")
+        if state == "review requested":
+            waiting = "waits for your review"
+        elif state == "checks failing":
+            waiting = "has failing checks"
+        elif state == "approved":
+            waiting = "is approved and ready to merge"
+        else:
+            waiting = "needs you"
+        return f" {waiting}, open for {days} days." if days is not None else f" {waiting}."
+    return " needs you."
+
+
 def build_draft(fact_sheet: dict[str, Any]) -> dict[str, Any]:
     items = fact_sheet["items"]
     in_text = [item for item in items if item["in_text"]]
     reports = [item for item in in_text if item["group"] == "report"]
-    movements = [item for item in in_text if item["group"] == "dashboard"]
-    others = [item for item in in_text if item["group"] == "other"]
 
     if reports:
         count = len(reports)
         headline = f"{_COUNT_WORDS[count]} {'report needs' if count == 1 else 'reports need'} your input"
-    elif movements:
-        headline = "Here is how your dashboards moved this week"
-    elif others:
-        headline = "A few things need you"
+    elif in_text:
+        count = len(in_text)
+        headline = f"{_COUNT_WORDS[count]} {'thing needs' if count == 1 else 'things need'} your attention"
     else:
         headline = "Nothing needs you right now"
 
     paragraphs: list[list[dict[str, Any]]] = []
-    if reports:
-        top, *rest = reports
-        paragraph = [_segment("Start with "), _segment(top["title"], top["key"], top.get("top", False))]
-        paragraph.append(_segment(f". {_REPORT_REASON.get(top['reason'], 'It needs you')}."))
-        if rest:
-            paragraph.append(_segment(" Also waiting: "))
-            paragraph += _join(
-                [_segment(_lower_first(item["title"]), item["key"], item.get("top", False)) for item in rest]
-            )
-            paragraph.append(_segment("."))
-        paragraphs.append(paragraph)
-    if movements:
-        paragraph = []
-        for index, item in enumerate(movements):
-            facts = item["facts"]
-            paragraph += [
-                _segment("On " if index == 0 else " On "),
-                _segment(item["title"], item["key"], item.get("top", False)),
-            ]
-            if item["source"] == "alerts":
-                paragraph.append(_segment(", an alert is firing."))
-            else:
-                paragraph.append(
-                    _segment(
-                        f", {_lower_first(str(facts.get('metric', 'the main metric')))} is {_change(facts)} this week."
-                    )
-                )
-        paragraphs.append(paragraph)
-    if others:
-        paragraph = [_segment("Also: ")]
-        paragraph += _join([_segment(item["title"], item["key"], item.get("top", False)) for item in others])
-        paragraph.append(_segment("."))
-        paragraphs.append(paragraph)
+    for index, item in enumerate(in_text):
+        sentence = [_segment(item["title"], item["key"], item.get("top", False)), _segment(_clause(item))]
+        if index < 2:
+            paragraphs.append(sentence)
+        else:
+            paragraphs[-1].append(_segment(" "))
+            paragraphs[-1] += sentence
 
     return {
         "headline": headline,

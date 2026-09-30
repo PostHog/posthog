@@ -15,7 +15,7 @@ from products.product_analytics.backend.facade import api as product_analytics
 from products.product_analytics.backend.facade.contracts import CachedTrends
 
 from ...facade.enums import ItemGroup, ItemReason, ItemSource
-from ..candidates import Candidate, SourceContext, app_url
+from ..candidates import URGENCY_THIS_WEEK, URGENCY_TODAY, URGENCY_WHEN_FREE, Candidate, SourceContext, app_url
 from ..movements import Movement, biggest_movements, week_over_week
 from .base import Source
 
@@ -55,6 +55,16 @@ def _dashboard_movements(ctx: SourceContext, dashboard_id: int) -> list[Movement
         _CACHE_SECONDS,
     )
     return movements
+
+
+def _urgency(movements: list[Movement]) -> int:
+    """A metric that halved or doubled is for today; a fifth either way is for the week."""
+    change = abs(movements[0].pct_change or 0)
+    if change >= 50:
+        return URGENCY_TODAY
+    if change >= 20:
+        return URGENCY_THIS_WEEK
+    return URGENCY_WHEN_FREE
 
 
 def _facts(movements: list[Movement], viewed_days_ago: int) -> dict:
@@ -101,6 +111,7 @@ class DashboardsSource(Source):
                     reason=ItemReason.DASHBOARD_YOU_VIEWED,
                     title=ref.name or "Untitled dashboard",
                     url=app_url(ctx.team.id, f"dashboard/{ref.id}"),
+                    urgency=_urgency(movements),
                     sort_key=(1, -viewed_at[ref.id].timestamp()),
                     facts=_facts(movements, (ctx.now - viewed_at[ref.id]).days),
                 )
@@ -127,6 +138,7 @@ class DashboardsSource(Source):
                     reason=ItemReason.INSIGHT_YOU_VIEWED,
                     title=trends.name or "Untitled insight",
                     url=app_url(ctx.team.id, f"insights/{trends.short_id}"),
+                    urgency=_urgency(movements),
                     sort_key=(1, -seen_at.timestamp()),
                     facts=_facts(movements, (ctx.now - seen_at).days),
                 )

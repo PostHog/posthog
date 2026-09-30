@@ -4,8 +4,6 @@ import pytest
 
 from posthog.models.scoping import team_scope
 
-PRODUCT_DATABASES = {"default", "today_db_writer", "today_db_reader"}
-
 
 @pytest.fixture(autouse=True)
 def _set_team_scope(request):

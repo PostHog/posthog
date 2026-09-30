@@ -51,6 +51,7 @@ async def test_a_failing_source_loses_only_its_own_items(environment: WorkflowEn
                 reason=ItemReason.ASSIGNED_TICKET,
                 title="Ticket #1042",
                 url="/project/1/support/tickets/1",
+                urgency=1,
                 sort_key=(0.0,),
                 facts={"unread_messages": 3},
             ).to_payload()

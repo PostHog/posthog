@@ -14,7 +14,7 @@ from products.today.backend.facade.enums import BriefingEdition, BriefingStatus,
 from products.today.backend.logic.generate import draft_briefing, write_and_check
 from products.today.backend.models import DailyBriefing
 from products.today.backend.temporal.activities import _due_briefings
-from products.today.backend.tests.conftest import PRODUCT_DATABASES, TodayTeamScopedTestMixin
+from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 from products.today.backend.tests.test_checks import FACT_SHEET, VALID
 
 INVENTED = {**VALID, "headline": "Orders fell 41% overnight."}
@@ -24,8 +24,6 @@ WRITE = "products.today.backend.logic.generate.write"
 
 
 class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
-    databases = PRODUCT_DATABASES
-
     def setUp(self) -> None:
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
@@ -88,8 +86,6 @@ FLAG = "products.today.backend.feature_flags.feature_enabled_or_false"
 
 
 class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):
-    databases = PRODUCT_DATABASES
-
     def _viewer_row(self) -> DailyBriefing:
         return DailyBriefing.objects.for_team(self.team.id).create(
             team_id=self.team.id,
