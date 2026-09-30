@@ -995,6 +995,13 @@ export interface InboxReportActionResultProperties {
   failure_code?: InboxReportActionFailureCode;
 }
 
+/** A report's expected-impact section: the proposed measurements and how many still wait for approval. */
+export interface InboxExpectedImpactProperties {
+  report_id: string;
+  plan_count: number;
+  pending_count: number;
+}
+
 /**
  * Thumbs-up/down verdict on a report's usefulness, fired from the feedback
  * footer at the end of the report body. Feedback-only: unlike a dismiss, the
@@ -1797,6 +1804,8 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
   INBOX_TRIAGE_STARTED: "Inbox triage started",
   INBOX_TRIAGE_ENDED: "Inbox triage ended",
+  INBOX_EXPECTED_IMPACT_VIEWED: "Inbox expected impact viewed",
+  INBOX_EXPECTED_IMPACT_OPENED_IN_WEB: "Inbox expected impact opened in web",
   SIGNAL_SOURCE_CONNECTED: "Signal source connected",
 
   // Agents page events
@@ -2018,6 +2027,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
+  [ANALYTICS_EVENTS.INBOX_EXPECTED_IMPACT_VIEWED]: InboxExpectedImpactProperties;
+  [ANALYTICS_EVENTS.INBOX_EXPECTED_IMPACT_OPENED_IN_WEB]: InboxExpectedImpactProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED]: InboxTriageStartedProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED]: InboxTriageEndedProperties;
   [ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED]: SignalSourceConnectedProperties;
@@ -2111,6 +2122,8 @@ const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,
   ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
   ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED,
+  ANALYTICS_EVENTS.INBOX_EXPECTED_IMPACT_VIEWED,
+  ANALYTICS_EVENTS.INBOX_EXPECTED_IMPACT_OPENED_IN_WEB,
   ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED,
 ]);
 

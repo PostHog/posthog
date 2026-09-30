@@ -2669,6 +2669,36 @@ describe("PostHogAPIClient", () => {
         task_id: "t1",
         created_by: null,
       },
+      {
+        id: "a15",
+        type: "impact_measurement_plan",
+        content: {
+          metric_id: "checkout_errors",
+          title: "Checkout errors",
+          kind: "occurrences",
+          query: { kind: "InsightVizNode", source: { kind: "TrendsQuery" } },
+          value_format: "count",
+          goal_value: 10,
+          goal_direction: "at_most",
+          goal_grain: "per_interval",
+          decision_window_days: 7,
+          activated: false,
+          retired: false,
+        },
+        created_at: "2026-06-01T00:00:14Z",
+      },
+      // The backend redacts a plan to these four fields for a viewer who can't read its query.
+      {
+        id: "a16",
+        type: "impact_measurement_plan",
+        content: {
+          metric_id: "signups",
+          title: "Signups",
+          activated: true,
+          retired: false,
+        },
+        created_at: "2026-06-01T00:00:15Z",
+      },
     ];
 
     it("normalizes every backend artefact type without dropping rows", async () => {

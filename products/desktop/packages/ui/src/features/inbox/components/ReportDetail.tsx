@@ -5,6 +5,7 @@ import {
   quoteSelection,
 } from "@posthog/ui/features/inbox/components/AskAboutSelection";
 import { ReportActivitySection } from "@posthog/ui/features/inbox/components/detail/ReportActivitySection";
+import { ReportExpectedImpactSection } from "@posthog/ui/features/inbox/components/detail/ReportExpectedImpactSection";
 import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
@@ -99,6 +100,7 @@ export function ReportDetailContent({
         evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
         showDismiss={false}
       >
+        <ReportExpectedImpactSection reportId={report.id} />
         <ReportReviewersSection report={report} />
         <ReportRunsSection report={report} />
         <ReportActivitySection

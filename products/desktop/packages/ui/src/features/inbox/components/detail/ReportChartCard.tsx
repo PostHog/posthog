@@ -286,7 +286,7 @@ export function ReportChartCardView({
   );
 }
 
-function ReportChartCard({
+export function ReportChartCard({
   reportId,
   chart,
 }: {
