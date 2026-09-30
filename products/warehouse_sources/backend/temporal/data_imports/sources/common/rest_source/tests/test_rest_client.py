@@ -240,6 +240,34 @@ class TestRESTClient:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
+    def test_paginate_invokes_safe_point_without_resume_hook(self, MockSession) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.side_effect = [_make_response([]), _make_response([])]
+
+        class TwoPagePaginator(BasePaginator):
+            def __init__(self):
+                super().__init__()
+                self._page = 0
+
+            def update_state(self, response, data=None):
+                self._page += 1
+                self._has_next_page = self._page < 2
+
+            def update_request(self, request):
+                pass
+
+        safe_points: list[str] = []
+        client = RESTClient(base_url="https://api.example.com")
+        with activate_safe_point(lambda: safe_points.append("safe_point"), covers_framework_checkpoints=True):
+            list(client.paginate(path="/items", paginator=TwoPagePaginator()))
+
+        assert safe_points == ["safe_point", "safe_point"]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
     def test_paginate_seeds_initial_paginator_state(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
