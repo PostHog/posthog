@@ -269,29 +269,6 @@ export const PromptListInputSchema = z.object({
         ),
 })
 
-export const FEEDBACK_PRODUCT_AREAS = [
-    'product_analytics',
-    'web_analytics',
-    'session_replay',
-    'feature_flags',
-    'experiments',
-    'surveys',
-    'error_tracking',
-    'logs',
-    'data_warehouse',
-    'data_pipelines',
-    'llm_analytics',
-    'revenue_analytics',
-    'marketing_analytics',
-    'customer_analytics',
-    'workflows',
-    'notebooks',
-    'posthog_ai',
-    'platform',
-    'mcp',
-    'other',
-] as const
-
 export const FeedbackSubmitSchema = z
     .object({
         summary: z
@@ -314,7 +291,7 @@ export const FeedbackSubmitSchema = z
             .string()
             .optional()
             .describe(
-                `Strongly recommended for every feedback type: the PostHog product the feedback concerns, as exactly one of: ${FEEDBACK_PRODUCT_AREAS.join(', ')}. Pick the product, not the tool — tool names go in \`tools_used\`. "product_analytics" covers trends, funnels, retention, stickiness, lifecycle, paths, insights, dashboards, cohorts, actions, persons and events. "data_warehouse" covers SQL (execute-sql), sources, views and the data catalog. "data_pipelines" covers destinations, transformations and batch exports. "posthog_ai" covers PostHog AI, signals and tasks. "platform" covers organizations, projects, access control, billing and integrations. "mcp" is for the MCP server as a whole (instructions, tool discovery, auth) when no single product fits. Use "other" only when nothing else fits.`
+                'The PostHog product the feedback concerns. Set it for every feedback type, and name the product, not the tool. Suggested values: product_analytics (trends, funnels, retention, insights, dashboards, cohorts), web_analytics, session_replay, feature_flags, experiments, surveys, error_tracking, logs, data_warehouse (SQL, sources, views), data_pipelines (destinations, batch exports), llm_analytics, revenue_analytics, marketing_analytics, customer_analytics, workflows, notebooks, posthog_ai (PostHog AI, signals, tasks), platform (organizations, projects, billing, access control), mcp (this MCP server as a whole), other.'
             ),
         category: z
             .enum([

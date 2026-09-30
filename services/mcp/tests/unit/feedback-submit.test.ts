@@ -21,7 +21,6 @@ describe('agent-feedback submit handler', () => {
             summary: 'discriminator misfires on young projects',
             feedback_type: 'scout',
             sentiment: 'neutral',
-            product_area: 'web_analytics',
             scout_skill_name: 'signals-scout-web-analytics',
             scout_skill_version: 7,
             scout_category: 'discriminator_gap',
@@ -50,7 +49,6 @@ describe('agent-feedback submit handler', () => {
             summary: 'discriminator misfires on young projects',
             feedback_type: 'scout',
             sentiment: 'neutral',
-            product_area: 'web_analytics',
             ...scoutFields,
         })
         expect(result.success).toBe(false)
@@ -61,27 +59,7 @@ describe('agent-feedback submit handler', () => {
             summary: 'the SQL editor autocomplete is excellent',
             feedback_type: 'product',
             sentiment: 'positive',
-            product_area: 'data_warehouse',
         })
         expect(result.success).toBe(true)
-    })
-
-    it.each([
-        [' Product Analytics ', 'product_analytics'],
-        ['Insights', 'product_analytics'],
-        ['session replay / replay vision', 'session_replay'],
-        ['health checks', 'health_checks'],
-    ])('records product_area %j as %j', async (productArea, recorded) => {
-        const trackEvent = vi.fn().mockResolvedValue(undefined)
-        await submitFeedbackHandler({ trackEvent } as unknown as Context, {
-            summary: 'query-trends errors on breakdown limits',
-            feedback_type: 'mcp',
-            sentiment: 'negative',
-            product_area: productArea,
-        })
-        expect(trackEvent).toHaveBeenCalledWith(
-            'mcp feedback submitted',
-            expect.objectContaining({ feedback_product_area: recorded })
-        )
     })
 })
