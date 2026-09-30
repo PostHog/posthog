@@ -44,7 +44,7 @@ class GiteaRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GiteaResumeConfig:
     next_url: str
 
@@ -153,17 +153,20 @@ def _next_page_url(
 ) -> str | None:
     if config.pagination == "link_header":
         return _parse_next_url(response.headers.get("Link", ""))
-    if config.pagination == "unpaged":
-        return None
 
     page = int(dict(parse_qsl(urlparse(url).query)).get("page") or 1)
     total = _parse_total_count(response, data)
-    if total is None:
-        return None if page_length == 0 else _with_page(url, page + 1)
-    # Visible rows are a conservative proxy for the server's possibly-clamped page size.
-    # Falling back to one also bounds a walk whose backing rows are all filtered out.
-    effective_page_length = max(largest_page_length, 1)
-    if (page - 1) * effective_page_length + page_length >= total:
+    if config.pagination == "total_count":
+        if total is None:
+            return None if page_length == 0 else _with_page(url, page + 1)
+        # Visible rows are a conservative proxy for the server's possibly-clamped page size.
+        # Falling back to one also bounds a walk whose backing rows are all permission-filtered.
+        effective_page_length = max(largest_page_length, 1)
+        if (page - 1) * effective_page_length + page_length >= total:
+            return None
+    elif config.pagination == "until_empty" and page_length == 0 and not total:
+        # Timeline rows are permission-filtered after pagination. X-Total-Count reflects the
+        # backing page, so only a zero backing count proves that later pages cannot have rows.
         return None
     return _with_page(url, page + 1)
 
@@ -192,16 +195,13 @@ def _build_initial_url(
     db_incremental_field_last_value: Any,
     index: int | None = None,
 ) -> str:
-    params: dict[str, Any] = {**config.extra_params}
-    if config.pagination != "unpaged":
-        params["limit"] = PAGE_SIZE
+    params: dict[str, Any] = {"limit": PAGE_SIZE, **config.extra_params}
     # `since` is inclusive, so the boundary row is re-fetched and deduped by primary key
     # on merge — safer than missing a row updated in the same second as the watermark.
     if config.supports_since and should_use_incremental_field and db_incremental_field_last_value is not None:
         params["since"] = _format_timestamp(db_incremental_field_last_value)
     path = config.path.format(repository=repository, index=index)
-    url = _api_url(base_url, path)
-    return f"{url}?{urlencode(params)}" if params else url
+    return f"{_api_url(base_url, path)}?{urlencode(params)}"
 
 
 def validate_credentials(base_url: str, access_token: str, repository: str) -> tuple[bool, str | None]:

@@ -329,7 +329,7 @@ class TestGetRows:
 
 class TestFanOut:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_timeline_fans_out_over_issues_in_one_unpaged_request_each(self, mock_session):
+    def test_timeline_fans_out_over_issues_and_pages_until_empty(self, mock_session):
         issues_page_2 = f"{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=2"
         deleted_issue = _response({"message": "Not Found"}, status_code=404)
         deleted_issue.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=deleted_issue)
@@ -338,9 +338,18 @@ class TestFanOut:
                 _response([{"number": 1}, {"number": 2}], headers={"Link": f'<{issues_page_2}>; rel="next"'}),
                 _response([{"number": 3}]),
             ],
-            f"/repos/{REPO}/issues/1/timeline": [_response([{"id": 10}, {"id": 11}], headers={"X-Total-Count": "2"})],
+            # The timeline filters rows after paging and reports only the page length as its
+            # total, so a short page must not end the walk.
+            f"/repos/{REPO}/issues/1/timeline": [
+                _response([{"id": 10}], headers={"X-Total-Count": "1"}),
+                # Gitea filters inaccessible references after paging. The backing-page count
+                # keeps the walk alive even when this page has no visible timeline rows.
+                _response([], headers={"X-Total-Count": "1"}),
+                _response([{"id": 11}], headers={"X-Total-Count": "1"}),
+                _response([], headers={"X-Total-Count": "0"}),
+            ],
             f"/repos/{REPO}/issues/2/timeline": [deleted_issue],
-            f"/repos/{REPO}/issues/3/timeline": [_response([{"id": 30}])],
+            f"/repos/{REPO}/issues/3/timeline": [_response([{"id": 30}]), _response([])],
         }
 
         def get(url, timeout):
@@ -368,14 +377,8 @@ class TestFanOut:
             {"id": 30, "issue_number": 3},
         ]
         urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        timeline_urls = [url for url in urls if "/timeline" in url]
-        assert len(timeline_urls) == 3
-        # Gitea drops rows from a timeline page after paging, and its X-Total-Count is the
-        # filtered page length, so a paged walk can stop early. Without `page` the endpoint
-        # returns the whole timeline in one response.
-        assert not any("page=" in url or "limit=" in url for url in timeline_urls)
         # The watermark bounds both the parent issues and each issue's timeline.
-        assert all("since=2024-01-02T00%3A00%3A00Z" in url for url in [urls[0], *timeline_urls])
+        assert all("since=2024-01-02T00%3A00%3A00Z" in url for url in urls if "page=" not in url)
         assert "type=issues" in urls[0]
         # State points at the next parent page once every child of the current one is yielded.
         assert [call.args[0].next_url for call in manager.save_state.call_args_list] == [issues_page_2]
@@ -385,7 +388,7 @@ class TestFanOut:
         resume_url = f"{BASE_URL}/api/v1/repos/{REPO}/pulls?limit=50&page=4"
         mock_session.return_value.get.side_effect = [
             _response([{"number": 9}]),
-            _response([{"id": 90}]),
+            _response([{"id": 90}], headers={"X-Total-Count": "1"}),
         ]
 
         batches = list(
@@ -402,8 +405,21 @@ class TestFanOut:
         assert batches == [[{"id": 90, "pull_request_number": 9}]]
         urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
         assert urls[0] == resume_url
-        # Gitea drops other users' pending reviews after paging, so reviews are fetched unpaged.
-        assert urls[1] == f"{BASE_URL}/api/v1/repos/{REPO}/pulls/9/reviews"
+        assert urls[1].startswith(f"{BASE_URL}/api/v1/repos/{REPO}/pulls/9/reviews?")
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_reviews_continue_after_permission_filtered_page(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response([{"number": 9}]),
+            _response([], headers={"X-Total-Count": "2"}),
+            _response([{"id": 90}], headers={"X-Total-Count": "2"}),
+        ]
+
+        batches = list(get_rows(BASE_URL, "tok", REPO, "reviews", mock.MagicMock(), _make_manager()))
+
+        assert batches == [[{"id": 90, "pull_request_number": 9}]]
+        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert "page=2" in urls[-1]
 
 
 class TestAddCommentIssueNumber:
