@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonCollapse, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -82,15 +82,17 @@ export function ScoutStructuredOutputSection({
                         key: 'structured-output',
                         dataAttr: 'scout-structured-output',
                         header: (
-                            <div className="flex flex-1 items-center justify-between gap-2">
-                                <span className="text-xs text-default">Structured output</span>
-                                <div className="flex flex-wrap items-center gap-1">
+                            <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                                <span className="shrink-0 text-xs text-default">Structured output</span>
+                                <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
                                     {saved ? (
                                         <>
                                             {headerFields.map((name) => (
-                                                <LemonTag key={name} size="small" type={tagType}>
-                                                    {name}
-                                                </LemonTag>
+                                                <Tooltip key={name} title={name}>
+                                                    <LemonTag size="small" type={tagType} className="max-w-40">
+                                                        <span className="truncate">{name}</span>
+                                                    </LemonTag>
+                                                </Tooltip>
                                             ))}
                                             {fieldNames.length > headerFields.length ? (
                                                 <LemonTag size="small" type={tagType}>
