@@ -386,7 +386,6 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
     return (
         <div className="relative">
             <LemonTabs
-                data-attr="filters-panel-tabs"
                 activeKey={tabs.some((tab) => tab.key === activeFilterTab) ? activeFilterTab : 'filters'}
                 onChange={(activeKey) => setActiveFilterTab(activeKey)}
                 size="small"
