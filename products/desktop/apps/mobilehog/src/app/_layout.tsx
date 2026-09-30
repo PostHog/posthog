@@ -116,6 +116,13 @@ export default function RootLayout() {
                 contentStyle: { backgroundColor: colors.bg },
               }}
             />
+            <Stack.Screen
+              name="review/[id]"
+              options={{
+                presentation: "modal",
+                contentStyle: { backgroundColor: colors.bg },
+              }}
+            />
           </Stack>
           <OfflinePill />
         </QueryClientProvider>

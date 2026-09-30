@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass, GlassCircleButton } from "@/components/Glass";
 import { MenuIcon } from "@/components/Icons";
 import { useTaskActions } from "@/components/TaskRow";
+import { taskPrUrl } from "@/lib/review";
 import { colors } from "@/lib/theme";
 
 const BUTTON = 46;
@@ -22,6 +23,7 @@ export function ChatHeader({ showNewChat = true, task }: ChatHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { rename, setArchived } = useTaskActions(task);
+  const hasPr = !!taskPrUrl(task);
   return (
     <View
       style={[styles.root, { paddingTop: insets.top + 6 }]}
@@ -59,6 +61,18 @@ export function ChatHeader({ showNewChat = true, task }: ChatHeaderProps) {
                   }
                   modifiers={[frame({ width: BUTTON, height: BUTTON })]}
                 >
+                  {hasPr ? (
+                    <Button
+                      label="Review PR"
+                      systemImage="arrow.triangle.pull"
+                      onPress={() =>
+                        router.push({
+                          pathname: "/review/[id]",
+                          params: { id: task.id },
+                        })
+                      }
+                    />
+                  ) : null}
                   <Button
                     label="Rename"
                     systemImage="pencil"

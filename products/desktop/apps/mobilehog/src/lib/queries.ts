@@ -25,6 +25,8 @@ export const keys = {
   models: ["models"] as const,
   repository: ["repository"] as const,
   repositories: ["repositories"] as const,
+  // Outside "tasks" so large patches never reach the offline cache.
+  review: (id: string) => ["review", id] as const,
 };
 
 const PAGE_SIZE = 50;
@@ -111,6 +113,19 @@ export function useTask(taskId: string) {
       const status = (query.state.data as Task | undefined)?.latest_run?.status;
       return status && !TERMINAL.has(status) ? 5000 : false;
     },
+  });
+}
+
+// The task's pull request with its changed files, 30 files per page.
+export function useTaskReview(taskId: string) {
+  const session = useAuth((s) => s.session);
+  return useInfiniteQuery({
+    queryKey: keys.review(taskId),
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) => getClient().getTaskReview(taskId, pageParam),
+    getNextPageParam: (page, _pages, pageParam) =>
+      page.has_more ? pageParam + 1 : undefined,
+    enabled: !!session && !!taskId,
   });
 }
 
