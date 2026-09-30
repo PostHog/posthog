@@ -116,23 +116,6 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     )
 
 
-def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetricToRecalculate]:
-    """All metrics to recalculate for an experiment, in (primary, secondary, saved) order.
-
-    Single source of truth for "which metrics does this experiment have" — used both to set
-    ``total_metrics`` at recalculation-create time and by the discovery activity. Touches the DB
-    (saved-metric links), so call inside a team scope / sync context.
-
-    Note: this sync helper takes an ``Experiment``. The async Temporal activity in
-    ``recalculation_activities.py`` shares the name but takes a ``recalculation_id`` — disambiguate by
-    import path and argument type at the call site.
-    """
-    return [
-        ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
-        for metric in resolve_scheduled_metrics(experiment)
-    ]
-
-
 @database_sync_to_async_pool
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
@@ -142,7 +125,12 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
 
-        metrics_to_recalculate = discover_experiment_metrics(experiment)
+        # request_recalculation sets total_metrics from the same resolver, so the run's progress count
+        # matches the metrics this activity schedules.
+        metrics_to_recalculate = [
+            ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
+            for metric in resolve_scheduled_metrics(experiment)
+        ]
 
         recalculation.metric_uuids = [m.metric_uuid for m in metrics_to_recalculate]
         recalculation.save(update_fields=["metric_uuids"])
