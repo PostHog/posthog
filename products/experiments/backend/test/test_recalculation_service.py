@@ -14,7 +14,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
 
-from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -292,7 +292,7 @@ class TestRecalculationService(BaseTest):
         # and we just set query_to on the recalc above.
         assert exp.metrics and exp.start_date is not None
         assert recalc.query_to is not None
-        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
 
         # The row from THIS run (recalc-fingerprinted) — must be returned.
         ExperimentMetricResult.objects.create(
@@ -326,7 +326,7 @@ class TestRecalculationService(BaseTest):
         exp = self._launched_experiment(flag_key="reuse-excluded")
         assert exp.start_date is not None  # _launched_experiment always sets it; narrow for the create below
         query_to = datetime(2026, 1, 10, tzinfo=UTC)
-        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -361,7 +361,7 @@ class TestRecalculationService(BaseTest):
         )
         assert exp.metrics and exp.start_date is not None
         assert recalc.query_to is not None
-        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
