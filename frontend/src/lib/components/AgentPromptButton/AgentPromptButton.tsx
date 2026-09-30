@@ -7,13 +7,18 @@ const LIMIT_LONG = 8000
 const LIMIT_CLAUDE = 5000
 const LIMIT_SHORT = 4000
 
+// Regular Expression to validate that the prefix is a safe, standard URL scheme
+const URI_SCHEME_RE = /^[a-z][a-z0-9+.-]*\$/i
+
 function openDeepLink(buildDeepLink: (prompt: string) => string): (prompt: string) => void {
     return (prompt: string) => window.open(buildDeepLink(prompt), '_blank')
 }
 
 export function buildPostHogCodeDeepLink(prompt: string, repository: string, customPrefix: string = 'posthog-code') {
+    // Validate the custom scheme. If malicious characters are found, fallback to safe default scheme
+    const safePrefix = URI_SCHEME_RE.test(customPrefix) ? customPrefix : 'posthog-code'
     const repoParam = repository ? `&repo=${encodeURIComponent(repository)}` : ''
-    return `${customPrefix}://new?prompt=${encodeURIComponent(prompt)}${repoParam}`
+    return `${safePrefix}://new?prompt=${encodeURIComponent(prompt)}${repoParam}`
 }
 
 export function buildClaudeCodeDeepLink(prompt: string, repository: string) {
@@ -40,7 +45,8 @@ const AGENTS: Record<string, any> = {
         logo: 'IconLogomark',
         className: 'size-4 shrink-0',
         verb: 'Open',
-        open: (prompt: string, repository: string) => window.open(buildPostHogCodeDeepLink(prompt, repository), '_blank'),
+        open: (prompt: string, repository: string, customPrefix?: string) => 
+            window.open(buildPostHogCodeDeepLink(prompt, repository, customPrefix), '_blank'),
     },
     'claude-code': {
         name: 'Claude Code',
