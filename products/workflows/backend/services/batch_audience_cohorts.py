@@ -2,7 +2,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 
 
-def find_behavioral_cohort_name(project_id: int, cohort_ids: list) -> str | None:
+def find_behavioral_cohort_name(project_id: int, cohort_ids: list[int | str]) -> str | None:
     """The name of the first non-static cohort, among the given cohorts and their dependencies,
     that filters on event behavior. Static cohorts are exempt, because their membership is frozen."""
     for cohort_id in cohort_ids:
