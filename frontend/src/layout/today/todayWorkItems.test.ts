@@ -4,7 +4,7 @@ import { ConversationDetail } from '~/types'
 
 import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { buildRecentItems, groupByDay } from './todayWorkItems'
+import { analysisRunId, buildRecentItems, canHandOff, groupByDay, sessionItem } from './todayWorkItems'
 
 const session = (id: string, lastActivityAt: string, archived = false): TaskListItemApi =>
     ({ id, title: `Session ${id}`, last_activity_at: lastActivityAt, archived }) as TaskListItemApi
@@ -40,5 +40,30 @@ describe('todayWorkItems', () => {
         const groups = groupByDay(buildRecentItems([session('s', timestamp)], [], [], 10), now)
 
         expect(groups.map((group) => group.label)).toEqual([label])
+    })
+
+    it.each([
+        [7, true],
+        [8, false],
+        [undefined, false],
+    ])('offers hand off to user %s only when they created the session: %s', (userId, expected) => {
+        const item = sessionItem({ id: 's', title: 'Session', created_by: { id: 7 } } as TaskListItemApi)
+
+        expect(canHandOff(item, userId)).toBe(expected)
+    })
+
+    it.each([
+        ['completed', 'task', 'run-1'],
+        ['in_progress', 'task', null],
+        ['failed', 'task_analysis', null],
+    ])('offers analysis for a %s run of a %s session: %s', (status, originProduct, runId) => {
+        const item = sessionItem({
+            id: 's',
+            title: 'Session',
+            origin_product: originProduct,
+            latest_run: { id: 'run-1', status },
+        } as TaskListItemApi)
+
+        expect(analysisRunId(item)).toBe(runId)
     })
 })

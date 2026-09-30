@@ -13,12 +13,27 @@ export interface TodayWorkItem {
     timestamp: string | null
     status: string | null
     channel: string | null
+    createdById: number | null
+    latestRunId: string | null
+    originProduct: string | null
 }
 
 export interface TodayWorkGroup {
     key: string
     label: string
     items: TodayWorkItem[]
+}
+
+const FINISHED_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+
+export function canHandOff(item: TodayWorkItem, userId: number | null | undefined): boolean {
+    return item.kind === 'session' && item.createdById !== null && item.createdById === userId
+}
+
+export function analysisRunId(item: TodayWorkItem): string | null {
+    return item.originProduct !== 'task_analysis' && item.status !== null && FINISHED_RUN_STATUSES.has(item.status)
+        ? item.latestRunId
+        : null
 }
 
 export function sessionItem(task: TaskListItemApi): TodayWorkItem {
@@ -29,6 +44,9 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         timestamp: task.last_activity_at ?? task.updated_at ?? task.created_at ?? null,
         status: task.latest_run?.status ?? null,
         channel: task.channel ?? null,
+        createdById: task.created_by?.id ?? null,
+        latestRunId: task.latest_run?.id ?? null,
+        originProduct: task.origin_product ?? null,
     }
 }
 
@@ -40,6 +58,9 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         timestamp: conversation.updated_at ?? conversation.created_at,
         status: null,
         channel: null,
+        createdById: null,
+        latestRunId: null,
+        originProduct: null,
     }
 }
 
