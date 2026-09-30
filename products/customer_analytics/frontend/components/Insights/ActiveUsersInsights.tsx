@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -54,7 +53,6 @@ function PowerUsersTable(): JSX.Element {
         useValues(customerAnalyticsSceneLogic)
     const { baseCurrency, currentTeam } = useValues(teamLogic)
     const lastSeenEnabled = currentTeam?.extra_settings?.person_last_seen_at_enabled === true
-    const revenueFieldsEnabled = useFeatureFlag('REVENUE_FIELDS_IN_POWER_USERS_TABLE')
     const uniqueKey = 'power-users'
     const insightProps: InsightLogicProps<InsightVizNode> = {
         dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
@@ -64,7 +62,7 @@ function PowerUsersTable(): JSX.Element {
     const isB2c = businessType === 'b2c'
     const buttonTo = isB2c ? urls.persons() : urls.groups(selectedGroupType)
     const tooltip = isB2c ? 'Open people list' : `Open ${customerLabel.plural} list`
-    const revenueFields = revenueFieldsEnabled ? ['$virt_mrr', '$virt_revenue'] : []
+    const revenueFields = ['$virt_mrr', '$virt_revenue']
 
     const query = {
         kind: NodeKind.DataTableNode,
