@@ -27,17 +27,17 @@ The cohort is read at the horizon snapshot, so "shown" means shown at any time b
 `p_open` and the other cohort-conditioned heads are not unconditional probabilities.
 Each head is graded only on its cohort.
 
-| Head | Probability | Horizon |
-|---|---|---|
-| `open` | P(opened \| shown) | 3d |
-| `action` | P(create-PR click or discuss \| shown) | 7d |
-| `discuss` | P(discuss \| shown) | 7d |
-| `dismiss_wrong` | P(dismissed as wrong \| shown) | 14d |
-| `reviewer_fix` | P(reviewers corrected \| shown) | 14d |
-| `thumbs_up` | P(thumbs up \| opened) | 7d |
-| `pr_created` | P(PR created) over every report | 7d |
-| `pr_merged` | P(PR merged) over every report | 14d |
-| `refund` | P(refund) over every report | 14d |
+| Head            | Probability                            | Horizon |
+| --------------- | -------------------------------------- | ------- |
+| `open`          | P(opened \| shown)                     | 3d      |
+| `action`        | P(create-PR click or discuss \| shown) | 7d      |
+| `discuss`       | P(discuss \| shown)                    | 7d      |
+| `dismiss_wrong` | P(dismissed as wrong \| shown)         | 14d     |
+| `reviewer_fix`  | P(reviewers corrected \| shown)        | 14d     |
+| `thumbs_up`     | P(thumbs up \| opened)                 | 7d      |
+| `pr_created`    | P(PR created) over every report        | 7d      |
+| `pr_merged`     | P(PR merged) over every report         | 14d     |
+| `refund`        | P(refund) over every report            | 14d     |
 
 Each head in `metadata.json` records `cohort` (`impressed`, `opened` or `everyone`) and `horizon_days`.
 
