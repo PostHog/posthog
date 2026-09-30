@@ -6,6 +6,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.core.cache import cache, caches
+from django.core.cache.backends.base import BaseCache
 
 import structlog
 import redis.exceptions
@@ -34,6 +35,11 @@ _REDIS_READ_ERRORS = (
 
 DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 DEFAULT_CACHE_TTL = 60 * 60 * 24 * 30  # 30 days
+
+
+def _delete_each(client: BaseCache, keys: list[str]) -> None:
+    for key in keys:
+        client.delete(key)
 
 
 class HyperCacheDependencyUnavailable(Exception):
@@ -615,15 +621,15 @@ class HyperCache:
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
-                # One DEL per cache drops the payload and its ETag together. A reader that
-                # checks the ETag first would otherwise answer 304 for a payload that is
-                # already gone. The ETag key goes even when enable_etag is off, to clear a
-                # stale ETag from when it was on.
-                redis_keys = [cache_key, self.get_etag_key(key)]
+                # One single-key DEL per key: the keys have no hash tag, so a multi-key DEL
+                # fails with CROSSSLOT on a cluster-mode Redis. The ETag goes first, so a
+                # reader never answers 304 for a payload that is already gone. The ETag key
+                # goes even when enable_etag is off, to clear a stale ETag from when it was on.
+                redis_keys = [self.get_etag_key(key), cache_key]
                 # Mirror the delete so the secondary never serves an entry the primary dropped,
                 # and mirror first so a primary failure cannot block it.
-                self._mirror_to_secondary(lambda c: c.delete_many(redis_keys))
-                self.cache_client.delete_many(redis_keys)
+                self._mirror_to_secondary(lambda c: _delete_each(c, redis_keys))
+                _delete_each(self.cache_client, redis_keys)
             if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(cache_key)
         finally:
