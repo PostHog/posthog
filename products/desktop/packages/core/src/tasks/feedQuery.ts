@@ -81,6 +81,7 @@ export const CI_VALUES = [
 
 export const TYPE_VALUES = [
   "task",
+  "canvas",
   "space",
   "command",
   "saved",
@@ -348,6 +349,20 @@ export interface FeedQueryReport {
   status: string;
 }
 
+/** The canvas fields the canvas search predicate reads. */
+export interface FeedQueryCanvas {
+  name: string;
+  description?: string;
+  channelId: string;
+  createdByUuid?: string;
+  pinnedAt?: number;
+}
+
+export interface CanvasQueryPlan {
+  matches: (canvas: FeedQueryCanvas) => boolean;
+  issues: FeedQueryIssue[];
+}
+
 export interface FeedQueryPlan {
   /** What the feed fetches: tasks (the default) or reports (`type:report`). */
   mode: "tasks" | "reports";
@@ -509,6 +524,45 @@ function groupOf(map: Map<string, Group>, key: string): Group {
 const MATCH_ALL = () => true;
 const MATCH_NONE = () => false;
 
+function memberResolver(
+  context: FeedQueryPlanContext,
+  issues: FeedQueryIssue[],
+): (token: FeedQueryToken) => FeedQueryMember[] {
+  return (token) => {
+    const value = normalize(token.value);
+    if (value === "@me" || value === "me") {
+      return context.me ? [context.me] : [];
+    }
+    const matched = context.members.filter((m) => memberMatches(m, value));
+    if (matched.length === 0) {
+      issues.push({
+        raw: token.raw,
+        kind: "unknown-value",
+        message: `No teammate matches "${token.value}"`,
+      });
+    }
+    return matched;
+  };
+}
+
+function spaceResolver(
+  context: FeedQueryPlanContext,
+  issues: FeedQueryIssue[],
+): (token: FeedQueryToken) => FeedQuerySpace | undefined {
+  return (token) => {
+    const value = normalize(token.value).replace(/^#/, "");
+    const matched = context.spaces.find((s) => normalize(s.name) === value);
+    if (!matched) {
+      issues.push({
+        raw: token.raw,
+        kind: "unknown-value",
+        message: `No space named "${token.value}"`,
+      });
+    }
+    return matched;
+  };
+}
+
 /** Limit fan-out requests so one query cannot overload the task-list API. */
 const MAX_PLAN_REQUESTS = 8;
 
@@ -535,21 +589,7 @@ export function planFeedQuery(
   if (parsed.text) server.search = parsed.text;
 
   // Resolve people before building the task-list requests.
-  const resolveMembers = (token: FeedQueryToken): FeedQueryMember[] => {
-    const value = normalize(token.value);
-    if (value === "@me" || value === "me") {
-      return context.me ? [context.me] : [];
-    }
-    const matched = context.members.filter((m) => memberMatches(m, value));
-    if (matched.length === 0) {
-      issues.push({
-        raw: token.raw,
-        kind: "unknown-value",
-        message: `No teammate matches "${token.value}"`,
-      });
-    }
-    return matched;
-  };
+  const resolveMembers = memberResolver(context, issues);
   // Equivalent names for one person must not create duplicate requests.
   const uniqueMembers = (tokens: FeedQueryToken[]): FeedQueryMember[] => [
     ...new Map(
@@ -741,18 +781,7 @@ export function planFeedQuery(
 
   const space = groups.get("space");
   if (space) {
-    const resolve = (token: FeedQueryToken): FeedQuerySpace | undefined => {
-      const value = normalize(token.value).replace(/^#/, "");
-      const matched = context.spaces.find((s) => normalize(s.name) === value);
-      if (!matched) {
-        issues.push({
-          raw: token.raw,
-          kind: "unknown-value",
-          message: `No space named "${token.value}"`,
-        });
-      }
-      return matched;
-    };
+    const resolve = spaceResolver(context, issues);
     const wanted = new Set(
       space.positives.map(resolve).flatMap((s) => (s ? [s.id] : [])),
     );
@@ -1100,5 +1129,119 @@ function planReportFeedQuery(
     issues,
     reportChannelId,
     matchesReport,
+  };
+}
+
+/**
+ * The canvas-only plan behind `type:canvas` in the command palette. Canvases
+ * load as one list, so every filter is a client-side predicate. `created-by:`,
+ * `space:`, `is:pinned` and free text apply. Every other token is task-shaped
+ * and is reported as unsupported rather than half-applied.
+ */
+export function planCanvasQuery(
+  parsed: ParsedFeedQuery,
+  context: FeedQueryPlanContext,
+): CanvasQueryPlan {
+  const issues: FeedQueryIssue[] = [...parsed.issues];
+  const resolveMembers = memberResolver(context, issues);
+  const resolveSpace = spaceResolver(context, issues);
+  const predicates: ((canvas: FeedQueryCanvas) => boolean)[] = [];
+
+  const groups = new Map<string, Group>();
+  for (const token of parsed.tokens) {
+    const group = groupOf(groups, token.key);
+    (token.negated ? group.negatives : group.positives).push(token);
+  }
+
+  // A positive filter that resolves to nothing must match nothing, not every
+  // canvas, the same as an unknown teammate or space in task mode.
+  const addIdFilter = (
+    group: Group,
+    resolve: (token: FeedQueryToken) => string[],
+    idOf: (canvas: FeedQueryCanvas) => string | undefined,
+  ) => {
+    if (group.positives.length > 0) {
+      const wanted = new Set(group.positives.flatMap(resolve));
+      predicates.push((canvas) => {
+        const id = idOf(canvas);
+        return id !== undefined && wanted.has(id);
+      });
+    }
+    const excluded = new Set(group.negatives.flatMap(resolve));
+    if (excluded.size > 0) {
+      predicates.push((canvas) => {
+        const id = idOf(canvas);
+        return id === undefined || !excluded.has(id);
+      });
+    }
+  };
+
+  for (const [key, group] of groups) {
+    const tokens = [...group.positives, ...group.negatives];
+    if (key === "type") {
+      for (const token of tokens) {
+        if (token.negated || normalize(token.value) !== "canvas") {
+          issues.push({
+            raw: token.raw,
+            kind: "unsupported",
+            message: `Canvas search shows only canvases, so "${token.raw}" is ignored here`,
+          });
+        }
+      }
+    } else if (key === "created-by") {
+      addIdFilter(
+        group,
+        (token) => resolveMembers(token).map((member) => member.uuid),
+        (canvas) => canvas.createdByUuid,
+      );
+    } else if (key === "space") {
+      addIdFilter(
+        group,
+        (token) => {
+          const space = resolveSpace(token);
+          return space ? [space.id] : [];
+        },
+        (canvas) => canvas.channelId,
+      );
+    } else if (key === "is") {
+      for (const token of tokens) {
+        if (normalize(token.value) === "pinned") {
+          predicates.push((canvas) =>
+            token.negated ? canvas.pinnedAt == null : canvas.pinnedAt != null,
+          );
+        } else {
+          issues.push({
+            raw: token.raw,
+            kind: "unsupported",
+            message: `Canvas search doesn't support "${token.raw}" yet, so it is ignored`,
+          });
+        }
+      }
+    } else {
+      for (const token of tokens) {
+        issues.push({
+          raw: token.raw,
+          kind: "unsupported",
+          message: `Canvas search doesn't support "${token.raw}" yet, so it is ignored`,
+        });
+      }
+    }
+  }
+
+  const text = normalize(parsed.text);
+  if (text) {
+    predicates.push(
+      (canvas) =>
+        canvas.name.toLowerCase().includes(text) ||
+        (canvas.description ?? "").toLowerCase().includes(text),
+    );
+  }
+
+  return {
+    matches:
+      predicates.length === 0
+        ? MATCH_ALL
+        : (canvas) => predicates.every((p) => p(canvas)),
+    issues,
   };
 }

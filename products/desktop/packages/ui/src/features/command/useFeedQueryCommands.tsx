@@ -1,4 +1,5 @@
 import { ArrowRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   feedQueryTypeScope,
@@ -6,8 +7,10 @@ import {
   type TypeValue,
 } from "@posthog/core/tasks/feedQuery";
 import { singleLineTitle } from "@posthog/shared";
+import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { useFeedQuerySuggestions } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import { applyFeedQuerySuggestion } from "@posthog/ui/features/canvas/components/feedQuerySuggestionUtils";
+import { useCanvasQueryResults } from "@posthog/ui/features/canvas/hooks/useCanvasQueryResults";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
@@ -15,12 +18,19 @@ import type {
   Command,
   CommandSection,
 } from "@posthog/ui/features/command/commandRow";
-import { taskRowParts } from "@posthog/ui/features/command/commandRowFacts";
+import {
+  canvasRowParts,
+  taskRowParts,
+} from "@posthog/ui/features/command/commandRowFacts";
+import { canvasHref } from "@posthog/ui/features/command/commandRowHref";
 import { commandRowMeta } from "@posthog/ui/features/command/commandRowMeta";
 import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
-import { navigateToFeed } from "@posthog/ui/router/navigationBridge";
+import {
+  navigateToChannelDashboard,
+  navigateToFeed,
+} from "@posthog/ui/router/navigationBridge";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useMemo } from "react";
 
@@ -32,21 +42,30 @@ export type PaletteMode =
   | "completingValue"
   | "querying";
 
+export type MatchNoun = "task" | "canvas";
+
+const MATCH_NOUN_PLURALS: Record<MatchNoun, string> = {
+  task: "tasks",
+  canvas: "canvases",
+};
+
 export function matchSummary(
   matchCount: number | null,
   shownCount: number,
   hasRepairs = false,
+  noun: MatchNoun = "task",
 ): string {
+  const plural = MATCH_NOUN_PLURALS[noun];
   if (matchCount == null) return "Searching…";
   if (matchCount === 0) {
     return hasRepairs
-      ? "No tasks match this query."
-      : "No tasks match this query. Remove a filter to see more tasks.";
+      ? `No ${plural} match this query.`
+      : `No ${plural} match this query. Remove a filter to see more ${plural}.`;
   }
   if (matchCount > shownCount) {
-    return `Showing ${shownCount} of ${matchCount} matching tasks.`;
+    return `Showing ${shownCount} of ${matchCount} matching ${plural}.`;
   }
-  return `${matchCount} ${matchCount === 1 ? "matching task" : "matching tasks"}`;
+  return `${matchCount} matching ${matchCount === 1 ? noun : plural}`;
 }
 
 export interface FeedQueryKeyChip {
@@ -61,6 +80,7 @@ export interface FeedQueryPalette {
   mode: PaletteMode;
   scope: TypeValue | null;
   hasFilterTokens: boolean;
+  matchNoun: MatchNoun;
   matchCount: number | null;
   partialResults: boolean;
   shownCount: number;
@@ -86,9 +106,13 @@ export function useFeedQueryCommands({
   const trimmed = query.trim();
   const parsed = useMemo(() => parseFeedQuery(trimmed), [trimmed]);
   const scope = enabled ? feedQueryTypeScope(parsed) : null;
+  const canvasMode = scope === "canvas";
   // The planner ignores `type:` and `saved:`, so neither can activate task-query mode.
+  // Saved searches are task feeds, so a canvas query has no filters to save.
   const hasFilterTokens =
-    enabled && parsed.tokens.some((t) => t.key !== "type" && t.key !== "saved");
+    enabled &&
+    !canvasMode &&
+    parsed.tokens.some((t) => t.key !== "type" && t.key !== "saved");
   const searchText = enabled ? parsed.text : query;
 
   const { group, context } = useFeedQuerySuggestions(query, caret, {
@@ -97,18 +121,28 @@ export function useFeedQueryCommands({
 
   const runsQuery = hasFilterTokens || scope === "task";
   const { debounced: previewQuery, isPending } = useDebouncedValue(
-    enabled && runsQuery ? trimmed : "",
+    enabled && (runsQuery || canvasMode) ? trimmed : "",
     FEED_QUERY_DEBOUNCE_MS,
   );
-  const results = useTaskFeedResults(previewQuery);
-  const counting = isPending || results.isLoading;
-  const feeds = useProjectTaskFeeds();
-  const { channels } = useChannels();
-
   const previewParsed = useMemo(
     () => parseFeedQuery(previewQuery),
     [previewQuery],
   );
+  // Route on the debounced text itself, because `canvasMode` follows the live
+  // text and can disagree with it until the debounce settles.
+  const previewCanvasMode = feedQueryTypeScope(previewParsed) === "canvas";
+  const results = useTaskFeedResults(previewCanvasMode ? "" : previewQuery);
+  const canvasResults = useCanvasQueryResults(
+    previewCanvasMode ? previewQuery : "",
+  );
+  const counting =
+    isPending ||
+    (canvasMode
+      ? canvasResults.isLoading || !previewCanvasMode
+      : results.isLoading);
+  const feeds = useProjectTaskFeeds();
+  const { channels } = useChannels();
+
   const partialResults = runsQuery && !counting && !results.isComplete;
   const noMatches =
     runsQuery && !counting && results.isComplete && results.tasks.length === 0;
@@ -139,7 +173,7 @@ export function useFeedQueryCommands({
     if (!keyMode && (group.items.length > 0 || savedHits.length > 0)) {
       return "completingValue";
     }
-    if (runsQuery) return "querying";
+    if (runsQuery || canvasMode) return "querying";
     if (context.typed !== "" && group.items.length > 0) return "completingKey";
     return "browsing";
   }, [
@@ -148,6 +182,7 @@ export function useFeedQueryCommands({
     group.items.length,
     savedHits.length,
     runsQuery,
+    canvasMode,
     context.typed,
   ]);
 
@@ -164,6 +199,7 @@ export function useFeedQueryCommands({
         mode,
         scope: null,
         hasFilterTokens: false,
+        matchNoun: "task",
         matchCount: null,
         partialResults: false,
         shownCount: 0,
@@ -230,6 +266,58 @@ export function useFeedQueryCommands({
       });
     }
 
+    const showAllItem = (count: number): Command => ({
+      id: "feed-query-show-all",
+      label: `Show all ${count} matches`,
+      icon: <MagnifyingGlassIcon size={12} className="text-muted-foreground" />,
+      action: "show-all-matches",
+      keepOpen: true,
+      onRun: onShowAll,
+    });
+
+    if (canvasMode) {
+      const matchCount = counting ? null : canvasResults.canvases.length;
+      const shownCanvases = canvasResults.canvases.slice(0, limit);
+      if (shownCanvases.length > 0) {
+        const items = shownCanvases.map((canvas): Command => {
+          const space = channelNames.get(canvas.channelId);
+          return {
+            id: `feed-query-canvas-${canvas.id}`,
+            label: singleLineTitle(canvas.name) || UNTITLED_CANVAS_NAME,
+            subtitle: commandRowMeta(canvasRowParts(canvas)),
+            detail: space ? channelDisplayLabel(space) : undefined,
+            detailPrefix: "",
+            keywords: `${query} ${searchText}`,
+            icon: iconForTemplate(canvas.templateId, { size: 12 }),
+            href: canvasHref(canvas.channelId, canvas.id),
+            action: "open-canvas",
+            channelId: canvas.channelId,
+            onRun: () => {
+              closeSettings();
+              navigateToChannelDashboard(canvas.channelId, canvas.id);
+            },
+          };
+        });
+        if (matchCount != null && matchCount > shownCanvases.length) {
+          items.push(showAllItem(matchCount));
+        }
+        sections.push({ label: "Matching canvases", items });
+      }
+      return {
+        sections,
+        keyChips,
+        mode,
+        scope,
+        hasFilterTokens,
+        matchNoun: "canvas",
+        matchCount,
+        partialResults: false,
+        shownCount: shownCanvases.length,
+        hasRepairs: false,
+        searchText,
+      };
+    }
+
     const matchCount =
       runsQuery && !counting && results.isComplete
         ? results.tasks.length
@@ -258,16 +346,7 @@ export function useFeedQueryCommands({
         };
       });
       if (matchCount != null && matchCount > shown.length) {
-        items.push({
-          id: "feed-query-show-all",
-          label: `Show all ${matchCount} matches`,
-          icon: (
-            <MagnifyingGlassIcon size={12} className="text-muted-foreground" />
-          ),
-          action: "show-all-matches",
-          keepOpen: true,
-          onRun: onShowAll,
-        });
+        items.push(showAllItem(matchCount));
       }
       sections.push({ label: "Matching tasks", items });
     }
@@ -319,6 +398,7 @@ export function useFeedQueryCommands({
       mode,
       scope,
       hasFilterTokens,
+      matchNoun: "task",
       matchCount,
       partialResults,
       shownCount: shown.length,
@@ -335,6 +415,8 @@ export function useFeedQueryCommands({
     searchText,
     scope,
     hasFilterTokens,
+    canvasMode,
+    canvasResults.canvases,
     runsQuery,
     counting,
     results.isComplete,

@@ -67,6 +67,14 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
 vi.mock("@posthog/ui/features/sidebar/useTaskPrStatus", () => ({
   useTaskPrStatus: () => ({ prState: null, hasDiff: false, prUrl: null }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useCanvasQueryResults", () => ({
+  useCanvasQueryResults: () => ({
+    canvases: [],
+    errorMessage: null,
+    isLoading: false,
+    issues: [],
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useTaskFeedResults: () => ({
     tasks: [],

@@ -40,6 +40,14 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useCanvasQueryResults", () => ({
+  useCanvasQueryResults: () => ({
+    canvases: [],
+    errorMessage: null,
+    isLoading: false,
+    issues: [],
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useTaskFeedResults: () => ({
     tasks: [],
