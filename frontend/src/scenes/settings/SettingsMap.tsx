@@ -16,9 +16,8 @@ import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsCo
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/FeaturePreviews/FeaturePreviews'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
@@ -52,7 +51,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
-import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/settings/LearnFromSupportSetting'
+import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
@@ -735,6 +734,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "Select the time of day when experiment metrics should be recalculated. This time is in your project's timezone.",
                 component: <ExperimentRecalculationTime />,
                 keywords: ['schedule', 'refresh', 'update', 'time'],
+                flag: '!EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
+            },
+            {
+                id: 'environment-experiment-recalculation-time',
+                title: 'Daily recalculation times',
+                description:
+                    "Select up to two times of day when experiment metrics should be recalculated, at least 6 hours apart. Times are in your project's timezone.",
+                component: <ExperimentRecalculationTime />,
+                keywords: ['schedule', 'refresh', 'update', 'time'],
+                flag: 'EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
             },
             {
                 id: 'environment-experiment-matured-users',
@@ -825,7 +834,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Automatically apply default evaluation context tags to newly created feature flags. Users can still modify them during flag creation.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/evaluation-contexts',
-                flag: 'DEFAULT_EVALUATION_ENVIRONMENTS',
                 component: <DefaultEvaluationContexts />,
                 keywords: ['evaluation', 'default', 'context', 'tag'],
             },
@@ -850,18 +858,8 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'feature-flag-secure-api-key',
                 title: 'Feature flags secure API key',
-                description: (
-                    <FlaggedFeature
-                        flag={FEATURE_FLAGS.PROJECT_SECRET_API_KEYS}
-                        fallback="Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation."
-                    >
-                        Deprecated. This key is still usable for local evaluation of feature flags or remote config
-                        settings, but new integrations should use a project secret API key with the feature_flag:read
-                        scope instead.
-                    </FlaggedFeature>
-                ),
-                searchDescription:
-                    'Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation.',
+                description:
+                    'Deprecated. This key is still usable for local evaluation of feature flags or remote config settings, but new integrations should use a project secret API key with the feature_flag:read scope instead.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
                 component: <FlagsSecureApiKeys />,
                 keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
@@ -1856,7 +1854,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-secret-api-keys',
         title: 'Project secret API keys',
-        flag: 'PROJECT_SECRET_API_KEYS',
         settings: [
             {
                 id: 'environment-secret-api-keys',

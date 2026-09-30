@@ -28,7 +28,12 @@ from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    LLMPromptFetchRateThrottle,
+    LLMPromptPublishBurstRateThrottle,
+    SustainedRateThrottle,
+)
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
@@ -947,15 +952,15 @@ class TestLLMPromptAPI(APIBaseTest):
         assert isinstance(throttles[1], BurstRateThrottle)
         assert isinstance(throttles[2], SustainedRateThrottle)
 
-    def test_get_by_name_uses_default_burst_and_sustained_throttles(self):
+    @parameterized.expand(["list", "get_by_name", "resolve_by_name"])
+    def test_fetch_actions_use_dedicated_throttle_instead_of_shared_budget(self, action):
         view = LLMPromptViewSet()
-        view.action = "get_by_name"
+        view.action = action
 
         throttles = view.get_throttles()
 
-        assert len(throttles) == 2
-        assert isinstance(throttles[0], BurstRateThrottle)
-        assert isinstance(throttles[1], SustainedRateThrottle)
+        assert len(throttles) == 1
+        assert isinstance(throttles[0], LLMPromptFetchRateThrottle)
 
     def test_duplicate_prompt_creates_new_prompt_with_latest_content(self):
         self.create_prompt_version(name="original", version=1, is_latest=False, prompt="v1")

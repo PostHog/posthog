@@ -1434,8 +1434,22 @@ describe('ingest-handler', () => {
     // -----------------------------------------------------------------------
 
     describe('heartbeatWorkflowIfNeeded', () => {
-        it('sets agent inactive and fires awaiting_input for a turn-complete event', async () => {
-            const fired: { kind: string }[] = []
+        it.each([
+            [
+                'an end_turn turn-complete event',
+                {
+                    type: 'notification',
+                    notification: { method: '_posthog/turn_complete', params: { stopReason: 'end_turn' } },
+                },
+                true,
+            ],
+            [
+                'a turn-complete event without end_turn',
+                { type: 'notification', notification: { method: '_posthog/turn_complete' } },
+                false,
+            ],
+        ])('sets agent inactive and fires awaiting_input for %s', async (_label, event, expectedSucceeded) => {
+            const fired: { kind: string; turn_succeeded?: boolean }[] = []
             const originalFetch = global.fetch
             global.fetch = vi.fn(async (_, init) => {
                 fired.push(JSON.parse(String((init as RequestInit).body)))
@@ -1443,12 +1457,11 @@ describe('ingest-handler', () => {
             }) as typeof fetch
 
             const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
-            const event = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
             await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
 
             expect(await redisStream.getAgentActive()).toBe(false)
             await new Promise((r) => setTimeout(r, 0))
-            expect(fired.some((f) => f.kind === 'awaiting_input')).toBe(true)
+            expect(fired.find((f) => f.kind === 'awaiting_input')?.turn_succeeded).toBe(expectedSucceeded)
 
             global.fetch = originalFetch
         })

@@ -4,7 +4,16 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
+class FreshsalesSelectorFanout:
+    # Parent selector to enumerate, e.g. "selector/deal_pipelines".
+    parent_resource: str
+    parent_object_key: str
+    # Child path per parent, formatted with the parent's id.
+    child_path: str
+
+
+@dataclass(frozen=True)
 class FreshsalesEndpointConfig:
     name: str
     # API resource segment, e.g. "contacts" -> /crm/sales/api/contacts/...
@@ -24,6 +33,14 @@ class FreshsalesEndpointConfig:
     sort: Optional[str] = None
     # Some objects (notably leads) don't exist on every Freshsales account; a 404 means "skip", not "fail".
     tolerate_missing: bool = False
+    # Selector endpoints are portal-wide lookup collections returned whole in a single unpaginated
+    # response: they ignore page/per_page, so asking for page 2 re-returns the same list. Freshsales
+    # also doesn't publish their response bodies, so the envelope key falls back to whatever list the
+    # response carries rather than silently syncing an empty table.
+    is_selector: bool = False
+    # Some selector endpoints only cover the default parent, so the whole collection needs a walk
+    # over the parent selector instead of one request.
+    selector_fanout: Optional[FreshsalesSelectorFanout] = None
     # Incremental sync is full-refresh only for now (see note below), so this stays empty for every
     # endpoint. Kept as the source of truth so enabling incremental later is a settings-only change.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -96,6 +113,37 @@ FRESHSALES_ENDPOINTS: dict[str, FreshsalesEndpointConfig] = {
         resource="appointments",
         object_key="appointments",
         params={"filter": "upcoming"},
+    ),
+    "owners": FreshsalesEndpointConfig(
+        name="owners",
+        resource="selector/owners",
+        object_key="users",
+        is_selector=True,
+    ),
+    "deal_stages": FreshsalesEndpointConfig(
+        name="deal_stages",
+        resource="selector/deal_stages",
+        object_key="deal_stages",
+        is_selector=True,
+        # /selector/deal_stages returns the default pipeline's stages only, so an account with more
+        # than one pipeline would be missing the stages its deals point at.
+        selector_fanout=FreshsalesSelectorFanout(
+            parent_resource="selector/deal_pipelines",
+            parent_object_key="deal_pipelines",
+            child_path="selector/deal_pipelines/{parent_id}/deal_stages",
+        ),
+    ),
+    "deal_pipelines": FreshsalesEndpointConfig(
+        name="deal_pipelines",
+        resource="selector/deal_pipelines",
+        object_key="deal_pipelines",
+        is_selector=True,
+    ),
+    "lifecycle_stages": FreshsalesEndpointConfig(
+        name="lifecycle_stages",
+        resource="selector/lifecycle_stages",
+        object_key="lifecycle_stages",
+        is_selector=True,
     ),
 }
 

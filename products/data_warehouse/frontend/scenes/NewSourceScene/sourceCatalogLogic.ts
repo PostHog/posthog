@@ -55,6 +55,11 @@ const MANUAL_SOURCE_KEYWORDS: Record<string, string[]> = {
     azure: ['azure', 'microsoft azure', 'azure blob', 'blob storage'],
 }
 
+// The catalog matches a source against its label, name, keywords and category. That finds the
+// Databases category for "database", but "warehouse" matches nothing at all, even though it is
+// the word in this product's own name. Attach the words people type for the category itself.
+const DATABASE_CATEGORY_KEYWORDS = ['warehouse', 'data warehouse', 'dwh']
+
 // Every self-managed connector links files from a bucket, so a user searching for a file
 // format ("csv", "parquet") should land on them rather than an empty result that pushes
 // them to request a source we already support. Matches the formats the link form accepts.
@@ -324,7 +329,10 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                                 existingSource: connectedTypes.has(connector.name) || undefined,
                                 name: connector.name,
                                 label: connector.label ?? connector.name,
-                                keywords: connector.keywords ?? [],
+                                keywords:
+                                    connector.category === DataWarehouseSourceCategoryApi.Databases
+                                        ? [...(connector.keywords ?? []), ...DATABASE_CATEGORY_KEYWORDS]
+                                        : (connector.keywords ?? []),
                                 featured: connector.featured ?? undefined,
                                 url: urls.dataWarehouseSourceNew(connector.name),
                             },

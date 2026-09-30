@@ -14,8 +14,8 @@ from posthog.temporal.experiments.activities import (
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import find_metric_dict
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
-from products.experiments.backend.temporal.metric_resolution import find_metric_dict
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 METRIC_UUID = "metric-uuid-1"
