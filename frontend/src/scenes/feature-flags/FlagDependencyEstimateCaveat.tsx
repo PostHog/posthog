@@ -11,9 +11,13 @@ export interface FlagDependencyEstimateCaveatProps {
     targetName: string
 }
 
-/** How many flag-dependency filters a condition's properties contain. The blast-radius query can't evaluate them. */
-export function countFlagDependencies(properties: AnyPropertyFilter[] | undefined): number {
-    return (properties ?? []).filter(isFlagPropertyFilter).length
+/**
+ * Returns "dependency" or "dependencies" to match the number of flag-dependency filters in a condition.
+ * Returns null when the condition has none. The blast-radius query can't evaluate these filters.
+ */
+export function flagDependencyWord(properties: AnyPropertyFilter[] | undefined): string | null {
+    const dependencyCount = (properties ?? []).filter(isFlagPropertyFilter).length
+    return dependencyCount === 0 ? null : pluralize(dependencyCount, 'dependency', 'dependencies', false)
 }
 
 /**
@@ -26,13 +30,11 @@ export function FlagDependencyEstimateCaveat({
     properties,
     targetName,
 }: FlagDependencyEstimateCaveatProps): JSX.Element | null {
-    const dependencyCount = countFlagDependencies(properties)
+    const dependencyWord = flagDependencyWord(properties)
 
-    if (dependencyCount === 0) {
+    if (dependencyWord === null) {
         return null
     }
-
-    const dependencyWord = pluralize(dependencyCount, 'dependency', 'dependencies', false)
 
     return (
         <div className="flex items-start gap-1 mt-1">

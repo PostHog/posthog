@@ -3,6 +3,7 @@ import { MOCK_GROUP_TYPES } from '~/lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { cleanup, render, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -44,6 +45,7 @@ function buildFilters(withFlagDependency: boolean, groupCount = 1): FeatureFlagT
 
 const CAVEAT = 'This estimate and the list of matching users both leave out the flag dependency in this condition.'
 const COUNT_CAVEAT_MARKER = 'flag-dependency-condition-count-caveat'
+const COUNT_CAVEAT = 'This count leaves out the flag dependency in this condition.'
 
 describe('feature flag release conditions flag dependency estimate caveat', () => {
     beforeEach(() => {
@@ -148,8 +150,16 @@ describe('feature flag release conditions flag dependency estimate caveat', () =
                 expect(getAllByText(/7 users/)).toHaveLength(2)
             })
 
-            expect(container.querySelectorAll(`[data-attr="${COUNT_CAVEAT_MARKER}"]`)).toHaveLength(expectedMarkers)
+            const markers = container.querySelectorAll(`[data-attr="${COUNT_CAVEAT_MARKER}"]`)
+            expect(markers).toHaveLength(expectedMarkers)
             expect(document.body).not.toHaveTextContent(CAVEAT)
+
+            if (expectedMarkers > 0) {
+                await userEvent.hover(markers[0])
+                await waitFor(() => {
+                    expect(document.body).toHaveTextContent(COUNT_CAVEAT)
+                })
+            }
         }
     )
 })

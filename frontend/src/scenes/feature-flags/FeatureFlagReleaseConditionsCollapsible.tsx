@@ -90,7 +90,8 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
-import { countFlagDependencies, FlagDependencyEstimateCaveat } from './FlagDependencyEstimateCaveat'
+import { FlagDependencyCountCaveat } from './FlagDependencyCountCaveat'
+import { FlagDependencyEstimateCaveat } from './FlagDependencyEstimateCaveat'
 import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
@@ -222,17 +223,6 @@ function ConditionHeader({
 
     const countSummary = actualCount !== null ? `${humanFriendlyNumber(actualCount)} ${aggregationTargetName}` : null
 
-    const flagDependencyCount = countFlagDependencies(group.properties)
-    const countCaveat =
-        flagDependencyCount > 0
-            ? `This count leaves out the flag ${pluralize(
-                  flagDependencyCount,
-                  'dependency',
-                  'dependencies',
-                  false
-              )} in this condition.`
-            : null
-
     return (
         <div className="flex items-center justify-between w-full gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -245,14 +235,7 @@ function ConditionHeader({
                         ({rollout}%{group.variant && ` · ${group.variant}`}
                         {countSummary !== null && ` · ${countSummary}`})
                     </span>
-                    {countSummary !== null && countCaveat !== null && (
-                        <Tooltip title={countCaveat}>
-                            <IconInfo
-                                className="text-muted text-xs"
-                                data-attr="flag-dependency-condition-count-caveat"
-                            />
-                        </Tooltip>
-                    )}
+                    {countSummary !== null && <FlagDependencyCountCaveat properties={group.properties} />}
                 </span>
                 <LemonMenu
                     items={[
