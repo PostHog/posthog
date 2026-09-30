@@ -643,11 +643,11 @@ class EndpointExecutionService(PydanticModelMixin):
             code, detail = _query_performance_code_and_detail(e)
             logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
             raise EndpointQueryTooExpensive(detail, code=code)
-        except ClickHouseAtCapacity:
+        except ClickHouseAtCapacity as e:
             execution_status = "capacity"
             error_label = "ClickHouseAtCapacity"
             logger.warning("Endpoint query hit shared ClickHouse capacity", endpoint_name=endpoint.name)
-            raise EndpointAtCapacity()
+            raise EndpointAtCapacity(wait=e.wait) from e
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__
