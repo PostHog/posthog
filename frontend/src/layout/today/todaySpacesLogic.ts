@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -12,7 +12,6 @@ import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generate
 
 import { TodayWorkGroup, TodayWorkItem, buildRecentItems, groupByDay, sessionItem } from './todayWorkItems'
 
-const SPACE_TASK_LIMIT = 8
 const PINNED_SESSION_LIMIT = 20
 const RECENT_SESSION_LIMIT = 30
 const RECENT_ITEM_LIMIT = 30
@@ -47,9 +46,6 @@ export interface todaySpacesLogicValues {
     user: UserType | null // userLogic
     browsingSpaces: boolean
     collapsedSections: TodayWorkSectionId[]
-    expandedSpaceIds: string[]
-    failedSpaceIds: string[]
-    loadingSpaceIds: string[]
     pinnedItems: TodayWorkItem[]
     pinnedTasks: TaskListItemApi[]
     pinnedTasksLoading: boolean
@@ -60,7 +56,6 @@ export interface todaySpacesLogicValues {
     recentTasksLoading: boolean
     recentTasksUnavailable: boolean
     sortedSpaces: ChannelDTOApi[]
-    spaceTasks: Record<string, TaskListItemApi[]>
     spaces: ChannelDTOApi[]
     spacesLoading: boolean
     spacesUnavailable: boolean
@@ -99,12 +94,6 @@ export interface todaySpacesLogicActions {
         recentTasks: TaskListItemApi[]
         payload?: any
     }
-    loadSpaceTasks: (spaceId: string) => {
-        spaceId: string
-    }
-    loadSpaceTasksFailure: (spaceId: string) => {
-        spaceId: string
-    }
     loadSpaces: () => any
     loadSpacesFailure: (
         error: string,
@@ -123,18 +112,8 @@ export interface todaySpacesLogicActions {
     setBrowsingSpaces: (browsingSpaces: boolean) => {
         browsingSpaces: boolean
     }
-    setSpaceTasks: (
-        spaceId: string,
-        tasks: TaskListItemApi[]
-    ) => {
-        spaceId: string
-        tasks: TaskListItemApi[]
-    }
     toggleSection: (sectionId: TodayWorkSectionId) => {
         sectionId: TodayWorkSectionId
-    }
-    toggleSpace: (spaceId: string) => {
-        spaceId: string
     }
 }
 
@@ -174,10 +153,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         ],
     })),
     actions({
-        toggleSpace: (spaceId: string) => ({ spaceId }),
-        loadSpaceTasks: (spaceId: string) => ({ spaceId }),
-        setSpaceTasks: (spaceId: string, tasks: TaskListItemApi[]) => ({ spaceId, tasks }),
-        loadSpaceTasksFailure: (spaceId: string) => ({ spaceId }),
         toggleSection: (sectionId: TodayWorkSectionId) => ({ sectionId }),
         setBrowsingSpaces: (browsingSpaces: boolean) => ({ browsingSpaces }),
     }),
@@ -230,14 +205,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         ],
     })),
     reducers({
-        expandedSpaceIds: [
-            [] as string[],
-            { persist: true },
-            {
-                toggleSpace: (state, { spaceId }) =>
-                    state.includes(spaceId) ? state.filter((id) => id !== spaceId) : [...state, spaceId],
-            },
-        ],
         collapsedSections: [
             [] as TodayWorkSectionId[],
             { persist: true },
@@ -255,26 +222,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         ],
         spacesUnavailable: [false, { loadSpaces: () => false, loadSpacesFailure: () => true }],
         recentTasksUnavailable: [false, { loadRecentTasks: () => false, loadRecentTasksFailure: () => true }],
-        // Each space loads on its own, so expanding several at once never drops one space's sessions.
-        spaceTasks: [
-            {} as Record<string, TaskListItemApi[]>,
-            { setSpaceTasks: (state, { spaceId, tasks }) => ({ ...state, [spaceId]: tasks }) },
-        ],
-        loadingSpaceIds: [
-            [] as string[],
-            {
-                loadSpaceTasks: (state, { spaceId }) => (state.includes(spaceId) ? state : [...state, spaceId]),
-                setSpaceTasks: (state, { spaceId }) => state.filter((id) => id !== spaceId),
-                loadSpaceTasksFailure: (state, { spaceId }) => state.filter((id) => id !== spaceId),
-            },
-        ],
-        failedSpaceIds: [
-            [] as string[],
-            {
-                loadSpaceTasks: (state, { spaceId }) => state.filter((id) => id !== spaceId),
-                loadSpaceTasksFailure: (state, { spaceId }) => (state.includes(spaceId) ? state : [...state, spaceId]),
-            },
-        ],
     }),
     selectors({
         sortedSpaces: [(s) => [s.spaces], (spaces: ChannelDTOApi[]): ChannelDTOApi[] => sortSpaces(spaces)],
@@ -312,36 +259,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 recentTasksLoading || conversationHistoryLoading,
         ],
     }),
-    listeners(({ actions, values }) => ({
-        loadSpaceTasks: async ({ spaceId }) => {
-            if (!values.currentTeamId) {
-                actions.loadSpaceTasksFailure(spaceId)
-                return
-            }
-            try {
-                const response = await tasksList(String(values.currentTeamId), {
-                    channel: spaceId,
-                    basic: true,
-                    limit: SPACE_TASK_LIMIT,
-                })
-                actions.setSpaceTasks(spaceId, response.results)
-            } catch {
-                actions.loadSpaceTasksFailure(spaceId)
-            }
-        },
-        toggleSpace: ({ spaceId }) => {
-            if (values.expandedSpaceIds.includes(spaceId) && !values.spaceTasks[spaceId]) {
-                actions.loadSpaceTasks(spaceId)
-            }
-        },
-        loadSpacesSuccess: ({ spaces }) => {
-            for (const space of spaces) {
-                if (values.expandedSpaceIds.includes(space.id)) {
-                    actions.loadSpaceTasks(space.id)
-                }
-            }
-        },
-    })),
     afterMount(({ actions }) => {
         actions.loadSpaces()
         actions.loadPinnedTasks()
