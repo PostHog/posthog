@@ -629,6 +629,9 @@ SPECTACULAR_SETTINGS = {
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
+            # Every grantable scope object, from posthog/scopes.py. The frontend's APIScopeObject type
+            # derives from this enum, so the object list is never copied by hand.
+            "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             # signals maps a warehouse import's status down to these three. Same values as the
             # warehouse's own SyncStatus, but that class carries different labels, so the two are
