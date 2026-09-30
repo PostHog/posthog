@@ -274,8 +274,11 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(configuration)
 
+        # The preview key is the recorded key, so the slot travels with it. It becomes the
+        # delivery workflow id, and a window-only id lets two checks that clamped to the same
+        # window end collide and drops the later announcement.
         assert [p.evaluation_key for p in evaluation.previews] == [
-            f"{configuration.id}:window:{self.cutoff.isoformat()}"
+            f"{configuration.id}:slot:{self.cutoff.isoformat()}|window:{self.cutoff.isoformat()}"
         ]
 
 

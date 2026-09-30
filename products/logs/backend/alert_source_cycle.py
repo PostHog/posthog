@@ -18,6 +18,7 @@ import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from itertools import batched
+from typing import cast
 from uuid import UUID
 
 import structlog
@@ -99,16 +100,9 @@ MAX_QUERY_SECONDS = 20
 # Below this there is no point starting another query; the cohort keeps its due time instead.
 MIN_QUERY_SECONDS = 2
 
-_NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
-    NotificationAction.FIRE: "firing",
-    NotificationAction.RESOLVE: "resolved",
-    NotificationAction.ERROR: "errored",
-    NotificationAction.BROKEN: "broken",
-}
-
-
 # A check that announced nothing is a CHECK even when it moved the alert; the row's two states
-# carry the move.
+# carry the move. `AlertEventKind`'s other four values are the `EventKind` strings the destination
+# config is keyed on, so this is also the only table mapping an action to a destination.
 _NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
     NotificationAction.NONE: AlertEventKind.CHECK,
     NotificationAction.FIRE: AlertEventKind.FIRING,
@@ -118,7 +112,7 @@ _NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
 }
 
 
-def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime, *, now: datetime) -> str:
+def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str:
     """Names the scheduled check, and the window it answered for.
 
     The slot is in the key because `resolve_alert_date_to` clamps the window end to the ingestion
@@ -130,7 +124,7 @@ def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime, *, now
     shape across sources. Both parts are read before anything is written, so a retry recomputes
     the same key.
     """
-    return f"slot:{slot_of(check.next_check_at, now)}|window:{window_end.isoformat()}"
+    return f"slot:{slot_of(check.next_check_at, window_end)}|window:{window_end.isoformat()}"
 
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
@@ -289,7 +283,7 @@ def _delivery(
     recorded = _recorded(
         check,
         outcome=outcome,
-        evaluation_key=_evaluation_key(check, window_end, now=window_end),
+        evaluation_key=_evaluation_key(check, window_end),
         kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
         notified=outcome.update_last_notified_at,
         now=now,
@@ -304,7 +298,8 @@ def _delivery(
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
 
-    spec = EVENT_KIND_CONFIG[_NOTIFICATION_EVENT_KINDS[outcome.notification]]
+    kind = _NOTIFICATION_OUTCOME_KINDS[outcome.notification]
+    spec = EVENT_KIND_CONFIG[cast(EventKind, kind.value)]
     destinations = list_active_alert_destinations(
         team_id=check.team_id,
         alert_id=str(check.legacy_configuration_id or check.id),
@@ -314,7 +309,10 @@ def _delivery(
         source=SourceKind.LOGS,
         alert_id=str(check.id),
         alert_name=check.name,
-        evaluation_key=f"{check.id}:window:{window_end.isoformat()}",
+        # The recorded key, not a second construction of one. This becomes the delivery child
+        # workflow id, so a key without the slot lets two scheduled checks that clamped to the
+        # same window end collide and drops the later announcement.
+        evaluation_key=f"{check.id}:{recorded.evaluation_key}",
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
@@ -371,7 +369,7 @@ def _held(
     recorded = _recorded(
         check,
         outcome=outcome,
-        evaluation_key=_evaluation_key(check, now, now=now),
+        evaluation_key=_evaluation_key(check, now),
         # The notification is NONE here only because the check machine never ran.
         kind=AlertEventKind.BROKEN,
         notified=False,

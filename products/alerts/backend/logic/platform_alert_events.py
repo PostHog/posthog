@@ -62,26 +62,14 @@ class PlatformAlertEventRow:
     occurred_at: datetime
 
     def as_row(self) -> dict[str, Any]:
-        return {
-            "team_id": self.team_id,
-            "configuration_id": self.configuration_id,
-            "alert_id": self.alert_id,
-            "grouping_key": self.grouping_key,
-            "evaluation_key": self.evaluation_key,
-            "kind": self.kind,
-            "alert_name": self.alert_name,
-            "previous_state": self.previous_state,
-            "state": self.state,
-            "episode_started_at": self.episode_started_at,
-            "value": self.value,
-            "labels": self.labels,
+        """The row as ClickHouse takes it, derived from the fields so a new one cannot be missed.
+
+        Only the three the wire needs in another shape are named.
+        """
+        return {f.name: getattr(self, f.name) for f in fields(self)} | {
             "condition_snapshot": json.dumps(self.condition_snapshot),
             "source_config_snapshot": json.dumps(self.source_config_snapshot),
-            "query_duration_ms": self.query_duration_ms,
             "error_message": self.error_message or "",
-            "consecutive_failures": self.consecutive_failures,
-            "muted_notification": self.muted_notification,
-            "occurred_at": self.occurred_at,
         }
 
 
