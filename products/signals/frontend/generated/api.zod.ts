@@ -555,6 +555,19 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const signalsReportsReadStateCreateBodyReportIdsMax = 100
+
+export const SignalsReportsReadStateCreateBody = /* @__PURE__ */ zod.object({
+    report_ids: zod
+        .array(zod.uuid())
+        .max(signalsReportsReadStateCreateBodyReportIdsMax)
+        .describe('Reports to read or update, limited to the current project.'),
+    read: zod
+        .boolean()
+        .optional()
+        .describe('Set these reports read or unread for the current user. Omit to read their state.'),
+})
+
 /**
  * Re-run the stored metric queries of the given reports through the query cache and save the newest values as their snapshots. Call it when a person opens the inbox list or a report, with the ids on screen. Report titles and summaries are point-in-time text and never change here; only value, value_at, and series do, and legacy comparisons are cleared. A snapshot measured in the last 15 minutes is served as is. Each call runs at most 40 source series inside a 20-second budget, row metrics first; the rest keep their previous snapshot until the next open. Returns snapshot-only metrics for every requested report the caller can read whose status is ready or pending_input. A report in any other status is left out of the response, and its saved snapshots stay as they are.
  * @summary Refresh the saved metric snapshots of the reports on screen
@@ -610,7 +623,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
-export const signalsScoutCreateBodyConfigOneWriteScopesMax = 8
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 9
 
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
@@ -714,7 +727,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
                     ),
                 enabled: zod
                     .boolean()
@@ -883,7 +896,7 @@ export const signalsScoutConfigCreateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigCreateBodyWriteScopesMax = 8
+export const signalsScoutConfigCreateBodyWriteScopesMax = 9
 
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
@@ -945,7 +958,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
         enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
         emit: zod
@@ -1090,7 +1103,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigUpdateBodyWriteScopesMax = 8
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 9
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1242,7 +1255,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigUpdateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
     })
     .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
@@ -1351,6 +1364,17 @@ export const SignalsScoutRubricsUpdateBody = /* @__PURE__ */ zod.object({
             })
         )
         .describe('Complete set of criteria to save.'),
+})
+
+export const signalsScoutRubricsGenerateBodyContextDefault = ``
+export const signalsScoutRubricsGenerateBodyContextMax = 2000
+
+export const SignalsScoutRubricsGenerateBody = /* @__PURE__ */ zod.object({
+    context: zod
+        .string()
+        .max(signalsScoutRubricsGenerateBodyContextMax)
+        .default(signalsScoutRubricsGenerateBodyContextDefault)
+        .describe("Optional priorities for this generation. Suggestions still cover the scout's full job."),
 })
 
 /**

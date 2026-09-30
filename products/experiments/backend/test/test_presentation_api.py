@@ -48,7 +48,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import merge_saved_metric_breakdowns
+from products.experiments.backend.metric_resolution import find_metric_dict
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -1242,22 +1242,31 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {"id": holdout_2_id, "exclusion_percentage": 5},
         )
 
-    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(self):
+    @parameterized.expand([("event_source", False), ("action_source_renamed_after_the_save", True)])
+    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(self, _name: str, rename_action: bool):
         """The stamped fingerprint tells the frontend which timeseries rows to read. It must be computed on
-        the saved query merged with the link-metadata breakdowns, the same dict the daily workflow files its
-        rows under, or the chart reads an empty series for a breakdown-configured saved metric."""
+        the saved query with the link overrides applied, the same dict the daily workflow files its rows
+        under, or the chart reads an empty series for an override-configured saved metric."""
+        action = Action.objects.create(team=self.team, name="Stored name", steps_json=[{"event": "$pageview"}])
+        source = (
+            {"kind": "ActionsNode", "id": action.id, "name": action.name}
+            if rename_action
+            else {"kind": "EventsNode", "event": "$pageview"}
+        )
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
             {
                 "name": "Breakdown saved metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "mean",
-                    "source": {"kind": "EventsNode", "event": "$pageview"},
-                },
+                "query": {"kind": "ExperimentMetric", "metric_type": "mean", "source": source},
             },
         )
-        metadata = {"type": "primary", "breakdowns": [{"type": "event", "property": "$os_name"}]}
+        if rename_action:
+            Action.objects.filter(pk=action.pk).update(name="Current name")
+        metadata = {
+            "type": "primary",
+            "breakdowns": [{"type": "event", "property": "$os_name"}],
+            "breakdown_limit": 20,
+        }
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -1273,6 +1282,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_response.json()['id']}/")
         stamped = detail.json()["saved_metrics"][0]["query"]["fingerprint"]
+        if rename_action:
+            self.assertEqual(detail.json()["saved_metrics"][0]["query"]["source"]["name"], "Current name")
 
         experiment = Experiment.objects.get(pk=experiment_response.json()["id"])
         saved_query = experiment.saved_metrics.first().query  # type: ignore[union-attr]
@@ -1281,8 +1292,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             get_experiment_stats_method(experiment),
             experiment.exposure_criteria,
         )
+        effective_definition = find_metric_dict(experiment, saved_query["uuid"])
+        assert effective_definition is not None
         expected = compute_metric_fingerprint(
-            merge_saved_metric_breakdowns(saved_query, metadata),
+            effective_definition,
             *fingerprint_args,
             only_count_matured_users=experiment.only_count_matured_users,
             excluded_variants=experiment.excluded_variants or [],

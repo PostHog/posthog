@@ -1178,11 +1178,13 @@ class InsightSerializer(InsightBasicSerializer):
         resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
         return {key: value or None for key, value in resolved_layers.items()}
 
+    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
     def get_effective_restriction_level(self, insight: Insight) -> RestrictionLevel:
         if self.context.get("is_shared"):
             return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.insight(insight).effective_restriction_level
 
+    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
     def get_effective_privilege_level(self, insight: Insight) -> PrivilegeLevel:
         if self.context.get("is_shared"):
             return PrivilegeLevel.CAN_VIEW

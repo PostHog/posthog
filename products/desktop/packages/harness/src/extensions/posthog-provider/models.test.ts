@@ -233,12 +233,15 @@ describe("resolveModelConfigs", () => {
 });
 
 describe("fallbackModelConfigs", () => {
-  it("includes GPT-6 Astra with its gateway capabilities", () => {
+  it.each([
+    ["gpt-6-astra", 922000],
+    ["gpt-6.1-sol", 1050000],
+  ])("includes %s with its gateway capabilities", (id, contextWindow) => {
     expect(fallbackModelConfigs("us")).toContainEqual(
       expect.objectContaining({
-        id: "gpt-6-astra",
+        id,
         api: "openai-responses",
-        contextWindow: 922000,
+        contextWindow,
         maxTokens: 128000,
       }),
     );

@@ -73,6 +73,17 @@
       "runtime_adapter": "codex"
     },
     {
+      "prefix": "gpt-6.1-sol",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "runtime_adapter": "codex"
+    },
+    {
       "prefix": "gpt-6-luna",
       "reasoning_efforts": [
         "low",
@@ -418,6 +429,19 @@
         },
         "gpt-6-sol": {
           "cost_multiplier": "1×",
+          "offered": true,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
+        },
+        "gpt-6.1-sol": {
+          "cost_multiplier": "1× base",
           "offered": true,
           "reasoning_efforts": [
             "low",
