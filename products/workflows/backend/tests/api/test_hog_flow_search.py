@@ -19,8 +19,6 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.workflows.backend.api.hog_flow import _EMAIL_BODY_TEXT_SQL
-from products.workflows.backend.api.test.test_hog_flow import _email_step
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow.search_text import (
     SEARCH_TEXT_SEPARATOR,
@@ -29,6 +27,8 @@ from products.workflows.backend.models.hog_flow.search_text import (
     search_pattern,
     step_regex,
 )
+from products.workflows.backend.presentation.views.hog_flow import _EMAIL_BODY_TEXT_SQL
+from products.workflows.backend.tests.api.test_hog_flow import _email_step
 
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
@@ -187,9 +187,8 @@ class TestHogFlowSearchMatching(APIBaseTest):
         if fallback:
             HogFlow.objects.filter(team=self.team).update(search_text=None)
 
-        response = self.client.get(
-            _search_url(self.team.id), {"q": query, "output": "matches", "max_matched_steps": 10}
-        )
+        params: dict[str, str | int] = {"q": query, "output": "matches", "max_matched_steps": 10}
+        response = self.client.get(_search_url(self.team.id), params)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         results = {

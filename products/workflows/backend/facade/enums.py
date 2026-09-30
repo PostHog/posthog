@@ -1,6 +1,18 @@
 from enum import StrEnum
 
+from django.db import models
+
 from posthog.enums import LabeledStrEnum
+
+__all__ = [
+    "EMAIL_TRACKING_CONSENT_MODE_CHOICES",
+    "EmailTrackingConsentMode",
+    "HogFlowBatchJobState",
+    "StepSearchField",
+    "StepSearchVersion",
+    "WorkflowMetadataField",
+    "WorkflowSearchOutput",
+]
 
 
 class EmailTrackingConsentMode(StrEnum):
@@ -41,3 +53,26 @@ class HogFlowBatchJobState(LabeledStrEnum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
+
+
+class StepSearchField(models.TextChoices):
+    STEP_NAME = "step_name"
+    SUBJECT = "subject"
+    PREHEADER = "preheader"
+    BODY = "body"
+
+
+class StepSearchVersion(models.TextChoices):
+    LIVE = "live"
+    DRAFT = "draft"
+
+
+class WorkflowMetadataField(models.TextChoices):
+    NAME = "name"
+    DESCRIPTION = "description"
+
+
+class WorkflowSearchOutput(models.TextChoices):
+    NAMES = "names"
+    COUNTS = "counts"
+    MATCHES = "matches"

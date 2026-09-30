@@ -125,7 +125,21 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
-from products.workflows.backend.facade.api import create_batch_job
+from products.workflows.backend.facade.api import (
+    DEFAULT_EXCERPT_CHARS,
+    DEFAULT_MAX_MATCHED_STEPS,
+    MAX_EXCERPT_CHARS,
+    MAX_MATCHED_STEPS,
+    MAX_SEARCH_TERM_LENGTH,
+    SEARCH_TEXT_SEPARATOR,
+    SearchResultShape,
+    StepMatches,
+    create_batch_job,
+    find_step_matches,
+    matched_metadata_fields,
+    search_pattern,
+    step_regex,
+)
 from products.workflows.backend.facade.blast_radius import (
     SUPPORTED_DEDUPE_KEYS,
     get_account_audience_ids_page,
@@ -135,6 +149,12 @@ from products.workflows.backend.facade.blast_radius import (
     get_audience_size,
     is_account_audience,
     parse_account_audience_filters,
+)
+from products.workflows.backend.facade.enums import (
+    StepSearchField,
+    StepSearchVersion,
+    WorkflowMetadataField,
+    WorkflowSearchOutput,
 )
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
@@ -179,24 +199,6 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     TRIGGER_TYPES,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     HogFlow,
-)
-from products.workflows.backend.models.hog_flow.search_text import (
-    DEFAULT_EXCERPT_CHARS,
-    DEFAULT_MAX_MATCHED_STEPS,
-    MAX_EXCERPT_CHARS,
-    MAX_MATCHED_STEPS,
-    MAX_SEARCH_TERM_LENGTH,
-    SEARCH_TEXT_SEPARATOR,
-    SearchResultShape,
-    StepMatches,
-    StepSearchField,
-    StepSearchVersion,
-    WorkflowMetadataField,
-    WorkflowSearchOutput,
-    find_step_matches,
-    matched_metadata_fields,
-    search_pattern,
-    step_regex,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization

@@ -2,35 +2,16 @@ import re
 from collections.abc import Iterator
 from typing import Final
 
-from django.db import models
-
 import re2
 
 from posthog.dataclasses import frozen
 
-
-class StepSearchField(models.TextChoices):
-    STEP_NAME = "step_name"
-    SUBJECT = "subject"
-    PREHEADER = "preheader"
-    BODY = "body"
-
-
-class StepSearchVersion(models.TextChoices):
-    LIVE = "live"
-    DRAFT = "draft"
-
-
-class WorkflowMetadataField(models.TextChoices):
-    NAME = "name"
-    DESCRIPTION = "description"
-
-
-class WorkflowSearchOutput(models.TextChoices):
-    NAMES = "names"
-    COUNTS = "counts"
-    MATCHES = "matches"
-
+from products.workflows.backend.facade.enums import (
+    StepSearchField,
+    StepSearchVersion,
+    WorkflowMetadataField,
+    WorkflowSearchOutput,
+)
 
 MAX_SEARCH_TERM_LENGTH: Final = 200
 DEFAULT_MAX_MATCHED_STEPS: Final = 2
