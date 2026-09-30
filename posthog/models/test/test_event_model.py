@@ -265,6 +265,18 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 True,
             ),
             (
+                "two attribute names that only match the end of longer names",
+                'button[foo="1"][bar="2"]',
+                [Element(tag_name="button", attributes={"attr__data-bar": "2", "attr__data-foo": "1"})],
+                False,
+            ),
+            (
+                "two attributes after a tag and a position the element does not have",
+                'button:nth-child(2)[type="button"][data-x="a"]',
+                [Element(tag_name="div", nth_child=1, attributes={"attr__data-x": "a", "attr__type": "button"})],
+                False,
+            ),
+            (
                 "an attribute value with nested quotes and an equals sign",
                 "[ng-class=\"{'selected': data.raising_for=='myself'}\"]",
                 [Element(tag_name="div", attributes={"attr__ng-class": "{'selected': data.raising_for=='myself'}"})],

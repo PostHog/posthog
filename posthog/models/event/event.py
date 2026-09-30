@@ -94,7 +94,8 @@ class SelectorPart:
         # quote, into one key that contains a quote. The chain escapes quotes inside keys and
         # values, so that key can never match. Only those parts are parsed again, which means
         # a selector that matches events today compiles exactly as before.
-        if not result or "[id=" in tag or not re.search(r"[\"']", result[2]):
+        # A prefix like .btn or :nth-child(2) before the tag letters is not parsed here.
+        if not result or tag[: result.start(1)] or "[id=" in tag or not re.search(r"[\"']", result[2]):
             return []
         # Fall back unless the pairs run to the end of the part, so a trailing .class or a
         # repeated key never turns into a match that ignores it.

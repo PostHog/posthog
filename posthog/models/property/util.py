@@ -149,7 +149,9 @@ def build_selector_regex(selector: Selector) -> str:
             separator = _WITHIN_ELEMENT if tag.confine_to_element else r".*?"
             regex += separator
             for key, value in sorted(tag.ch_attributes.items(), key=lambda kv: _chain_attribute_order(kv[0])):
-                regex += rf'{re.escape(key)}="{re.escape(_chain_escaped_value(str(value)))}"' + separator
+                # The full chain key stops [foo="1"] from matching inside attr__data-foo="1".
+                name = _chain_attribute_order(key) if tag.confine_to_element else key
+                regex += rf'{re.escape(name)}="{re.escape(_chain_escaped_value(str(value)))}"' + separator
         # The rest of the element can carry characters an allowlist cannot
         # anticipate (classes like w-1/2 or !mt-0), so skip anything up to the
         # `;` element separator.
