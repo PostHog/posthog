@@ -5,10 +5,7 @@ import structlog
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCE_WEBHOOKS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ
 
 from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import (
-    HealthState,
-    start_health_server,
-)
+from products.warehouse_sources_queue.backend.sdk import HealthState, start_health_server
 
 logger = structlog.get_logger(__name__)
 

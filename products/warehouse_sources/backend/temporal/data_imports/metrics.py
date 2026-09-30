@@ -2,7 +2,7 @@ import logging
 import datetime as dt
 from typing import TYPE_CHECKING
 
-from temporalio import workflow
+from temporalio import activity, workflow
 from temporalio.common import MetricCounter
 
 from posthog.kafka_client.routing import get_producer
@@ -71,6 +71,19 @@ def get_version_check_skipped_metric() -> MetricCounter:
     # failing version check silently costs a schema every scheduled slot.
     return workflow.metric_meter().create_counter(
         "data_import_version_check_skipped", "Scheduled runs skipped because the pipeline version check failed."
+    )
+
+
+def get_worker_shutdown_handoff_metric(source_type: str | None) -> MetricCounter:
+    # Counts imports that gave up a shutting-down worker so another pod can continue them. An
+    # import that never hands off keeps its pod alive for the whole graceful shutdown timeout.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_counter(
+            "warehouse_worker_shutdown_handoff_total",
+            "Imports that raised WorkerShuttingDownError so another worker could continue them.",
+        )
     )
 
 

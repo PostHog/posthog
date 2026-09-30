@@ -80,7 +80,11 @@ export interface errorTrackingSceneLogicActions {
         issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
-    mutationSuccess: (mutationName: string) => {
+    mutationSuccess: (
+        mutationName: string,
+        issueId?: string | undefined
+    ) => {
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
     setDateRange: (

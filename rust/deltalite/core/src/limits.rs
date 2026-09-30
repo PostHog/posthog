@@ -34,6 +34,7 @@ pub const DEFAULT_PROCESS_MAX_BUFFERED_BYTES: usize = 256 * 1024 * 1024;
 pub const DEFAULT_MAX_SOURCE_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
 /// Process-wide concurrency budgets shared by every concurrent `upsert` call.
+#[derive(Debug)]
 pub struct ProcessLimits {
     partitions: Arc<Semaphore>,
     files: Arc<Semaphore>,
@@ -120,6 +121,16 @@ impl ProcessLimits {
             .acquire_many_owned(kb.min(self.buffer_cap_kb).max(1))
             .await
             .map_err(|_| Error::Generic("process byte-budget semaphore closed".into()))
+    }
+
+    /// Try to reserve `kb` KiB without waiting. Callers that can fall back to a
+    /// streaming path use this to avoid deadlocking when several operations each hold
+    /// part of the process budget and need one more allocation to finish.
+    pub fn try_acquire_buffer_kb(&self, kb: u32) -> Option<OwnedSemaphorePermit> {
+        self.buffer
+            .clone()
+            .try_acquire_many_owned(kb.min(self.buffer_cap_kb).max(1))
+            .ok()
     }
 
     /// Capacity of the byte budget in KiB.

@@ -1,6 +1,7 @@
 import time
 import asyncio
 import datetime
+import contextlib
 from typing import TYPE_CHECKING, Any, Generic
 
 import pyarrow as pa
@@ -28,8 +29,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
-    advance_xmin_state,
     cleanup_memory,
+    commit_source_cursor,
     finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
@@ -41,6 +42,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
+    PipelineSafePointHandler,
+    source_items_are_framework_output,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     _append_debug_column_to_pyarrows_table,
@@ -79,10 +84,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     S3BatchWriter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
     ResumableSourceManager,
     resolve_resume_manager,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceResponse,
@@ -124,6 +131,7 @@ class PipelineV3(Generic[ResumableData]):
     _reset_pipeline: bool
     _delta_table_ref: DeltaTableRef
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
+    _source_cursor_manager: SourceCursorManager[Any] | None
     _internal_schema: HogQLSchema
     _sinks: PipelineSinks
     _batcher: Batcher
@@ -143,8 +151,10 @@ class PipelineV3(Generic[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: "ImportJobModels",
+        source_cursor_manager: SourceCursorManager[Any] | None = None,
     ) -> None:
         self._resource = source_response
+        self._source_cursor_manager = source_cursor_manager
         self._resource_name = source_response.name
 
         # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
@@ -342,6 +352,21 @@ class PipelineV3(Generic[ResumableData]):
     def _close_producers(self) -> None:
         self._pg_producer.close()
 
+    def _activate_safe_point(self, items: Any) -> contextlib.ExitStack:
+        scope = contextlib.ExitStack()
+        if self._resumable_source_manager is not None:
+            handler = PipelineSafePointHandler(
+                shutdown_monitor=self._shutdown_monitor,
+                resumable_source_manager=self._resumable_source_manager,
+                has_unwritten_rows=lambda: (
+                    self._batcher.should_yield(include_incomplete_chunk=True) or self._pg_producer.has_held_batch
+                ),
+            )
+            scope.enter_context(
+                activate_safe_point(handler, covers_framework_checkpoints=source_items_are_framework_output(items))
+            )
+        return scope
+
     async def _commit_resume_state(self) -> None:
         if self._resumable_source_manager is None:
             return
@@ -468,9 +493,11 @@ class PipelineV3(Generic[ResumableData]):
                 # Every yielded row is staged now, so whatever the source staged last is safe.
                 await self._commit_resume_state()
 
+            items = self._resource.items()
+            safe_point_scope = self._activate_safe_point(items)
             awaiting_source = True
             try:
-                async for item in async_iterate(self._resource.items()):
+                async for item in async_iterate(items):
                     awaiting_source = False
                     py_table = None
 
@@ -525,6 +552,8 @@ class PipelineV3(Generic[ResumableData]):
                     except Exception:
                         await self._logger.aexception("Failed to stage the rows buffered before the source error")
                 raise
+            finally:
+                safe_point_scope.close()
 
             await stage_remaining_rows()
 
@@ -676,6 +705,15 @@ class PipelineV3(Generic[ResumableData]):
             # no batches the load consumer is never notified. Without this a v3 schema whose
             # source stays quiet could never satisfy `_fast_return_eligible`.
             await self._stamp_full_run()
+            # No batch reaches the loader, so nothing would promote a staged cursor. With no rows
+            # outstanding the cursor is already safe to store.
+            await commit_source_cursor(
+                self._source_cursor_manager,
+                self._schema,
+                self._logger,
+                staging_run_uuid=None,
+                log_prefix="V3 Pipeline: ",
+            )
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
             return
 
@@ -695,10 +733,15 @@ class PipelineV3(Generic[ResumableData]):
             log_prefix="V3 Pipeline: ",
             staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
         )
+        await commit_source_cursor(
+            self._source_cursor_manager,
+            self._schema,
+            self._logger,
+            staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
+            log_prefix="V3 Pipeline: ",
+        )
 
         schema_path = await self._send_final_batches(total_batches, row_count)
-
-        await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 
         # initial_sync_complete is set by the loader's post-load after data lands in Delta.
 
