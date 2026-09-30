@@ -38,6 +38,7 @@ export interface spaceSceneLogicValues {
     feedGroups: TodayWorkGroup[]
     savingSpace: boolean
     sessions: TaskListItemApi[]
+    sessionsById: Record<string, TaskListItemApi>
     sessionsLoading: boolean
     sessionsUnavailable: boolean
     space: ChannelDTOApi | null
@@ -105,6 +106,7 @@ export interface spaceSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeTab: (location: { hash: string; pathname: string; search: string }) => SpaceTab
         feedGroups: (sessions: TaskListItemApi[]) => TodayWorkGroup[]
+        sessionsById: (sessions: TaskListItemApi[]) => Record<string, TaskListItemApi>
         breadcrumbs: (space: ChannelDTOApi | null, arg: any) => Breadcrumb[]
     }
 }
@@ -192,6 +194,11 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
             (s) => [s.sessions],
             (sessions: TaskListItemApi[]): TodayWorkGroup[] =>
                 groupByDay(sessions.filter((task) => !task.archived).map(sessionItem)),
+        ],
+        sessionsById: [
+            (s) => [s.sessions],
+            (sessions: TaskListItemApi[]): Record<string, TaskListItemApi> =>
+                Object.fromEntries(sessions.map((task) => [task.id, task])),
         ],
         breadcrumbs: [
             (s) => [s.space, (_, props) => props],
