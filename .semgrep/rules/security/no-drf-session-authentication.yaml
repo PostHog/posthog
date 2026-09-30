@@ -23,6 +23,11 @@ rules:
           - pattern-either:
                 - pattern: from rest_framework.authentication import SessionAuthentication
                 - pattern: from rest_framework.authentication import SessionAuthentication as $ALIAS
+                - patterns:
+                      - pattern-inside: |
+                            from rest_framework import authentication
+                            ...
+                      - pattern: authentication.SessionAuthentication
       paths:
           include:
               - common/**/*.py
