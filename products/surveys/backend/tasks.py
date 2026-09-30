@@ -25,4 +25,6 @@ def sync_team_survey_wait_period_flags(team_id: int) -> None:
         logger.exception("Team does not exist", team_id=team_id)
         return
 
-    sync_survey_wait_period_flags(team)
+    if not sync_survey_wait_period_flags(team):
+        # The value kept changing during this sync, so an older pass can have written the last flags.
+        sync_team_survey_wait_period_flags.delay(team_id)

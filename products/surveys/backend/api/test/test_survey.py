@@ -8338,16 +8338,21 @@ class TestGlobalSurveyCooldown(APIBaseTest):
         self._patch_survey_config("environments", {"seenSurveyWaitPeriodInDays": None})
         assert self._flag_wait_period(running) is None
 
-    def test_resync_ends_on_the_value_saved_during_the_sync(self) -> None:
+    @parameterized.expand([("settles", 3, True, "20d"), ("pass_limit_reached", 1, False, "10d")])
+    def test_resync_ends_on_the_value_saved_during_the_sync(
+        self, _name: str, max_passes: int, expected_settled: bool, expected_flag: str
+    ) -> None:
         survey = self._create_survey()
         stale_team = Team.objects.get(id=self.team.id)
         stale_team.survey_config = {"seenSurveyWaitPeriodInDays": 10}
         self.team.survey_config = {"seenSurveyWaitPeriodInDays": 20}
         self.team.save()
 
-        sync_survey_wait_period_flags(stale_team)
+        with patch("products.surveys.backend.global_cooldown.MAX_SYNC_PASSES", max_passes):
+            settled = sync_survey_wait_period_flags(stale_team)
 
-        assert self._flag_wait_period(survey) == "20d"
+        assert settled is expected_settled
+        assert self._flag_wait_period(survey) == expected_flag
 
     @parameterized.expand([("negative", -1), ("too_long", 366), ("string", "7"), ("boolean", True)])
     def test_rejects_invalid_global_wait_period(self, _name: str, value: object) -> None:
