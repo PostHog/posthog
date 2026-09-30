@@ -124,7 +124,7 @@
     },
     {
       // Object-tag kind registry generated from posthog/object_tags/kinds.py; the
-      // generator's byte-stable output is what `hogli build:object-tags --check`
+      // renderer's byte-stable output is what `hogli build:projections --check`
       // compares against, so no formatter may touch it.
       "includes": [
         "packages/core/src/inbox/objectKinds.generated.ts",

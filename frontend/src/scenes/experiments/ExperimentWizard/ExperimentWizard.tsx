@@ -46,9 +46,7 @@ export function ExperimentWizard(): JSX.Element {
         </div>
     )
 
-    // Pinned to the bottom of the scene, so the buttons and the no-code link stay in the same place on every step,
-    // however tall the step is. Back and the primary button take equal space, which keeps the link centered. The
-    // footer is its own container, so when the column is too narrow for one line the link wraps under the buttons.
+    // Pinned to the bottom so the buttons stay put on every step. Equal-width button groups keep the link centered.
     const footer = (
         <div className="@container sticky bottom-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-primary bg-bg-light py-4">
             <div className="flex flex-1 basis-0">
@@ -83,18 +81,12 @@ export function ExperimentWizard(): JSX.Element {
         </div>
     )
 
-    // Three layouts, sized off the container rather than the viewport so they hold when the side panel narrows the
-    // scene:
-    // - 1024px and wider (laptops and up): the form is centered, with the guide in the right-hand column level with
-    //   the form card. The left column is empty and always as wide as the right, so the side space shrinks evenly and
-    //   the form stays centered, narrowing only once both sides are at their minimum.
-    // - 672px to 1024px (tablets): the form and guide sit side by side and fill the width together, so the content
-    //   as a whole is centered.
-    // - Below 672px (phones): one centered column, with the guide under the form, and bottom padding after it.
+    // Sized off the container, so the layout holds when the side panel narrows the scene. From 1024px the form is
+    // centered with the guide on the right, and an empty left column as wide as the right keeps it centered. From
+    // 672px the form and guide sit side by side, and narrower screens get one column with the guide under the form.
     const mainColumn =
         'w-full max-w-3xl min-w-0 justify-self-center space-y-6 @2xl:col-start-1 @2xl:max-w-none @5xl:col-start-2'
-    // The main column's second row fills the scene's height, and the footer adds its own bottom padding, so the
-    // footer sits at the same height whether or not the step scrolls.
+    // The second row fills the scene's height, so the footer stays at the same height whether or not the step scrolls
     return (
         <div className="@container flex flex-1 flex-col bg-bg-light">
             <div className="grid flex-1 grid-cols-1 grid-rows-[auto_1fr_auto] gap-6 px-6 pt-6 pb-6 @2xl:pb-0 @2xl:grid-cols-[minmax(0,1fr)_14rem] @2xl:grid-rows-[auto_1fr] @5xl:grid-cols-[minmax(14rem,1fr)_minmax(0,48rem)_minmax(14rem,1fr)]">

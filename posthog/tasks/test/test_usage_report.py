@@ -55,6 +55,7 @@ from posthog.tasks.usage_report import (
     UsageReportCounters,
     _add_team_report_to_org_reports,
     _execute_calendar_aligned_split_query,
+    _execute_split_query,
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
     _get_full_org_usage_report,
@@ -750,7 +751,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "resolved_symbol_sets_count": 0,
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
-                    "local_evaluation_not_modified_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
                     "survey_count": 0,
                     "survey_responses_count_in_period": 1,
@@ -845,7 +845,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
-                            "local_evaluation_not_modified_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_count": 0,
                             "survey_responses_count_in_period": 1,
@@ -934,7 +933,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
-                            "local_evaluation_not_modified_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_count": 0,
                             "survey_responses_count_in_period": 0,
@@ -1046,7 +1044,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "resolved_symbol_sets_count": 0,
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
-                    "local_evaluation_not_modified_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
                     "survey_count": 0,
                     "survey_responses_count_in_period": 0,
@@ -1141,7 +1138,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
-                            "local_evaluation_not_modified_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_count": 0,
                             "survey_responses_count_in_period": 0,
@@ -1592,6 +1588,87 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
 
 
 class TestQueryUsageReportSQL:
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
+        team_id = 1
+        begin = datetime(2023, 1, 1)
+        end = datetime(2023, 1, 2)
+        mock_sync_execute.side_effect = [[(team_id, 5)], [(team_id, 5)]]
+
+        query_template = """
+            SELECT team_id, count(1) as count
+            FROM events
+            WHERE timestamp BETWEEN %(begin)s AND %(end)s
+            GROUP BY team_id
+        """
+
+        result = _execute_split_query(
+            begin=begin,
+            end=end,
+            query_template=query_template,
+            params={},
+            num_splits=2,
+        )
+
+        assert mock_sync_execute.call_count == 2
+        first_call_args = mock_sync_execute.call_args_list[0][0]
+        first_call_kwargs = mock_sync_execute.call_args_list[0].kwargs
+        assert first_call_args[1]["begin"] == begin
+        assert first_call_kwargs["ch_user"] == ClickHouseUser.BILLING
+        mid_point = begin + (end - begin) / 2
+        assert first_call_args[1]["end"] == mid_point
+
+        second_call_args = mock_sync_execute.call_args_list[1][0]
+        second_call_kwargs = mock_sync_execute.call_args_list[1].kwargs
+        assert second_call_args[1]["begin"] == mid_point
+        assert second_call_kwargs["ch_user"] == ClickHouseUser.BILLING
+        assert second_call_args[1]["end"] == end
+        assert result == [(team_id, 10)]
+
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_execute_split_query_with_custom_combiner(self, mock_sync_execute: MagicMock) -> None:
+        team_id = 1
+        begin = datetime(2023, 1, 1)
+        end = datetime(2023, 1, 2)
+        mock_sync_execute.side_effect = [
+            [(team_id, "web_events", 3)],
+            [(team_id, "web_events", 2), (team_id, "mobile_events", 1)],
+        ]
+
+        def custom_combiner(results_list: list) -> dict[str, list[tuple[int, int]]]:
+            metrics: dict[str, dict[int, int]] = {
+                "web_events": {},
+                "mobile_events": {},
+            }
+
+            for results in results_list:
+                for result_team_id, metric, count in results:
+                    if result_team_id in metrics[metric]:
+                        metrics[metric][result_team_id] += count
+                    else:
+                        metrics[metric][result_team_id] = count
+
+            return {metric: list(team_counts.items()) for metric, team_counts in metrics.items()}
+
+        query_template = """
+            SELECT team_id, 'web_events' as metric, count(1) as count
+            FROM events
+            WHERE timestamp BETWEEN %(begin)s AND %(end)s
+            GROUP BY team_id, metric
+        """
+
+        result = _execute_split_query(
+            begin=begin,
+            end=end,
+            query_template=query_template,
+            params={},
+            num_splits=2,
+            combine_results_func=custom_combiner,
+        )
+
+        assert result["web_events"] == [(team_id, 5)]
+        assert result["mobile_events"] == [(team_id, 1)]
+
     @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 100)])
     def test_get_teams_with_query_metric_uses_event_time_pruning_window(self, mock_sync_execute: MagicMock) -> None:
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
@@ -1923,14 +2000,6 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
                 team=self.analytics_team,
             )
 
-        _create_event(
-            distinct_id="3",
-            event="local evaluation not modified usage",
-            properties={"count": 5, "token": "correct"},
-            timestamp=now(),
-            team=self.analytics_team,
-        )
-
         for i in range(5):
             _create_event(
                 distinct_id="4",
@@ -1982,13 +2051,11 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["local_evaluation_requests_count_in_period"] == 11
-        assert org_1_report["local_evaluation_not_modified_requests_count_in_period"] == 5
         assert org_1_report["decide_requests_count_in_period"] == 0
-        assert org_1_report["billable_feature_flag_requests_count_in_period"] == 115
+        assert org_1_report["billable_feature_flag_requests_count_in_period"] == 110
         assert org_1_report["teams"]["3"]["local_evaluation_requests_count_in_period"] == 10
-        assert org_1_report["teams"]["3"]["local_evaluation_not_modified_requests_count_in_period"] == 5
         assert org_1_report["teams"]["4"]["local_evaluation_requests_count_in_period"] == 1
-        assert org_1_report["teams"]["3"]["billable_feature_flag_requests_count_in_period"] == 105
+        assert org_1_report["teams"]["3"]["billable_feature_flag_requests_count_in_period"] == 100
         assert org_1_report["teams"]["4"]["billable_feature_flag_requests_count_in_period"] == 10
 
         # because of wrong token, Org 2 has no decide counts.
@@ -2292,7 +2359,7 @@ class TestTrimOversizeUsageReportPayload(TestCase):
         assert len(json.dumps(result, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
 
 
-class TestHasNonZeroUsage(TestCase):
+class TestHasNonZeroUsage(SimpleTestCase):
     def _zeroed_counters(self) -> UsageReportCounters:
         zero_values: dict[str, Any] = {}
         for field in dataclasses.fields(UsageReportCounters):
@@ -2304,6 +2371,8 @@ class TestHasNonZeroUsage(TestCase):
             ("empty", None),
             ("events", "event_count_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
+            ("signals_credits", "signals_credits_used_in_period"),
+            ("posthog_code_credits", "posthog_code_credits_used_in_period"),
         ]
     )
     def test_has_non_zero_usage(self, _name: str, non_zero_field: str | None) -> None:
@@ -4944,17 +5013,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         # 1.0 USD * 100 * 1.2 = 120
         self.assertEqual(result, [(self.org_1_team_1.id, 120)])
 
-    def test_has_non_zero_usage_counts_signals_credits(self) -> None:
-        """A signals-only org must survive has_non_zero_usage so its report still reaches billing."""
-        import dataclasses
-
-        from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
-
-        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
-
-        self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
-        self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "signals_credits_used_in_period": 5})))
-
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_posthog_code_ai_product_excluded_from_ai_credits(self, mock_region: MagicMock) -> None:
         """Generations tagged ai_product='posthog_code' must not count toward PostHog AI credits."""
@@ -5104,17 +5162,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         expected = [(self.org_1_team_1.id, expected_credits)] if expected_credits is not None else []
         self.assertEqual(result, expected)
-
-    def test_has_non_zero_usage_counts_posthog_code_credits(self) -> None:
-        """A posthog_code-only org must survive has_non_zero_usage so its report still reaches billing."""
-        import dataclasses
-
-        from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
-
-        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
-
-        self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
-        self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "posthog_code_credits_used_in_period": 5})))
 
 
 class TestTaskSandboxUsageReport(APIBaseTest):
@@ -5945,104 +5992,6 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         )
 
         flush_persons_and_events()
-
-    @patch("posthog.tasks.usage_report.sync_execute")
-    def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
-        """Test that _execute_split_query correctly splits the time period and combines results."""
-        # Mock the sync_execute to return test data
-        mock_sync_execute.side_effect = [
-            [(self.team.id, 5)],  # First split returns 5 events
-            [(self.team.id, 5)],  # Second split returns 5 events
-        ]
-
-        # Test with 2 splits
-        query_template = """
-            SELECT team_id, count(1) as count
-            FROM events
-            WHERE timestamp BETWEEN %(begin)s AND %(end)s
-            GROUP BY team_id
-        """
-
-        from posthog.tasks.usage_report import _execute_split_query
-
-        result = _execute_split_query(
-            begin=self.begin,
-            end=self.end,
-            query_template=query_template,
-            params={},
-            num_splits=2,
-        )
-
-        # Verify sync_execute was called twice with different time ranges
-        self.assertEqual(mock_sync_execute.call_count, 2)
-
-        # First call should use the first half of the time range
-        first_call_args = mock_sync_execute.call_args_list[0][0]
-        first_call_kwargs = mock_sync_execute.call_args_list[0].kwargs
-        self.assertEqual(first_call_args[1]["begin"], self.begin)
-        self.assertEqual(first_call_kwargs["ch_user"], ClickHouseUser.BILLING)
-        mid_point = self.begin + (self.end - self.begin) / 2
-        self.assertEqual(first_call_args[1]["end"], mid_point)
-
-        # Second call should use the second half of the time range
-        second_call_args = mock_sync_execute.call_args_list[1][0]
-        second_call_kwargs = mock_sync_execute.call_args_list[1].kwargs
-        self.assertEqual(second_call_args[1]["begin"], mid_point)
-        self.assertEqual(second_call_kwargs["ch_user"], ClickHouseUser.BILLING)
-        self.assertEqual(second_call_args[1]["end"], self.end)
-
-        # Result should combine both splits (5 + 5 = 10)
-        self.assertEqual(result, [(self.team.id, 10)])
-
-    @patch("posthog.tasks.usage_report.sync_execute")
-    def test_execute_split_query_with_custom_combiner(self, mock_sync_execute: MagicMock) -> None:
-        """Test that _execute_split_query works with a custom result combiner function."""
-        # Mock the sync_execute to return test data for event metrics
-        mock_sync_execute.side_effect = [
-            [(self.team.id, "web_events", 3)],  # First split
-            [
-                (self.team.id, "web_events", 2),
-                (self.team.id, "mobile_events", 1),
-            ],  # Second split
-        ]
-
-        # Define a custom combiner function similar to what we use in get_all_event_metrics_in_period
-        def custom_combiner(results_list: list) -> dict[str, list[tuple[int, int]]]:
-            metrics: dict[str, dict[int, int]] = {
-                "web_events": {},
-                "mobile_events": {},
-            }
-
-            for results in results_list:
-                for team_id, metric, count in results:
-                    if team_id in metrics[metric]:
-                        metrics[metric][team_id] += count
-                    else:
-                        metrics[metric][team_id] = count
-
-            return {metric: list(team_counts.items()) for metric, team_counts in metrics.items()}
-
-        query_template = """
-            SELECT team_id, 'web_events' as metric, count(1) as count
-            FROM events
-            WHERE timestamp BETWEEN %(begin)s AND %(end)s
-            GROUP BY team_id, metric
-        """
-
-        from posthog.tasks.usage_report import _execute_split_query
-
-        result = _execute_split_query(
-            begin=self.begin,
-            end=self.end,
-            query_template=query_template,
-            params={},
-            num_splits=2,
-            combine_results_func=custom_combiner,
-        )
-
-        # Verify the custom combiner worked correctly
-        self.assertEqual(result["web_events"], [(self.team.id, 5)])
-        self.assertEqual(result["mobile_events"], [(self.team.id, 1)])
 
     def test_get_teams_with_billable_event_count_in_period(self) -> None:
         """Test that get_teams_with_billable_event_count_in_period returns correct results after splitting and excludes AI events."""

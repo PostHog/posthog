@@ -142,6 +142,12 @@ TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
+TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED: bool = get_from_env(
+    "TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED",
+    True,
+    type_cast=str_to_bool,
+)
+
 # Event-count threshold for the above; 0 relies on Temporal's is_continue_as_new_suggested().
 TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
     "TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD", 4000, type_cast=int
@@ -316,6 +322,9 @@ LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 # Defaults to the general-purpose fleet so the daily coordinator always has a live worker. Deploy a
 # fleet polling "autoresearch-task-queue" before setting this env, or the schedule strands its runs.
 AUTORESEARCH_TASK_QUEUE = _set_temporal_task_queue(os.getenv("AUTORESEARCH_TASK_QUEUE", "general-purpose-task-queue"))
+# Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
+# env var still registers the ranking sweep schedule on the queue that fleet polls.
+SELF_DRIVING_TASK_QUEUE = _set_temporal_task_queue(os.getenv("SELF_DRIVING_TASK_QUEUE", "self-driving-task-queue"))
 # Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
 # share pods with the latency-sensitive alerting workers.
 LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(

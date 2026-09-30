@@ -204,7 +204,7 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             ],
             modelPickerLogic,
             [
-                'byokModels',
+                'generativeByokModels as byokModels',
                 'byokModelsLoading',
                 'playgroundModels',
                 'playgroundModelsLoading',
@@ -422,7 +422,8 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             loadProviderKeysFailure: () => resolvePendingTarget(),
             loadPlaygroundModelsFailure: () => resolvePendingTarget(),
             loadByokModelsFailure: () => resolvePendingTarget(),
-            loadByokModelsSuccess: ({ byokModels }: { byokModels: ModelOption[] }) => {
+            loadByokModelsSuccess: () => {
+                const byokModels = values.byokModels
                 if (byokModels.length === 0) {
                     return
                 }

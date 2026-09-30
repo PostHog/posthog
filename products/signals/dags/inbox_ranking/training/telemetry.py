@@ -170,6 +170,7 @@ def serving_manifest_event(
     copied_keys: Sequence[str] = (),
     present_keys: Sequence[str] = (),
     bytes_copied: int = 0,
+    mirror_published: bool | None = None,
 ) -> TrainingEvent:
     """What the day's manifest published. A run that wrote nothing still reports, with `reason`:
     the manifest is what makes the sweep serve anything, so a silent gap in this series would read
@@ -191,6 +192,8 @@ def serving_manifest_event(
             "model_keys": [entry.key for entry in manifest.models],
             "model_roles": {entry.key: entry.roles for entry in manifest.models},
         }
+    if mirror_published is not None:
+        properties["mirror_published"] = mirror_published
     return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
 
 

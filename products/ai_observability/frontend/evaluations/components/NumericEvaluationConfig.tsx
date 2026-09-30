@@ -15,7 +15,7 @@ export function NumericEvaluationConfig({
     onChange: (patch: EvaluationOutputConfig) => void
 }): JSX.Element {
     const id = useId()
-    const rule = config.passing_rule
+    const rule = config.passing_rule && 'threshold' in config.passing_rule ? config.passing_rule : null
     const error = numericOutputConfigError(config)
     return (
         <div className="space-y-4">
