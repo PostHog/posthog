@@ -21,13 +21,6 @@ CREATE TABLE posthog.kafka_app_metrics2_ws (
   metric_name String,
   count Int64
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_app_metrics2_ws', kafka_topic_list = 'clickhouse_app_metrics2';
-CREATE TABLE posthog.kafka_cohort_membership (
-  team_id Int64,
-  cohort_id Int64,
-  person_id UUID,
-  status Enum8('entered'=1, 'left'=2, 'member'=3, 'not_member'=4),
-  last_updated DateTime64(6)
-) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_cohort_membership_changed', kafka_topic_list = 'cohort_membership_changed';
 CREATE TABLE posthog.kafka_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -279,13 +272,6 @@ CREATE TABLE posthog.writable_app_metrics2 (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
-CREATE TABLE posthog.writable_cohort_membership (
-  team_id Int64,
-  cohort_id Int64,
-  person_id UUID,
-  status Enum8('entered'=1, 'left'=2),
-  last_updated DateTime64(6) DEFAULT now64()
-) ENGINE = Distributed('posthog_single_shard', 'posthog', 'cohort_membership');
 CREATE TABLE posthog.writable_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -452,13 +438,6 @@ CREATE MATERIALIZED VIEW posthog.app_metrics2_ws_mv TO posthog.writable_app_metr
   _offset,
   _partition
 FROM posthog.kafka_app_metrics2_ws;
-CREATE MATERIALIZED VIEW posthog.cohort_membership_mv TO posthog.writable_cohort_membership (team_id Int64, cohort_id Int64, person_id UUID, status String, last_updated DateTime64(6)) AS SELECT
-  team_id,
-  cohort_id,
-  person_id,
-  multiIf(status = 'member', 'entered', status = 'not_member', 'left', status) AS status,
-  last_updated
-FROM posthog.kafka_cohort_membership;
 CREATE MATERIALIZED VIEW posthog.distinct_id_usage_mv TO posthog.writable_distinct_id_usage (team_id Int64, distinct_id String, minute DateTime('UTC'), event_count UInt8) AS SELECT team_id, distinct_id, toStartOfMinute(timestamp) AS minute, 1 AS event_count
 FROM posthog.kafka_distinct_id_usage;
 CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, inserted_at Nullable(DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT

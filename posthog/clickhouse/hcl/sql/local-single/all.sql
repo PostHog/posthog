@@ -44,13 +44,6 @@ CREATE TABLE posthog.clickhouse_cleanup_revived_persons (
   person_id UUID,
   created_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, person_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.cohort_membership (
-  team_id Int64,
-  cohort_id Int64,
-  person_id UUID,
-  status Enum8('entered'=1, 'left'=2),
-  last_updated DateTime64(6) DEFAULT now64()
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.cohort_membership', '{replica}-{shard}', last_updated) ORDER BY (team_id, cohort_id, person_id) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.cohortpeople (
   person_id UUID,
   cohort_id Int64,
@@ -318,13 +311,6 @@ CREATE TABLE posthog.kafka_billing_usage_records (
   timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC')
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_billing_usage_records', kafka_topic_list = 'clickhouse_billing_usage_records';
-CREATE TABLE posthog.kafka_cohort_membership (
-  team_id Int64,
-  cohort_id Int64,
-  person_id UUID,
-  status Enum8('entered'=1, 'left'=2, 'member'=3, 'not_member'=4),
-  last_updated DateTime64(6)
-) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_cohort_membership_changed', kafka_topic_list = 'cohort_membership_changed';
 CREATE TABLE posthog.kafka_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -3711,13 +3697,6 @@ CREATE TABLE posthog.writable_billing_usage_records (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
-CREATE TABLE posthog.writable_cohort_membership (
-  team_id Int64,
-  cohort_id Int64,
-  person_id UUID,
-  status Enum8('entered'=1, 'left'=2),
-  last_updated DateTime64(6) DEFAULT now64()
-) ENGINE = Distributed('posthog_single_shard', 'posthog', 'cohort_membership');
 CREATE TABLE posthog.writable_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -4582,13 +4561,6 @@ CREATE MATERIALIZED VIEW posthog.billing_usage_records_mv TO posthog.writable_bi
   _offset,
   _partition
 FROM posthog.kafka_billing_usage_records;
-CREATE MATERIALIZED VIEW posthog.cohort_membership_mv TO posthog.writable_cohort_membership (team_id Int64, cohort_id Int64, person_id UUID, status String, last_updated DateTime64(6)) AS SELECT
-  team_id,
-  cohort_id,
-  person_id,
-  multiIf(status = 'member', 'entered', status = 'not_member', 'left', status) AS status,
-  last_updated
-FROM posthog.kafka_cohort_membership;
 CREATE MATERIALIZED VIEW posthog.distinct_id_usage_mv TO posthog.writable_distinct_id_usage (team_id Int64, distinct_id String, minute DateTime('UTC'), event_count UInt8) AS SELECT team_id, distinct_id, toStartOfMinute(timestamp) AS minute, 1 AS event_count
 FROM posthog.kafka_distinct_id_usage;
 CREATE MATERIALIZED VIEW posthog.duplicate_events_mv TO posthog.writable_duplicate_events (team_id Int64, distinct_id String, event String, source_uuid UUID, duplicate_uuid UUID, similarity_score Float64, dedup_type LowCardinality(String), is_confirmed UInt8, reason Nullable(String), version String, different_property_count UInt32, properties_similarity Float64, source_message String, duplicate_message String, distinct_fields Array(Tuple(field_name String, original_value String, new_value String)), inserted_at DateTime64(3, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT

@@ -543,34 +543,6 @@ database "posthog" {
     }
   }
 
-  table "cohort_membership" {
-    order_by = ["team_id", "cohort_id", "person_id"]
-    settings = {
-      index_granularity = "8192"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2)"
-    }
-    column "last_updated" {
-      type    = "DateTime64(6)"
-      default = "now64()"
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/noshard/posthog.cohort_membership"
-      replica_name   = "{replica}-{shard}"
-      version_column = "last_updated"
-    }
-  }
-
   table "cohortpeople" {
     order_by = ["team_id", "cohort_id", "person_id", "version"]
     settings = {
@@ -2645,30 +2617,6 @@ database "posthog" {
       collection = "warpstream_ingestion"
       topic_list = "clickhouse_billing_usage_records"
       group_name = "clickhouse_billing_usage_records"
-      format     = "JSONEachRow"
-    }
-  }
-
-  table "kafka_cohort_membership" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2, 'member'=3, 'not_member'=4)"
-    }
-    column "last_updated" {
-      type = "DateTime64(6)"
-    }
-    engine "kafka" {
-      collection = "msk_cluster"
-      topic_list = "cohort_membership_changed"
-      group_name = "clickhouse_cohort_membership_changed"
       format     = "JSONEachRow"
     }
   }
@@ -16714,30 +16662,6 @@ SQL
     }
   }
 
-  table "writable_cohort_membership" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2)"
-    }
-    column "last_updated" {
-      type    = "DateTime64(6)"
-      default = "now64()"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog_single_shard"
-      remote_database = "posthog"
-      remote_table    = "cohort_membership"
-    }
-  }
-
   table "writable_distinct_id_usage" {
     column "team_id" {
       type = "Int64"
@@ -19894,35 +19818,6 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
-    }
-  }
-
-  materialized_view "cohort_membership_mv" {
-    to_table = "posthog.writable_cohort_membership"
-    query    = <<SQL
-SELECT
-  team_id,
-  cohort_id,
-  person_id,
-  multiIf(status = 'member', 'entered', status = 'not_member', 'left', status) AS status,
-  last_updated
-FROM posthog.kafka_cohort_membership
-SQL
-
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "String"
-    }
-    column "last_updated" {
-      type = "DateTime64(6)"
     }
   }
 
