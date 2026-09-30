@@ -12,6 +12,8 @@ import structlog
 import temporalio.activity
 from asgiref.sync import sync_to_async
 
+from posthog.dataclasses import frozen
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import SCHEDULE_ID
 
 logger = structlog.get_logger(__name__)
@@ -41,15 +43,51 @@ class PartitionResult:
         return len(self.errors) == 0
 
 
+@frozen
+class _PartitionChanges:
+    ensured: list[str]
+    dropped: list[str]
+    alerts: list[str]
+
+
 @temporalio.activity.defn
 async def manage_warehouse_sources_queue_partitions() -> dict:
+    errors: list[str] = []
+    today = datetime.now(UTC).date()
+
+    # The connection sets no lock_timeout, so partition DDL can wait on a lock for an unbounded time.
+    # Run the database work on the general thread pool so that the wait blocks neither the worker's
+    # event loop nor the single thread shared by all thread-sensitive work in the process.
+    changes = await database_sync_to_async_pool(_manage_database_partitions)(today, errors)
+
+    result = PartitionResult(ensured=changes.ensured, dropped=changes.dropped, errors=errors)
+
+    logger.info(
+        "Partition management completed",
+        ensured_count=len(result.ensured),
+        dropped_count=len(result.dropped),
+        error_count=len(errors),
+        success=result.success,
+        alerts=changes.alerts,
+    )
+
+    if changes.alerts:
+        await sync_to_async(_send_slack_alert, thread_sensitive=False)(changes.alerts)
+
+    return {
+        "ensured": result.ensured,
+        "dropped": result.dropped,
+        "errors": result.errors,
+        "alerts": changes.alerts,
+        "success": result.success,
+    }
+
+
+def _manage_database_partitions(today: date, errors: list[str]) -> _PartitionChanges:
     ensured: list[str] = []
     dropped: list[str] = []
-    errors: list[str] = []
 
     with psycopg.Connection.connect(_partition_ddl_database_url(), autocommit=True) as conn:
-        today = datetime.now(UTC).date()
-
         for table in PARTITIONED_TABLES:
             for offset in range(PARTITIONS_AHEAD):
                 d = today + timedelta(days=offset)
@@ -70,9 +108,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
         for table in PARTITIONED_TABLES:
             for partition_name in _list_partitions(conn, table):
                 if partition_name.endswith("_default"):
-                    if not await sync_to_async(_expire_default_partition_rows)(
-                        conn, table, partition_name, cutoff, errors
-                    ):
+                    if not _expire_default_partition_rows(conn, table, partition_name, cutoff, errors):
                         failed_default_expiries.add(partition_name)
                     continue
                 partition_date = _partition_date(partition_name)
@@ -81,7 +117,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                 if partition_date < cutoff:
                     if table == "sourcebatch":
                         try:
-                            await sync_to_async(_terminalize_stranded_runs)(conn, partition_name)
+                            _terminalize_stranded_runs(conn, partition_name)
                         except Exception as e:
                             # Keep the partition as evidence. Partitions are daily and small,
                             # so retrying tomorrow is cheap.
@@ -92,35 +128,15 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                             )
                             continue
                     try:
-                        await sync_to_async(_drop_partition)(conn, partition_name)
+                        _drop_partition(conn, partition_name)
                         dropped.append(partition_name)
                     except Exception as e:
                         errors.append(f"Failed to drop {partition_name}: {e}")
                         logger.exception("Failed to drop partition", partition=partition_name)
 
-        alerts = await sync_to_async(_find_partition_alerts)(conn, today, failed_default_expiries)
+        alerts = _find_partition_alerts(conn, today, failed_default_expiries)
 
-    result = PartitionResult(ensured=ensured, dropped=dropped, errors=errors)
-
-    logger.info(
-        "Partition management completed",
-        ensured_count=len(ensured),
-        dropped_count=len(dropped),
-        error_count=len(errors),
-        success=result.success,
-        alerts=alerts,
-    )
-
-    if alerts:
-        await sync_to_async(_send_slack_alert)(alerts)
-
-    return {
-        "ensured": result.ensured,
-        "dropped": result.dropped,
-        "errors": result.errors,
-        "alerts": alerts,
-        "success": result.success,
-    }
+    return _PartitionChanges(ensured=ensured, dropped=dropped, alerts=alerts)
 
 
 def _partition_ddl_database_url() -> str:

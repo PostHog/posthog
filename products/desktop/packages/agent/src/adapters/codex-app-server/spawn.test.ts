@@ -51,6 +51,28 @@ describe("buildAppServerArgs", () => {
     );
   });
 
+  it("keeps the base URL out of argv when the codex home config names it", () => {
+    const args = buildAppServerArgs({
+      binaryPath: "/bundle/codex",
+      apiBaseUrl: "http://127.0.0.1:5000/secret-token/v1",
+      apiBaseUrlInConfig: true,
+      codexHome: "/tmp/codex-home",
+    });
+
+    expect(args).toContain('model_provider="posthog"');
+    expect(args.join(" ")).not.toContain("secret-token");
+  });
+
+  it("refuses a config-held base URL without a codex home to hold it", () => {
+    expect(() =>
+      buildAppServerArgs({
+        binaryPath: "/bundle/codex",
+        apiBaseUrl: "http://127.0.0.1:5000/secret-token/v1",
+        apiBaseUrlInConfig: true,
+      }),
+    ).toThrow(/CODEX_HOME/);
+  });
+
   it("forwards http headers as a quoted TOML inline table on the posthog provider", () => {
     const args = buildAppServerArgs({
       binaryPath: "/bundle/codex",
@@ -190,6 +212,17 @@ describe("buildAppServerArgs", () => {
     );
   });
 
+  it("escapes control characters in a pinned value", () => {
+    const args = buildAppServerArgs(
+      { binaryPath: "/bundle/codex" },
+      { IS_SANDBOX: "1", BASH_ENV: '/tmp/a"\nb' },
+    );
+
+    expect(args).toContain(
+      'shell_environment_policy.set.BASH_ENV="/tmp/a\\"\\nb"',
+    );
+  });
+
   it("does not override BASH_ENV outside a managed sandbox", () => {
     const args = buildAppServerArgs(
       { binaryPath: "/bundle/codex" },
@@ -260,6 +293,21 @@ describe("spawnCodexAppServerProcess", () => {
       restoreEnv("ELECTRON_NO_ASAR", saved.noAsar);
       restoreEnv("PATH", saved.path);
     }
+  });
+
+  it("never logs the gateway base URL", () => {
+    const info = vi.fn();
+    mockSpawn.mockReturnValue(fakeChild() as never);
+    spawnCodexAppServerProcess({
+      binaryPath: BINARY_PATH,
+      apiBaseUrl: "http://127.0.0.1:5000/secret-token/v1",
+      logger: { ...silentLogger, info } as unknown as Logger,
+    });
+
+    expect(mockSpawn.mock.lastCall?.[1]).toContain(
+      'model_providers.posthog.base_url="http://127.0.0.1:5000/secret-token/v1"',
+    );
+    expect(JSON.stringify(info.mock.calls)).not.toContain("secret-token");
   });
 
   it("separates machine login variables from gateway login variables", () => {

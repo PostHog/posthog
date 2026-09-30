@@ -21,6 +21,7 @@ from posthog.ph_client import get_client
 
 from products.signals.backend.ranking.serving_manifest import ServingManifest
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
+from products.signals.dags.inbox_ranking.training.examples import ConsentExclusion
 from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
 from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
 
@@ -108,6 +109,7 @@ def examples_events(
     feature_set: str,
     snapshots: int,
     backfilled_rows: int,
+    excluded: ConsentExclusion,
     per_head: Mapping[str, HeadExampleCounts],
 ) -> list[TrainingEvent]:
     """One event per head with its example and positive counts; the run-level counts repeat on each.
@@ -124,6 +126,8 @@ def examples_events(
                 "run_id": run_id,
                 "snapshots": snapshots,
                 "backfilled_state_rows_excluded": backfilled_rows,
+                "excluded_no_training_consent_reports": excluded.reports,
+                "excluded_no_training_consent_teams": excluded.teams,
                 "head": head,
                 "rows": counts.rows,
                 "positives": counts.positives,

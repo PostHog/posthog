@@ -49,8 +49,16 @@ export const scene: SceneExport<SpaceSceneLogicProps> = {
 
 export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
-    const { space, spaceLoading, spaceUnavailable, spaceMissing, activeTab, savingSpace, composerRepositoryConfig } =
-        useValues(spaceSceneLogic({ id }))
+    const {
+        space,
+        spaceLoading,
+        spaceUnavailable,
+        spaceMissing,
+        activeTab,
+        savingSpace,
+        composerRepositoryConfig,
+        composerFocusRequest,
+    } = useValues(spaceSceneLogic({ id }))
     const { setStarred, loadSpace, sessionStarted } = useActions(spaceSceneLogic({ id }))
 
     if (!enabled || spaceMissing) {
@@ -140,6 +148,7 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                                         initialRepositoryConfig={composerRepositoryConfig}
                                         composerOverride={SPACE_COMPOSER_OVERRIDE}
                                         onTaskCreated={sessionStarted}
+                                        focusRequest={composerFocusRequest}
                                     />
                                 </div>
                             )}

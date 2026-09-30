@@ -107,3 +107,64 @@ describe("gateway models cache", () => {
     expect(cached[0]?.allowed).toBe(false);
   });
 });
+
+describe("Go gateway model entries", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const goEntries = [
+    { id: "claude-opus-5", object: "model", owned_by: "anthropic" },
+    { id: "gpt-6-sol", object: "model", owned_by: "openai" },
+  ];
+
+  it("reads entries without marks from a slugless URL as allowed", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ object: "list", data: goEntries }), {
+        status: 200,
+      }),
+    );
+
+    const models = await fetchModelsList({
+      gatewayUrl: "http://127.0.0.1:4100/go-slugless",
+      authToken: "posthog-code-auth-proxy",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://127.0.0.1:4100/go-slugless/v1/models",
+    );
+    expect(models).toEqual([
+      expect.objectContaining({ id: "claude-opus-5", allowed: true }),
+      expect.objectContaining({ id: "gpt-6-sol", allowed: true }),
+    ]);
+  });
+
+  it("keeps the proxy's marks on Go entries", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          object: "list",
+          data: [
+            {
+              ...goEntries[0],
+              allowed: false,
+              restriction_reason: "paid_plan_required",
+            },
+            { ...goEntries[1], allowed: true, restriction_reason: null },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const models = await fetchGatewayModels({
+      gatewayUrl: "http://127.0.0.1:4100/go-marked",
+      authToken: "posthog-code-auth-proxy",
+    });
+
+    expect(models.map((m) => [m.id, m.allowed])).toEqual([
+      ["claude-opus-5", false],
+      ["gpt-6-sol", true],
+    ]);
+  });
+});
