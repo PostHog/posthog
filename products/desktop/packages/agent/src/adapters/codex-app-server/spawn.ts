@@ -6,6 +6,7 @@ import {
   applyContextWikiEnv,
   type ContextWikiEnv,
 } from "@posthog/harness/extensions/context-wiki";
+import { tomlBasicString } from "@posthog/shared";
 import type { ProcessSpawnedCallback } from "../../types";
 import { Logger } from "../../utils/logger";
 
@@ -23,6 +24,7 @@ export interface ChatgptAuthTokens {
 export interface CodexOptions {
   cwd?: string;
   apiBaseUrl?: string;
+  apiBaseUrlInConfig?: boolean;
   apiKey?: string;
   model?: string;
   reasoningEffort?: string;
@@ -66,6 +68,7 @@ export interface CodexAppServerProcessOptions {
   binaryPath: string;
   cwd?: string;
   apiBaseUrl?: string;
+  apiBaseUrlInConfig?: boolean;
   apiKey?: string;
   codexHome?: string;
   useMachineAuth?: boolean;
@@ -133,17 +136,18 @@ function getUnixProcessTreePids(rootPid: number): number[] | undefined {
   return processTreePids;
 }
 
-/** Serialize a string map as a TOML basic string (escapes `\` and `"`). */
-function tomlBasicString(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
 /** Render a `Record<string, string>` as a TOML inline table. */
 function tomlInlineTable(entries: Record<string, string>): string {
   const pairs = Object.entries(entries).map(
     ([key, value]) => `${tomlBasicString(key)} = ${tomlBasicString(value)}`,
   );
   return `{ ${pairs.join(", ")} }`;
+}
+
+const BASE_URL_ARG = "model_providers.posthog.base_url=";
+
+function redactBaseUrlArg(arg: string): string {
+  return arg.startsWith(BASE_URL_ARG) ? `${BASE_URL_ARG}"[REDACTED]"` : arg;
 }
 
 export function buildAppServerArgs(
@@ -210,7 +214,17 @@ export function buildAppServerArgs(
   if (options.apiBaseUrl) {
     args.push("-c", `model_provider="posthog"`);
     args.push("-c", `model_providers.posthog.name="PostHog Gateway"`);
-    args.push("-c", `model_providers.posthog.base_url="${options.apiBaseUrl}"`);
+    // The loopback proxy URL carries a secret path token, and argv is readable
+    // by any local user, so a desktop session names it in CODEX_HOME instead.
+    if (options.apiBaseUrlInConfig && !options.codexHome) {
+      throw new Error("A config-held gateway base URL needs a CODEX_HOME.");
+    }
+    if (!options.apiBaseUrlInConfig) {
+      args.push(
+        "-c",
+        `model_providers.posthog.base_url=${tomlBasicString(options.apiBaseUrl)}`,
+      );
+    }
     args.push("-c", `model_providers.posthog.wire_api="responses"`);
     args.push(
       "-c",
@@ -296,7 +310,7 @@ export function spawnCodexAppServerProcess(
 
   logger.info("Spawning codex app-server process", {
     command: options.binaryPath,
-    args,
+    args: args.map(redactBaseUrlArg),
     cwd: options.cwd,
   });
 

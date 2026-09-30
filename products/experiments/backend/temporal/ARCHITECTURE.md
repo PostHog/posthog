@@ -9,7 +9,7 @@ When a user opens an experiment and the cached results look stale, they click **
 It's distinct from the daily timeseries workflows in two ways:
 
 - **On-demand, not scheduled.** Triggered by the user (or by experiment lifecycle events like launch/stop), not by a cron schedule.
-- **Snapshot per run, not cache warming.** Each click creates a new run with its own results, identifiable by `recalculation_id`. The timeseries family overwrites cached values; we preserve them. (One exception: a stopped experiment has a fixed window, so its runs share a result row rather than each getting a distinct snapshot. See "Snapshot semantics for the user".)
+- **Snapshot per run, not cache warming.** Each click creates a new run with its own results, identifiable by `recalculation_id`. The timeseries family overwrites cached values; we preserve them. (Two exceptions: a stopped experiment has a fixed window, and a `METRIC_CONFIG_CHANGE` run reuses the previous window, so those runs share result rows rather than each getting a distinct snapshot. See "Snapshot semantics for the user".)
 
 ## End-to-end flow
 
@@ -41,7 +41,8 @@ sequenceDiagram
     Service->>DB: lock experiment, create or fetch active run
     DB-->>Service: row (id, status)
     Service-->>API: payload + is_existing
-    API->>Workflow: start_workflow(recalculation_id)
+    API->>Service: start_metrics_recalculation_workflow(recalculation_id)
+    Service->>Workflow: start_workflow(recalculation_id)
     API-->>FE: 201 (or 200 if reusing active run)
 
     Worker->>Workflow: wrap execute (latency + finished counter)
@@ -73,9 +74,25 @@ Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")`
 
 This matters because the recalc workflow shares the `ExperimentMetricResult` table with the timeseries workflows. If we used the config fingerprint, every recalc would overwrite the cached daily timeseries row, wrecking the timeseries reads. The constant salt keeps the recalc family distinct from the timeseries family on the same table, so they never collide.
 
-Runs of a **running** experiment are told apart by `query_to`, not by the fingerprint. Each run advances `query_to` toward "now", so it accumulates one row per run under the same fingerprint, one per window end. `get_run_results` filters `fingerprint__in=(...) AND query_to=recalc.query_to`, so a read returns exactly the rows for that run's window. A same-config re-run at the same window updates the existing row rather than colliding on the unique key.
+Runs of a **running** experiment are told apart by `query_to`, not by the fingerprint. Each run advances `query_to` toward "now", so it accumulates one row per run under the same fingerprint, one per window end. `get_run_results` filters `fingerprint__in=(...) AND query_to=recalc.query_to`, so a read returns exactly the rows for that run's window.
 
-**Stopped experiments are the exception, and they do not get per-run isolation.** A stopped experiment has a fixed window: `_resolve_query_to` returns `end_date` for every run (`recalculation_logic.py`). So repeated recalcs of a stopped experiment share one `(fingerprint, query_to)` key, and a later run overwrites the earlier run's result row in place. The snapshot for such an experiment is effectively "the latest recomputation of this fixed window", not a distinct frozen copy per `recalculation_id`. This is acceptable because a stopped experiment's data no longer changes, so a re-run recomputes the same numbers over the same window; the row is updated, not meaningfully changed. The one case it does matter is a re-run after a config or stats change, where the fingerprint changes and the row lands under a new key anyway.
+A run never recomputes a completed result for the same config and window.
+Before it queries, the calc activity looks for a `COMPLETED` row with the same recalc fingerprint and `query_to`.
+If it finds one, it marks the metric succeeded and leaves the row as it is.
+Otherwise it runs the query and upserts the result on `(experiment, metric_uuid, query_to)`, so a `FAILED` row at that window is updated in place.
+`_REUSE_WINDOW_TRIGGERS` depends on this: a `METRIC_CONFIG_CHANGE` run reuses the previous window, so only new or changed metrics run a query.
+A changed metric has a new fingerprint, so it recomputes, and the upsert replaces the previous run's row for that metric at the shared window.
+The previous `recalculation_id` then reads the new result for that metric, the same as a stopped experiment after a config change (below).
+
+**Stopped experiments never get per-run isolation.**
+A stopped experiment has a fixed window: `_resolve_query_to` returns `end_date` for every run (`recalculation_logic.py`).
+So every run of a stopped experiment uses the same `(experiment, metric_uuid, query_to)` row for a metric, and the rule above decides what a reload does:
+
+- **Same config, completed row:** the reload skips the query and keeps the row. It never recomputes the fixed window, so late events and data warehouse corrections for that window do not reach the stored result.
+- **Same config, failed row:** the reload recomputes the metric and updates the row in place.
+- **Config or stats change:** the fingerprint changes, so no completed row matches and the reload recomputes. The unique key `(experiment, metric_uuid, query_to)` does not include the fingerprint, so the new result replaces the old row in place, fingerprint included.
+
+The snapshot for such an experiment is the one row at `end_date` for the current config, not a distinct frozen copy per `recalculation_id`.
 
 ### No FK from results to the recalc row
 
@@ -106,7 +123,12 @@ The workflow body is wrapped so any unhandled exception, or a finalize write tha
 
 The user doesn't see the cache. They see a specific run, identified by `recalculation_id`. If they bookmark the URL or share it, anyone who follows it reads that run's numbers at the run's `query_to`, independent of cache state. This is the fundamental difference from the timeseries family, which is essentially "what does the query engine say right now."
 
-The snapshot is immutable only while the experiment is running, where each run pins a distinct `query_to`. For a **stopped** experiment the window is fixed at `end_date`, so all same-config runs share one result row and a later run overwrites the numbers an earlier `recalculation_id` pointed at (see "Recalc fingerprint" above). Since a stopped experiment's data is frozen, the recomputed numbers are the same, so this is a shared row rather than a lost snapshot; but a shared `recalculation_id` URL for a stopped experiment is not guaranteed to keep showing the exact values it showed at first load.
+The snapshot is distinct per run only when the run has its own `query_to`.
+A `METRIC_CONFIG_CHANGE` run on a running experiment reuses the previous run's window, so a changed metric replaces the previous run's row (see "Recalc fingerprint" above).
+For a **stopped** experiment the window is fixed at `end_date`, so all runs share one result row per metric (see "Recalc fingerprint" above).
+A same-config reload reuses that row, so an earlier `recalculation_id` keeps showing the same numbers, and those numbers never include data that arrived after the first completed computation.
+After a config or stats change, the next run replaces the row, so an earlier `recalculation_id` then shows the new numbers.
+Between the edit and that run, it shows no result for a metric whose fingerprint changed, because of the fingerprint-divergence hazard above.
 
 ### Triggers and the cold-start payload
 
