@@ -493,6 +493,31 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert result.status_code == 200
         assert [row["id"] for row in result.json()["results"]] == [report_id]
 
+    def test_inbox_source_filter_looks_up_edited_production_reports_once(self) -> None:
+        kept = SignalReport.objects.create(team=self.team, title="Kept report", summary="Original", status="ready")
+        dropped = SignalReport.objects.create(
+            team=self.team, title="Dropped report", summary="Original", status="ready"
+        )
+        for report in (kept, dropped):
+            edit_report_sync(
+                team=self.team, run=self.scout_run, report_id=str(report.id), title=f"Revised {report.title}"
+            )
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+            patch(
+                "products.signals.backend.views.fetch_report_ids_for_source_products", return_value=[kept.id]
+            ) as fetch_report_ids,
+        ):
+            result = self.client.get(
+                f"/api/projects/{self.team.id}/signals/reports/", {"source_product": "error_tracking"}
+            )
+        assert result.status_code == 200
+        assert [row["id"] for row in result.json()["results"]] == [str(kept.id)]
+        # One lookup filters the production list and one covers every edited report.
+        assert fetch_report_ids.call_count == 2
+
     def test_unsupported_inbox_filter_invalidates_comparison(self) -> None:
         with patch("products.signals.backend.views.trial_store_for_request", return_value=self.store):
             result = self.client.get(f"/api/projects/{self.team.id}/signals/reports/", {"view": "actionable"})

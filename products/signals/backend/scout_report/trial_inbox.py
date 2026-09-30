@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
@@ -117,7 +117,25 @@ class TrialInboxReads:
     def _tokens(value: str | None) -> list[str]:
         return [part.strip() for part in (value or "").split(",") if part.strip()]
 
-    def _matches_sources(self, report: TrialReport, original: QuerySet[SignalReport]) -> bool:
+    @staticmethod
+    def _production_match(
+        original_id: str | None,
+        apply_filter: Callable[[QuerySet[SignalReport]], QuerySet[SignalReport]],
+        original: QuerySet[SignalReport],
+        matched: dict[str, set[str]],
+    ) -> bool:
+        if original_id is None:
+            return False
+        # Each filter looks up its report IDs in ClickHouse, so it runs once per request, not once per report.
+        name = apply_filter.__name__
+        if name not in matched:
+            ids = apply_filter(original.prefetch_related(None)).values_list("id", flat=True)
+            matched[name] = {str(report_id) for report_id in ids}
+        return original_id in matched[name]
+
+    def _matches_sources(
+        self, report: TrialReport, original: QuerySet[SignalReport], matched: dict[str, set[str]]
+    ) -> bool:
         query = self.view.request.query_params
         original_id = report.source_report_id
         evidence = report.evidence
@@ -125,19 +143,15 @@ class TrialInboxReads:
             source_ids = self._tokens(query.get("source_id"))
             product = (query.get("source_product") or "").strip()
             if not any(row.get("source_product") == product and row.get("source_id") in source_ids for row in evidence):
-                if (
-                    original_id is None
-                    or not self.view._apply_signal_report_source_id_filter(original).filter(pk=original_id).exists()
+                if not self._production_match(
+                    original_id, self.view._apply_signal_report_source_id_filter, original, matched
                 ):
                     return False
         elif self._tokens(query.get("source_product")):
             products = self._tokens(query.get("source_product"))
             if not any(row.get("source_product") in products for row in evidence):
-                if (
-                    original_id is None
-                    or not self.view._apply_signal_report_source_product_filter(original)
-                    .filter(pk=original_id)
-                    .exists()
+                if not self._production_match(
+                    original_id, self.view._apply_signal_report_source_product_filter, original, matched
                 ):
                     return False
         scout_names = self._tokens(query.get("scout"))
@@ -151,7 +165,7 @@ class TrialInboxReads:
             ),
         ):
             if requested and not (evidence and matches):
-                if original_id is None or not apply_filter(original).filter(pk=original_id).exists():
+                if not self._production_match(original_id, apply_filter, original, matched):
                     return False
         return True
 
@@ -168,6 +182,7 @@ class TrialInboxReads:
         live = {str(row["id"]): row for row in self.view._serialize_report_list(list(originals))}
         statuses = self.view._visible_statuses()
         search = (self.view.request.query_params.get("search") or "").casefold()
+        matched: dict[str, set[str]] = {}
         result = []
         for report in reports:
             if report.source_report_id is not None and report.source_report_id not in live:
@@ -177,7 +192,7 @@ class TrialInboxReads:
                 continue
             if search and not any(search in str(document.get(field, "")).casefold() for field in ("title", "summary")):
                 continue
-            if not self._matches_sources(report, originals):
+            if not self._matches_sources(report, originals, matched):
                 continue
             metrics = document.get("metrics")
             if isinstance(metrics, list):
