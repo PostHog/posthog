@@ -3,16 +3,19 @@ import { router } from 'kea-router'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { TodayPaneRow } from './TodayPaneRow'
-import { todayToolsLogic, toolLabel } from './todayToolsLogic'
+import { todayToolsLogic, toolHrefForPath, toolLabel } from './todayToolsLogic'
 
 export function TodayToolsSidebar(): JSX.Element {
-    const { toolGroups, search } = useValues(todayToolsLogic)
+    const { tools, toolGroups, search } = useValues(todayToolsLogic)
     const { setSearch } = useActions(todayToolsLogic)
     const { location } = useValues(router)
+    const activeHref = toolHrefForPath(removeProjectIdIfPresent(location.pathname), tools)
 
     return (
         <div className="TodayPane">
@@ -45,7 +48,7 @@ export function TodayToolsSidebar(): JSX.Element {
                                             tool.iconColor
                                         )}
                                         to={href}
-                                        active={!!href && location.pathname.endsWith(href.split('?')[0])}
+                                        active={!!href && href === activeHref}
                                         dataAttr="today-tool"
                                     />
                                 )
