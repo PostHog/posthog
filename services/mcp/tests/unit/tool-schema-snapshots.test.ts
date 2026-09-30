@@ -90,7 +90,7 @@ describe('Tool schema snapshots', () => {
         const shouldUpdateSnapshots = isSnapshotUpdateAll()
         const root = path.resolve(__dirname, '__snapshots__', 'tool-schemas')
         // Enable flag-gated tools we snapshot here: tracing (APM spans), tasks, loops,
-        // dashboard-widgets and experiment setup context. Other flag-gated tools (logs-alerts,
+        // dashboard-widgets, platform alerts and experiment setup context. Other flag-gated tools (logs-alerts,
         // visual-review, etc.) stay off to keep the surface stable.
         // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
         const featureFlags = {
@@ -101,6 +101,7 @@ describe('Tool schema snapshots', () => {
             'dashboard-widgets': true,
             'agent-platform': true,
             'billing-alerts': true,
+            'platform-alerts': true,
             'experiment-setup-context': true,
         }
         const tools = [...(await getToolsFromContext(context, { featureFlags }))].sort((a, b) =>

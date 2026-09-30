@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/alerts/api'
+import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -345,22 +346,23 @@ const PlatformAlertsListSchema = () => {
 const platformAlertsList = (): ToolBase<
     ReturnType<typeof PlatformAlertsListSchema>,
     WithPostHogUrl<Schemas.PaginatedPlatformAlertConfigurationList>
-> => ({
-    name: 'platform-alerts-list',
-    schema: PlatformAlertsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedPlatformAlertConfigurationList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return await withPostHogUrl(context, result, '/alerts')
-    },
-})
+> =>
+    withUiApp('platform-alert-list', {
+        name: 'platform-alerts-list',
+        schema: PlatformAlertsListSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsListSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.PaginatedPlatformAlertConfigurationList>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/`,
+                query: {
+                    limit: params.limit,
+                    offset: params.offset,
+                },
+            })
+            return await withPostHogUrl(context, result, '/alerts')
+        },
+    })
 
 const PlatformAlertsRetrieveSchema = () => {
     const PlatformAlertsRetrieveParams = orvalSchemas.PlatformAlertsRetrieveParams()
@@ -370,18 +372,19 @@ const PlatformAlertsRetrieveSchema = () => {
 const platformAlertsRetrieve = (): ToolBase<
     ReturnType<typeof PlatformAlertsRetrieveSchema>,
     Schemas.PlatformAlertConfiguration
-> => ({
-    name: 'platform-alerts-retrieve',
-    schema: PlatformAlertsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PlatformAlertConfiguration>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
+> =>
+    withUiApp('platform-alert', {
+        name: 'platform-alerts-retrieve',
+        schema: PlatformAlertsRetrieveSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsRetrieveSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.PlatformAlertConfiguration>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/${encodeURIComponent(String(params.id))}/`,
+            })
+            return result
+        },
+    })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'alert-create': alertCreate,

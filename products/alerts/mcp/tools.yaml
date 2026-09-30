@@ -7,7 +7,17 @@
 category: Alerts
 feature: alerts
 url_prefix: /alerts
-ui_apps: {}
+ui_apps:
+    platform-alert:
+        type: detail
+        view_prop: data
+        app_name: PostHog Platform Alert
+        description: Detail view of one alert on the shared alerts platform
+    platform-alert-list:
+        type: list
+        detail_tool: platform-alerts-retrieve
+        app_name: PostHog Platform Alerts
+        description: List of alerts on the shared alerts platform with their current state
 tools:
     alert-create:
         operation: alerts_create
@@ -238,6 +248,7 @@ tools:
         operation: platform_alerts_list
         enabled: true
         feature_flag: platform-alerts
+        ui_app: platform-alert-list
         scopes:
             - alert:read
         annotations:
@@ -262,6 +273,7 @@ tools:
         operation: platform_alerts_retrieve
         enabled: true
         feature_flag: platform-alerts
+        ui_app: platform-alert
         scopes:
             - alert:read
         annotations:

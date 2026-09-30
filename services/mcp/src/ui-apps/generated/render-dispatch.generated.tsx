@@ -4,6 +4,12 @@ import { useCallback } from 'react'
 
 import { ActionListView, ActionView, type ActionData, type ActionListData } from 'products/actions/mcp/apps'
 import { LLMCostsView, type LLMCostsData } from 'products/ai_observability/mcp/apps'
+import {
+    PlatformAlertListView,
+    PlatformAlertView,
+    type PlatformAlertData,
+    type PlatformAlertListData,
+} from 'products/alerts/mcp/apps'
 import { CohortListView, CohortView, type CohortData, type CohortListData } from 'products/cohorts/mcp/apps'
 import {
     ErrorDetailsView,
@@ -256,6 +262,44 @@ function FeatureFlagListContent({ data, app }: { data: FeatureFlagListData; app:
     return <FeatureFlagListView data={data} onFlagClick={handleClick} />
 }
 
+function PlatformAlertListContent({ data, app }: { data: PlatformAlertListData; app: App | null }): JSX.Element {
+    const fallbackToChat = useCallback(
+        (name: string) => {
+            app?.sendMessage({
+                role: 'user',
+                content: [{ type: 'text', text: `Show me the details for platform alert "${name}"` }],
+            })
+        },
+        [app]
+    )
+
+    const handleClick = useCallback(
+        async (item: PlatformAlertData): Promise<PlatformAlertData | null> => {
+            if (!app) {
+                fallbackToChat(item.name)
+                return null
+            }
+            try {
+                const result = await app.callServerTool({
+                    name: 'platform-alerts-retrieve',
+                    arguments: { id: item.id },
+                })
+                if (result.isError || !result.structuredContent) {
+                    fallbackToChat(item.name)
+                    return null
+                }
+                return result.structuredContent as unknown as PlatformAlertData
+            } catch {
+                fallbackToChat(item.name)
+                return null
+            }
+        },
+        [app, fallbackToChat]
+    )
+
+    return <PlatformAlertListView data={data} onPlatformAlertClick={handleClick} />
+}
+
 function SurveyListContent({ data, app }: { data: SurveyListData; app: App | null }): JSX.Element {
     const fallbackToChat = useCallback(
         (name: string) => {
@@ -435,6 +479,10 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     ),
     'invite-email-preview': ({ data }) => <InviteEmailPreviewView data={data as InviteEmailPreviewData} />,
     'llm-costs': ({ data }) => <LLMCostsView data={data as LLMCostsData} />,
+    'platform-alert': ({ data }) => <PlatformAlertView data={data as PlatformAlertData} />,
+    'platform-alert-list': ({ data, app }) => (
+        <PlatformAlertListContent data={data as PlatformAlertListData} app={app} />
+    ),
     'query-results': ({ data }) => <Component data={data} />,
     'session-recording': ({ data }) => <SessionRecordingView recording={data as SessionRecordingData} />,
     survey: ({ data }) => <SurveyView survey={data as SurveyData} />,

@@ -20,6 +20,8 @@ export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
 export const INVITE_EMAIL_PREVIEW_RESOURCE_URI = 'ui://posthog/invite-email-preview.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
 export const LOOPS_REVIEW_RESOURCE_URI = 'ui://posthog/loops-review.html'
+export const PLATFORM_ALERT_RESOURCE_URI = 'ui://posthog/platform-alert.html'
+export const PLATFORM_ALERT_LIST_RESOURCE_URI = 'ui://posthog/platform-alert-list.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 export const RENDER_UI_RESOURCE_URI = 'ui://posthog/render-ui.html'
 export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
@@ -55,6 +57,8 @@ export type UiAppKey =
     | 'invite-email-preview'
     | 'llm-costs'
     | 'loops-review'
+    | 'platform-alert'
+    | 'platform-alert-list'
     | 'query-results'
     | 'render-ui'
     | 'session-recording'
@@ -90,6 +94,8 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'invite-email-preview': INVITE_EMAIL_PREVIEW_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
     'loops-review': LOOPS_REVIEW_RESOURCE_URI,
+    'platform-alert': PLATFORM_ALERT_RESOURCE_URI,
+    'platform-alert-list': PLATFORM_ALERT_LIST_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
     'render-ui': RENDER_UI_RESOURCE_URI,
     'session-recording': SESSION_RECORDING_RESOURCE_URI,
@@ -128,6 +134,8 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'insight-actors',
     'invite-email-preview',
     'llm-costs',
+    'platform-alert',
+    'platform-alert-list',
     'query-results',
     'session-recording',
     'survey',
@@ -267,6 +275,18 @@ export const UI_APPS: Array<{
         uri: LOOPS_REVIEW_RESOURCE_URI,
         description: 'Review card for a loop before creation, with a Create loop action.',
         appDir: 'loops-review',
+    },
+    {
+        name: 'PostHog Platform Alert',
+        uri: PLATFORM_ALERT_RESOURCE_URI,
+        description: 'Detail view of one alert on the shared alerts platform',
+        appDir: 'generated/platform-alert',
+    },
+    {
+        name: 'PostHog Platform Alerts',
+        uri: PLATFORM_ALERT_LIST_RESOURCE_URI,
+        description: 'List of alerts on the shared alerts platform with their current state',
+        appDir: 'generated/platform-alert-list',
     },
     {
         name: 'Query Results',
