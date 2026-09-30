@@ -12,8 +12,8 @@ import {
     propertyAccessControlsCreate,
     propertyAccessControlsDestroy,
 } from 'products/access_control/frontend/generated/api'
-import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
 import type { ScopeType } from './types'
 

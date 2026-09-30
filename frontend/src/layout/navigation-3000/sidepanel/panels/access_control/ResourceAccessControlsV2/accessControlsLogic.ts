@@ -388,7 +388,7 @@ export interface accessControlsLogicActions {
         scopeType: ScopeType
     }) => {
         projectLevel: AccessControlLevel | null
-        resourceLevels: Record<ScopeObjectEnumApi, AccessControlLevel | null>
+        resourceLevels: Record<ScopeObjectEnumApi | 'wizard_session', AccessControlLevel | null>
         scopeId: string
         scopeType: ScopeType
     }
@@ -437,7 +437,7 @@ export interface accessControlsLogicMeta {
             panelSubject: AccessDetailSubject | null
         ) => AccessDetailSubject | null
         canUseRoles: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         canEdit: (defaults: AccessControlDefaultsResponse | null) => boolean
         availableProjectLevels: (defaults: AccessControlDefaultsResponse | null) => AccessControlLevel[]
