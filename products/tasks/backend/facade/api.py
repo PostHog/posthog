@@ -101,6 +101,7 @@ from products.tasks.backend.github_repository_access import (
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
+from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -2605,6 +2606,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "pr_base_branch",
         "stack_base_branch",
         "github_credential_source",
+        "token_cost",
+        "token_cost_incomplete",
+        "compute_cost",
+        "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
@@ -2665,6 +2670,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "cancel_fallback_cleanup_complete",
         "pending_external_followups",
         "pending_external_followups_generation",
+        "pending_external_followups_checkpoint",
+        "task_management_ci_idle_skips",
+        "task_management_ci_wait_checks",
         # Terminal reason markers owned by the workflow (see the note above). Spelled as literals
         # rather than imported from the update_task_run_status activity, which would pull temporalio
         # onto this module's import path; the workflow writes them through
@@ -3321,6 +3329,12 @@ def update_task_run(
     # (consecutive_failures would double-count). The workflow's status-update activity
     # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        try:
+            if run.environment == TaskRun.Environment.CLOUD:
+                refresh_task_run_cost(run_id=run.id, team_id=run.team_id)
+                run.refresh_from_db(fields=["state", "updated_at"])
+        except Exception:
+            logger.warning("task_run_cost_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
         handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
@@ -6123,7 +6137,7 @@ def resume_task_run_in_cloud(
             run.environment = prior_environment
             run.completed_at = prior_completed_at
             run.queued_at = prior_queued_at
-            run.state = prior_state
+            run.restore_cloud_resume_state(prior_state)
             run.error_message = "Failed to start cloud workflow"
             run.save(
                 update_fields=[
@@ -6208,6 +6222,14 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
         if hidden:
             qs = qs.exclude(id__in=hidden)
     return qs
+
+
+def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
+    from products.tasks.backend.logic.task_review import (  # noqa: PLC0415 — keep GitHub integration deps off the api import path
+        task_review as build_task_review,
+    )
+
+    return build_task_review(team_id, task_id, user_id, page)
 
 
 def get_task_detail(
@@ -8629,7 +8651,10 @@ def run_task(
         )
     warm_run = (
         None
-        if pipeline_rerun or scheduled_at is not None or run_source == RunSource.AGENT
+        if pipeline_rerun
+        or scheduled_at is not None
+        or run_source == RunSource.AGENT
+        or validated_data.get("client_platform") == "mobile"
         else _idling_warm_run_for_task(task)
     )
     # A warm sandbox was started before the plan choice, so it holds no run-scoped subscription token.
@@ -8760,6 +8785,7 @@ def run_task(
         extra_state = extra_state or {}
         extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
     for key, value in (
+        ("client_platform", validated_data.get("client_platform")),
         ("initial_permission_mode", initial_permission_mode),
         ("rtk_enabled", validated_data.get("rtk_enabled")),
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
@@ -8774,6 +8800,8 @@ def run_task(
         assert previous_run is not None and previous_state is not None
         prev_state = previous_state
         extra_state = extra_state or {}
+        if not extra_state.get("client_platform") and (previous_run.state or {}).get("client_platform") == "mobile":
+            extra_state["client_platform"] = "mobile"
         if previous_run.task_summary:
             extra_state[PRIOR_RUN_SUMMARY_STATE_KEY] = previous_run.task_summary
         if previous_run.task_tags:

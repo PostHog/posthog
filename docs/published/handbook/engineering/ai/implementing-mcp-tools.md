@@ -313,6 +313,7 @@ Product teams own their definitions and control which operations are exposed as 
          Human-friendly description for the LLM.
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
+       category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
        exclude_params: [field] # hide params from tool input
        include_params: [field] # whitelist params (excludes all others)
        response: # filter response fields (applied per-item on list endpoints)

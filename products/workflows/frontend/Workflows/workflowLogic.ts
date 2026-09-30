@@ -166,7 +166,7 @@ export function withStagedDraft(workflow: HogFlow): HogFlow {
     return { ...rest, ...draft } as HogFlow
 }
 
-// Mirrors DRAFT_CONTENT_FIELDS in products/workflows/backend/api/hog_flow.py: the fields the draft
+// Mirrors DRAFT_CONTENT_FIELDS in products/workflows/backend/presentation/views/hog_flow.py: the fields the draft
 // cycle stages and publish promotes. Keep the two lists in sync.
 const WORKFLOW_CONTENT_FIELDS = [
     'actions',

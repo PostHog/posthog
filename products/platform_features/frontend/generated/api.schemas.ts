@@ -1359,6 +1359,7 @@ export type ActivityLogListParams = {
      * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
+     * * `AccountView` - AccountView
      * * `AlertConfiguration` - AlertConfiguration
      * * `Threshold` - Threshold
      * * `AlertSubscription` - AlertSubscription
@@ -1461,6 +1462,7 @@ export const ActivityLogListScope = {
     OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
+    AccountView: 'AccountView',
     AlertConfiguration: 'AlertConfiguration',
     Threshold: 'Threshold',
     AlertSubscription: 'AlertSubscription',
@@ -1550,6 +1552,7 @@ export const ActivityLogListScope = {
  * * `OAuthApplication` - OAuthApplication
  * * `User` - User
  * * `Action` - Action
+ * * `AccountView` - AccountView
  * * `AlertConfiguration` - AlertConfiguration
  * * `Threshold` - Threshold
  * * `AlertSubscription` - AlertSubscription
@@ -1640,6 +1643,7 @@ export const ActivityLogListScopesItem = {
     OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
+    AccountView: 'AccountView',
     AlertConfiguration: 'AlertConfiguration',
     Threshold: 'Threshold',
     AlertSubscription: 'AlertSubscription',
