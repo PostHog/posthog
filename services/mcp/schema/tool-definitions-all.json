@@ -15207,6 +15207,21 @@
             "readOnlyHint": false
         }
     },
+    "workflows-search": {
+        "description": "Find workflows by the text in them. q matches the workflow name and description, and the step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft. Case-insensitive; a space also matches a dash or an underscore. Takes the same filters as workflows-list (status, type, created_by, origin_product, trigger). Each result is the workflow's metadata plus matched_steps: the id of every step that matched, the field it matched in, whether the live or the draft version matched, and an excerpt of the matching text. Use the id with workflows-get for the full definition.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Search workflows",
+        "title": "Search workflows",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-search-mcp-tool"
+    },
     "workflows-show-email-template": {
         "description": "Render an email template as an inline preview for the user. Call after creating or updating a template, and whenever the user asks to see one. The response carries the final rendered html — read it before describing the result. For fetching a template to edit it, use workflows-get-email-template.",
         "category": "Workflows",

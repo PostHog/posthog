@@ -510,6 +510,52 @@ const workflowsRestoreRevision = (): ToolBase<ReturnType<typeof WorkflowsRestore
     },
 })
 
+const WorkflowsSearchSchema = () => {
+    const HogFlowsSearchListQueryParams = orvalSchemas.HogFlowsSearchListQueryParams()
+    return HogFlowsSearchListQueryParams
+}
+
+const workflowsSearch = (): ToolBase<
+    ReturnType<typeof WorkflowsSearchSchema>,
+    WithPostHogUrl<Schemas.PaginatedHogFlowSearchResultList>
+> => ({
+    name: 'workflows-search',
+    schema: WorkflowsSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedHogFlowSearchResultList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/search/`,
+            query: {
+                broadcast_eligible: params.broadcast_eligible,
+                created_at: params.created_at,
+                created_by: params.created_by,
+                id: params.id,
+                limit: params.limit,
+                offset: params.offset,
+                origin_product: params.origin_product,
+                q: params.q,
+                status: params.status,
+                trigger: params.trigger,
+                type: params.type,
+                updated_at: params.updated_at,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/workflows/${item.id}/workflow`)
+                    )
+                ),
+            },
+            '/workflows'
+        )
+    },
+})
+
 const WorkflowsStatsSchema = () => {
     const HogFlowsMetricsRetrieveParams = orvalSchemas.HogFlowsMetricsRetrieveParams()
     const HogFlowsMetricsRetrieveQueryParams = orvalSchemas.HogFlowsMetricsRetrieveQueryParams()
@@ -747,6 +793,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
     'workflows-restore-revision': workflowsRestoreRevision,
+    'workflows-search': workflowsSearch,
     'workflows-stats': workflowsStats,
     'workflows-suggest': workflowsSuggest,
     'workflows-test-run': workflowsTestRun,

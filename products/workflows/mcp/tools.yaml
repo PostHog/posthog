@@ -150,9 +150,6 @@ tools:
     hog-flows-schedules-list:
         operation: hog_flows_schedules_list
         enabled: false
-    hog-flows-search-list:
-        operation: hog_flows_search_list
-        enabled: false
     hog-flows-update:
         operation: hog_flows_update
         enabled: false
@@ -489,6 +486,27 @@ tools:
             in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace
             it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their
             positions.
+    workflows-search:
+        operation: hog_flows_search_list
+        enabled: true
+        # The route ships with this tool, so the flag holds the tool back until the API serves it.
+        feature_flag: workflows-search-mcp-tool
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Search workflows
+        description: >
+            Find workflows by the text in them. q matches the workflow name and description, and the step names and
+            the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
+            Case-insensitive; a space also matches a dash or an underscore. Takes the same filters as workflows-list
+            (status, type, created_by, origin_product, trigger). Each result is the workflow's metadata plus
+            matched_steps: the id of every step that matched, the field it matched in, whether the live or the draft
+            version matched, and an excerpt of the matching text. Use the id with workflows-get for the full definition.
+        enrich_url: '{id}/workflow'
     workflows-stats:
         operation: hog_flows_metrics_retrieve
         enabled: true
