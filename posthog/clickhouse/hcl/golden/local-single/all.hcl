@@ -20611,7 +20611,7 @@ SQL
 SELECT
   uuid,
   event,
-  properties,
+  JSONDropKeysPool(sharded_events.properties, ['$set', '$set_once', '$unset']) AS properties,
   timestamp,
   team_id,
   distinct_id,

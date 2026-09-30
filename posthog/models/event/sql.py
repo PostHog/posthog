@@ -742,7 +742,7 @@ TO {database}.{target_table}
 AS SELECT
 uuid,
 event,
-properties,
+JSONDropKeysPool({source_table}.properties, ['$set', '$set_once', '$unset']) AS properties,
 timestamp,
 team_id,
 distinct_id,
