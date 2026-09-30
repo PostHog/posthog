@@ -103,6 +103,18 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         self.assertEqual(mock_start.call_args.kwargs["review_mode"], expected_review_mode)
         mock_start_resolution.assert_not_called()
 
+    @patch(_META, return_value=_pr_meta())
+    @patch(_ACCESS, return_value=object())
+    @patch(_START, return_value="wf-ui-1")
+    def test_flash_mode_is_refused_outside_the_internal_project(
+        self, mock_start: MagicMock, _mock_access: MagicMock, _mock_meta: MagicMock
+    ) -> None:
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id + 1, self.team.id]):
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode="flash")
+
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        mock_start.assert_not_called()
+
     @patch(_META, return_value=_pr_meta(head_sha="abc123"))
     @patch(_ACCESS, return_value=object())
     @patch(_START_RESOLUTION, return_value="wf-resolve-1")

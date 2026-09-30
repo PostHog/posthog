@@ -21,6 +21,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
+from products.review_hog.backend.api.settings import has_internal_features
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueCategory,
@@ -706,7 +707,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="The ReviewHog UI trigger is not enabled for this project.",
+                description="The review-hog feature flag is off for this project, or Flash was requested in a "
+                "project without internal features (see show_internal_features in the settings response).",
             ),
             409: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
@@ -734,6 +736,13 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         team_id = resolve_effective_team_id(self.team_id)
         serializer = ReviewTriggerRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        run_mode: str = serializer.validated_data["run_mode"]
+        # The scene hides Flash outside the internal project; this also stops API and MCP callers there.
+        if run_mode == RUN_MODE_FLASH and not has_internal_features(team_id):
+            return Response(
+                {"error": "Flash reviews aren't available in this project. Start a regular review instead."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         try:
             pr_info = PRParser().parse_github_pr_url(serializer.validated_data["pr_url"])
         except ValueError:
@@ -785,7 +794,6 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        run_mode: str = serializer.validated_data["run_mode"]
         # The busy-guard (CONTEXT.md): Temporal joins same-id starts on its own, but a review and
         # this PR's resolution run under different workflow ids, so the cross-stage check is
         # explicit — and the answer is a refusal, not a queue.

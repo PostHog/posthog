@@ -19,6 +19,11 @@ from products.stamphog.backend.facade.api import has_reviewable_repo_config
 logger = logging.getLogger(__name__)
 
 
+def has_internal_features(team_id: int) -> bool:
+    """Whether a project gets Flash and the automation settings: only the first configured ReviewHog team."""
+    return bool(settings.REVIEWHOG_TEAM_IDS and team_id == settings.REVIEWHOG_TEAM_IDS[0])
+
+
 class ReviewUserSettingsSerializer(serializers.ModelSerializer):
     review_inbox_prs = serializers.BooleanField(
         required=False,
@@ -103,7 +108,7 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_show_internal_features(self, instance: ReviewUserSettings) -> bool:
-        return bool(settings.REVIEWHOG_TEAM_IDS and instance.team_id == settings.REVIEWHOG_TEAM_IDS[0])
+        return has_internal_features(instance.team_id)
 
     @extend_schema_field(serializers.BooleanField())
     def get_stamphog_connected(self, instance: ReviewUserSettings) -> bool:

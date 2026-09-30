@@ -719,6 +719,7 @@ The turn rechecks the author's opt-in before starting and uses their saved sever
 The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
 retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
 and the trigger action checks the URL, GitHub App access, fork status, and open state regardless of caller.
+It refuses `run_mode=flash` with a 403 outside the project that has `show_internal_features`.
 See [DECISIONS.md](./DECISIONS.md) for each trigger's auth / scope / identity rules.
 
 The `review-pr-queue` workflow keeps the existing per-PR workflow ID and records requests through signals.
