@@ -87,6 +87,22 @@ RECORD_USAGE_KEYS = {
     UsageCounter.WORKFLOW_SMS: "workflow_sms_sent",
     UsageCounter.WORKFLOW_INVOCATIONS: "workflow_billable_invocations",
 }
+RECORD_USAGE_UNITS = {
+    "events": "events",
+    "enhanced_person_events": "events",
+    "session_replay_recordings": "recordings",
+    "mobile_replay_recordings": "recordings",
+    "survey_responses": "events",
+    "ai_events": "events",
+    "exceptions": "events",
+    "cdp_billable_invocations": "invocations",
+    "feature_flag_requests": "requests",
+    "feature_flag_local_evaluation_requests": "requests",
+    "workflow_emails_sent": "invocations",
+    "workflow_push_sent": "invocations",
+    "workflow_sms_sent": "invocations",
+    "workflow_billable_invocations": "invocations",
+}
 COUNTER_FLAG_NAMES = {
     UsageCounter.EVENTS: "events",
     UsageCounter.ENHANCED_PERSON_EVENTS: "enhanced-persons",

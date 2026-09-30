@@ -50,6 +50,7 @@ from posthog.tasks.ai_observability_usage_report import LLM_PROMPT_FETCHED_EVENT
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.usage_counters import (
+    RECORD_USAGE_UNITS,
     SHADOW_MISSING_ORGS,
     UsageCounterCaller,
     UsageCounterComparison,
@@ -2930,21 +2931,23 @@ def get_usage_records_in_period(
     with tags_context(product=Product.BILLING, feature=Feature.USAGE_REPORT, usage_report=f"{caller}_usage_counters"):
         rows = sync_execute(
             """
-            SELECT team_id, organization_id, usage_key, sum(quantity)
+            SELECT team_id, organization_id, usage_key, unit, sum(quantity)
             FROM billing_usage_records FINAL
             WHERE timestamp >= %(begin)s AND timestamp < %(end)s
               AND usage_key IN %(usage_keys)s
-            GROUP BY team_id, organization_id, usage_key
+            GROUP BY team_id, organization_id, usage_key, unit
             """,
             {"begin": period.start, "end": period.end, "usage_keys": usage_keys},
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.BILLING,
             settings={**CH_BILLING_SETTINGS, "do_not_merge_across_partitions_select_final": 1},
         )
-    return [
-        UsageRecordTotal(team_id=team_id, organization_id=str(org_id), usage_key=key, quantity=quantity)
-        for team_id, org_id, key, quantity in rows
-    ]
+    totals = []
+    for team_id, org_id, key, unit, quantity in rows:
+        if unit != RECORD_USAGE_UNITS[key]:
+            raise ValueError(f"Unexpected unit {unit!r} for usage key {key!r}; expected {RECORD_USAGE_UNITS[key]!r}")
+        totals.append(UsageRecordTotal(team_id=team_id, organization_id=str(org_id), usage_key=key, quantity=quantity))
+    return totals
 
 
 def _get_all_usage_data(

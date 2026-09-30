@@ -25,6 +25,36 @@ from posthog.usage_counters import (
 from posthog.utils import DayRange
 
 
+class TestUsageRecordQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("events", "events"),
+            ("session_replay_recordings", "recordings"),
+            ("cdp_billable_invocations", "invocations"),
+            ("feature_flag_requests", "requests"),
+        ]
+    )
+    def test_reads_quantities_in_the_producer_unit(self, usage_key: str, unit: str) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        with patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, "org-a", usage_key, unit, 25)]):
+            assert usage_report.get_usage_records_in_period(period, (usage_key,), "daily_report") == [
+                UsageRecordTotal(team_id=1, organization_id="org-a", usage_key=usage_key, quantity=25)
+            ]
+
+    @parameterized.expand([("incorrect_unit", False), ("mixed_units", True)])
+    def test_rejects_incompatible_units_before_returning_totals(self, _name: str, mixed: bool) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        rows = [(1, "org-a", "cdp_billable_invocations", "bytes", 25)]
+        if mixed:
+            rows.insert(0, (1, "org-a", "cdp_billable_invocations", "invocations", 10))
+        with (
+            patch("posthog.tasks.usage_report.sync_execute", return_value=rows),
+            patch("retry.api.time.sleep"),
+            self.assertRaisesRegex(ValueError, "Unexpected unit 'bytes' for usage key 'cdp_billable_invocations'"),
+        ):
+            usage_report.get_usage_records_in_period(period, ("cdp_billable_invocations",), "daily_report")
+
+
 class TestUsageCounterReport(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()

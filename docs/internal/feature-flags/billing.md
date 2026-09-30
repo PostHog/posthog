@@ -231,6 +231,7 @@ Daily reports, usage reports v2, and quota limiting read the billed request coun
 Each counter's feature flag selects `legacy`, `both`, or `realtime`.
 `legacy` queries billing events. `both` and `realtime` query billing events and `billing_usage_records`; `both` keeps the legacy count authoritative, while `realtime` uses the usage record count.
 Reports retain both totals in `counter_comparisons` in either mode. A failed comparison query omits that counter's pair; failures in queries needed for normal report fields still fail the report.
+The usage record query checks each counter's unit before returning totals, so incompatible units cannot be combined. A unit mismatch fails the record query, with the same failure behavior as a query error.
 Removing legacy queries will be a later code change.
 The mode selects the same queries for every caller and time window.
 Each run keeps its resolved plan, and flag lookups are cached for 60 seconds per process.
