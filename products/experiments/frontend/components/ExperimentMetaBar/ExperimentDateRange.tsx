@@ -1,4 +1,3 @@
-import { offset } from '@floating-ui/react'
 import { useAsyncActions, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -67,7 +66,6 @@ function DateTrigger({ date, boundary, onChange }: DateTriggerProps): JSX.Elemen
                         time={date}
                         title={boundary === 'start' ? 'Start date' : 'End date'}
                         visible={isOpen ? false : undefined}
-                        middleware={[offset(3)]}
                     >
                         <span>{label}</span>
                     </TZLabel>
