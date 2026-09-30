@@ -104,7 +104,7 @@ export type EvalsState =
     | { status: 'ready'; results: EvalResult[] }
     | { status: 'error'; errorMessage: string }
 
-export interface PersonLink {
+export interface LabeledLink {
     label: string
     href: string
 }

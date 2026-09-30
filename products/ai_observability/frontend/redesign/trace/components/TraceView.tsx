@@ -1,4 +1,4 @@
-import { ConversationState, TimelineRowData, TraceMode, TraceTreeNode } from '../types'
+import { ConversationState, LabeledLink, TimelineRowData, TraceMode, TraceTreeNode } from '../types'
 import { NodeDetailProps } from './NodeDetail'
 import { Thread } from './Thread'
 import { TraceHeader, TraceHeaderProps } from './TraceHeader'
@@ -25,7 +25,7 @@ export interface TraceViewReadyProps {
 
 export type TraceViewProps =
     | { status: 'loading' }
-    | { status: 'error'; errorMessage: string; backHref: string }
+    | { status: 'error'; errorMessage: string; backLink: LabeledLink }
     | ({ status: 'ready' } & TraceViewReadyProps)
 
 export function TraceView(props: TraceViewProps): JSX.Element {
@@ -33,7 +33,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
         return <TraceViewLoading />
     }
     if (props.status === 'error') {
-        return <TraceViewError message={props.errorMessage} backHref={props.backHref} />
+        return <TraceViewError message={props.errorMessage} backLink={props.backLink} />
     }
     return (
         <div className="flex flex-col gap-3">

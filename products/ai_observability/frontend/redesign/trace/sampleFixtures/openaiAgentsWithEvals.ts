@@ -245,7 +245,7 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
         hasError: false,
         olderHref: '/older',
         newerHref: '/newer',
-        backHref: '/traces',
+        backLink: { label: 'Back to traces', href: '/traces' },
     },
     summary: {
         traceId: TRACE_ID,

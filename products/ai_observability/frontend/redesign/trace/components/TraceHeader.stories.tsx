@@ -11,7 +11,7 @@ const meta: Meta<typeof TraceHeader> = {
         hasError: false,
         olderHref: '/older',
         newerHref: null,
-        backHref: '/traces',
+        backLink: { label: 'Back to traces', href: '/traces' },
     },
 }
 export default meta

@@ -122,7 +122,7 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
         hasError: true,
         olderHref: '/older',
         newerHref: '/newer',
-        backHref: '/traces',
+        backLink: { label: 'Back to traces', href: '/traces' },
     },
     summary: {
         traceId: TRACE_ID,

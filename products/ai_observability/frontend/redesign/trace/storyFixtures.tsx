@@ -390,7 +390,7 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
         hasError: false,
         olderHref: '/older',
         newerHref: '/newer',
-        backHref: '/traces',
+        backLink: { label: 'Back to traces', href: '/traces' },
     },
     summary: {
         traceId: '3f9c2a71-5b8e-4d0f-a1c2-7e6d5b4a3c21',

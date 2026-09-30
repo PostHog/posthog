@@ -323,7 +323,7 @@ export const claudeCodePluginSession: SampleTraceFixture = {
         hasError: false,
         olderHref: '/older',
         newerHref: null,
-        backHref: '/traces',
+        backLink: { label: 'Back to traces', href: '/traces' },
     },
     summary: {
         traceId: TRACE_ID,

@@ -119,6 +119,10 @@ export const Loading: StoryObj<typeof TraceView> = {
 }
 export const LoadError: StoryObj<typeof TraceView> = {
     render: () => (
-        <TraceView status="error" errorMessage="This trace is outside the loaded time range." backHref="/traces" />
+        <TraceView
+            status="error"
+            errorMessage="This trace is outside the loaded time range."
+            backLink={{ label: 'Back to traces', href: '/traces' }}
+        />
     ),
 }

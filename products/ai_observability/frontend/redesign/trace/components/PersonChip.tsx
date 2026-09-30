@@ -1,10 +1,10 @@
 import { IconPerson } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
-import { PersonLink } from '../types'
+import { LabeledLink } from '../types'
 
 export interface PersonChipProps {
-    person: PersonLink
+    person: LabeledLink
 }
 
 export function PersonChip({ person }: PersonChipProps): JSX.Element {

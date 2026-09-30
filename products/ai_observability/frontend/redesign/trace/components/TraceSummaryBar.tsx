@@ -2,7 +2,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { NodeStats, PersonLink } from '../types'
+import { NodeStats, LabeledLink } from '../types'
 import { NodeStatsLine } from './NodeStatsLine'
 import { PersonChip } from './PersonChip'
 import { TraceIdChip } from './TraceIdChip'
@@ -10,7 +10,7 @@ import { TraceIdChip } from './TraceIdChip'
 export interface TraceSummaryBarProps {
     traceId: string
     timestamp: string
-    person: PersonLink | null
+    person: LabeledLink | null
     totals: NodeStats
 }
 
