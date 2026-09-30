@@ -11,6 +11,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
+    ComparableContents,
     EmailDomainDnsRecord,
     EmailDomainVerification,
     RecentWorkflow,
@@ -254,7 +255,7 @@ def workflow_writer(
     return WorkflowWriter(team=team, user=user, was_impersonated=was_impersonated, report_usage=report_usage)
 
 
-def comparable_workflow_contents(old: dict[str, Any], new: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def comparable_workflow_contents(stored: dict[str, Any], proposed: dict[str, Any]) -> ComparableContents:
     """Two workflow content snapshots as the revision history compares them, so equal means no new version.
 
     For this product's own presentation layer only, for the same reason as ``workflow_writer``.
@@ -263,7 +264,7 @@ def comparable_workflow_contents(old: dict[str, Any], new: dict[str, Any]) -> tu
         comparable_contents,
     )
 
-    return comparable_contents(old, new)
+    return comparable_contents(stored, proposed)
 
 
 def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str, str]:

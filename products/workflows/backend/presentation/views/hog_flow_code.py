@@ -17,6 +17,7 @@ from posthog.event_usage import EventSource, report_user_action
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.facade.api import comparable_workflow_contents
+from products.workflows.backend.facade.contracts import ComparableContents
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
@@ -519,13 +520,7 @@ def _validate_definition(
     return serializer
 
 
-@frozen
-class _ComparableContents:
-    stored: dict[str, Any]
-    proposed: dict[str, Any]
-
-
-def _comparable_contents(workflow: HogFlow, validated: dict[str, Any], *, with_draft: bool) -> _ComparableContents:
+def _comparable_contents(workflow: HogFlow, validated: dict[str, Any], *, with_draft: bool) -> ComparableContents:
     """The stored content and the content the file would store, normalized as _stage_revision_bump does.
 
     Stored bytecode, secrets and the wrapped email design then compare equal, so a matching file is unchanged.
@@ -539,8 +534,7 @@ def _comparable_contents(workflow: HogFlow, validated: dict[str, Any], *, with_d
 
     stored = {**snapshot_flow_content(workflow), **((workflow.draft or {}) if with_draft else {})}
     proposed = {**stored, **{field: validated[field] for field in DRAFT_CONTENT_FIELDS if field in validated}}
-    comparable_stored, comparable_proposed = comparable_workflow_contents(stored, proposed)
-    return _ComparableContents(stored=comparable_stored, proposed=comparable_proposed)
+    return comparable_workflow_contents(stored, proposed)
 
 
 def _publish_impact(workflow: HogFlow, validated: dict[str, Any], counts: Optional[dict[str, Any]]) -> dict[str, Any]:

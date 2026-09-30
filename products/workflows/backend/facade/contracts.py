@@ -198,5 +198,13 @@ class WorkflowUpdate:
     replaces_staged_draft: bool = False
 
 
+@frozen
+class ComparableContents:
+    """Two workflow content snapshots as the revision history compares them. Equal means no new version."""
+
+    stored: dict[str, Any]
+    proposed: dict[str, Any]
+
+
 class StaleWorkflowWrite(Exception):
     """The workflow changed after the client loaded it, so the write would overwrite someone else's edit."""

@@ -14,7 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.notifications.backend.facade.api import publish_resource_edited
-from products.workflows.backend.facade.contracts import StaleWorkflowWrite, WorkflowUpdate
+from products.workflows.backend.facade.contracts import ComparableContents, StaleWorkflowWrite, WorkflowUpdate
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -71,12 +71,12 @@ def _without_bytecode_contracts(node: Any) -> Any:
     return node
 
 
-def comparable_contents(old: dict[str, Any], new: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def comparable_contents(stored: dict[str, Any], proposed: dict[str, Any]) -> ComparableContents:
     """Two content snapshots as the revision history compares them, without secret inputs or bytecode stamps."""
     template_cache: TemplateCache = {}
-    return (
-        _without_bytecode_contracts(strip_content_secrets(old, template_cache)),
-        _without_bytecode_contracts(strip_content_secrets(new, template_cache)),
+    return ComparableContents(
+        stored=_without_bytecode_contracts(strip_content_secrets(stored, template_cache)),
+        proposed=_without_bytecode_contracts(strip_content_secrets(proposed, template_cache)),
     )
 
 
@@ -296,8 +296,8 @@ class WorkflowWriter:
         # Compare secret-free on both sides. `raw_new` still carries the plaintext secrets validation
         # recovered into `actions` (stripping happens later in save()), while `before` is the persisted
         # stripped snapshot; without this a secret-bearing flow would bump on every actions-carrying save.
-        old_content, new_content = comparable_contents(raw_old, raw_new)
-        if new_content == old_content:
+        compared = comparable_contents(raw_old, raw_new)
+        if compared.stored == compared.proposed:
             return False
         instance.version = (before.version or 0) + 1
         return True

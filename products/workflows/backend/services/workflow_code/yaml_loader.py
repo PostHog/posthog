@@ -60,24 +60,31 @@ class _CoreSchemaLoader(yaml.SafeLoader):
         return node
 
 
-def core_schema_implicit_resolvers() -> list[tuple[str, re.Pattern[str], list[str]]]:
-    """The YAML 1.2 core schema's implicit types, as (tag, pattern, first characters) for add_implicit_resolver."""
-    return [
-        (_BOOL_TAG, re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF")),
-        (_NULL_TAG, re.compile(r"^(?:~|null|Null|NULL|)$"), ["~", "n", "N", ""]),
-        (_INT_TAG, re.compile(r"^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$"), list("-+0123456789")),
-        (
-            _FLOAT_TAG,
-            re.compile(
-                r"^(?:[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$"
-            ),
-            list("-+0123456789."),
+@frozen
+class ImplicitResolver:
+    tag: str
+    pattern: re.Pattern[str]
+    first: list[str]
+
+
+CORE_SCHEMA_RESOLVERS = [
+    ImplicitResolver(tag=_BOOL_TAG, pattern=re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), first=list("tTfF")),
+    ImplicitResolver(tag=_NULL_TAG, pattern=re.compile(r"^(?:~|null|Null|NULL|)$"), first=["~", "n", "N", ""]),
+    ImplicitResolver(
+        tag=_INT_TAG, pattern=re.compile(r"^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$"), first=list("-+0123456789")
+    ),
+    ImplicitResolver(
+        tag=_FLOAT_TAG,
+        pattern=re.compile(
+            r"^(?:[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$"
         ),
-    ]
+        first=list("-+0123456789."),
+    ),
+]
+"""The YAML 1.2 core schema's implicit types."""
 
-
-for _tag, _pattern, _first in core_schema_implicit_resolvers():
-    _CoreSchemaLoader.add_implicit_resolver(_tag, _pattern, _first)
+for _resolver in CORE_SCHEMA_RESOLVERS:
+    _CoreSchemaLoader.add_implicit_resolver(_resolver.tag, _resolver.pattern, _resolver.first)
 
 
 @frozen

@@ -2,7 +2,7 @@ from typing import Any
 
 import yaml
 
-from products.workflows.backend.services.workflow_code.yaml_loader import core_schema_implicit_resolvers
+from products.workflows.backend.services.workflow_code.yaml_loader import CORE_SCHEMA_RESOLVERS
 
 
 class _WorkflowDumper(yaml.SafeDumper):
@@ -18,8 +18,8 @@ class _WorkflowDumper(yaml.SafeDumper):
         super().increase_indent(flow, False)
 
 
-for _tag, _pattern, _first in core_schema_implicit_resolvers():
-    _WorkflowDumper.add_implicit_resolver(_tag, _pattern, _first)
+for _resolver in CORE_SCHEMA_RESOLVERS:
+    _WorkflowDumper.add_implicit_resolver(_resolver.tag, _resolver.pattern, _resolver.first)
 
 
 def _represent_str(dumper: yaml.SafeDumper, value: str) -> yaml.ScalarNode:
