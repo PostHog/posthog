@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import signal
+import threading
 from io import StringIO
 from typing import Any
 
@@ -9,16 +11,23 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.management.commands.resave_cohorts import UNWIND_SIGNALS, StaleFlagsCacheError, termination_unwinds
 from posthog.models.team.team import Team
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+
+
+def _default_unwind_signals(test: SimpleTestCase) -> None:
+    for signum in UNWIND_SIGNALS:
+        previous = signal.signal(signum, signal.SIG_DFL)
+        test.addCleanup(signal.signal, signum, previous if previous is not None else signal.SIG_DFL)
 
 
 def _has_condition_hash(obj: Any) -> bool:
@@ -537,6 +546,117 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
         assert cohorts_b[2].cohort_type == "realtime"
         assert cohorts_b[3].cohort_type is None  # Cannot be realtime because it references a static cohort
         assert cohorts_b[4].cohort_type == "realtime"
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+@patch("django.db.transaction.on_commit", lambda fn: fn())
+@patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+@patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The command coalesces only when no other handler owns SIGTERM or SIGHUP, which is the CLI
+        # case. Pin the dispositions so the test runner's own do not decide which path runs.
+        _default_unwind_signals(self)
+
+    def _seed_two_teams(self) -> tuple[Team, Team]:
+        team_a: Team = self.team
+        team_b: Team = Team.objects.create(organization=self.organization)
+        for team in (team_a, team_b):
+            for index in range(3):
+                Cohort.objects.create(team=team, name=f"rt_{team.id}_{index}", filters=_make_realtime_filters())
+        return team_a, team_b
+
+    def test_rebuilds_each_changed_team_once(self, mock_service, mock_definitions) -> None:
+        team_a, team_b = self._seed_two_teams()
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        call_command("resave_cohorts", team_id=[team_a.id, team_b.id])
+
+        for mock_task in (mock_service, mock_definitions):
+            dispatched = [call.args[0] for call in mock_task.delay.call_args_list]
+            assert dispatched.count(team_a.id) == 1
+            assert dispatched.count(team_b.id) == 1
+
+    def test_a_run_that_cannot_unwind_keeps_the_per_save_rebuilds(self, mock_service, mock_definitions) -> None:
+        team_a, _ = self._seed_two_teams()
+        # Stands in for the admin path, where a web worker owns SIGTERM and nothing would flush
+        # the coalescing block on shutdown.
+        signal.signal(signal.SIGTERM, lambda signum, frame: None)
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        call_command("resave_cohorts", team_id=[team_a.id])
+
+        for mock_task in (mock_service, mock_definitions):
+            dispatched = [call.args[0] for call in mock_task.delay.call_args_list]
+            assert dispatched.count(team_a.id) > 1
+
+    def test_the_teams_left_with_a_stale_cache_fail_the_run(self, mock_service, mock_definitions) -> None:
+        team_a, team_b = self._seed_two_teams()
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+        mock_service.delay.side_effect = RuntimeError("broker unreachable")
+
+        out = StringIO()
+        with pytest.raises(StaleFlagsCacheError) as error:
+            call_command("resave_cohorts", team_id=[team_a.id, team_b.id], stdout=out)
+
+        assert "2 teams with a stale flags cache" in out.getvalue()
+        assert str(team_a.id) in str(error.value)
+
+
+def _other_handler(signum: int, frame: object) -> None: ...
+
+
+class TestTerminationUnwinds(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        _default_unwind_signals(self)
+
+    @parameterized.expand([("sigterm", signal.SIGTERM), ("sighup", signal.SIGHUP)])
+    def test_the_signal_raises_inside_the_block_and_is_restored_after(self, _name: str, signum: int) -> None:
+        with termination_unwinds() as unwinds:
+            assert unwinds
+            handler = signal.getsignal(signum)
+            assert callable(handler)
+            with pytest.raises(KeyboardInterrupt):
+                handler(signum, None)
+
+        assert signal.getsignal(signum) is signal.SIG_DFL
+
+    def test_off_the_main_thread_it_reports_no_unwind(self) -> None:
+        unwinds: list[bool] = []
+
+        def run() -> None:
+            with termination_unwinds() as unwind:
+                unwinds.append(unwind)
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join()
+
+        assert unwinds == [False]
+        assert all(signal.getsignal(signum) is signal.SIG_DFL for signum in UNWIND_SIGNALS)
+
+    @parameterized.expand(
+        [
+            ("sigterm_claimed", signal.SIGTERM, _other_handler, False),
+            ("sighup_claimed", signal.SIGHUP, _other_handler, False),
+            ("sighup_ignored_by_nohup", signal.SIGHUP, signal.SIG_IGN, True),
+        ]
+    )
+    def test_a_disposition_someone_else_set_is_left_in_place(
+        self, _name: str, signum: int, disposition: Any, expected_unwinds: bool
+    ) -> None:
+        signal.signal(signum, disposition)
+
+        with termination_unwinds() as unwinds:
+            assert unwinds is expected_unwinds
+            assert signal.getsignal(signum) is disposition
+
+        assert signal.getsignal(signum) is disposition
 
 
 class TestResaveCohortsCommandTeamSelection(BaseTest):

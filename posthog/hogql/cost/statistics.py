@@ -12,6 +12,7 @@ estimator decides what to do without it, so a missing statistic never fails a qu
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from datetime import date, timedelta
+from functools import lru_cache
 from typing import Any, Protocol
 
 from django.conf import settings
@@ -126,6 +127,22 @@ class StatisticsProvider(Protocol):
         ...
 
 
+@lru_cache(maxsize=1)
+def _lookup_http_pool_mgr() -> Any:
+    """The shared HTTP pool blocks on a free slot with no deadline, so a lookup could wait behind unrelated
+    long queries and never reach its socket timeout. This pool is the lookups' own and never blocks: past
+    ``maxsize`` it opens a connection it will not keep, which a bounded, cached lookup can afford."""
+    from clickhouse_connect.driver import httputil  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+    return httputil.get_pool_manager(
+        maxsize=4,
+        block=False,
+        num_pools=2,
+        ca_cert=settings.CLICKHOUSE_CA,
+        verify=settings.QUERYSERVICE_VERIFY,
+    )
+
+
 def _lookup_client(team_id: int) -> AbstractContextManager[Any]:
     """A client whose socket waits are bounded, so a node that accepts a lookup and stops answering holds the
     request for seconds, not forever. ``max_execution_time`` bounds the server only; the shared pools wait on
@@ -133,7 +150,9 @@ def _lookup_client(team_id: int) -> AbstractContextManager[Any]:
     its rotating token."""
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         kwargs = get_http_kwargs(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
-        return get_http_client(send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, **kwargs)
+        return get_http_client(
+            send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, pool_mgr=_lookup_http_pool_mgr(), **kwargs
+        )
     kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
     creds = get_clickhouse_creds(ClickHouseUser.DEFAULT)
     if is_file_backed_user(creds, Workload.OFFLINE, kwargs.get("user")):

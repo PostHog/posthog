@@ -511,7 +511,10 @@ class TestEnrichmentScoreApplication(BaseTest):
 
     @parameterized.expand([("delivered", False), ("failed", True)])
     def test_score_repairs_do_not_consume_the_classification_limit(self, _name, fail_repair):
-        repair, new_label = sorted([self.label, self._additional_label()], key=lambda label: label.organization_id)
+        repair, new_label = self.label, self._additional_label()
+        OrganizationEnrichmentFetch.objects.filter(pk=new_label.fetch_id).update(
+            fetched_at=self.fetch.fetched_at - dt.timedelta(days=1)
+        )
         new_fetch = new_label.fetch
         output = new_label.output
         new_label.delete()
@@ -568,6 +571,9 @@ class TestEnrichmentScoreApplication(BaseTest):
     @parameterized.expand([("consent",), ("signup_user_left",), ("domain",)])
     def test_ineligible_stored_result_does_not_exhaust_repair_limit(self, reason):
         eligible = self._additional_label()
+        OrganizationEnrichmentFetch.objects.filter(pk=eligible.fetch_id).update(
+            fetched_at=self.fetch.fetched_at - dt.timedelta(days=1)
+        )
         if reason == "consent":
             Organization.objects.filter(pk=self.organization.pk).update(is_ai_data_processing_approved=False)
         elif reason == "signup_user_left":

@@ -255,6 +255,17 @@ class TestEstimateEventsScan(BaseTest):
             ("subquery_in_where", "SELECT count() FROM events WHERE person_id IN (SELECT id FROM persons)", False),
             ("subquery_in_select", "SELECT (SELECT count() FROM persons) FROM events", False),
             ("subquery_in_from", "SELECT count() FROM (SELECT event FROM events)", True),
+            ("subquery_in_order_by", "SELECT event FROM events ORDER BY (SELECT count() FROM events)", False),
+            (
+                "subquery_in_group_by",
+                "SELECT event, count() FROM events GROUP BY event, (SELECT count() FROM events)",
+                False,
+            ),
+            (
+                "subquery_in_a_join_constraint",
+                "SELECT count() FROM events a JOIN events b ON a.uuid = b.uuid AND b.event IN (SELECT event FROM events)",
+                False,
+            ),
             (
                 "subquery_in_a_cte_body",
                 "WITH x AS (SELECT count() AS c FROM events WHERE person_id IN (SELECT id FROM persons)) SELECT c FROM x",
@@ -341,12 +352,31 @@ class TestEstimateEventsScan(BaseTest):
         assert estimate.rows == 36_500_000
         assert estimate.upper_bound is False
 
+    def test_a_chain_of_self_joined_ctes_stops_at_the_scan_cap(self):
+        def chain(levels: int) -> str:
+            ctes = ["c0 AS (SELECT event FROM events)"]
+            for level in range(1, levels + 1):
+                ctes.append(
+                    f"c{level} AS (SELECT a.event AS event FROM c{level - 1} a JOIN c{level - 1} b ON a.event = b.event)"
+                )
+            return f"WITH {', '.join(ctes)} SELECT count() FROM c{levels}"
+
+        # 2^5 = 32 scans is within the cap; 2^7 = 128 is not and the query is left unestimated.
+        five = self._estimate(chain(5))
+        assert five is not None and len(five.tables) == 32
+        assert self._estimate(chain(7)) is None
+
     def test_a_query_with_no_table_has_an_empty_estimate(self):
         assert self._estimate("SELECT 1") == ScanEstimate(rows=0, upper_bound=False, tables=())
         # The tables it does read sit in a subquery the walk does not follow, and the estimate says so.
         assert self._estimate("SELECT (SELECT count() FROM events)") == ScanEstimate(
             rows=0, upper_bound=False, tables=(), complete=False
         )
+        assert self._estimate("SELECT 1 ORDER BY (SELECT count() FROM events)") == ScanEstimate(
+            rows=0, upper_bound=False, tables=(), complete=False
+        )
+        # A FROM tree the walk declines is not "nothing to read".
+        assert self._estimate("WITH RECURSIVE x AS (SELECT event FROM events) SELECT event FROM x") is None
 
     @parameterized.expand(
         [

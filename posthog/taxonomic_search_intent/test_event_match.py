@@ -94,6 +94,19 @@ class TestMatchCoreEvents(BaseTest):
         assert sum(asked) == len(CORE_EVENT_CANDIDATES)
         assert "Search: browser capture" in client.decide.call_args.kwargs["state"]
 
+    def test_model_change_recomputes_cached_matches(self) -> None:
+        client = _model_that_believes({"Autocapture": 0.95})
+        models = ["posthog/hogference/jevk5-fp8-0.2", "posthog/hogference/jeeves-0.1"]
+        with (
+            patch(BUILD_CLIENT, return_value=client) as build,
+            patch("posthog.taxonomic_search_intent.event_match.EVENT_MATCH_MODEL.current", side_effect=models),
+        ):
+            match_core_events(self._search("browser capture"))
+            match_core_events(self._search("browser capture"))
+
+        assert build.call_count == 2
+        assert [call.kwargs["model"] for call in build.call_args_list] == models
+
     def test_suggests_the_likely_ingested_events_strongest_first(self) -> None:
         client = _model_that_believes(
             {

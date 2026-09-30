@@ -51,6 +51,19 @@ class TestLookupClient(SimpleTestCase):
             credential_provider=creds.read_password, send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, user="app"
         )
 
+    @override_settings(CLICKHOUSE_USE_HTTP=True)
+    def test_the_http_client_gets_its_own_pool_and_the_bounded_wait(self):
+        with (
+            patch("posthog.hogql.cost.statistics.get_http_kwargs", return_value={"user": "app", "password": "tok"}),
+            patch("posthog.hogql.cost.statistics._lookup_http_pool_mgr", return_value="own-pool"),
+            patch("posthog.hogql.cost.statistics.get_http_client") as http_client,
+        ):
+            _lookup_client(1)
+
+        http_client.assert_called_once_with(
+            send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, pool_mgr="own-pool", user="app", password="tok"
+        )
+
 
 class TestEventVolume(SimpleTestCase):
     def test_per_day_and_event_fraction_scale_from_the_recorded_window(self):

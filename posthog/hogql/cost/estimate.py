@@ -26,12 +26,13 @@ bound means "the whole window", an unrecognised event predicate means "all event
 outer select never narrows the subquery it reads from.
 """
 
+import dataclasses
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from posthog.hogql import ast
-from posthog.hogql.base import CTE
+from posthog.hogql.base import AST, CTE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.statistics import EventVolume, StatisticsProvider
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
@@ -50,6 +51,26 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.dataclasses import frozen
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
+
+# A FROM tree stops being walked past this many scans. Each CTE reference is followed into its body, so a chain
+# of CTEs that each join the previous one to itself doubles the scans per level; the cap keeps a short query
+# from costing a worker exponential work before ClickHouse ever sees it.
+MAX_SCANS = 64
+
+
+class _TooManyScans(Exception):
+    pass
+
+
+class _ScanBudget:
+    def __init__(self, limit: int = MAX_SCANS) -> None:
+        self.remaining = limit
+
+    def take(self) -> None:
+        if self.remaining <= 0:
+            raise _TooManyScans
+        self.remaining -= 1
+
 
 # A team's retention rarely exceeds this, and a query with no timestamp bound reads whatever exists.
 DEFAULT_RANGE_DAYS = 365
@@ -149,7 +170,8 @@ def estimate_scan(
     """Estimate what a resolved query reads, or None when its FROM tree cannot be walked.
 
     A query that reads no table gets an empty estimate, so a caller can tell "nothing to read" from "could not
-    estimate". Its ``complete`` flag still says whether a subquery outside FROM reads something.
+    estimate". Its ``complete`` flag still says whether a subquery outside FROM reads something. A FROM tree
+    the walk cannot model, such as a recursive CTE, is None like a failure, never an empty estimate.
     """
     if context.team_id is None:
         return None
@@ -161,7 +183,12 @@ def estimate_scan(
         from posthog.hogql.transforms.property_types import build_property_swapper  # noqa: PLC0415
 
         build_property_swapper(node, context)
-    scans = _table_scans(node, now, context, ctes={})
+    try:
+        scans = _table_scans(node, now, context, ctes={}, budget=_ScanBudget())
+    except _TooManyScans:
+        return None
+    if scans is None:
+        return None
     complete = not _SubqueryOutsideFromFinder.found_in(node)
     if not scans:
         return ScanEstimate(rows=0, upper_bound=False, tables=(), complete=complete)
@@ -198,7 +225,8 @@ def estimate_scan(
 
 
 class _SubqueryOutsideFromFinder(TraversingVisitor):
-    """Whether a select reads a table anywhere but its FROM clause: a subquery in WHERE, HAVING or the select list."""
+    """Whether a select reads a table anywhere but its FROM clause: a subquery in the select list, WHERE, GROUP
+    BY, ORDER BY, a join constraint, or any other expression clause."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -211,8 +239,10 @@ class _SubqueryOutsideFromFinder(TraversingVisitor):
         return finder.found
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        for expr in (*node.select, node.where, node.prewhere, node.having):
-            if expr is not None and _holds_select(expr):
+        # Every clause but FROM is checked, whatever its name, so a clause added to the AST later is covered.
+        for field in dataclasses.fields(node):
+            name, value = field.name, getattr(node, field.name)
+            if name not in ("type", "select_from", "ctes") and _holds_select_in(value):
                 self.found = True
         # A CTE body is a select of its own, with its own clauses to check, whether or not FROM refers to it.
         for cte in (node.ctes or {}).values():
@@ -223,11 +253,23 @@ class _SubqueryOutsideFromFinder(TraversingVisitor):
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         # A subquery in FROM is walked by the estimator; only its own clauses are checked here.
         self.visit(node.table)
+        if _holds_select_in(node.table_args) or _holds_select_in(node.constraint):
+            self.found = True
         if node.next_join is not None:
             self.visit(node.next_join)
 
 
-def _holds_select(expr: ast.Expr) -> bool:
+def _holds_select_in(value: object) -> bool:
+    if isinstance(value, AST):
+        return _holds_select(value)
+    if isinstance(value, list | tuple):
+        return any(_holds_select_in(item) for item in value)
+    if isinstance(value, dict):
+        return any(_holds_select_in(item) for item in value.values())
+    return False
+
+
+def _holds_select(expr: AST) -> bool:
     class Finder(TraversingVisitor):
         def __init__(self) -> None:
             super().__init__()
@@ -447,7 +489,7 @@ def _indexed_property(expr: ast.Expr, context: HogQLContext) -> bool:
 
 
 def _table_scans(
-    node: ast.Expr, now: datetime, context: HogQLContext, ctes: Mapping[str, CTE]
+    node: ast.Expr, now: datetime, context: HogQLContext, ctes: Mapping[str, CTE], budget: _ScanBudget
 ) -> list[_EventsScan | _SessionsScan | _OtherScan] | None:
     """Every table scan a query's FROM clause performs, or None when the FROM tree cannot be walked.
 
@@ -460,7 +502,7 @@ def _table_scans(
         scans: list[_EventsScan | _SessionsScan | _OtherScan] = []
         in_scope = dict(ctes)
         for branch in node.select_queries():
-            branch_scans = _table_scans(branch, now, context, in_scope)
+            branch_scans = _table_scans(branch, now, context, in_scope, budget)
             if branch_scans is None:
                 return None
             scans.extend(branch_scans)
@@ -486,6 +528,7 @@ def _table_scans(
         if source is None:
             return None
         if isinstance(source, _TableRef):
+            budget.take()
             name = _scan_name(join, source)
             if isinstance(source.table, EventsTable):
                 scans.append(predicates.scan_for(name, source.alias))
@@ -494,7 +537,7 @@ def _table_scans(
             else:
                 scans.append(_OtherScan(name=name, table=source.table))
         else:
-            inner = _table_scans(source, now, context, ctes)
+            inner = _table_scans(source, now, context, ctes, budget)
             if inner is None:
                 return None
             scans.extend(inner)

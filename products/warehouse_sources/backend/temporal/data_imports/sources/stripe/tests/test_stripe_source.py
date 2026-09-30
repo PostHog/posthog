@@ -670,17 +670,31 @@ class TestStripeNestedResourceGetRows:
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
 
-    def test_sparse_sweep_checkpoints_by_parent_count(self):
+    @pytest.mark.parametrize(
+        "checkpoint_parents,checkpoint_seconds,expected_positions,expected_rows_totals",
+        [
+            (3, 3600.0, ["cus_2", "cus_5"], [3, 6, 8]),
+            (1000, 0.0, [f"cus_{i}" for i in range(7)], [1, 2, 3, 4, 5, 6, 7, 8]),
+        ],
+        ids=["by_parent_count", "by_elapsed_time"],
+    )
+    def test_sparse_sweep_checkpoints_and_reaches_a_safe_point(
+        self, checkpoint_parents, checkpoint_seconds, expected_positions, expected_rows_totals
+    ):
         # A nested resource where no parent has data (CustomerPaymentMethod over customers with no
         # stored payment method) never fills a chunk, so the row-driven checkpoint never fires and
         # a killed run restarted the whole customer walk. Position must be recorded by parents
-        # walked, regardless of how few rows come back.
+        # walked or time spent, regardless of how few rows come back, and each such checkpoint is
+        # where the sweep can hand off during a worker shutdown.
         def nested_method(customer=None, params=None):
             return _list_object([])
 
         manager = MagicMock()
         logger = MagicMock()
-        with patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", 3):
+        with (
+            patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", checkpoint_parents),
+            patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_SECONDS", checkpoint_seconds),
+        ):
             rows = _run_nested_get_rows(
                 nested_method,
                 parent_objects=[{"id": f"cus_{i}"} for i in range(8)],
@@ -689,12 +703,12 @@ class TestStripeNestedResourceGetRows:
             )
 
         assert rows == []
-        # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
-        assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
-        assert manager.committing.call_count == 2
+        assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == expected_positions
+        manager.committing.assert_not_called()
+        assert manager.safe_point.call_count == len(expected_positions)
         # The pipeline kills this loop mid-sweep on a worker shutdown, so every checkpoint carries
         # the running fan-out size instead of leaving the attempt's only line until after the loop.
-        assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == [3, 6, 8]
+        assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == expected_rows_totals
 
     def test_query_param_service_receives_parent_in_params(self):
         # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
