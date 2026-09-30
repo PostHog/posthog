@@ -1087,8 +1087,8 @@ class TestCalculateActivity(BaseTest):
         self, name: str, metric_uuid: str, metrics: list, mock_runner_failure: bool, expected_result_rows: int
     ):
         # Temporal retries the whole activity on transient failure. The run write is idempotent (update_or_create
-        # keyed on fingerprint + query_to) and metric_errors is keyed by metric_uuid, so a second run must leave
-        # state identical to the first — no inflated counts, no duplicate result rows.
+        # keyed on experiment, metric_uuid and query_to) and metric_errors is keyed by metric_uuid, so a second run
+        # must leave state identical to the first — no inflated counts, no duplicate result rows.
         exp = self._experiment(flag_key=f"retry-{name}", metrics=metrics)
         recalc = self._recalc(exp, metric_uuids=[metric_uuid])
 
