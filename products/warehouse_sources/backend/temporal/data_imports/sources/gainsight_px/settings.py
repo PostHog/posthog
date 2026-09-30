@@ -44,6 +44,12 @@ EPOCH_MILLIS_FIELDS: frozenset[str] = frozenset(
 # The `/events/*` streams accept `filter=date>=<epoch millis>` and `sort=date`, which is what makes
 # them incremental. Events are immutable, so `date` never changes after capture.
 EVENT_DATE_FIELD = "date"
+# An events request without a date range returns only the last day, and a range above 190 days is a
+# 400, so event syncs walk explicit windows. 180 days leaves headroom under the cap.
+EVENT_WINDOW_DAYS = 180
+# How far back the first sync (and every full refresh) of an event table reaches. The API documents
+# no retention limit, so this bounds the backfill.
+EVENT_BACKFILL_DAYS = 730
 EVENT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
         "label": EVENT_DATE_FIELD,

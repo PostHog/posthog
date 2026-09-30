@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -16,7 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.settings import (
     EPOCH_MILLIS_FIELDS,
+    EVENT_BACKFILL_DAYS,
     EVENT_DATE_FIELD,
+    EVENT_WINDOW_DAYS,
     GAINSIGHT_PX_ENDPOINTS,
     GAINSIGHT_PX_HOSTS,
 )
@@ -25,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
 # (api_key/header) means its value is scrubbed from every raised error and captured sample.
 API_KEY_HEADER = "X-APTRINSIC-API-KEY"
 
+MILLIS_PER_DAY = 24 * 60 * 60 * 1000
+
 
 @dataclasses.dataclass(frozen=False)
 class GainsightPxResumeConfig:
@@ -32,6 +37,8 @@ class GainsightPxResumeConfig:
     scroll_id: str | None = None
     # Next page index for page-number-paginated endpoints (features/segments/…). None starts at 0.
     page_number: int | None = None
+    # Start (epoch millis) of the date window an event stream is walking. `scroll_id` belongs to it.
+    window_start: int | None = None
 
 
 def _base_url(region: str) -> str:
@@ -69,15 +76,12 @@ def _to_epoch_millis(value: Any) -> int:
     return _to_epoch_millis(datetime.fromisoformat(str(value)))
 
 
-def _endpoint_params(endpoint: str, db_incremental_field_last_value: Optional[Any]) -> dict[str, Any]:
-    config = GAINSIGHT_PX_ENDPOINTS[endpoint]
-    params: dict[str, Any] = {"pageSize": config.page_size}
-    if config.incremental_fields:
-        # Always sort ascending so the pipeline can checkpoint the watermark after each batch.
-        params["sort"] = EVENT_DATE_FIELD
-        if db_incremental_field_last_value is not None:
-            params["filter"] = f"{EVENT_DATE_FIELD}>={_to_epoch_millis(db_incremental_field_last_value)}"
-    return params
+def _event_windows(start_ms: int, end_ms: int) -> Iterator[tuple[int, int]]:
+    window_ms = EVENT_WINDOW_DAYS * MILLIS_PER_DAY
+    while start_ms < end_ms:
+        window_end = min(start_ms + window_ms, end_ms)
+        yield start_ms, window_end
+        start_ms = window_end
 
 
 class _ScrollPaginator(BasePaginator):
@@ -177,25 +181,11 @@ class _PageNumberPaginator(BasePaginator):
             self._has_next_page = True
 
 
-def gainsight_px_source(
-    api_key: str,
-    region: str,
-    endpoint: str,
-    team_id: int,
-    job_id: str,
-    resumable_source_manager: ResumableSourceManager[GainsightPxResumeConfig],
-    db_incremental_field_last_value: Optional[Any] = None,
-) -> SourceResponse:
+def _rest_config(
+    api_key: str, region: str, endpoint: str, params: dict[str, Any], paginator: BasePaginator
+) -> RESTAPIConfig:
     config = GAINSIGHT_PX_ENDPOINTS[endpoint]
-    partition_key = config.partition_key
-
-    paginator: BasePaginator
-    if config.pagination == "scroll":
-        paginator = _ScrollPaginator(page_size=config.page_size)
-    else:
-        paginator = _PageNumberPaginator(page_size=config.page_size)
-
-    rest_config: RESTAPIConfig = {
+    return {
         "client": {
             "base_url": _base_url(region),
             # Only the non-secret Accept header goes here; the API key rides on framework `auth` so
@@ -209,13 +199,105 @@ def gainsight_px_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": _endpoint_params(endpoint, db_incremental_field_last_value),
+                    "params": params,
                     "data_selector": config.data_key,
                 },
                 "data_map": _normalize_row,
             }
         ],
     }
+
+
+def _event_pages(
+    api_key: str,
+    region: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[GainsightPxResumeConfig],
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[Any]:
+    config = GAINSIGHT_PX_ENDPOINTS[endpoint]
+    end_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    scroll_id: Optional[str] = None
+    if resume is not None and resume.window_start is not None:
+        start_ms = resume.window_start
+        scroll_id = resume.scroll_id
+    elif db_incremental_field_last_value is not None:
+        start_ms = _to_epoch_millis(db_incremental_field_last_value)
+    else:
+        start_ms = end_ms - EVENT_BACKFILL_DAYS * MILLIS_PER_DAY
+
+    for window_start, window_end in _event_windows(start_ms, end_ms):
+        params = {
+            "pageSize": config.page_size,
+            # Ascending within ascending windows lets the pipeline checkpoint the watermark per batch.
+            "sort": EVENT_DATE_FIELD,
+            "filter": f"{EVENT_DATE_FIELD}>={window_start};{EVENT_DATE_FIELD}<{window_end}",
+        }
+
+        def save_checkpoint(state: Optional[dict[str, Any]], _window_start: int = window_start) -> None:
+            if state and state.get("scroll_id") is not None:
+                resumable_source_manager.save_state(
+                    GainsightPxResumeConfig(scroll_id=str(state["scroll_id"]), window_start=_window_start)
+                )
+
+        yield from rest_api_resource(
+            _rest_config(api_key, region, endpoint, params, _ScrollPaginator(page_size=config.page_size)),
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state={"scroll_id": scroll_id} if scroll_id is not None else None,
+        )
+        scroll_id = None
+        if window_end < end_ms:
+            resumable_source_manager.save_state(GainsightPxResumeConfig(window_start=window_end))
+
+
+def gainsight_px_source(
+    api_key: str,
+    region: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[GainsightPxResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
+) -> SourceResponse:
+    config = GAINSIGHT_PX_ENDPOINTS[endpoint]
+    partition_key = config.partition_key
+    response_kwargs: dict[str, Any] = {
+        "name": endpoint,
+        "primary_keys": config.primary_keys,
+        "partition_count": 1,
+        "partition_size": 1,
+        "partition_mode": "datetime" if partition_key else None,
+        "partition_format": "month" if partition_key else None,
+        "partition_keys": [partition_key] if partition_key else None,
+        "sort_mode": "asc",
+    }
+
+    if config.incremental_fields:
+        return SourceResponse(
+            items=lambda: _event_pages(
+                api_key,
+                region,
+                endpoint,
+                team_id,
+                job_id,
+                resumable_source_manager,
+                db_incremental_field_last_value,
+            ),
+            **response_kwargs,
+        )
+
+    paginator: BasePaginator
+    if config.pagination == "scroll":
+        paginator = _ScrollPaginator(page_size=config.page_size)
+    else:
+        paginator = _PageNumberPaginator(page_size=config.page_size)
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
@@ -237,26 +319,15 @@ def gainsight_px_source(
             resumable_source_manager.save_state(GainsightPxResumeConfig(page_number=int(state["page_number"])))
 
     resource = rest_api_resource(
-        rest_config,
+        _rest_config(api_key, region, endpoint, {"pageSize": config.page_size}, paginator),
         team_id,
         job_id,
-        None,  # the date filter is built into the endpoint params above
+        None,  # every entity endpoint is full refresh
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if partition_key else None,
-        partition_format="month" if partition_key else None,
-        partition_keys=[partition_key] if partition_key else None,
-        sort_mode="asc",
-        column_hints=resource.column_hints,
-    )
+    return SourceResponse(items=lambda: resource, column_hints=resource.column_hints, **response_kwargs)
 
 
 def validate_credentials(api_key: str, region: str) -> bool:
