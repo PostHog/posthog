@@ -46,8 +46,8 @@ export function WatchFeedIntro(): JSX.Element {
             <div className="flex flex-col items-center gap-2 text-center">
                 <h3 className="text-xl font-semibold m-0">See your most notable observations here</h3>
                 <p className="text-secondary m-0 max-w-lg">
-                    Scanners watch each new session recording and cite the moment they found. That moment becomes a clip
-                    on this page.
+                    Scanners watch each new session recording and cite the moment they found. We surface the most
+                    notable ones here.
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
                     <CreateScannerButton
