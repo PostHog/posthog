@@ -69,6 +69,9 @@ class DecisionRequest:
     properties: dict[str, str] | None = None
     # The acting user; unset for background work, which is labelled with the team.
     distinct_id: str | None = None
+    # The gateway records the request state and answers into the internal AI observability project
+    # unless asked not to. Set this when the state carries customer content.
+    privacy_mode: bool = False
 
     def __post_init__(self) -> None:
         if self.team_id <= 0:

@@ -53156,6 +53156,8 @@ export namespace Schemas {
       in_session?: boolean | null;
       /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
       variant?: string | null;
+      /** Narrow to persons exposed to any of these variants. Defaults to all of the experiment's variants. Do not combine with `variant`, the single-variant form that predates this field. */
+      variants?: string[] | null;
     }
 
     export type RecordingOrder = typeof RecordingOrder[keyof typeof RecordingOrder];
@@ -88036,6 +88038,26 @@ export namespace Schemas {
       P4: 'P4',
     } as const;
 
+    export interface ReportReadStateRequest {
+      /**
+         * Reports to read or update, limited to the current project.
+         * @maxItems 100
+         */
+      report_ids: string[];
+      /** Set these reports read or unread for the current user. Omit to read their state. */
+      read?: boolean;
+    }
+
+    /**
+     * Read state keyed by report UUID.
+     */
+    export type ReportReadStateResponseStates = {[key: string]: boolean};
+
+    export interface ReportReadStateResponse {
+      /** Read state keyed by report UUID. */
+      states: ReportReadStateResponseStates;
+    }
+
     export interface SignalReport {
       readonly id: string;
       /** @nullable */
@@ -100034,6 +100056,38 @@ export namespace Schemas {
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
+    }
+
+    export interface TaskReviewFile {
+      /** Repository-relative path. */
+      filename: string;
+      /** Change type reported by GitHub. */
+      status: string;
+      /** Added lines. */
+      additions: number;
+      /** Removed lines. */
+      deletions: number;
+      /** Unified diff, limited to 20,000 characters per file. */
+      patch: string;
+      /** Open GitHub to read the complete or binary change. */
+      truncated: boolean;
+    }
+
+    export interface TaskReview {
+      /** GitHub pull request URL. */
+      url: string;
+      /** Pull request title. */
+      title: string;
+      /** Pull request state. */
+      state: string;
+      /** Combined check result. */
+      ci_status: string;
+      /** Head commit used for the check result. */
+      head_sha: string;
+      /** Changed files on this page. */
+      files: TaskReviewFile[];
+      /** Whether another file page is available. */
+      has_more: boolean;
     }
 
     /**
@@ -118540,6 +118594,10 @@ export namespace Schemas {
      */
     unclaimed?: boolean;
     /**
+     * Filter by the current user's report read state.
+     */
+    unread?: boolean;
+    /**
      * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
      */
     use_priority_preference?: boolean;
@@ -119644,6 +119702,15 @@ export namespace Schemas {
      * @maximum 100
      */
     limit?: number;
+    };
+
+    export type TasksReviewRetrieveParams = {
+    /**
+     * Page of changed files.
+     * @minimum 1
+     * @maximum 100
+     */
+    page?: number;
     };
 
     export type TasksRunsListParams = {
