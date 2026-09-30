@@ -25,6 +25,8 @@ from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+from webauthn.helpers import base64url_to_bytes
+from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
@@ -58,6 +60,8 @@ from posthog.models.utils import (
     SECRET_API_TOKEN_PREFIX,
     hash_key_value,
 )
+from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
@@ -155,8 +159,6 @@ class ZxcvbnValidator:
         self.min_length = min_length
 
     def validate(self, password, user=None):
-        from zxcvbn import zxcvbn
-
         result = zxcvbn(password)
 
         if result["score"] < 3:
@@ -1483,11 +1485,6 @@ class WebauthnBackend(BaseBackend):
             return None
 
         try:
-            from webauthn.helpers import base64url_to_bytes
-
-            from posthog.models.webauthn_credential import WebauthnCredential
-            from posthog.passkey import verify_passkey_authentication_response
-
             # Decode credential ID
             credential_id_bytes = base64url_to_bytes(credential_id)
 
