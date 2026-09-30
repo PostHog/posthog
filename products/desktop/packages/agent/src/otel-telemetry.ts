@@ -247,6 +247,20 @@ export function mapNotificationToLogRecord(
     }
     case POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY:
       return record(INFO, "compact boundary", method, {});
+    case POSTHOG_NOTIFICATIONS.PROCESS_KILLED: {
+      const attrs: Attributes = {};
+      const comm = strAttr(attrs, "process_comm", params.comm);
+      strAttr(attrs, "process_signal", params.signal);
+      numAttr(attrs, "process_tree_rss_bytes", params.treeRssBytes);
+      numAttr(attrs, "memory_current_bytes", params.memoryCurrentBytes);
+      numAttr(attrs, "memory_limit_bytes", params.memoryLimitBytes);
+      return record(
+        WARN,
+        `process killed${comm ? ` (${comm})` : ""}`,
+        method,
+        attrs,
+      );
+    }
     case POSTHOG_NOTIFICATIONS.PERMISSION_REQUEST:
     case POSTHOG_NOTIFICATIONS.PERMISSION_RESPONSE:
     case POSTHOG_NOTIFICATIONS.PERMISSION_RESOLVED: {

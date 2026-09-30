@@ -207,7 +207,8 @@ class TestComputeTableStatisticsSync:
         delta_table.version.return_value = version
         delta_table.get_add_actions.return_value = add_actions
         delta_table.table_uri = "s3://bucket/data/stripe_charge/"
-        fields = [{"name": name, "type": kind} for name, kind in (delta_types or {"amount": "long"}).items()]
+        types = {"amount": "long"} if delta_types is None else delta_types
+        fields = [{"name": name, "type": kind} for name, kind in types.items()]
         delta_table.schema.return_value.to_json.return_value = json.dumps({"type": "struct", "fields": fields})
         helper = MagicMock()
         helper.get_delta_table = AsyncMock(return_value=delta_table)
@@ -544,6 +545,35 @@ class TestComputeTableStatisticsSync:
         mock_capture.assert_called_once()
         reported = str(mock_capture.call_args[0][0])
         assert "not-a-number" not in reported
+
+    @parameterized.expand(
+        [
+            ("turned_nested", {"amount": {"type": "struct", "fields": []}}),
+            ("left_the_schema", {}),
+        ]
+    )
+    def test_a_column_whose_stored_bounds_lost_their_type_falls_back(self, _name: str, delta_types: dict) -> None:
+        # Schema evolution can turn a column the last full scan recorded bounds for into a nested
+        # type, or drop it from the Delta schema. The fold cannot keep those bounds current, so it
+        # has to fall back to the full scan rather than raise.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        self._stored(team, table, min_value="2", max_value="50")
+        add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        helper = self._mock_delta(add_actions, version=8, delta_types=delta_types)
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
+            patch.object(comp, "capture_exception") as mock_capture,
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["basis"] == "full"
+        assert not mock_read.called
+        mock_capture.assert_not_called()
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.row_count == 99
 
     def test_a_nested_column_neither_blocks_nor_gains_bounds_from_the_fold(self) -> None:
         team = self._team()

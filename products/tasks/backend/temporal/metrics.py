@@ -390,6 +390,16 @@ def increment_tool_call_only_heartbeat() -> None:
         pass
 
 
+def increment_sandbox_process_killed_notification() -> None:
+    try:
+        _metric_meter().create_counter(
+            "tasks_sandbox_process_killed_notifications",
+            "Sandbox memory watchdog kills relayed from the agent server to the run",
+        ).add(1)
+    except Exception:
+        pass
+
+
 def increment_pr_babysit_decision(decision: str) -> None:
     try:
         meter = workflow.metric_meter().with_additional_attributes({"decision": decision})
