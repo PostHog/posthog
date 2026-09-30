@@ -28,8 +28,8 @@ export interface todaySessionMenuLogicActions {
         sessionId: string,
         archived: boolean
     ) => {
-        sessionId: string
         archived: boolean
+        sessionId: string
     }
     moveSession: (
         sessionId: string,
@@ -45,18 +45,18 @@ export interface todaySessionMenuLogicActions {
         sessionId: string
         title: string
     }
-    sessionUpdated: (sessionId: string) => {
+    sessionUpdateFailed: (sessionId: string) => {
         sessionId: string
     }
-    sessionUpdateFailed: (sessionId: string) => {
+    sessionUpdated: (sessionId: string) => {
         sessionId: string
     }
     setSessionPinned: (
         sessionId: string,
         pinned: boolean
     ) => {
-        sessionId: string
         pinned: boolean
+        sessionId: string
     }
     startRenaming: (sessionId: string) => {
         sessionId: string
