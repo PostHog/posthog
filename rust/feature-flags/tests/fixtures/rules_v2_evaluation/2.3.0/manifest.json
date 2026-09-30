@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "contract": {
     "name": "feature_flag_rules_v2",
-    "version": "2.2.0",
+    "version": "2.3.0",
     "config_version": 2
   },
   "corpus": {
@@ -1177,6 +1177,69 @@
         "v2_boolean.error.invalid_not_regex_negated",
         "v2_boolean.target.empty_identifier"
       ]
+    },
+    {
+      "path": "schemas/v2_value_evaluation.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "corpus/v2_value_evaluation.json",
+      "kind": "value_evaluation_corpus",
+      "version": "1.0.0",
+      "schema": "schemas/v2_value_evaluation.schema.json",
+      "component": "v2_value_evaluation",
+      "case_ids": [
+        "v2_value.string.target",
+        "v2_value.string.rollout_hit",
+        "v2_value.string.miss_return_default",
+        "v2_value.string.miss_return_default_null",
+        "v2_value.string.miss_continue",
+        "v2_value.string.no_match_default",
+        "v2_value.string.no_match_null",
+        "v2_value.string.order_first_match",
+        "v2_value.string.order_targeting_miss",
+        "v2_value.number.target",
+        "v2_value.number.rollout_hit",
+        "v2_value.number.miss_return_default",
+        "v2_value.number.miss_return_default_null",
+        "v2_value.number.miss_continue",
+        "v2_value.number.no_match_default",
+        "v2_value.number.no_match_null",
+        "v2_value.number.order_first_match",
+        "v2_value.number.order_targeting_miss",
+        "v2_value.object.target",
+        "v2_value.object.rollout_hit",
+        "v2_value.object.miss_return_default",
+        "v2_value.object.miss_return_default_null",
+        "v2_value.object.miss_continue",
+        "v2_value.object.no_match_default",
+        "v2_value.object.no_match_null",
+        "v2_value.object.order_first_match",
+        "v2_value.object.order_targeting_miss",
+        "v2_value.string.unicode",
+        "v2_value.string.looks_boolean",
+        "v2_value.number.zero",
+        "v2_value.number.negative_decimal",
+        "v2_value.number.short_decimal",
+        "v2_value.number.exponent",
+        "v2_value.number.max_safe_integer",
+        "v2_value.number.min_safe_integer",
+        "v2_value.object.empty",
+        "v2_value.object.nested",
+        "v2_value.object.max_depth",
+        "v2_value.parser.string_empty_value",
+        "v2_value.parser.string_empty_default",
+        "v2_value.parser.string_value_mismatch",
+        "v2_value.parser.number_value_mismatch",
+        "v2_value.parser.number_default_mismatch",
+        "v2_value.parser.number_above_safe_integer",
+        "v2_value.parser.number_below_safe_integer",
+        "v2_value.parser.object_array_value",
+        "v2_value.parser.object_default_mismatch",
+        "v2_value.parser.object_too_deep",
+        "v2_value.parser.object_nested_number_above_safe_integer"
+      ]
     }
   ],
   "wire_contract": {
@@ -1188,6 +1251,11 @@
     "compatibility": "New artifacts are additive to contract 1.2.0. Published schema bytes and fixture expectations are immutable. Accepted/rejected wire-contract changes require a new major wire component version; additive cases require a new minor fixture version. Reader expectations never relax producer validation."
   },
   "v2_boolean_evaluation": {
+    "version": "1.0.0",
+    "config_version_locked": 2,
+    "published_versions_are_immutable": true
+  },
+  "v2_value_evaluation": {
     "version": "1.0.0",
     "config_version_locked": 2,
     "published_versions_are_immutable": true
