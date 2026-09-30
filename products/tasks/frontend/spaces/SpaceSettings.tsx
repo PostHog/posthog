@@ -5,6 +5,8 @@ import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSelect } from '@
 
 import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
+import { SpaceAccess } from './SpaceAccess'
+import { SpaceRepositories } from './SpaceRepositories'
 import { spaceSceneLogic } from './spaceSceneLogic'
 
 const AUTO_ARCHIVE_DAYS = [1, 3, 7, 14, 30]
@@ -58,6 +60,16 @@ export function SpaceSettings({ id }: { id: string }): JSX.Element | null {
                         Save
                     </LemonButton>
                 </div>
+            </div>
+            <div className="flex flex-col gap-2">
+                <LemonLabel info="Sessions in this space start with these repositories checked out.">
+                    Repositories
+                </LemonLabel>
+                <SpaceRepositories id={id} />
+            </div>
+            <div className="flex flex-col gap-2">
+                <LemonLabel>Access</LemonLabel>
+                <SpaceAccess id={id} />
             </div>
             <div className="flex flex-col gap-2">
                 <LemonLabel info="Sessions with no activity for this long move to the archive. In shared spaces, only project admins can change this.">
