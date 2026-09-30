@@ -30,6 +30,11 @@ class TypeSafeClient(EgressClient):
 
     observability = typesafe_egress
 
+    def _gate(self, scope: str | None, source: str, priority: Priority, url: str) -> None:
+        if not typesafe_allowed():
+            raise SystemOneNotConfigured("TypeSafe is disabled on PostHog Cloud; use the ai-gateway System One model")
+        super()._gate(scope, source, priority, url)
+
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json", "Content-Type": "application/json"}
 
@@ -68,8 +73,6 @@ def typesafe_request(
     can do without the judgment. A CRITICAL call is never shed, so it would skip the hourly ceiling,
     which is the only cap on per-token spend. This function rejects CRITICAL for that reason.
     """
-    if not typesafe_allowed():
-        raise SystemOneNotConfigured("TypeSafe is disabled on PostHog Cloud; use the ai-gateway System One model")
     if priority is Priority.CRITICAL:
         raise ValueError("TypeSafe calls must be sheddable, so use NORMAL or BATCH")
     return _typesafe_client.request(

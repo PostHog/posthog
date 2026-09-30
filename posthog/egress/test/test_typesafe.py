@@ -12,6 +12,7 @@ from prometheus_client import REGISTRY
 from posthog.egress.limiter.policies import Priority, resolve_policy
 from posthog.egress.typesafe.client import TypeSafeNotConfigured, TypeSafeRequestFailed, system_one
 from posthog.egress.typesafe.limiter import typesafe_account_key
+from posthog.egress.typesafe.transport import TypeSafeClient
 from posthog.llm.system_one import (
     ChoiceAnswer,
     ChoiceQuestion,
@@ -69,9 +70,11 @@ class TestTypeSafeEgress(SimpleTestCase):
         with (
             override_settings(CLOUD_DEPLOYMENT=deployment),
             patch("requests.request") as request,
-            self.assertRaisesRegex(SystemOneNotConfigured, "ai-gateway"),
         ):
-            system_one(state="hi", questions=_QUESTIONS, source="test")
+            with self.assertRaisesRegex(SystemOneNotConfigured, "ai-gateway"):
+                system_one(state="hi", questions=_QUESTIONS, source="test")
+            with self.assertRaisesRegex(SystemOneNotConfigured, "ai-gateway"):
+                TypeSafeClient().request("POST", "https://api.typesafe.ai/v1/systemone", source="test")
         request.assert_not_called()
 
     def test_sends_the_documented_request_and_records_it_without_the_key(self) -> None:
