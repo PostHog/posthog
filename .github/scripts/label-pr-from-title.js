@@ -2,7 +2,8 @@
 
 // Adds team/feature labels to a PR based on its conventional-commit scope
 // (`type(scope): summary`), plus the `docs` label for docs-typed or Inkeep-bot
-// PRs. Additive only — it never removes labels, so manual labels and the
+// PRs and the `review/low-hanging-fruit` label for small feature flags AI PRs.
+// Additive only — it never removes labels, so manual labels and the
 // ownership-based labeler (assign-reviewers.js) are left intact.
 //
 // The scope -> labels mapping lives in .github/auto-assign-labels.json, OUTSIDE
@@ -11,6 +12,7 @@
 // checkout, never the PR, so a fork PR can't inject its own mappings, and the
 // PR title only ever selects from a fixed, pre-approved set of labels.
 
+const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
@@ -58,6 +60,67 @@ function parseType(title) {
 // commit type and the author rather than the scope.
 function docsLabelApplies(title, author) {
     return parseType(title) === 'docs' || author === INKEEP_BOT_LOGIN
+}
+
+// The PostHog AI app's login. Its PRs carry the `self-driving` label, but the
+// app adds that label a few seconds after it opens the PR, so the `opened`
+// payload does not have it yet. The author is set when the PR opens.
+const AI_BOT_LOGIN = 'posthog[bot]'
+
+// Feature flags team AI PRs small enough to review in one sitting get this
+// label, so the team can pick them off the board first.
+const LOW_HANGING_FRUIT_LABEL = 'review/low-hanging-fruit'
+const LOW_HANGING_FRUIT_TEAM_LABEL = 'team/feature-flags'
+const LOW_HANGING_FRUIT_MAX_CHANGED_FILES = 2
+const LOW_HANGING_FRUIT_MAX_CHANGED_LINES = 50
+// A small diff in these paths still needs a careful review: a migration changes
+// production data, and a workflow change runs with repository secrets.
+const RISKY_PATH_PATTERNS = [/(^|\/)migrations\//, /^\.github\//]
+
+// Only AI PRs that the title rules already gave to the feature flags team are
+// candidates. Other teams have not opted in to this label.
+function isLowHangingFruitCandidate(author, labels) {
+    return author === AI_BOT_LOGIN && labels.includes(LOW_HANGING_FRUIT_TEAM_LABEL)
+}
+
+// Generated files do not count toward the size limits, because nobody reviews
+// them line by line. .gitattributes marks them as `linguist-generated`, and git
+// reads that file from the master checkout, so the list of generated paths has
+// one source of truth. If git fails, all files count, which can only withhold
+// the label.
+function withoutGeneratedFiles(files) {
+    if (files.length === 0) {
+        return files
+    }
+    try {
+        // `-z` separates paths with NUL in the input and output, so a PR file
+        // name that contains a newline cannot break the parse.
+        const output = execFileSync('git', ['check-attr', '-z', '--stdin', 'linguist-generated'], {
+            cwd: path.join(__dirname, '..', '..'),
+            input: files.map((file) => file.filename).join('\0'),
+        }).toString()
+        const fields = output.split('\0')
+        const generated = new Set()
+        for (let i = 0; i + 2 < fields.length; i += 3) {
+            if (fields[i + 2] === 'set') {
+                generated.add(fields[i])
+            }
+        }
+        return files.filter((file) => !generated.has(file.filename))
+    } catch (error) {
+        console.warn(`⚠️  Could not check for generated files: ${error?.message ?? error}`)
+        return files
+    }
+}
+
+// `files` has the shape of GitHub's "list pull request files" response.
+function isLowHangingFruit(files) {
+    const changedLines = files.reduce((sum, file) => sum + file.additions + file.deletions, 0)
+    return (
+        files.length <= LOW_HANGING_FRUIT_MAX_CHANGED_FILES &&
+        changedLines <= LOW_HANGING_FRUIT_MAX_CHANGED_LINES &&
+        !files.some((file) => RISKY_PATH_PATTERNS.some((pattern) => pattern.test(file.filename)))
+    )
 }
 
 // Map a title's scopes to the de-duplicated labels they should carry.
@@ -118,6 +181,35 @@ async function addLabels(labels) {
     }
 }
 
+// One page is enough: a PR with more files than a page holds is far over the
+// file limit, so the result is the same. Returns null on failure, because a
+// missing size must not fail the job or apply the label.
+async function fetchChangedFiles() {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+
+    try {
+        const response = await fetch(
+            `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100`,
+            {
+                headers: {
+                    Authorization: `token ${GITHUB_TOKEN}`,
+                    Accept: 'application/vnd.github.v3+json',
+                },
+            }
+        )
+
+        if (!response.ok) {
+            console.warn(`⚠️  Could not list PR files: ${response.status} ${response.statusText}`)
+            return null
+        }
+
+        return await response.json()
+    } catch (error) {
+        console.warn(`⚠️  Could not list PR files: ${error?.message ?? error}`)
+        return null
+    }
+}
+
 async function main() {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, PR_TITLE, PR_AUTHOR } = process.env
     const missing = Object.entries({ GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER })
@@ -135,6 +227,12 @@ async function main() {
         if (docsLabelApplies(PR_TITLE, PR_AUTHOR) && !labels.includes('docs')) {
             labels.push('docs')
         }
+        if (isLowHangingFruitCandidate(PR_AUTHOR, labels)) {
+            const files = await fetchChangedFiles()
+            if (files && isLowHangingFruit(withoutGeneratedFiles(files))) {
+                labels.push(LOW_HANGING_FRUIT_LABEL)
+            }
+        }
         console.info(`PR title: ${PR_TITLE || '(empty)'}`)
         await addLabels(labels)
     } catch (error) {
@@ -147,4 +245,13 @@ if (require.main === module) {
     main()
 }
 
-module.exports = { parseScopes, parseType, docsLabelApplies, labelsForTitle, loadRules }
+module.exports = {
+    parseScopes,
+    parseType,
+    docsLabelApplies,
+    labelsForTitle,
+    loadRules,
+    isLowHangingFruitCandidate,
+    isLowHangingFruit,
+    withoutGeneratedFiles,
+}
