@@ -50,7 +50,7 @@ def client_config(api_key: str) -> ClientConfig:
 
 
 def list_endpoint(path: str, params: dict[str, str | int]) -> Endpoint:
-    return {
+    endpoint: Endpoint = {
         "path": path,
         "params": params,
         "data_selector": "content",
@@ -67,6 +67,7 @@ def list_endpoint(path: str, params: dict[str, str | int]) -> Endpoint:
             }
         ],
     }
+    return endpoint
 
 
 def get_resource(
