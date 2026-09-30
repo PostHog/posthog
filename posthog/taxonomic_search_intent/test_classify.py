@@ -30,7 +30,7 @@ def _search(
 
 
 BUILD_CLIENT = "posthog.taxonomic_search_intent.classify.build_system_one_client"
-CURRENT_PROMPT = "posthog.taxonomic_search_intent.classify.current_search_intent_prompt"
+CURRENT_PROMPT = "posthog.taxonomic_search_intent.classify.fetch_search_intent_prompt"
 
 
 def _answer(choice: str, confidence: float) -> SystemOneResult:

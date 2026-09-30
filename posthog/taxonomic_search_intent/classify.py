@@ -23,7 +23,7 @@ from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
 from posthog.llm.system_one_client import build_system_one_client
 
 from .contracts import SearchIntent, SearchIntentRequest, SearchIntentSource
-from .prompt import SearchIntentPrompt, current_search_intent_prompt
+from .prompt import SearchIntentPrompt, fetch_search_intent_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -212,7 +212,7 @@ def classify_search_intent(
     request: SearchIntentRequest, *, use_cache: bool = True, prompt: SearchIntentPrompt | None = None
 ) -> SearchIntent:
     """Raises the System One errors; the caller decides whether a failed answer matters."""
-    prompt = prompt or current_search_intent_prompt()
+    prompt = prompt or fetch_search_intent_prompt()
     return with_switch_suggestion(_classify(request, prompt, use_cache=use_cache), request.active_group_type)
 
 

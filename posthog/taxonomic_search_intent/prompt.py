@@ -15,12 +15,7 @@ import structlog
 from posthoganalytics.ai.prompts import PromptResult
 
 from posthog.dataclasses import frozen
-from posthog.llm.managed_decision_model import (
-    DEFAULT_DECISION_MODEL,
-    BackgroundRefresher,
-    get_app_prompt,
-    model_from_config,
-)
+from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL, get_app_prompt, model_from_config
 from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS
 
 logger = structlog.get_logger(__name__)
@@ -106,16 +101,7 @@ def parse_search_intent_prompt(result: PromptResult) -> SearchIntentPrompt:
 
 
 def fetch_search_intent_prompt(*, version: int | None = None) -> SearchIntentPrompt:
-    """Reads the database. Request code reads `current_search_intent_prompt` instead."""
     result = get_app_prompt(SEARCH_INTENT_PROMPT_NAME, version=version)
     if result is None:
         return BUNDLED_SEARCH_INTENT_PROMPT
     return parse_search_intent_prompt(result)
-
-
-_REFRESHER = BackgroundRefresher(SEARCH_INTENT_PROMPT_NAME, BUNDLED_SEARCH_INTENT_PROMPT, fetch_search_intent_prompt)
-
-
-def current_search_intent_prompt() -> SearchIntentPrompt:
-    """Never blocks. The first requests after boot read the bundled copy until the first fetch lands."""
-    return _REFRESHER.current()

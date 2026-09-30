@@ -135,7 +135,7 @@ def suggest_emojis(query: str, *, team_id: int) -> EmojiSearchResult:
         return EmojiSearchResult([])
 
     catalog = load_catalog()
-    model = EMOJI_MODEL.current()
+    model = EMOJI_MODEL.fetch()
     digest = hashlib.sha256(f"{model}\n{query}".encode()).hexdigest()
     cache_key = f"emoji_search:v4:{catalog.fingerprint}:{team_id}:{digest}"
     try:

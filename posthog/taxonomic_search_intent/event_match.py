@@ -160,7 +160,7 @@ def likely_core_events(
     model_query = redact_values(query)
     if model_query is None:
         return []
-    model = model or EVENT_MATCH_MODEL.current()
+    model = model or EVENT_MATCH_MODEL.fetch()
     key = _cache_key(team_id, model_query, model)
     if use_cache:
         cached = cache.get(key)

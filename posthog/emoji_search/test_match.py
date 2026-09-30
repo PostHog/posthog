@@ -35,7 +35,7 @@ class TestSuggestEmojis(SimpleTestCase):
         build_client.return_value.decide.side_effect = lambda *, state, questions: answer_questions(questions, ())
         models = ["posthog/hogference/jevk5-fp8-0.2", "posthog/hogference/jeeves-0.1"]
 
-        with patch("posthog.emoji_search.match.EMOJI_MODEL.current", side_effect=models):
+        with patch("posthog.emoji_search.match.EMOJI_MODEL.fetch", side_effect=models):
             suggest_emojis("jurassic park", team_id=1)
             suggest_emojis("jurassic park", team_id=1)
 

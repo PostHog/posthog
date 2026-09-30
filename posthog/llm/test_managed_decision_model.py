@@ -1,6 +1,3 @@
-import threading
-from concurrent.futures import Future
-
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -10,8 +7,8 @@ from parameterized import parameterized
 
 from posthog.llm import managed_decision_model
 from posthog.llm.managed_decision_model import (
+    APP_PROMPT_CACHE,
     DEFAULT_DECISION_MODEL,
-    BackgroundRefresher,
     ManagedDecisionModel,
     model_from_config,
 )
@@ -24,46 +21,20 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPr
 NEW_MODEL = "posthog/hogference/jeeves-0.1"
 
 
-class TestBackgroundRefresher(SimpleTestCase):
-    def test_a_request_never_waits_for_the_fetch(self) -> None:
-        release = threading.Event()
-        fetches: list[Future] = []
+class TestAppPromptCache(SimpleTestCase):
+    def setUp(self) -> None:
+        APP_PROMPT_CACHE.clear()
+        self.addCleanup(APP_PROMPT_CACHE.clear)
 
-        def slow_fetch() -> str:
-            assert release.wait(timeout=5)
-            return "managed"
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("posthog.storage.llm_prompt_cache.get_prompt_by_name_from_cache", return_value={"prompt": "p"})
+    def test_each_prompt_and_version_is_read_once_per_refresh(self, read) -> None:
+        for _ in range(2):
+            managed_decision_model.get_app_prompt("a")
+            managed_decision_model.get_app_prompt("a", version=1)
+            managed_decision_model.get_app_prompt("b")
 
-        refresher = BackgroundRefresher("test-prompt", "bundled", slow_fetch)
-        submit = refresher._executor.submit
-        with patch.object(refresher._executor, "submit", side_effect=lambda fn: fetches.append(submit(fn))):
-            assert refresher.current() == "bundled"
-            assert refresher.current() == "bundled"
-            release.set()
-            fetches[0].result(timeout=5)
-
-            assert refresher.current() == "managed"
-            assert len(fetches) == 1
-
-    @parameterized.expand(
-        [
-            ("first_fetch_fails", [ConnectionError("unavailable")], "bundled"),
-            ("later_fetch_fails", ["managed", ConnectionError("unavailable")], "managed"),
-        ]
-    )
-    def test_a_failed_fetch_keeps_the_last_value(self, _name: str, fetches: list, expected: str) -> None:
-        results = iter(fetches)
-
-        def fetch() -> str:
-            result = next(results)
-            if isinstance(result, Exception):
-                raise result
-            return result
-
-        refresher = BackgroundRefresher("test-prompt", "bundled", fetch)
-        for _ in fetches:
-            refresher._refresh()
-
-        assert refresher.current() == expected
+        assert read.call_count == 3
 
 
 class TestModelConfig(SimpleTestCase):
@@ -91,6 +62,7 @@ class TestGetAppPromptFromDatabase(BaseTest):
         self.addCleanup(self._clear_caches)
 
     def _clear_caches(self) -> None:
+        APP_PROMPT_CACHE.clear()
         invalidate_prompt_latest_cache(self.team.id, self.PROMPT_NAME)
         invalidate_prompt_label_cache(self.team.id, self.PROMPT_NAME, "production")
         safe_cache_delete(prompt_label_cache_key(self.team.id, self.PROMPT_NAME, "production"))
@@ -149,12 +121,11 @@ class TestGetAppPromptFromDatabase(BaseTest):
     def test_a_missing_prompt_returns_none(self) -> None:
         assert managed_decision_model.get_app_prompt(self.PROMPT_NAME) is None
 
-    def test_the_model_refresher_reads_the_database(self) -> None:
+    def test_the_decision_model_reads_the_database(self) -> None:
         self._publish_prompt(version=1, config={"model": NEW_MODEL})
         self._label_production(1)
 
         managed = ManagedDecisionModel(self.PROMPT_NAME)
-        managed._refresher._refresh()
 
-        assert managed.current() == NEW_MODEL
+        assert managed.fetch() == NEW_MODEL
         assert managed.fetch(version=1) == NEW_MODEL

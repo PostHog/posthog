@@ -14,7 +14,7 @@ from posthog.taxonomic_search_intent.prompt import BUNDLED_SEARCH_INTENT_PROMPT
 
 ALL_TABS = ("suggested_filters", "events", "event_properties", "person_properties", "pageview_urls", "email_addresses")
 BUILD_CLIENT = "posthog.taxonomic_search_intent.classify.build_system_one_client"
-CURRENT_PROMPT = "posthog.taxonomic_search_intent.classify.current_search_intent_prompt"
+CURRENT_PROMPT = "posthog.taxonomic_search_intent.classify.fetch_search_intent_prompt"
 FLAG_CHECK = "posthog.taxonomic_search_intent.classify.posthoganalytics.feature_enabled"
 
 
