@@ -368,8 +368,8 @@ class QuarantineInputSerializer(DataclassSerializer):
         default=False,
         help_text=(
             "Post the quarantine to the Slack channel of the team that owns the story, naming the user "
-            "who quarantined it. Best effort: skipped when the story has no owning team or the project "
-            "has no Slack integration."
+            "who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when "
+            "the story has no owning team or the project has no Slack integration."
         ),
     )
 

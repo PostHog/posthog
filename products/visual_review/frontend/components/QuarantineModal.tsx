@@ -14,6 +14,9 @@ const SUGGESTED_REASONS = [
 
 const DEFAULT_EXPIRY_DAYS = 30
 
+// Owners come from the Storybook story index, so no other run type has a team to notify.
+const NOTIFIABLE_RUN_TYPE = 'storybook'
+
 const COPY = {
     create: {
         modalTitle: 'Quarantine snapshot',
@@ -94,6 +97,8 @@ interface QuarantineModalProps {
      * Forwarded to the parent via `onQuarantine` so the backend can store it.
      */
     sourceRunId?: string | null
+    /** The snapshot's run type. The owner notice switch shows only for Storybook snapshots. */
+    runType?: string
 }
 
 /**
@@ -109,8 +114,10 @@ export function QuarantineModal({
     initialReason,
     initialExpiresAt,
     sourceRunId,
+    runType,
 }: QuarantineModalProps): JSX.Element {
     const isExtend = mode === 'extend'
+    const canNotifyOwners = !isExtend && runType === NOTIFIABLE_RUN_TYPE
     const copy = COPY[mode]
 
     const [reason, setReason] = useState(initialReason ?? '')
@@ -145,7 +152,7 @@ export function QuarantineModal({
             identifiers,
             expiresAt ? expiresAt.toISOString() : null,
             sourceRunId ?? null,
-            !isExtend && notifyOwners
+            canNotifyOwners && notifyOwners
         )
         onClose()
     }
@@ -224,7 +231,7 @@ export function QuarantineModal({
                     />
                 </div>
 
-                {!isExtend && (
+                {canNotifyOwners && (
                     <LemonSwitch
                         checked={notifyOwners}
                         onChange={setNotifyOwners}
