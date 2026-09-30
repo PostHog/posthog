@@ -21,6 +21,7 @@ from posthog.egress.firecrawl.client import (
     FirecrawlSearchResult,
 )
 
+from products.web_analytics.backend.content_autopilot import generation
 from products.web_analytics.backend.content_autopilot.edits import PageEdit, apply_edits
 from products.web_analytics.backend.content_autopilot.generation import (
     Draft,
@@ -419,6 +420,34 @@ class TestContentAutopilotGeneration(BaseTest):
             .filter(id__in=[first.id, second.id])
             .values_list("status", flat=True)
         ) == {ContentAutopilotOpportunity.Status.DRAFTED}
+
+    def test_a_timeout_right_after_a_draft_is_saved_keeps_it_ready(self) -> None:
+        opportunity = self._opportunity()
+        run = draft_opportunities(
+            team=self.team,
+            profile_id=str(self.profile.id),
+            opportunity_ids=[str(opportunity.id)],
+            triggered_by_id=None,
+        )
+        save_result = generation._save_result
+
+        def save_then_time_out(*args: Any, **kwargs: Any) -> None:
+            save_result(*args, **kwargs)
+            raise SoftTimeLimitExceeded()
+
+        with (
+            patch("products.web_analytics.backend.content_autopilot.generation.build_client", return_value=object()),
+            patch(
+                "products.web_analytics.backend.content_autopilot.generation._save_result",
+                side_effect=save_then_time_out,
+            ),
+        ):
+            generate_content_autopilot_run_task(self.team.id, str(run.id))
+
+        run.refresh_from_db()
+        proposal = ContentAutopilotProposal.objects.for_team(self.team.id).get(run=run)
+        assert proposal.lifecycle_status == ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW
+        assert run.run_status == ContentAutopilotRun.RunStatus.READY_FOR_REVIEW
 
     def test_canceling_a_run_stops_before_the_next_opportunity(self) -> None:
         first = self._opportunity("first")

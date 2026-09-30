@@ -853,6 +853,14 @@ def _fail_proposal(proposal: ContentAutopilotProposal | None, message: str) -> N
     )
 
 
+def _fail_unfinished_proposal(proposal: ContentAutopilotProposal | None, message: str) -> None:
+    if proposal is None:
+        return
+    proposal.refresh_from_db(fields=["lifecycle_status"])
+    if proposal.lifecycle_status == ContentAutopilotProposal.LifecycleStatus.GENERATING:
+        _fail_proposal(proposal, message)
+
+
 def _draft_opportunity(
     client: Anthropic,
     *,
@@ -875,7 +883,7 @@ def _draft_opportunity(
             )
     except SoftTimeLimitExceeded:
         opportunity.refresh_from_db(fields=["proposal"])
-        _fail_proposal(opportunity.proposal, TIMED_OUT_PROPOSAL_MESSAGE)
+        _fail_unfinished_proposal(opportunity.proposal, TIMED_OUT_PROPOSAL_MESSAGE)
         raise
     except ContentAutopilotLLMError as error:
         errors.append({"error_code": "generation_failed", "message": f"{title}: {error}"})
@@ -1011,7 +1019,7 @@ def process_proposal(team_id: int, proposal_id: str, mode: ProposalMode, *, clie
             )
             _save_result(proposal, draft=draft, checks=checks, site=site, research=research)
     except SoftTimeLimitExceeded:
-        _fail_proposal(proposal, TIMED_OUT_PROPOSAL_MESSAGE)
+        _fail_unfinished_proposal(proposal, TIMED_OUT_PROPOSAL_MESSAGE)
     except ContentAutopilotLLMError as error:
         _fail_proposal(proposal, str(error))
     except Exception as error:
