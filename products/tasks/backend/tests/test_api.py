@@ -6528,6 +6528,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(summary_only.status_code, status.HTTP_200_OK)
         self.assertEqual(summary_only.json()["task_summary"], "Opening the PR")
         self.assertEqual(summary_only.json()["task_tags"], ["bug-fix", "feature-flags"])
+        self.assertEqual(set(task.tagged_items.values_list("tag__name", flat=True)), {"bug-fix", "feature-flags"})
 
         cleared = client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
@@ -6537,6 +6538,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(cleared.status_code, status.HTTP_200_OK)
         self.assertEqual(cleared.json()["task_tags"], [])
+        self.assertFalse(task.tagged_items.exists())
 
     def test_unbound_sandbox_scope_does_not_bypass_task_visibility(self):
         owner = self.create_organization_user("sandbox-owner")
