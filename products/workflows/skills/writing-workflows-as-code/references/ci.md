@@ -34,6 +34,8 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 printf 'Authorization: Bearer %s\n' "$POSTHOG_API_KEY" > "$work/auth"
 host="${POSTHOG_HOST:-https://us.posthog.com}"
+[[ "$host" == https://* || "$host" =~ ^http://(localhost|127\.0\.0\.1)(:[0-9]+)?/?$ ]] ||
+  { echo "POSTHOG_HOST must start with https://, so the key never travels unencrypted."; exit 1; }
 url="${host%/}/api/projects/${POSTHOG_PROJECT_ID}/hog_flows/code_${mode}/"
 helpers='
 def line: tostring | gsub("[\r\n]+"; " ");

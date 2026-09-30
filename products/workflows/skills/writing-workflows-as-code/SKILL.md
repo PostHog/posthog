@@ -18,15 +18,15 @@ Tell the user that, and offer to build the workflow in PostHog with the building
 2. **Write the file.** Keep one workflow per file and name the file after its `key` (`trial-upgrade-nudge.yaml`). See the example below.
 3. **Check it.** Call `workflows-check-code` with the whole file as `content`. A mistake returns 400 with every error at once, each with `status`, `path`, `line`, `column`, `why` and `fix`. Fix them all, then check again. [references/errors.md](references/errors.md) lists every `status`.
 4. **Read the plan** (below) and show the user what changes, above all the people in removed steps.
-5. **Apply it, unless CI does.** If the repository has a CI job that applies workflow files, commit the file and open a pull request: the job applies it once the change is merged, and an apply from here would put an unreviewed change live. Otherwise call `workflows-apply-code` with the same `content`, then commit the file. `result` is `created`, `updated`, `unchanged` or `staged`. On `staged`, the workflow is active and the change waits as a draft: publish it with `workflows-publish`, which previews the impact and needs the user's confirmation.
+5. **Apply it, unless CI does.** If the repository has a CI job that applies workflow files, commit the file and open a pull request: the job applies it once the change is merged, and an apply from here would put an unreviewed change live. Otherwise call `workflows-apply-code` with the same `content`, then commit the file. Its top-level `result` is `created`, `updated`, `unchanged` or `staged`. On `staged`, the workflow is active and the change waits as a draft: publish it with `workflows-publish`, which previews the impact and needs the user's confirmation.
 
 Done when: check returns a plan with no errors, the user has seen the removed steps, and the file is applied or waits in a pull request.
 
 ## Reading a plan
 
-`workflows-check-code` returns `plan` and `warnings`. `workflows-apply-code` returns the same plan with its `result`.
+`workflows-check-code` returns `plan` and `warnings`. `workflows-apply-code` returns its own `result` and `workflow`, then the same `plan` and `warnings`.
 
-- `result`: `create` (no workflow has the key), `update`, `stage` (applying through MCP stages a draft on an active workflow) or `unchanged` (apply writes nothing).
+- `plan.result`: `create` (no workflow has the key), `update`, `stage` (applying through MCP stages a draft on an active workflow) or `unchanged` (apply writes nothing).
 - `workflow`: the stored workflow's `id`, `key`, `name`, `version` and `status`. Null on `create`.
 - `changed_fields` names the workflow fields that change, such as `name` or `edges`. `status` has `from` and `to`.
 - `added_steps` and `changed_steps` carry the step `id`, `name` and `type`, and `changed_steps[].changes` lists the paths that differ. `type` is the stored action type, so a `branch` shows as `conditional_branch`, an `email` as `function_email`, and a `webhook` as `function`.
@@ -98,4 +98,4 @@ exit:
 
 ## Checking and applying from CI
 
-To check files on every pull request and apply them on the default branch, copy the GitHub Actions job in [references/ci.md](references/ci.md). It needs curl and jq, one secret and one variable.
+To check files on pull requests and apply them on the default branch, copy the GitHub Actions setup in [references/ci.md](references/ci.md). It needs bash, curl and jq, a read key, a write key on an environment limited to the default branch, and the project id. Without a key, a run checks nothing and passes, which is how pull requests from forks pass.
