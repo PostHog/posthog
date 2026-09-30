@@ -19,6 +19,9 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
     handler: async (context: Context, params: z.infer<ReturnType<typeof BroadcastsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
