@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { toast } from '@posthog/quill'
 
@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
-import { spaceLabel, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
+import { SPACE_COMPOSE_PARAM, spaceLabel, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { TodayWorkGroup, groupByDay, sessionItem } from '~/layout/today/todayWorkItems'
 import { Breadcrumb } from '~/types'
 
@@ -41,6 +41,7 @@ export interface spaceSceneLogicValues {
     currentTeamId: number | null // teamLogic
     activeTab: SpaceTab
     breadcrumbs: Breadcrumb[]
+    composerFocusRequest: number
     composerRepositoryConfig: SpaceComposerRepositoryConfig
     feedGroups: TodayWorkGroup[]
     members: TaskUserBasicInfoApi[]
@@ -62,7 +63,17 @@ export interface spaceSceneLogicActions {
         sessionId: string
     } // todaySessionMenuLogic
     loadSpaces: () => any // todaySpacesLogic
+    loadSpacesSuccess: (
+        spaces: ChannelDTOApi[],
+        payload?: any
+    ) => {
+        payload?: any
+        spaces: ChannelDTOApi[]
+    } // todaySpacesLogic
     deleteSpace: () => {
+        value: true
+    }
+    focusComposer: () => {
         value: true
     }
     loadMembers: () => any
@@ -167,7 +178,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
     key((props) => props.id),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-        actions: [todaySessionMenuLogic, ['sessionUpdated'], todaySpacesLogic, ['loadSpaces']],
+        actions: [todaySessionMenuLogic, ['sessionUpdated'], todaySpacesLogic, ['loadSpaces', 'loadSpacesSuccess']],
     })),
     actions({
         updateSpace: (patch: PatchedChannelUpdateApi) => ({ patch }),
@@ -176,6 +187,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         spaceSaved: (space: ChannelDTOApi) => ({ space }),
         savingFinished: true,
         sessionStarted: (sessionId: string) => ({ sessionId }),
+        focusComposer: true,
     }),
     loaders(({ props, values }) => ({
         space: [
@@ -224,7 +236,14 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         space: {
             spaceSaved: (_, { space }) => space,
             setStarred: (state, { starred }) => (state ? { ...state, starred } : state),
+            // The sidebar can star or unstar this space too, so follow the shared list.
+            loadSpacesSuccess: (state, { spaces }) => {
+                const listed = state && spaces.find((space) => space.id === state.id)
+                return state && listed ? { ...state, starred: listed.starred } : state
+            },
         },
+        // Each request bumps the counter, so the composer focuses again even when it is already mounted.
+        composerFocusRequest: [0, { focusComposer: (state) => state + 1 }],
         savingSpace: [
             false,
             {
@@ -329,6 +348,17 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 })
                 actions.savingFinished()
             }
+        },
+    })),
+    urlToAction(({ actions, props }) => ({
+        [urls.taskSpace(':id')]: ({ id }, searchParams, hashParams) => {
+            if (id !== props.id || !searchParams[SPACE_COMPOSE_PARAM]) {
+                return
+            }
+            actions.focusComposer()
+            // Drop the param, so a reload or a back navigation does not focus the composer again.
+            const { [SPACE_COMPOSE_PARAM]: _compose, ...rest } = searchParams
+            router.actions.replace(urls.taskSpace(props.id), rest, hashParams)
         },
     })),
     afterMount(({ actions }) => {
