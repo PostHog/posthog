@@ -613,17 +613,10 @@ class CuratedGitHubSource:
                 raise QueryWorkLimitExceededError
             self._queries_remaining -= 1
         uac = self._user_access_control
-        # Forward the real user, not just the access control: a userless build drops the access
-        # control and fails closed (see _compute_system_table_access_decision), so the user is what
-        # lets HogQL honor the per-table warehouse ACL.
         user = uac.user if uac is not None else None
-        # No user means a system / Temporal / CLI caller (the facade's documented userless path).
-        # There is no principal to honor the ACL with, so bypass it rather than fail closed and
-        # strip the tables — bypass is set ONLY in this genuinely userless case.
         bypass_warehouse_access_control = uac is None
         if self._database is None:
-            # The catalog is slow to build for a team with many warehouse tables, and every query of
-            # one request reads the same one.
+            # Building the catalog is slow, and every query of one request reads the same one.
             self._database = Database.create_for(
                 team=self._team,
                 user=user,
