@@ -3002,6 +3002,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": ["PostHog"],
         },
+        "$mcp_server_build": {
+            "label": "MCP server build",
+            "description": "The exact immutable build identifier that the MCP host supplies, such as a Git commit SHA or container image digest. Use it to connect an event to deployed code when one server version has multiple builds.",
+            "examples": ["b3b941584bae0123"],
+        },
         "$mcp_server_version": {
             "label": "MCP server version",
             "description": "The advertised version of the MCP server that handled the request.",

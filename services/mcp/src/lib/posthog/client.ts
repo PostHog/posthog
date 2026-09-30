@@ -1,8 +1,19 @@
+import { readFileSync } from 'node:fs'
+
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
 import { env } from '@/lib/env'
 
 let _client: PostHogMCP | undefined
+
+export const getMCPServerBuild = (): string | undefined => {
+    try {
+        const build = readFileSync('/code/commit.txt', 'utf8').trim()
+        return build && build !== 'unknown' ? build : undefined
+    } catch {
+        return undefined
+    }
+}
 
 // `PostHogMCP` is a drop-in subclass of posthog-node's `PostHog` (capture /
 // identify / flush / shutdown all inherited) that adds `captureToolCall` /
@@ -11,6 +22,8 @@ let _client: PostHogMCP | undefined
 // canonical `$mcp_*` event helpers.
 export const getPostHogClient = (): PostHogMCP => {
     if (!_client) {
+        const serverBuild = getMCPServerBuild()
+
         _client = new PostHogMCP(env.POSTHOG_ANALYTICS_API_KEY ?? '', {
             disabled: !env.POSTHOG_ANALYTICS_API_KEY || !env.POSTHOG_ANALYTICS_HOST, // Disable if the API key or host is not set
             ...(env.POSTHOG_ANALYTICS_HOST ? { host: env.POSTHOG_ANALYTICS_HOST } : {}),
@@ -20,6 +33,7 @@ export const getPostHogClient = (): PostHogMCP => {
             // from fanning out a separate `$exception` event into Error Tracking.
             enableExceptionAutocapture: false,
             captureModel: true,
+            ...(serverBuild ? { serverBuild } : {}),
             before_send: (event) => {
                 if (event?.properties?.is_impersonated === true) {
                     return null

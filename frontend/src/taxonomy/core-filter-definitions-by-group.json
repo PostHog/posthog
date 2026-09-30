@@ -2450,6 +2450,13 @@
             ],
             "label": "MCP scope preset"
         },
+        "$mcp_server_build": {
+            "description": "The exact immutable build identifier that the MCP host supplies, such as a Git commit SHA or container image digest. Use it to connect an event to deployed code when one server version has multiple builds.",
+            "examples": [
+                "b3b941584bae0123"
+            ],
+            "label": "MCP server build"
+        },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": [
@@ -4911,6 +4918,13 @@
                 "user"
             ],
             "label": "MCP scope preset"
+        },
+        "$mcp_server_build": {
+            "description": "The exact immutable build identifier that the MCP host supplies, such as a Git commit SHA or container image digest. Use it to connect an event to deployed code when one server version has multiple builds.",
+            "examples": [
+                "b3b941584bae0123"
+            ],
+            "label": "MCP server build"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
@@ -7865,6 +7879,13 @@
                 "user"
             ],
             "label": "MCP scope preset"
+        },
+        "$mcp_server_build": {
+            "description": "The exact immutable build identifier that the MCP host supplies, such as a Git commit SHA or container image digest. Use it to connect an event to deployed code when one server version has multiple builds.",
+            "examples": [
+                "b3b941584bae0123"
+            ],
+            "label": "MCP server build"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
