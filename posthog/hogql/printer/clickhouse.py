@@ -7,7 +7,7 @@ from django.conf import settings as django_settings
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
@@ -583,11 +583,50 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
             return None
 
-        serialized = (
-            "concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
-            f"arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString({field_sql})))), ','), '}}')"
+        pairs = (
+            "arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
+            f"arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString({field_sql}))))"
         )
+        if resolved_field.name == "properties":
+            pairs = (
+                "arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]' "
+                f"and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString({field_sql}))))"
+            )
+            flag_pairs = self._serialized_feature_flag_pairs(type, field_sql)
+            if flag_pairs is not None:
+                pairs = f"arrayConcat({pairs}, {flag_pairs})"
+        serialized = f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
         return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}({serialized})"
+
+    def _serialized_feature_flag_pairs(self, type: ast.FieldType, field_sql: str) -> str | None:
+        """The `"$feature/<key>":<value>` pairs and the `"$active_feature_flags":[...]` pair for the events_json document.
+
+        The cleaner folds the `$feature/<key>` properties an SDK sends into the typed `$feature_flags` map and drops
+        `$active_feature_flags`, so the legacy document is rebuilt from that map. A boolean flag is stored as 'true' or
+        'false' and comes back as a JSON boolean; a variant comes back as a JSON string, with the cleaner sentinels
+        mapped to the variant names. `$active_feature_flags` lists the flags not evaluated to off, in map order.
+        Restricted flags stay out of both, and a restricted `$feature_flags` hides every flag.
+        """
+        keys_to_drop = restricted_property_keys_for_table_type(type.table_type, self.context)
+        if "$feature_flags" in keys_to_drop:
+            return None
+        flags = f"{field_sql}.{escape_clickhouse_identifier('$feature_flags')}"
+        restricted_flags = sorted(key.removeprefix("$feature/") for key in keys_to_drop if key.startswith("$feature/"))
+        if restricted_flags:
+            keys_placeholder = self.context.add_sensitive_value(restricted_flags)
+            flags = f"mapFilter((key, value) -> not(has({keys_placeholder}, key)), {flags})"
+        variant_branches = ", ".join(
+            f"value = {escape_clickhouse_string(sentinel)}, {escape_clickhouse_string(variant)}"
+            for sentinel, variant in FEATURE_FLAG_VARIANT_SENTINELS.items()
+        )
+        flag_value = f"if(value in ('true', 'false'), value, toJSONString(multiIf({variant_branches}, value)))"
+        flag_pairs = (
+            f"arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', {flag_value}), "
+            f"mapKeys({flags}), mapValues({flags}))"
+        )
+        active_flags = f"toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), {flags})))"
+        active_pair = f"if(empty({flags}), [], [concat('\"$active_feature_flags\":', {active_flags})])"
+        return f"arrayConcat({flag_pairs}, {active_pair})"
 
     def _serialize_to_json_string_call(self, node: ast.Call) -> str | None:
         if node.name != "toJSONString" or len(node.args) != 1:
@@ -644,33 +683,8 @@ class ClickHousePrinter(BasePrinter):
         if not keys_to_drop:
             return field_sql
 
-        restricted_feature_flags = sorted(
-            key.removeprefix("$feature/") for key in keys_to_drop if key.startswith("$feature/")
-        )
-        filter_native_feature_flags = (
-            self.context.uses_new_events_schema()
-            and resolved_field.name == "properties"
-            and isinstance(type.table_type, ast.BaseTableType)
-            and isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES)
-            and bool(restricted_feature_flags)
-            and "$feature_flags" not in keys_to_drop
-        )
-        if filter_native_feature_flags:
-            keys_to_drop = {key for key in keys_to_drop if not key.startswith("$feature/")} | {"$feature_flags"}
-
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
-        if not filter_native_feature_flags:
-            return stripped
-
-        feature_keys_placeholder = self.context.add_sensitive_value(restricted_feature_flags)
-        physical_field = super().visit_field_type(type)
-        feature_flags = f"{physical_field}.{escape_clickhouse_identifier('$feature_flags')}"
-        filtered_feature_flags = (
-            f"mapFilter((key, value) -> not(has({feature_keys_placeholder}, key)), {feature_flags})"
-        )
-        feature_flags_patch = f"concat('{{\"$feature_flags\":', toJSONString({filtered_feature_flags}), '}}')"
-        return f"if(empty({filtered_feature_flags}), {stripped}, JSONMergePatch({stripped}, {feature_flags_patch}))"
+        return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
 
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
