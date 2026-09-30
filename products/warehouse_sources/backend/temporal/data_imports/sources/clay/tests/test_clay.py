@@ -133,10 +133,14 @@ class TestClaySourceBehavior:
     [
         (200, 200, True, None),
         (401, None, False, "rejected the API key"),
-        (500, None, False, "unexpected status (500)"),
+        # A 5xx clears on its own, so waiting is the right next step. A 4xx never does, so the
+        # copy has to point at what the customer can change instead.
+        (500, None, False, "Try again in a few minutes"),
         (200, 403, False, "Enterprise plan"),
         (200, 404, False, "could not find table"),
-        (200, 422, False, "unexpected status (422)"),
+        (200, 400, False, "Enable for API"),
+        (200, 422, False, "Enable for API"),
+        (200, 503, False, "Try again in a few minutes"),
     ],
 )
 def test_validate_credentials(
@@ -156,6 +160,24 @@ def test_validate_credentials(
         assert message is None
     else:
         assert message is not None and expected_message_part in message
+
+
+def test_validate_credentials_does_not_echo_the_table_id_for_an_unrecognised_status() -> None:
+    # The old copy carried the table ID and a status code and nothing else, so the message was
+    # entirely values the customer typed plus a number they can't act on.
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.clay.clay.make_tracked_session"
+    ) as MockSession:
+        session = MockSession.return_value
+        session.get.return_value = _make_http_response({}, 200)
+        session.post.return_value = _make_http_response({}, 400)
+
+        valid, message = validate_credentials("clay_test_key", [TABLE_ID])
+
+    assert valid is False
+    assert message is not None
+    assert TABLE_ID not in message
+    assert "400" not in message
 
 
 def test_validate_credentials_requires_a_table_id() -> None:
