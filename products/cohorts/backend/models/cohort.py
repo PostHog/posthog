@@ -335,6 +335,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             models.Index(fields=["team", "-created_at"], name="cohort_team_created_idx"),
             # Backs `name__icontains` search (the cohort picker's server-side search).
             GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+            # Backs the realtime team and filter polls in rust/cohort-event-shuffler and rust/cohort-core.
+            # Keep the condition equal to their WHERE clause, or the planner skips the index.
+            models.Index(
+                fields=["team"],
+                condition=Q(cohort_type="realtime", deleted=False, filters__isnull=False),
+                name="cohort_realtime_team_idx",
+            ),
         ]
         db_table = "posthog_cohort"
 
