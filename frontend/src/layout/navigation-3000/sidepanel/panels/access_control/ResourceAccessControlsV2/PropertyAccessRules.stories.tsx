@@ -57,9 +57,9 @@ export const AIPropertyPicker: Story = {
             await page.findByText('Person property', { selector: '[data-attr="property-rule-type"] *' })
         )
         await userEvent.click(await page.findByRole('button', { name: 'Person property' }))
-        await userEvent.click(await page.findByRole('menuitem', { name: 'AI event property' }))
+        await userEvent.click(await page.findByRole('menuitem', { name: 'ai_events property' }))
         await userEvent.type(await page.findByPlaceholderText('Search by name…'), 'output')
-        await page.findByText('Output choices ($ai_output_choices)')
+        await page.findByRole('button', { name: 'output_choices ($ai_output_choices)' })
     },
 }
 

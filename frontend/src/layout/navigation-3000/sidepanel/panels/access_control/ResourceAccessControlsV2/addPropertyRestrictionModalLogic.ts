@@ -1,8 +1,6 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { capitalizeFirstLetter } from 'lib/utils/strings'
-
 import { propertyDefinitionsList } from '~/generated/core/api'
 
 import { AIEventPropertyEnumApi, AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
@@ -176,7 +174,7 @@ export const addPropertyRestrictionModalLogic = kea<addPropertyRestrictionModalL
                         return Object.values(AIEventPropertyEnumApi)
                             .map((name) => ({
                                 id: name,
-                                name: `${capitalizeFirstLetter(name.slice(4).replaceAll('_', ' '))} (${name})`,
+                                name: `${name.slice(4)} (${name})`,
                             }))
                             .filter((option) => words.every((word) => option.name.toLowerCase().includes(word)))
                             .sort((a, b) => a.name.localeCompare(b.name))

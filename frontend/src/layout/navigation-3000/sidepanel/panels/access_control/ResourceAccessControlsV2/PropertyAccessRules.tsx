@@ -61,7 +61,14 @@ export function PropertyAccessRules({
                     {
                         title: 'Property',
                         key: 'property',
-                        render: (_, p: AccessPropertyRule) => <span className="font-medium">{p.property}</span>,
+                        render: (_, p: AccessPropertyRule) => (
+                            <span className="font-medium">
+                                {p.property_type === 'event' &&
+                                Object.values(AIEventPropertyEnumApi).some((name) => name === p.property)
+                                    ? `${p.property.slice(4)} (${p.property})`
+                                    : p.property}
+                            </span>
+                        ),
                     },
                     {
                         title: 'Type',
@@ -71,7 +78,7 @@ export function PropertyAccessRules({
                                 {p.property_type === 'person'
                                     ? 'Person property'
                                     : Object.values(AIEventPropertyEnumApi).some((name) => name === p.property)
-                                      ? 'AI event property'
+                                      ? 'ai_events property'
                                       : 'Event property'}
                             </span>
                         ),

@@ -34,16 +34,16 @@ describe('addPropertyRestrictionModalLogic', () => {
         }).toDispatchActions(['loadPropertyOptionsSuccess'])
         expect(logic.values.propertyOptions).toEqual(
             expect.arrayContaining([
-                { id: '$ai_input', name: 'Input ($ai_input)' },
-                { id: '$ai_output', name: 'Output ($ai_output)' },
-                { id: '$ai_output_choices', name: 'Output choices ($ai_output_choices)' },
+                { id: '$ai_input', name: 'input ($ai_input)' },
+                { id: '$ai_output', name: 'output ($ai_output)' },
+                { id: '$ai_output_choices', name: 'output_choices ($ai_output_choices)' },
             ])
         )
         await expectLogic(logic, () => logic.actions.setSearch('$ai_output_choices')).toDispatchActions([
             'loadPropertyOptionsSuccess',
         ])
         expect(logic.values.propertyOptions).toEqual([
-            { id: '$ai_output_choices', name: 'Output choices ($ai_output_choices)' },
+            { id: '$ai_output_choices', name: 'output_choices ($ai_output_choices)' },
         ])
         await expectLogic(logic, () => logic.actions.setPropertyType('event')).toDispatchActions([
             'loadPropertyOptionsSuccess',

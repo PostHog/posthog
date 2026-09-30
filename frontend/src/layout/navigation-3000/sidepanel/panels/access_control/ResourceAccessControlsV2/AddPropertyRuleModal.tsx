@@ -80,7 +80,7 @@ export function AddPropertyRuleModal({
                         options={[
                             { value: 'person', label: 'Person property' },
                             { value: 'event', label: 'Event property' },
-                            { value: 'ai', label: 'AI event property' },
+                            { value: 'ai', label: 'ai_events property' },
                         ]}
                         fullWidth
                     />
