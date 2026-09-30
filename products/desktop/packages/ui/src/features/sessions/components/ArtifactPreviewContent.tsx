@@ -143,7 +143,11 @@ export function ArtifactPreviewContent({
   const documentActions = (
     <div className="flex shrink-0 items-center gap-1">
       {shareAction}
-      <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
+      <ArtifactDocumentCommentAction
+        target={commentTarget}
+        taskId={taskId}
+        name={name}
+      />
     </div>
   );
 

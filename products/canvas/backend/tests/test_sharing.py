@@ -152,7 +152,7 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         with team_scope(self.team.id):
             assert Canvas.objects.get(id=canvas_id).shared_build_id == first.id
 
-        published = self.client.post(f"{self._sharing_url(canvas_id)}publish/")
+        published = self.client.post(f"{self._sharing_url(canvas_id)}/publish/")
         assert published.status_code == status.HTTP_200_OK, published.json()
         with team_scope(self.team.id):
             assert Canvas.objects.get(id=canvas_id).shared_build_id == second.id
@@ -233,7 +233,7 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
             "theme_mode": "dark" if viewer == "owner" else None,
             "open_path": f"/desktop/canvas/{channel_id}/{canvas_id}" if can_open else None,
             "sharing_enabled": True,
-            "sharing_api_path": f"/api/projects/{self.team.id}/canvases/{canvas_id}/sharing" if can_open else None,
+            "sharing_api_path": None,
             "is_creator": viewer == "owner",
         }
 
@@ -247,7 +247,7 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         with self.settings(CANVAS_ARTIFACT_ORIGIN="https://canvas.example.com"):
             payload = self._shared_payload(access_token)
         assert payload["viewer"]["sharing_enabled"] is False
-        assert payload["viewer"]["sharing_api_path"] == self._sharing_url(canvas_id)
+        assert payload["viewer"]["sharing_api_path"] is None
         assert payload["canvas"]["published"] is True
         assert payload["canvas"]["allow_forking"] is False
 
@@ -255,8 +255,7 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         path = "/canvas-artifacts/" + artifact_url.split("/canvas-artifacts/", 1)[1]
         assert self.client.get(path, HTTP_IF_NONE_MATCH=f'"{"a" * 64}"').status_code == status.HTTP_304_NOT_MODIFIED
 
-        # The page names this member and the endpoint that turns the link back on, so no cache
-        # may keep it for whoever loads the link next.
+        # The page names this member, so no cache may keep it for whoever loads the link next.
         page = self._shared_page_response(access_token)
         assert "no-store" in page["Cache-Control"]
 

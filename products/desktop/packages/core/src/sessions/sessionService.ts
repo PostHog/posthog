@@ -9220,7 +9220,10 @@ export class SessionService {
     if (authStatus.kind !== "ready") {
       throw new Error("Not signed in to PostHog");
     }
-    return authStatus.auth.client.publishTaskArtifactSharing(taskId, artifactId);
+    return authStatus.auth.client.publishTaskArtifactSharing(
+      taskId,
+      artifactId,
+    );
   }
 
   async uploadCloudRunArtifactVersion(

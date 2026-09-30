@@ -164,7 +164,7 @@ class TestTaskArtifactSharing(APIBaseTest):
 
         signed_in = self._shared_payload(access_token)["viewer"]
         assert signed_in["open_path"] == (f"/desktop/task/{self.task.id}?scope=task_artifact&item=art-2")
-        assert signed_in["sharing_api_path"] == self._sharing_url("art-2")
+        assert signed_in["sharing_api_path"] is None
         self.client.logout()
         assert self._shared_payload(access_token)["viewer"] == {
             "is_authenticated": False,
@@ -188,7 +188,7 @@ class TestTaskArtifactSharing(APIBaseTest):
         assert (state["shared_artifact_id"], state["latest_artifact_id"]) == ("art-2", "art-3")
         assert self._shared_payload(access_token)["task_artifact"]["markdown"] == "# Final\n"
 
-        published = self.client.post(f"{self._sharing_url('art-3')}publish/")
+        published = self.client.post(f"{self._sharing_url('art-3')}/publish/")
 
         assert published.status_code == status.HTTP_200_OK, published.json()
         assert published.json()["shared_artifact_id"] == "art-3"
@@ -205,7 +205,7 @@ class TestTaskArtifactSharing(APIBaseTest):
         assert (state["shared_artifact_id"], state["latest_artifact_id"]) == ("art-2", "art-2")
         assert self.client.get(self._sharing_url("att-1")).status_code == status.HTTP_404_NOT_FOUND
 
-        published = self.client.post(f"{self._sharing_url('art-2')}publish/")
+        published = self.client.post(f"{self._sharing_url('art-2')}/publish/")
 
         assert published.status_code == status.HTTP_200_OK, published.json()
         assert published.json()["shared_artifact_id"] == "art-2"
@@ -228,7 +228,7 @@ class TestTaskArtifactSharing(APIBaseTest):
                 _entry("art-3", "report.md", "artifacts/report-v3.md", "text/markdown", "2026-03-01T00:00:00+00:00")
             )
             self.newer_run.save(update_fields=["artifacts"])
-            published = self.client.post(f"{self._sharing_url('art-3')}publish/")
+            published = self.client.post(f"{self._sharing_url('art-3')}/publish/")
             assert published.status_code == status.HTTP_200_OK, published.json()
 
         anchor = SharedTaskArtifact.objects.for_team(self.team.id).get(task=self.task, name="report.md")
@@ -296,6 +296,22 @@ class TestTaskArtifactSharing(APIBaseTest):
         response = self.client.patch(self._sharing_url(artifact_id), {"enabled": True})
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_disabling_revokes_tokens_still_in_the_rotation_grace_period(self):
+        first_token = self._enable_sharing("art-1")
+        refreshed = self.client.post(f"{self._sharing_url('art-1')}/refresh")
+        assert refreshed.status_code == status.HTTP_200_OK, refreshed.json()
+        second_token = refreshed.json()["access_token"]
+
+        disabled = self.client.patch(self._sharing_url("art-1"), {"enabled": False})
+
+        assert disabled.status_code == status.HTTP_200_OK, disabled.json()
+        configs = SharingConfiguration.objects.filter(task_artifact__task=self.task)
+        assert configs.count() == 2
+        assert not configs.filter(enabled=True).exists()
+        self.client.logout()
+        assert self.client.get(f"/shared/{first_token}").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"/shared/{second_token}").status_code == status.HTTP_404_NOT_FOUND
 
     def test_refreshing_the_token_works_in_a_child_environment(self):
         environment = Team.objects.create(

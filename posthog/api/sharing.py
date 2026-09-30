@@ -160,12 +160,9 @@ def _shared_page_viewer(
     open_path: str | None,
     *,
     sharing_enabled: bool = True,
-    sharing_api_path: str | None = None,
     is_creator: bool = False,
 ) -> dict[str, Any]:
-    """What the page knows about the person looking at it: whether they are signed in, what they may
-    open in the app, and whether they may turn the link on or off (`sharing_api_path` is the endpoint
-    that does)."""
+    """What the page knows about the person looking at it and whether they may open it in the app."""
     if user is None:
         return {
             "is_authenticated": False,
@@ -184,7 +181,8 @@ def _shared_page_viewer(
         "theme_mode": user.theme_mode,
         "open_path": open_path,
         "sharing_enabled": sharing_enabled,
-        "sharing_api_path": sharing_api_path,
+        # Shared pages are frameable, so never expose mutation controls here.
+        "sharing_api_path": None,
         "is_creator": is_creator,
     }
 
@@ -627,6 +625,7 @@ class SharingConfigurationViewSet(
         "partial_update",
         "patch",
         "destroy",
+        "publish",
         "refresh",
         "create_password",
         "delete_password",
@@ -888,14 +887,16 @@ class SharingConfigurationViewSet(
                         raise ValidationError("Publish the canvas before sharing it.")
                 elif not instance.enabled:
                     clear_shared_build(canvas)
-            if (
-                context.get("task_artifact_identity")
-                and "enabled" in request.data
-                and instance.enabled
-                and not was_enabled
-                and instance.task_artifact_id is not None
-            ):
-                tasks_facade.pin_shared_task_artifact(instance.task_artifact_id, self.team_id)
+            if context.get("task_artifact_identity") and "enabled" in request.data:
+                if instance.enabled and not was_enabled and instance.task_artifact_id is not None:
+                    tasks_facade.pin_shared_task_artifact(instance.task_artifact_id, self.team_id)
+                elif not instance.enabled and instance.task_artifact_id is not None:
+                    # Rotated tokens remain valid briefly to avoid breaking in-flight requests. An
+                    # explicit disable must revoke that grace period for every token for this file.
+                    SharingConfiguration.objects.filter(
+                        team_id=self.team_id,
+                        task_artifact_id=instance.task_artifact_id,
+                    ).filter(SharingConfiguration.tokens_active_q()).update(enabled=False)
 
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name
@@ -1396,7 +1397,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     def _compute_shared_page_viewer(self, resource: SharingConfiguration) -> dict[str, Any]:
         viewer = self._signed_in_viewer()
         open_path: str | None = None
-        sharing_api_path: str | None = None
         is_creator = False
         if viewer is not None and _viewer_in_team(viewer, resource.team):
             if resource.canvas is not None:
@@ -1410,24 +1410,16 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     )
                 ):
                     open_path = canvas_app_path(channel_id=resource.canvas.channel_id, canvas_id=resource.canvas.id)
-                    if access_level_satisfied_for_resource("canvas", access_level, "editor"):
-                        sharing_api_path = f"/api/projects/{resource.team_id}/canvases/{resource.canvas_id}/sharing"
             elif resource.task_artifact is not None:
                 shared_artifact = resource.task_artifact
                 if tasks_facade.user_can_access_task(shared_artifact.task_id, resource.team_id, viewer.id):
                     # Match the file's team-link contract so Desktop opens the file, not just its task.
                     artifact_query = urlencode({"scope": "task_artifact", "item": shared_artifact.artifact_id})
                     open_path = f"/desktop/task/{shared_artifact.task_id}?{artifact_query}"
-                    if tasks_facade.user_can_control_task(shared_artifact.task_id, resource.team_id, viewer.id):
-                        sharing_api_path = (
-                            f"/api/projects/{resource.team_id}/tasks/{shared_artifact.task_id}"
-                            f"/artifacts/{shared_artifact.artifact_id}/sharing"
-                        )
         return _shared_page_viewer(
             viewer,
             open_path,
             sharing_enabled=resource.enabled,
-            sharing_api_path=sharing_api_path,
             is_creator=is_creator,
         )
 
