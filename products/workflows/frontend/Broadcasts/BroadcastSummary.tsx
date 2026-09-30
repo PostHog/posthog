@@ -32,7 +32,9 @@ import { BroadcastPerformance } from './BroadcastPerformance'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
+import { broadcastPath } from './broadcastUsage'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
+import { ComposerDraftFeedback } from './ComposerDraftFeedback'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
     waiting: 'default',
@@ -371,6 +373,7 @@ export function BroadcastSummary(): JSX.Element {
         <SceneContent className="@container min-h-full w-full shrink-0" data-attr="broadcast-summary">
             <BroadcastSceneHeader nameSuffix={<BroadcastStatusTag status={summaryStatus} />} actions={actionsMenu} />
             <div className="mx-auto w-full max-w-6xl space-y-4">
+                {broadcastPath(broadcastId) === 'composer' ? <ComposerDraftFeedback /> : null}
                 {summaryStatus === 'failed' && !latestBatchJob && !batchJobsLoading ? (
                     <LemonBanner
                         type="warning"

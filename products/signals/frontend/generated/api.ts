@@ -48,6 +48,8 @@ import type {
     RecordStructuredOutputRequestApi,
     RecordStructuredOutputResponseApi,
     RememberRequestApi,
+    ReportReadStateRequestApi,
+    ReportReadStateResponseApi,
     ReportSignalsResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
@@ -59,6 +61,7 @@ import type {
     ScoutNoteApi,
     ScoutNoteCreateRequestApi,
     ScoutRubricDocumentApi,
+    ScoutRubricGenerateApi,
     ScoutRubricSaveApi,
     ScoutRunIdsBatchRequestApi,
     ScoutRunTokenCostsApi,
@@ -1190,6 +1193,23 @@ export const signalsReportsPrCiStatuses = async (
     })
 }
 
+export const getSignalsReportsReadStateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/read_state/`
+}
+
+export const signalsReportsReadStateCreate = async (
+    projectId: string,
+    reportReadStateRequestApi: ReportReadStateRequestApi,
+    options?: RequestInit
+): Promise<ReportReadStateResponseApi> => {
+    return apiMutator<ReportReadStateResponseApi>(getSignalsReportsReadStateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reportReadStateRequestApi),
+    })
+}
+
 export const getSignalsReportsRefreshMetricsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/reports/refresh_metrics/`
 }
@@ -1643,11 +1663,14 @@ export const getSignalsScoutRubricsGenerateUrl = (projectId: string, id: string)
 export const signalsScoutRubricsGenerate = async (
     projectId: string,
     id: string,
+    scoutRubricGenerateApi?: ScoutRubricGenerateApi,
     options?: RequestInit
 ): Promise<ScoutRubricDocumentApi> => {
     return apiMutator<ScoutRubricDocumentApi>(getSignalsScoutRubricsGenerateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutRubricGenerateApi),
     })
 }
 

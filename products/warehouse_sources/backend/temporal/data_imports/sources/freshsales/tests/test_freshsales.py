@@ -247,6 +247,60 @@ class TestGetRows:
             "selector/deal_pipelines/2/deal_stages",
         ]
 
+    def test_list_contacts_pages_every_list_and_tags_rows_with_list_id(self) -> None:
+        # /lists and /contacts/lists/{id} are paginated, unlike selectors, and the contact rows don't
+        # say which list they came from.
+        lists_page = _resp(body={"lists": [{"id": 1}, {"id": 2}], "meta": {"total_pages": 1}})
+        list_1_page_1 = _resp(body={"contacts": [{"id": i} for i in range(100)], "meta": {"total_pages": 2}})
+        list_1_page_2 = _resp(body={"contacts": [{"id": 100}], "meta": {"total_pages": 2}})
+        list_2_page_1 = _resp(body={"contacts": [{"id": 0}], "meta": {"total_pages": 1}})
+        manager = _FakeResumeManager()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales.make_tracked_session"
+        ) as mocked:
+            session = _session([lists_page, list_1_page_1, list_1_page_2, list_2_page_1])
+            mocked.return_value = session
+            batches = list(get_rows("acme", "acme", "list_contacts", MagicMock(), manager))  # type: ignore[arg-type]
+
+        rows = [row for batch in batches for row in batch]
+        assert len(rows) == 102
+        assert rows[100] == {"id": 100, "list_id": 1}
+        assert rows[101] == {"id": 0, "list_id": 2}
+        assert [call.args[0].rsplit("/api/", 1)[1] for call in session.get.call_args_list] == [
+            "lists?page=1&per_page=100",
+            "contacts/lists/1?page=1&per_page=100",
+            "contacts/lists/1?page=2&per_page=100",
+            "contacts/lists/2?page=1&per_page=100",
+        ]
+        assert manager.saved == [FreshsalesResumeConfig(next_page=2, parent_id=1)]
+
+    @parameterized.expand(
+        [
+            ("saved_list_still_exists", 2, ["contacts/lists/2?page=3&per_page=100"]),
+            (
+                "saved_list_deleted",
+                9,
+                ["contacts/lists/1?page=1&per_page=100", "contacts/lists/2?page=1&per_page=100"],
+            ),
+        ]
+    )
+    def test_list_contacts_resumes_at_saved_list_and_page(
+        self, _name: str, saved_list_id: int, expected_child_calls: list[str]
+    ) -> None:
+        lists_page = _resp(body={"lists": [{"id": 1}, {"id": 2}], "meta": {"total_pages": 1}})
+        child_pages = [_resp(body={"contacts": [{"id": 5}]}) for _ in expected_child_calls]
+        manager = _FakeResumeManager(FreshsalesResumeConfig(next_page=3, parent_id=saved_list_id))
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales.make_tracked_session"
+        ) as mocked:
+            session = _session([lists_page, *child_pages])
+            mocked.return_value = session
+            list(get_rows("acme", "acme", "list_contacts", MagicMock(), manager))  # type: ignore[arg-type]
+
+        assert [call.args[0].rsplit("/api/", 1)[1] for call in session.get.call_args_list[1:]] == expected_child_calls
+
     def test_tolerates_missing_object(self) -> None:
         # leads object absent -> /filters 404 -> stream yields nothing instead of failing.
         manager = _FakeResumeManager()
@@ -311,6 +365,7 @@ class TestFreshsalesSource:
             ("deals", ["id"], "created_at"),
             ("sales_activities", ["id"], None),
             ("open_tasks", ["id"], None),
+            ("list_contacts", ["list_id", "id"], "created_at"),
         ]
     )
     def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: Optional[str]) -> None:

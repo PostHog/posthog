@@ -196,6 +196,9 @@ An app or admin page takes the matching list in `CSPMiddleware`.
 On PostHog Cloud, the app policy's `script-src` and `connect-src` name each PostHog host instead of `*.posthog.com`.
 A script or request that goes to another PostHog subdomain needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
 Local runs, E2E runs and self-hosted installs keep the wildcards, so a missing host breaks only production.
+On PostHog Cloud, each app document also sends a report-only policy that holds only `img-src` without `https:`.
+It blocks nothing, and its reports (`$csp_version` 5) list the image hosts that only `https:` admits.
+Name a new image host in `img-src` anyway, so that removing `https:` later does not break it.
 A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/presentation/views/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.
 Say why the source is needed in a comment either way, then run `posthog/test/test_csp_middleware.py`.
