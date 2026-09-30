@@ -1,5 +1,3 @@
-from typing import Any
-
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -12,13 +10,13 @@ from products.experiments.backend.experiment_saved_metric_service import Experim
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 
-_THRESHOLD_MEAN: dict[str, Any] = {
+_THRESHOLD_MEAN: dict[str, object] = {
     "kind": "ExperimentMetric",
     "metric_type": "mean",
     "source": {"kind": "EventsNode", "event": "$pageview", "math": "sum", "math_property": "amount"},
 }
 
-_SHARED_RULE_CASES: list[tuple[str, dict[str, Any], str]] = [
+_SHARED_RULE_CASES: list[tuple[str, dict[str, object], str]] = [
     (
         "funnel_without_steps",
         {"kind": "ExperimentMetric", "metric_type": "funnel", "series": []},
@@ -54,11 +52,19 @@ _SHARED_RULE_CASES: list[tuple[str, dict[str, Any], str]] = [
     ),
 ]
 
-_STORED_ACTION_MEAN: dict[str, Any] = {
+_STORED_ACTION_SOURCE: dict[str, object] = {
+    "kind": "ActionsNode",
+    "id": 999999,
+    "name": "Stored name",
+    "math": "sum",
+    "math_property": "amount",
+}
+
+_STORED_ACTION_MEAN: dict[str, object] = {
     "kind": "ExperimentMetric",
     "metric_type": "mean",
     "uuid": "stored-uuid",
-    "source": {"kind": "ActionsNode", "id": 999999, "name": "Stored name", "math": "sum", "math_property": "amount"},
+    "source": _STORED_ACTION_SOURCE,
 }
 
 
@@ -153,7 +159,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
         ]
     )
     def test_saved_write_paths_apply_the_inline_metric_rules(
-        self, _: str, path: str, metric: dict[str, Any], fragment: str
+        self, _: str, path: str, metric: dict[str, object], fragment: str
     ) -> None:
         with self.assertRaises(ValidationError) as ctx:
             if path == "create":
@@ -179,7 +185,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
         saved_metric = ExperimentSavedMetric.objects.create(
             team=self.team, created_by=self.user, name="Original name", query=stored_query
         )
-        resent_query = {**stored_query, "source": {**stored_query["source"], "name": resent_action_name}}
+        resent_query = {**stored_query, "source": {**_STORED_ACTION_SOURCE, "name": resent_action_name}}
 
         updated = self._service().update_saved_metric(saved_metric, {"name": "Renamed", "query": resent_query})
 
