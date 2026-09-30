@@ -89,13 +89,13 @@ Four cheap reads cold-start a run:
 
 ### Profile shape — what's loud today?
 
-| Pattern                                                                                | What it usually means                                            |
-| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Stripe-shaped `external_data_sources` row with `status = failed` or stuck `running`    | Revenue dashboard silently stale — high-impact upstream watchdog |
-| Configured revenue event missing or sharply down in `top_events`                       | Capture regression — MRR / gross revenue dropping artificially   |
-| `popular_insights` includes revenue chart and chart's source is unhealthy              | Confirmed downstream impact — high-confidence finding            |
-| `product_intents` lists revenue analytics but no Stripe source and `revenue_analytics_config.events` is empty | Stuck onboarding — write memory, don't report |
-| Recent revenue dashboard view counts unchanged after a known revenue movement          | Team isn't watching — dashboard exists but isn't load-bearing    |
+| Pattern                                                                                                       | What it usually means                                            |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Stripe-shaped `external_data_sources` row with `status = failed` or stuck `running`                           | Revenue dashboard silently stale — high-impact upstream watchdog |
+| Configured revenue event missing or sharply down in `top_events`                                              | Capture regression — MRR / gross revenue dropping artificially   |
+| `popular_insights` includes revenue chart and chart's source is unhealthy                                     | Confirmed downstream impact — high-confidence finding            |
+| `product_intents` lists revenue analytics but no Stripe source and `revenue_analytics_config.events` is empty | Stuck onboarding — write memory, don't report                    |
+| Recent revenue dashboard view counts unchanged after a known revenue movement                                 | Team isn't watching — dashboard exists but isn't load-bearing    |
 
 ### Explore
 
@@ -191,7 +191,7 @@ The harness prompt carries the full report-channel contract (field schema, safet
 - **Reporting currency just changed** — apparent step-change in all charts; not a regression. A `pattern:` scratchpad entry from a prior run usually flags this.
 - **Revenue analytics in beta on the team's plan** — some teams use it as preview-only. The scratchpad should record this; if no entry exists, write one and skip.
 - **Sandbox / test Stripe source** — `prefix` like `test_` or `sandbox_` means the team is wiring up integration; failures here aren't production signal.
-- **Revenue event renamed by the team** — `revenue_analytics_config.events[].eventName` from `project-get` no longer lists the "missing" event, or lists a new name next to it. The "missing event" is the old name. Compare the event against the current config before flagging.
+- **Revenue event removed or renamed by the team** — `revenue_analytics_config.events[].eventName` from `project-get` no longer lists the "missing" event. Treat a new event name as a rename only when prior-run memory or other evidence links it to the old name. A second configured event can be independent, so an old event that stays in the config is still in scope.
 
 When in doubt, write a memory entry instead of authoring a report.
 
