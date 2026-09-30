@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from django.db import models
+from posthog.enums import LabeledStrEnum
 
 
 class EmailTrackingConsentMode(StrEnum):
@@ -19,7 +19,7 @@ EMAIL_TRACKING_CONSENT_MODE_CHOICES = [
 ]
 
 
-class HogFlowBatchJobState(models.TextChoices):
+class HogFlowBatchJobState(LabeledStrEnum):
     WAITING = "waiting"
     QUEUED = "queued"
     ACTIVE = "active"
