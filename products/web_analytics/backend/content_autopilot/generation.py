@@ -662,7 +662,11 @@ def _requested_site_pages(
         requested = site_pages[:MAX_REQUESTED_SITE_PAGES]
     if target_url and target_url not in already_read:
         requested = [target_url, *(url for url in requested if url != target_url)]
-    return [document for url in requested if (document := fetch_site_page(url)) is not None]
+    documents = [document for url in requested if (document := fetch_site_page(url)) is not None]
+    if not documents and not already_read:
+        fallback = [url for url in site_pages if url not in requested][:MAX_REQUESTED_SITE_PAGES]
+        documents = [document for url in fallback if (document := fetch_site_page(url)) is not None]
+    return documents
 
 
 def _add_requested_pages(
@@ -847,51 +851,70 @@ def _fail_proposal(proposal: ContentAutopilotProposal | None, message: str) -> N
     )
 
 
+def _draft_opportunity(
+    client: Anthropic,
+    *,
+    run: ContentAutopilotRun,
+    opportunity: ContentAutopilotOpportunity,
+    site: SiteContext,
+    errors: list[dict[str, str]],
+) -> bool:
+    title = opportunity.title[:120]
+    ready = False
+    try:
+        proposal = _generate_for_opportunity(client, run=run, opportunity=opportunity, site=site)
+        ready = proposal.lifecycle_status == ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW
+        if not ready:
+            errors.append(
+                {
+                    "error_code": "checks_failed",
+                    "message": f"{title}: the draft didn't pass its checks. Open it to see what to fix.",
+                }
+            )
+    except ContentAutopilotLLMError as error:
+        errors.append({"error_code": "generation_failed", "message": f"{title}: {error}"})
+        _fail_proposal(opportunity.proposal, str(error))
+    except Exception as error:
+        capture_exception(error)
+        logger.exception("content_autopilot_generation_failed", team_id=run.team_id, run_id=str(run.id))
+        errors.append({"error_code": "generation_failed", "message": f"{title}: something went wrong while drafting."})
+        opportunity.refresh_from_db(fields=["proposal"])
+        _fail_proposal(opportunity.proposal, "Something went wrong while drafting. Regenerate to try again.")
+    if opportunity.proposal_id:
+        opportunity.status = ContentAutopilotOpportunity.Status.DRAFTED
+        opportunity.save(update_fields=["status", "updated_at"])
+    return ready
+
+
 def generate_run(team_id: int, run_id: str, *, client: Anthropic | None = None) -> None:
     run = _claim_run(team_id, run_id)
     if run is None:
         return
-    opportunities = list(
-        ContentAutopilotOpportunity.objects.for_team(team_id)
-        .filter(run=run, status=ContentAutopilotOpportunity.Status.QUEUED)
-        .order_by("-score")
-    )
-    if not opportunities:
-        error = {
-            "error_code": "no_opportunities",
-            "message": "No opportunities were selected. Pick one or more from the list and draft them.",
-        }
-        finish_run(team_id, run_id, errors=[error], ready=0)
-        return
     errors: list[dict[str, str]] = []
     ready = 0
     try:
-        site = site_context(run.profile, run.input_snapshot)
-        resolved_client = client or build_client(team_id=team_id, properties={"content_autopilot_run_id": str(run.id)})
-        for opportunity in opportunities:
-            if _run_is_canceled(run):
-                break
-            try:
-                proposal = _generate_for_opportunity(resolved_client, run=run, opportunity=opportunity, site=site)
-                if proposal.lifecycle_status == ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW:
+        opportunities = list(
+            ContentAutopilotOpportunity.objects.for_team(team_id)
+            .filter(run=run, status=ContentAutopilotOpportunity.Status.QUEUED)
+            .order_by("-score")
+        )
+        if not opportunities:
+            errors.append(
+                {
+                    "error_code": "no_opportunities",
+                    "message": "No opportunities were selected. Pick one or more from the list and draft them.",
+                }
+            )
+        else:
+            site = site_context(run.profile, run.input_snapshot)
+            resolved_client = client or build_client(
+                team_id=team_id, properties={"content_autopilot_run_id": str(run.id)}
+            )
+            for opportunity in opportunities:
+                if _run_is_canceled(run):
+                    break
+                if _draft_opportunity(resolved_client, run=run, opportunity=opportunity, site=site, errors=errors):
                     ready += 1
-            except ContentAutopilotLLMError as error:
-                errors.append({"error_code": "generation_failed", "message": f"{opportunity.title[:120]}: {error}"})
-                _fail_proposal(opportunity.proposal, str(error))
-            except Exception as error:
-                capture_exception(error)
-                logger.exception("content_autopilot_generation_failed", team_id=team_id, run_id=str(run.id))
-                errors.append(
-                    {
-                        "error_code": "generation_failed",
-                        "message": f"{opportunity.title[:120]}: something went wrong while drafting.",
-                    }
-                )
-                opportunity.refresh_from_db(fields=["proposal"])
-                _fail_proposal(opportunity.proposal, "Something went wrong while drafting. Regenerate to try again.")
-            if opportunity.proposal_id:
-                opportunity.status = ContentAutopilotOpportunity.Status.DRAFTED
-                opportunity.save(update_fields=["status", "updated_at"])
     except ContentAutopilotLLMError as error:
         errors.append({"error_code": "generation_failed", "message": str(error)})
     except Exception as error:
@@ -935,9 +958,11 @@ def process_proposal(team_id: int, proposal_id: str, mode: ProposalMode, *, clie
     if not research.site_documents and opportunity is None:
         _fail_proposal(proposal, "This proposal has no stored research. Draft the opportunity again.")
         return
-    site = site_context(proposal.run.profile, proposal.run.input_snapshot)
-    resolved_client = client or build_client(team_id=team_id, properties={"content_autopilot_proposal_id": proposal_id})
     try:
+        site = site_context(proposal.run.profile, proposal.run.input_snapshot)
+        resolved_client = client or build_client(
+            team_id=team_id, properties={"content_autopilot_proposal_id": proposal_id}
+        )
         if opportunity is not None:
             _compose_proposal(resolved_client, proposal=proposal, opportunity=opportunity, site=site)
         elif mode == "validate":

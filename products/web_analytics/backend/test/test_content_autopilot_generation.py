@@ -92,7 +92,9 @@ def _draft_payload(markdown: str = GOOD_MARKDOWN) -> dict[str, Any]:
         "url_path": "/docs/how-session-replay-works",
         "markdown": markdown,
         "faq": [{"question": "Is it private?", "answer": "Yes."}],
-        "json_ld": json.dumps({"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": []}),
+        "json_ld": json.dumps(
+            {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question"}]}
+        ),
         "llms_txt_line": "- [How session replay works](/docs/how-session-replay-works.md): What it records.",
         "source_ledger": [
             {
@@ -112,6 +114,7 @@ class FakeModel:
         self.fail_brief = False
         self.crash = False
         self.brief_target_page = ""
+        self.brief_pages_to_read: list[str] = []
 
     def __call__(self, client: Any, *, system: str, user: str, schema: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         if self.crash:
@@ -126,6 +129,7 @@ class FakeModel:
                 "audience": "Engineers",
                 "recommended_type": "page_improvement",
                 "target_page": self.brief_target_page,
+                "site_pages_to_read": self.brief_pages_to_read,
                 "working_title": "How session replay works",
                 "outline": ["What it captures"],
                 "questions_to_answer": ["Is it private?"],
@@ -305,6 +309,25 @@ class TestContentAutopilotGeneration(BaseTest):
         assert proposal.lifecycle_status == ContentAutopilotProposal.LifecycleStatus.FAILED
         assert failed == {"internal_links"}
         assert run.run_status == ContentAutopilotRun.RunStatus.FAILED
+        assert [entry["error_code"] for entry in run.errors] == ["checks_failed"]
+
+    def test_an_unreadable_requested_page_falls_back_to_other_listed_pages(self) -> None:
+        self.model.brief_pages_to_read = ["https://example.com/docs/session-replay/privacy-controls"]
+        opportunity = create_content_autopilot_opportunity(
+            self.team,
+            self.profile,
+            cluster_key="uncited",
+            title="How does session replay work?",
+            recommended_type=ContentAutopilotProposal.ProposalType.NEW_CONTENT,
+            gap={"latest_answers": []},
+        )
+
+        self._run(opportunity)
+
+        opportunity.refresh_from_db()
+        assert opportunity.proposal is not None
+        research = ResearchBundle.from_dict(opportunity.proposal.research)
+        assert "https://example.com/docs/session-replay" in [document.url for document in research.site_documents]
 
     @parameterized.expand(
         [
@@ -340,6 +363,26 @@ class TestContentAutopilotGeneration(BaseTest):
         assert [entry["message"] for entry in run.errors] == [message]
         assert opportunity.status == ContentAutopilotOpportunity.Status.NEW
         assert opportunity.proposal is None
+
+    def test_a_run_stops_when_its_site_changed_after_it_started(self) -> None:
+        opportunity = self._opportunity()
+        run = draft_opportunities(
+            team=self.team,
+            profile_id=str(self.profile.id),
+            opportunity_ids=[str(opportunity.id)],
+            triggered_by_id=None,
+        )
+        self.profile.domain = "https://other.example"
+        self.profile.save(update_fields=["domain"])
+
+        generate_run(self.team.id, str(run.id), client=object())  # type: ignore[arg-type]
+
+        run.refresh_from_db()
+        assert run.run_status == ContentAutopilotRun.RunStatus.FAILED
+        assert [entry["message"] for entry in run.errors] == [
+            "The site's domain changed after this run started. Draft it again."
+        ]
+        assert self.model.draft_calls == 0
 
     def test_canceling_a_run_stops_before_the_next_opportunity(self) -> None:
         first = self._opportunity("first")
@@ -383,6 +426,7 @@ class TestContentAutopilotGeneration(BaseTest):
                 False,
             ),
             ("unexpected_error_while_checking", GOOD_MARKDOWN, ContentAutopilotProposal.LifecycleStatus.FAILED, True),
+            ("edit_that_undoes_every_change", REPLAY_DOC, ContentAutopilotProposal.LifecycleStatus.FAILED, False),
         ]
     )
     def test_an_edit_is_revalidated_without_rewriting_it(
@@ -405,6 +449,28 @@ class TestContentAutopilotGeneration(BaseTest):
         assert proposal.lifecycle_status == expected
         assert proposal.proposed_markdown == markdown
         assert self.model.draft_calls == draft_calls_before
+
+    def test_a_proposal_that_fails_before_checking_is_marked_failed(self) -> None:
+        run = self._run(self._opportunity())
+        proposal = ContentAutopilotProposal.objects.for_team(self.team.id).get(run=run)
+        edit_proposal(
+            team=self.team,
+            proposal_id=str(proposal.id),
+            proposed_markdown=GOOD_MARKDOWN,
+            content_package=proposal.content_package,
+        )
+
+        with patch(
+            "products.web_analytics.backend.content_autopilot.generation.build_client",
+            side_effect=ContentAutopilotLLMError("The AI gateway is not configured."),
+        ):
+            process_proposal(self.team.id, str(proposal.id), "validate")
+
+        proposal.refresh_from_db()
+        assert proposal.lifecycle_status == ContentAutopilotProposal.LifecycleStatus.FAILED
+        assert [check["message"] for check in proposal.validation_report["checks"]] == [
+            "The AI gateway is not configured."
+        ]
 
 
 class _FakeStream:
