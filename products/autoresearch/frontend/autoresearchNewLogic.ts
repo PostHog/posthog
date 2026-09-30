@@ -225,13 +225,17 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                         ? 'Prediction horizon must be at least 1 day'
                         : formValues.horizon_days > 365
                           ? 'Prediction horizon must be 365 days or fewer'
-                          : undefined,
+                          : !Number.isInteger(formValues.horizon_days)
+                            ? 'Prediction horizon must be a whole number of days'
+                            : undefined,
                 training_lookback_days:
                     !formValues.training_lookback_days || formValues.training_lookback_days < 7
                         ? 'Training lookback must be at least 7 days'
                         : formValues.training_lookback_days > 730
                           ? 'Training lookback must be 730 days or fewer'
-                          : undefined,
+                          : !Number.isInteger(formValues.training_lookback_days)
+                            ? 'Training lookback must be a whole number of days'
+                            : undefined,
             }),
             submit: async (payload: NewPipelineFormValues) => {
                 if (!values.currentTeamId) {
