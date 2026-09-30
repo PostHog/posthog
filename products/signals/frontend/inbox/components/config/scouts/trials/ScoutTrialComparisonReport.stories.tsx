@@ -9,6 +9,12 @@ const meta: Meta<typeof ScoutTrialComparisonReport> = {
     component: ScoutTrialComparisonReport,
     args: { report: trialFixtureReport },
     parameters: { layout: 'padded' },
+    render: (args) => (
+        // A query container needs a sized parent when the snapshot root shrinks to its content.
+        <div className="w-[calc(100vw-2rem)] max-w-full">
+            <ScoutTrialComparisonReport {...args} />
+        </div>
+    ),
 }
 export default meta
 type Story = StoryObj<typeof ScoutTrialComparisonReport>
