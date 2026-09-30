@@ -16,6 +16,7 @@ interface AccountViewTileProps {
     projectId: number
     accountId: string
     externalId: string
+    spanClassName: string
 }
 
 export function AccountViewTile({
@@ -25,12 +26,13 @@ export function AccountViewTile({
     projectId,
     accountId,
     externalId,
+    spanClassName,
 }: AccountViewTileProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
     const { tileSaving, tileConfigReloads } = useValues(logic)
     const { openTileEditor, removeViewComponent, updateViewComponentConfig } = useActions(logic)
     const title = component.title ?? getAccountViewComponentByKind(component.kind)?.label ?? component.kind
-    const menuDisabledReason = tileSaving ? 'Saving changes' : undefined
+    const menuDisabledReason = !view.can_edit ? 'You cannot edit this view' : tileSaving ? 'Saving changes' : undefined
 
     const confirmRemove = (): void => {
         LemonDialog.open({
@@ -67,7 +69,7 @@ export function AccountViewTile({
     ]
 
     return (
-        <LemonCard hoverEffect={false} className="min-w-0 overflow-hidden p-0">
+        <LemonCard hoverEffect={false} className={`col-span-12 min-w-0 overflow-hidden p-0 ${spanClassName}`}>
             <div className="flex items-center gap-2 border-b px-2 py-1">
                 <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary">{title}</span>
                 <LemonMenu items={items}>
@@ -89,7 +91,11 @@ export function AccountViewTile({
                     externalId={externalId}
                     instanceId={`${component.nodeId}:${tileConfigReloads[view.id] ?? 0}`}
                     initialConfig={component.config}
-                    onConfigChange={(config) => updateViewComponentConfig(view.id, component.nodeId, config)}
+                    onConfigChange={
+                        view.can_edit
+                            ? (config) => updateViewComponentConfig(view.id, component.nodeId, config)
+                            : undefined
+                    }
                     embedded
                 />
             </div>

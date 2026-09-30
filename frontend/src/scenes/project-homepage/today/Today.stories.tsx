@@ -206,6 +206,24 @@ const meta: Meta = {
                           : []
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
+                '/api/projects/:team_id/task_activity/': {
+                    results: [
+                        {
+                            id: 'activity-task-2',
+                            task_id: 'task-2',
+                            task_title: 'Investigate the drop in trial starts',
+                            channel_id: 'space-checkout',
+                            channel_name: 'checkout',
+                            activity_at: '2026-09-28T17:00:00Z',
+                            activity_kind: 'completed',
+                            snippet: '',
+                            latest_comment_id: null,
+                            is_unread: true,
+                        },
+                    ],
+                    unread_count: 1,
+                    next_before: null,
+                },
                 '/api/environments/:team_id/conversations/': { results: CONVERSATIONS, next: null },
                 '/api/environments/:team_id/file_system/': ({ request }) => {
                     const type = new URL(request.url).searchParams.get('type')
@@ -213,6 +231,22 @@ const meta: Meta = {
                     return [200, { results, count: results.length }]
                 },
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
+            },
+            post: {
+                '/api/projects/:team_id/tasks/summaries/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'task-1',
+                            latest_run: {
+                                pr_url: 'https://github.com/example-org/webapp/pull/421',
+                                pr_state: 'merged',
+                            },
+                        },
+                    ],
+                },
             },
         }),
     ],
