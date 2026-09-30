@@ -160,6 +160,7 @@
     color: color-mix(in oklab, var(--foreground) 70%, transparent);
 }
 
+/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
 [data-quill] .hover\:text-foreground:hover {
     color: var(--foreground);
 }
