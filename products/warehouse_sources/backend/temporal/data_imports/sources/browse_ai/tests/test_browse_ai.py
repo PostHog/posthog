@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,7 +20,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClient,
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+
+
+def sync_items(response: SourceResponse) -> Iterable[Any]:
+    items = response.items()
+    assert isinstance(items, Iterable)
+    return items
 
 
 @pytest.fixture
@@ -82,7 +89,7 @@ def test_pages_fan_out_and_resume_after_yield(
         )
         http.get(f"{BASE_URL}/robots/r2/{child_path}", json=page("same-id", False))
         response = browse_ai_source("fake-key", inputs, manager, webhook_manager)
-        rows = iter(response.items())
+        rows = iter(sync_items(response))
         first = next(rows)
         manager.save_state.assert_not_called()
         second = next(rows)
@@ -120,7 +127,7 @@ def test_resume_skips_completed_robot_and_resumes_child_page(
         http.get(f"{BASE_URL}/robots", json={"robots": {"items": [{"id": "r1"}, {"id": "r2"}, {"id": "r3"}]}})
         http.get(f"{BASE_URL}/robots/r2/tasks", json=task_page([{"id": "last"}], False))
         http.get(f"{BASE_URL}/robots/r3/tasks", json=task_page([], False))
-        assert list(browse_ai_source("fake-key", inputs, manager, webhook_manager).items()) == [
+        assert list(sync_items(browse_ai_source("fake-key", inputs, manager, webhook_manager))) == [
             [{"id": "last", "robotId": "r2"}]
         ]
         assert [request.qs.get("page") for request in http.request_history] == [None, ["3"], ["1"]]
@@ -140,7 +147,7 @@ def test_unpaginated_lists_and_empty_results(
         http.get(f"{BASE_URL}/robots", json={"robots": {"items": [{"id": "r1"}]}})
         if endpoint == "monitors":
             http.get(f"{BASE_URL}/robots/r1/monitors", json={"monitors": {"items": []}})
-        rows = list(browse_ai_source("fake-key", inputs, manager, webhook_manager).items())
+        rows = list(sync_items(browse_ai_source("fake-key", inputs, manager, webhook_manager)))
         assert rows == ([[{"id": "r1"}]] if endpoint == "robots" else [])
         assert all(request.qs == {} for request in http.request_history)
 
@@ -153,7 +160,7 @@ def test_malformed_response_fails_instead_of_erasing_table(
         http.get(f"{BASE_URL}/robots", json={"robots": {"items": [{"id": "r1"}]}})
         http.get(f"{BASE_URL}/robots/r1/tasks", json=body)
         with pytest.raises(ValueError):
-            list(browse_ai_source("fake-key", inputs, manager, webhook_manager).items())
+            list(sync_items(browse_ai_source("fake-key", inputs, manager, webhook_manager)))
 
 
 @pytest.mark.parametrize(
@@ -163,8 +170,13 @@ def test_credential_status_messages(status: int, expected: tuple[bool, str | Non
     with requests_mock.Mocker() as http:
         http.get(f"{BASE_URL}/robots", status_code=status, json={"robots": {"items": []}})
         success, message = validate_credentials("fake-key")
-        assert success == expected[0]
-        assert expected[1] in message if expected[1] else message is None
+        expected_success, expected_message = expected
+        assert success == expected_success
+        if expected_message is None:
+            assert message is None
+        else:
+            assert message is not None
+            assert expected_message in message
 
 
 @pytest.mark.parametrize(
@@ -172,7 +184,7 @@ def test_credential_status_messages(status: int, expected: tuple[bool, str | Non
     [(401, HTTPError, 1), (403, HTTPError, 1), (429, RESTClientRetryableError, 5), (503, RESTClientRetryableError, 5)],
 )
 def test_http_failure_classification(status: int, error_type: type[Exception], attempts: int) -> None:
-    with requests_mock.Mocker() as http, patch.object(RESTClient._send_request.retry, "sleep"):
+    with requests_mock.Mocker() as http, patch.object(RESTClient._send_request.retry, "sleep"):  # type: ignore[attr-defined]
         http.get(f"{BASE_URL}/robots", status_code=status, json={"messageCode": "test_error"})
         with pytest.raises(error_type):
             validate_credentials("fake-key") if status not in (401, 403) else next(
@@ -217,7 +229,7 @@ def test_empty_intermediate_page_advances(inputs: SourceInputs, manager: Mock, w
                 {"json": task_page([{"id": "t1"}], False)},
             ],
         )
-        assert list(browse_ai_source("fake-key", inputs, manager, webhook_manager).items()) == [
+        assert list(sync_items(browse_ai_source("fake-key", inputs, manager, webhook_manager))) == [
             [{"id": "t1", "robotId": "r1"}]
         ]
         assert [request.qs["page"] for request in http.request_history[1:]] == [["1"], ["2"]]

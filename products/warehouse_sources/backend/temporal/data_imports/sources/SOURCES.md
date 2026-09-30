@@ -136,7 +136,7 @@ the row lists both.
 | breezometer                      | HTTP                        | requests                                                        | ✅                          |
 | brevo                            | HTTP                        | requests                                                        | ✅                          |
 | brex                             | HTTP                        | requests                                                        | ✅                          |
-| browse_ai                        | HTTP + Webhook (S3-buffered) | requests + `rest_source.RESTClient`                             | ✅                          |
+| browse_ai                        | HTTP + Webhook              | requests + `rest_source.RESTClient`                             | ✅                          |
 | browser_use                      | HTTP                        | requests                                                        | ✅                          |
 | browserbase                      | HTTP                        | requests                                                        | ✅                          |
 | bugherd                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
