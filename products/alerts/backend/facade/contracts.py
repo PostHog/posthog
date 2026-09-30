@@ -163,8 +163,9 @@ class AlertEventKind(StrEnum):
     """What one evaluation announced about an alert.
 
     `CHECK` is an evaluation that announced nothing, which includes one that moved the alert while
-    a cooldown or a mute held the notification back. Read `previous_state` and `state` to find the
-    moves, because counting `RESOLVED` rows misses every recovery that was suppressed.
+    a cooldown or a mute held the notification back. Read the history row's `previous_state` and
+    `state` to find the moves, because counting `RESOLVED` rows misses every recovery that was
+    suppressed.
 
     A source reports the kind rather than the platform deriving it: the machine already decided
     what to announce, and deriving it again from the states would be a second implementation of
@@ -222,22 +223,23 @@ class PlatformAlertOutcome:
 
 @frozen
 class GroupTransition:
-    """One transition a delivery carries, with everything a message renders from.
+    """One transition a delivery carries.
 
     `grouping_key` is empty until a source groups, so delivery reads a list of one today and a
     list of N when fan-out ships.
 
-    Only bounded facts travel here. The condition and the source config a message also needs are
-    on the history row, which `evaluation_key` addresses: `source_config` is an unbounded filter
-    tree, and one per transition would blow the activity payload bound that
-    `MAX_PREVIEWS_PER_CYCLE` was sized against.
+    Only what a message states travels here, and only where it is bounded. `kind` picks the
+    headline and `value` is the number it quotes. The condition and the source config a message
+    also needs are on the history row, which `evaluation_key` addresses: `source_config` is an
+    unbounded filter tree, and one per transition would blow the activity payload bound that
+    `MAX_PREVIEWS_PER_CYCLE` was sized against. The two states are on that row for the same
+    reason they are not here: no message says them, and a second copy taken at a different
+    moment can disagree with the row a comparison trusts.
     """
 
     grouping_key: str
     notification: str
     kind: AlertEventKind
-    previous_state: str
-    state: str
     value: float | None = None
 
 

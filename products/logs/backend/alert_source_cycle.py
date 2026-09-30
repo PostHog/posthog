@@ -321,8 +321,6 @@ def _delivery(
                 grouping_key="",
                 notification=outcome.notification.value,
                 kind=recorded.kind,
-                previous_state=check.state,
-                state=recorded.new_state,
                 value=recorded.value,
             ),
         ),

@@ -87,8 +87,6 @@ class TestLogsAlertEvaluation(APIBaseTest):
                 grouping_key="",
                 notification="fire",
                 kind=AlertEventKind.FIRING,
-                previous_state="not_firing",
-                state="firing",
                 value=500.0,
             )
         ]
