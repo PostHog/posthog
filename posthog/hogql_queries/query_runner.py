@@ -104,6 +104,7 @@ from posthog.schema import (
     SessionQuery,
     SessionsQuery,
     SessionsTimelineQuery,
+    StepOrderValue,
     StickinessQuery,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
@@ -3267,8 +3268,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         # The cached step's `name` holds the raw event/action label, as _serialize_step writes it.
         # Resolving against it keeps a cached response identical to a fresh computation, which also
-        # honors a `name`-based rename.
+        # honors a `name`-based rename. Unordered steps hold a positional label ("Completed 1 step")
+        # instead, so every series `name` would differ from it and read as a rename. They keep only
+        # an explicit custom_name.
         series_by_order = dict(enumerate(series))
+        funnels_filter = getattr(self.query, "funnelsFilter", None)
+        honor_name = not (funnels_filter and funnels_filter.funnelOrderType == StepOrderValue.UNORDERED)
 
         was_modified = False
 
@@ -3280,7 +3285,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         continue
                     order = step.get("order")
                     if order is not None and order in series_by_order:
-                        new_name = resolve_series_custom_name(series_by_order[order], step.get("name"))
+                        s = series_by_order[order]
+                        new_name = (
+                            resolve_series_custom_name(s, step.get("name"))
+                            if honor_name
+                            else getattr(s, "custom_name", None)
+                        )
                         if step.get("custom_name") != new_name:
                             step["custom_name"] = new_name
                             was_modified = True
@@ -3291,7 +3301,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     continue
                 order = step.get("order")
                 if order is not None and order in series_by_order:
-                    new_name = resolve_series_custom_name(series_by_order[order], step.get("name"))
+                    s = series_by_order[order]
+                    new_name = (
+                        resolve_series_custom_name(s, step.get("name"))
+                        if honor_name
+                        else getattr(s, "custom_name", None)
+                    )
                     if step.get("custom_name") != new_name:
                         step["custom_name"] = new_name
                         was_modified = True

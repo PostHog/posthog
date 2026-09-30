@@ -9,8 +9,10 @@ from posthog.schema import (
     DashboardFilter,
     DateRange,
     EventsNode,
+    FunnelsFilter,
     FunnelsQuery,
     IntervalType,
+    StepOrderValue,
 )
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -140,15 +142,31 @@ class TestFunnelsSeriesCustomNames(BaseTest):
         self.assertEqual(patched_response.results, expected_results)
         self.assertEqual(was_modified, expect_modified)
 
-    def test_apply_funnels_custom_names_resolves_a_name_rename(self):
+    @parameterized.expand(
+        [
+            ("ordered_funnel_takes_the_rename", StepOrderValue.ORDERED, "step1", "Signed up", True),
+            ("unordered_funnel_keeps_its_positional_label", StepOrderValue.UNORDERED, "Completed 1 step", None, False),
+        ]
+    )
+    def test_apply_funnels_custom_names_resolves_a_name_rename(
+        self,
+        _name: str,
+        order_type: StepOrderValue,
+        cached_step_name: str,
+        expected_custom_name: str | None,
+        expect_modified: bool,
+    ):
         # Separate from the cases above because the series differs: the rename lands in `name`,
         # which is where the query editor, the API and experiment metrics write it.
-        query = FunnelsQuery(series=[EventsNode(event="step1", name="Signed up")])
+        query = FunnelsQuery(
+            series=[EventsNode(event="step1", name="Signed up")],
+            funnelsFilter=FunnelsFilter(funnelOrderType=order_type),
+        )
 
         runner = FunnelsQueryRunner(query=query, team=self.team)
 
         cached_response = CachedFunnelsQueryResponse(
-            results=[{"order": 0, "name": "step1", "custom_name": None, "count": 100}],
+            results=[{"order": 0, "name": cached_step_name, "custom_name": None, "count": 100}],
             is_cached=True,
             last_refresh=datetime.now(UTC),
             next_allowed_client_refresh=datetime.now(UTC),
@@ -158,8 +176,8 @@ class TestFunnelsSeriesCustomNames(BaseTest):
 
         patched_response, was_modified = runner.apply_series_custom_names(cached_response)
 
-        self.assertEqual(patched_response.results[0]["custom_name"], "Signed up")
-        self.assertTrue(was_modified)
+        self.assertEqual(patched_response.results[0]["custom_name"], expected_custom_name)
+        self.assertEqual(was_modified, expect_modified)
 
 
 class TestFunnelsStepCustomNames(ClickhouseTestMixin, APIBaseTest):
