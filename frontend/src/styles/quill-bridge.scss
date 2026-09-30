@@ -148,7 +148,20 @@
     background-color: var(--fill-expanded);
 }
 
+[data-quill] .bg-destructive-foreground {
+    background-color: var(--destructive-foreground);
+}
+
 [data-quill] .text-foreground {
+    color: var(--foreground);
+}
+
+[data-quill] .text-foreground\/70 {
+    color: color-mix(in oklab, var(--foreground) 70%, transparent);
+}
+
+/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill] .hover\:text-foreground:hover {
     color: var(--foreground);
 }
 
@@ -196,6 +209,10 @@
     border-color: var(--border);
 }
 
+[data-quill] .border-muted-foreground {
+    border-color: var(--muted-foreground);
+}
+
 [data-quill] .border-input {
     border-color: var(--input);
 }
@@ -221,6 +238,10 @@
 
 [data-quill] .ring-foreground\/20 {
     --tw-ring-color: color-mix(in oklab, var(--foreground) 20%, transparent);
+}
+
+[data-quill] .ring-border {
+    --tw-ring-color: var(--border);
 }
 
 [data-quill] .ring-ring {
