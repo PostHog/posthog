@@ -1,9 +1,9 @@
 import { type ReactElement, type ReactNode } from 'react'
 
-import { DataTable, type DataTableColumn, ListDetailView, formatDate } from '@posthog/mcp-ui'
+import { DataTable, type DataTableColumn, ListDetailView } from '@posthog/mcp-ui'
 import { Badge, Button } from '@posthog/quill'
 
-import { type PlatformAlertData, PlatformAlertView, summarizePlatformAlert } from './PlatformAlertView'
+import { type PlatformAlertData, PlatformAlertView, nextCheckLabel, summarizePlatformAlert } from './PlatformAlertView'
 
 export interface PlatformAlertListData {
     results: PlatformAlertData[]
@@ -76,9 +76,7 @@ export function PlatformAlertListView({ data, onPlatformAlertClick }: PlatformAl
                         header: 'Next check',
                         sortable: true,
                         render: (row): ReactNode => (
-                            <span className="text-muted-foreground text-xs">
-                                {row.next_check_at ? formatDate(row.next_check_at, true) : 'Not scheduled'}
-                            </span>
+                            <span className="text-muted-foreground text-xs">{nextCheckLabel(row)}</span>
                         ),
                     },
                 ]

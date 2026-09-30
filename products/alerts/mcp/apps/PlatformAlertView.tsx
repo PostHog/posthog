@@ -68,6 +68,11 @@ function optionalTime(value: string | null, fallback: string): string {
     return value ? formatDate(value, true) : fallback
 }
 
+// A disabled alert can keep a stale next_check_at, but the scheduler never runs it.
+export function nextCheckLabel(alert: PlatformAlertData): string {
+    return alert.enabled ? optionalTime(alert.next_check_at, 'Not scheduled') : 'Disabled'
+}
+
 // Platform alerts keep their state while snoozed; only the notification is held.
 function snoozedUntil(group: PlatformAlertGroupData): string | null {
     return group.snooze_until && new Date(group.snooze_until) > new Date() ? group.snooze_until : null
@@ -145,7 +150,7 @@ export function PlatformAlertView({ data }: { data: PlatformAlertData }): ReactE
                                     value: `${data.datapoints_to_alarm} of ${data.evaluation_periods} checks`,
                                 },
                                 { label: 'Checks', value: `Every ${data.check_interval_minutes} min` },
-                                { label: 'Next check', value: optionalTime(data.next_check_at, 'Not scheduled') },
+                                { label: 'Next check', value: nextCheckLabel(data) },
                                 { label: 'Failed checks in a row', value: String(data.consecutive_failures) },
                             ]}
                         />
