@@ -11,6 +11,7 @@ import deltalake
 import posthoganalytics
 import deltalake.exceptions
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import get_machine_id
@@ -90,13 +91,22 @@ def removable_file_count(file_sizes: Iterable[int]) -> int:
     return max(0, len(small) - output_files)
 
 
-def _partition_file_stats(table: deltalake.DeltaTable) -> list[tuple[int, int]]:
-    """(at-rest bytes, removable files) for each partition, read from the Delta log with no S3 request."""
+@frozen
+class _PartitionFileStats:
+    size_bytes: int
+    removable_files: int
+
+
+def _partition_file_stats(table: deltalake.DeltaTable) -> list[_PartitionFileStats]:
+    """Stats for each partition, read from the Delta log with no S3 request."""
     # Each partition value is one directory, and an unpartitioned table keeps its files at the root.
     sizes: defaultdict[str, list[int]] = defaultdict(list)
     for path, size in table._table.get_add_file_sizes().items():
         sizes[path.rpartition("/")[0]].append(size or 0)
-    return [(sum(partition_sizes), removable_file_count(partition_sizes)) for partition_sizes in sizes.values()]
+    return [
+        _PartitionFileStats(size_bytes=sum(partition_sizes), removable_files=removable_file_count(partition_sizes))
+        for partition_sizes in sizes.values()
+    ]
 
 
 class DeltaMaintenance:
@@ -267,13 +277,15 @@ class DeltaMaintenance:
         )
         if compact_small_files and not fragmented:
             partitions = await asyncio.to_thread(_partition_file_stats, table)
-            max_removable = max((removable for _, removable in partitions), default=0)
-            total_removable = sum(removable for _, removable in partitions)
+            max_removable = max((partition.removable_files for partition in partitions), default=0)
+            total_removable = sum(partition.removable_files for partition in partitions)
             # Repartition detection runs after this pass and compares partition bytes to its budget.
             # Small files take more bytes at rest than the same rows after compaction, so an
             # over-budget partition that compaction can shrink must be compacted before it is measured.
             budget = settings.DATA_WAREHOUSE_TARGET_PARTITION_BYTES
-            compactable_over_budget = any(size > budget and removable > 0 for size, removable in partitions)
+            compactable_over_budget = any(
+                partition.size_bytes > budget and partition.removable_files > 0 for partition in partitions
+            )
             fragmented = (
                 max_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
                 or total_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD
