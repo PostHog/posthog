@@ -1552,6 +1552,30 @@ class TestRunEvaluationWorkflow:
         assert mock_emit.await_args_list[0].args[0].event_data == full_event
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "activity_fn,runner",
+        [
+            pytest.param(execute_hog_eval_activity, "evaluation_hog.run_hog_eval_for_event", id="hog"),
+            pytest.param(execute_sentiment_eval_activity, "evaluation_sentiment.run_sentiment_eval", id="sentiment"),
+        ],
+    )
+    async def test_the_legacy_execute_activities_hydrate_a_thin_reference(self, activity_fn: Any, runner: str):
+        full_event = create_mock_event_data(team_id=1, uuid="g1")
+        graded: list[dict[str, Any]] = []
+
+        async def fake_run(_evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
+            graded.append(event_data)
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        with (
+            patch(HYDRATE_FETCH, return_value=full_event),
+            patch(f"posthog.temporal.ai_observability.{runner}", side_effect=fake_run),
+        ):
+            await activity_fn(_local_evaluation(), dict(THIN_REFERENCE))
+
+        assert graded == [full_event]
+
+    @pytest.mark.asyncio
     async def test_the_generation_emit_activity_hydrates_a_thin_reference(self):
         full_event = create_mock_event_data(team_id=1, uuid="g1")
         with (

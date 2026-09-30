@@ -5,7 +5,8 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, hydrate_event_reference
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.sentiment.extraction import extract_sentiment_eval_messages
 from posthog.temporal.ai_observability.sentiment.schema import PendingClassification, SentimentResult
@@ -109,4 +110,6 @@ async def execute_sentiment_eval_activity(
     evaluation: dict[str, Any], event_data: dict[str, Any]
 ) -> EvaluationActivityResult:
     """Classify sentiment for the target event's user messages."""
+    # A pre-patch history replays through this activity, and can now hand it a reference.
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(event_data)
     return await run_sentiment_eval(evaluation, event_data)
