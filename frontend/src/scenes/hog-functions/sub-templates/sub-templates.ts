@@ -25,13 +25,23 @@ export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
 const ERROR_TRACKING_PAGERDUTY_SEVERITY =
     "{event.properties.severity == 'critical' ? 'critical' : event.properties.severity == 'high' ? 'error' : event.properties.severity == 'medium' ? 'warning' : event.properties.severity == 'low' ? 'info' : ''}"
 
-// One dedup key per issue, so a resolved issue closes the incident that its trigger opened.
+// Every PagerDuty alert also runs on the resolved event, so resolving the issue resolves the incident
+// that the alert opened. One dedup key per issue joins the two events.
+const ERROR_TRACKING_ISSUE_RESOLVED_EVENT = '$error_tracking_issue_resolved'
+
+const errorTrackingPagerDutyFilters = (triggerEvent: string): HogFunctionSubTemplateType['filters'] => ({
+    source: 'internal-events',
+    events: [
+        { id: triggerEvent, type: 'events' },
+        { id: ERROR_TRACKING_ISSUE_RESOLVED_EVENT, type: 'events' },
+    ],
+})
+
 const errorTrackingPagerDutyInputs = (
-    eventAction: 'trigger' | 'resolve',
     summary: string,
     extraDetails: Record<string, string> = {}
 ): HogFunctionSubTemplateType['inputs'] => ({
-    event_action: { value: eventAction },
+    event_action: { value: `{event.event == '${ERROR_TRACKING_ISSUE_RESOLVED_EVENT}' ? 'resolve' : 'trigger'}` },
     dedup_key: { value: 'posthog-error-tracking-issue-{event.distinct_id}' },
     summary: { value: summary },
     source: { value: '{project.name}' },
@@ -224,12 +234,6 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'error-tracking',
         filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
-    },
-    'error-tracking-issue-resolved': {
-        sub_template_id: 'error-tracking-issue-resolved',
-        type: 'internal_destination',
-        context_id: 'error-tracking',
-        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_resolved', type: 'events' }] },
     },
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: {
         sub_template_id: INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
@@ -1138,9 +1142,11 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
             template_id: 'template-pagerduty',
-            name: 'Trigger a PagerDuty incident on issue created',
-            description: 'Triggers a PagerDuty incident when an issue is created',
-            inputs: errorTrackingPagerDutyInputs('trigger', '🔴 New issue: {event.properties.name}'),
+            name: 'PagerDuty incident on issue created',
+            description:
+                'Triggers a PagerDuty incident when an issue is created and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_created'),
+            inputs: errorTrackingPagerDutyInputs('🔴 New issue: {event.properties.name}'),
         },
     ],
     'error-tracking-issue-reopened': [
@@ -1215,9 +1221,11 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
             template_id: 'template-pagerduty',
-            name: 'Trigger a PagerDuty incident on issue reopened',
-            description: 'Triggers a PagerDuty incident when an issue is reopened',
-            inputs: errorTrackingPagerDutyInputs('trigger', '🔄 Issue reopened: {event.properties.name}'),
+            name: 'PagerDuty incident on issue reopened',
+            description:
+                'Triggers a PagerDuty incident when an issue is reopened and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_reopened'),
+            inputs: errorTrackingPagerDutyInputs('🔄 Issue reopened: {event.properties.name}'),
         },
     ],
     'error-tracking-issue-spiking': [
@@ -1306,20 +1314,13 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
             template_id: 'template-pagerduty',
-            name: 'Trigger a PagerDuty incident on issue spiking',
-            description: 'Triggers a PagerDuty incident when an issue is spiking',
-            inputs: errorTrackingPagerDutyInputs('trigger', '📈 Issue spiking: {event.properties.name}', {
+            name: 'PagerDuty incident on issue spiking',
+            description:
+                'Triggers a PagerDuty incident when an issue is spiking and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_spiking'),
+            inputs: errorTrackingPagerDutyInputs('📈 Issue spiking: {event.properties.name}', {
                 exceptions_in_last_5_minutes: '{event.properties.current_bucket_value}',
             }),
-        },
-    ],
-    'error-tracking-issue-resolved': [
-        {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-resolved'],
-            template_id: 'template-pagerduty',
-            name: 'Resolve the PagerDuty incident on issue resolved',
-            description: 'Resolves the PagerDuty incident when the issue is resolved',
-            inputs: errorTrackingPagerDutyInputs('resolve', '✅ Issue resolved: {event.properties.name}'),
         },
     ],
     'experiment-significant': [
