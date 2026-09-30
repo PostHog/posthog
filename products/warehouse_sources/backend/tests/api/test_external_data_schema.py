@@ -1,6 +1,6 @@
 import uuid
 import contextlib
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 import pytest
@@ -1732,6 +1732,23 @@ class TestExternalDataSchema(APIBaseTest):
                 400,
                 (3, datetime(2026, 9, 26, tzinfo=UTC)),
             ),
+            (
+                "setting_a_time_moves_the_next_refresh_to_it",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (7, datetime(2026, 10, 1, 3, tzinfo=UTC)),
+            ),
+            (
+                "resaving_the_same_time_keeps_the_clock",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (7, datetime(2026, 9, 26, tzinfo=UTC)),
+                time(3, 0),
+            ),
         ]
     )
     def test_full_refresh_interval_schedules_the_next_full_refresh(
@@ -1742,6 +1759,7 @@ class TestExternalDataSchema(APIBaseTest):
         payload: dict[str, Any],
         expected_status: int,
         expected: tuple[int | None, datetime | None],
+        initial_time: time | None = None,
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1756,6 +1774,7 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=sync_type,
             sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "timestamp"},
             full_refresh_interval_days=initial_days,
+            full_refresh_time_of_day=initial_time,
             next_full_refresh_at=datetime(2026, 9, 26, tzinfo=UTC) if initial_days else None,
         )
 

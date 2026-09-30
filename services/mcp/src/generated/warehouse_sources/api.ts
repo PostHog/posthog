@@ -141,6 +141,12 @@ export const ExternalDataSchemasPartialUpdateBody = () => zod
             .describe(
                 'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
             ),
+        full_refresh_time_of_day: zod.iso
+            .time({})
+            .nullish()
+            .describe(
+                'UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the interval from when it was saved or from the last full resync. Saving a new time restarts the clock.'
+            ),
         primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
         cdc_table_mode: zod
             .union([
@@ -1824,6 +1830,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = () => zod.o
                     .nullish()
                     .describe(
                         'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Re-imported rows count toward usage, and workflows and destinations that run on new rows of the table run again for every row. Incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+                    ),
+                full_refresh_time_of_day: zod.iso
+                    .time({})
+                    .nullish()
+                    .describe(
+                        'UTC time of day that scheduled full refreshes are due, for example outside working hours. Null counts the interval from when it was saved or from the last full resync.'
                     ),
                 primary_key_columns: zod
                     .array(zod.string())

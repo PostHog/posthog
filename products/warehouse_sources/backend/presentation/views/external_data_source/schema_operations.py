@@ -98,6 +98,14 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
             "and never shorter than the sync frequency."
         ),
     )
+    full_refresh_time_of_day = serializers.TimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "UTC time of day that scheduled full refreshes are due, for example outside working hours. Null counts "
+            "the interval from when it was saved or from the last full resync."
+        ),
+    )
     primary_key_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
