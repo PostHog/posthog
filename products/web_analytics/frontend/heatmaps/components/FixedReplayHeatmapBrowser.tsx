@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
+import { ReplaySnapshotFrame } from 'scenes/session-recordings/player/ReplaySnapshotFrame'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { RecordingClickmapOverlay } from './RecordingClickmapOverlay'
@@ -27,21 +28,19 @@ export function FixedReplayHeatmapBrowser({
                     >
                         <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
                         <RecordingClickmapOverlay iframeRef={iframeRef} />
-                        <iframe
+                        <ReplaySnapshotFrame
                             id="heatmap-iframe"
-                            ref={iframeRef}
+                            snapshotRef={iframeRef}
                             title="Heatmap replay browser"
                             className="bg-white"
-                            // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: widthOverride, height: heightOverride }}
-                            srcDoc={replayIframeData?.html}
+                            html={replayIframeData?.html ?? ''}
                             // allow-same-origin lets the app measure the snapshot's elements for the
                             // clickmap overlay. NEVER add allow-scripts: combined with allow-same-origin
                             // that would let recorded customer-page content run script on the app origin.
                             // The app only ever reads geometry from the snapshot, never its content.
                             sandbox="allow-same-origin"
-                            onLoad={onIframeLoad}
-                            allow=""
+                            onSnapshotLoad={onIframeLoad}
                         />
                     </div>
                 </div>
