@@ -340,7 +340,10 @@ class PipelineNonDLT(Generic[ResumableData]):
             if isinstance(prepared_queryable_folder, str):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
             if self._resource.on_complete is not None:
-                await asyncio.to_thread(self._resource.on_complete)
+                try:
+                    await asyncio.to_thread(self._resource.on_complete)
+                except Exception:
+                    await self._logger.aexception("Failed to clean up completed source state")
             return result
         finally:
             # Help reduce the memory footprint of each job. This is best-effort cleanup of

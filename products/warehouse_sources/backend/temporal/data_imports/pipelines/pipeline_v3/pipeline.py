@@ -568,7 +568,10 @@ class PipelineV3(Generic[ResumableData]):
                 consumer_manages_job_status=consumer_will_hear_about_this_run,
             )
             if self._resource.on_complete is not None:
-                await asyncio.to_thread(self._resource.on_complete)
+                try:
+                    await asyncio.to_thread(self._resource.on_complete)
+                except Exception:
+                    await self._logger.aexception("Failed to clean up completed source state")
             return result
         except Exception:
             status = "error"
