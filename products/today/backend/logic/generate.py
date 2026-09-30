@@ -15,7 +15,7 @@ from .checks import check_content
 from .draft import build_draft
 from .fact_sheet import build_fact_sheet
 from .ranking import rank_candidates, select
-from .sources import SOURCES, reports
+from .sources import SOURCES_BY_NAME, reports
 from .writer import WriterError, write
 
 logger = structlog.get_logger(__name__)
@@ -34,7 +34,7 @@ def collect_source(*, team_id: int, briefing_id: str, source: str) -> list[Candi
     """One source's candidates for the briefing's person. Raises, so Temporal retries only this source."""
     _briefing, team, user = _load(team_id, briefing_id)
     try:
-        return SOURCES[source](SourceContext(team=team, user=user, now=timezone.now()))
+        return SOURCES_BY_NAME[source].collect(SourceContext(team=team, user=user, now=timezone.now()))
     except Exception as error:
         capture_exception(error, {"source": source, "team_id": team_id, "product": "today"})
         raise

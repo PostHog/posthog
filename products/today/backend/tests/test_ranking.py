@@ -110,7 +110,7 @@ class TestReportOrder(SimpleTestCase):
             now=datetime(2026, 9, 30, tzinfo=UTC),
         )
         with patch.object(report_source.signals, "reports_for_briefing", return_value=reports):
-            ranked = rank_candidates(report_source.collect(ctx))
+            ranked = rank_candidates(report_source.ReportsSource().collect(ctx))
 
         assert [item.key for item in ranked] == [f"report:{report_id}" for report_id in expected]
 
