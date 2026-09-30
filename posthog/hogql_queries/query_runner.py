@@ -52,6 +52,7 @@ from posthog.schema import (
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
+    EventsNode,
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
@@ -221,6 +222,7 @@ from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 from products.access_control.backend.facade.property_access import sort_restricted_properties
@@ -1812,6 +1814,16 @@ def resolve_funnel_step_custom_name(series: Any, raw_label: str | None) -> str |
     # Both node types rename through `custom_name` only, as resolveSeriesCustomName in funnelDataLogic does.
     if isinstance(series, ActionsNode | GroupNode):
         return getattr(series, "custom_name", None) or None
+    if isinstance(series, EventsNode):
+        # The UI writes a default step's display label as its `name`: the core definition label for a core
+        # event ("Pageview" for `$pageview`), and "All events" for a step without an event. That label is not
+        # a rename, which matches the formatEventName check in resolveSeriesCustomName.
+        event_key = raw_label if raw_label is not None else "All events"
+        default_labels = {event_key}
+        if core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_key):
+            default_labels.add(core_definition["label"])
+        if series.name in default_labels:
+            return series.custom_name or None
     return resolve_series_custom_name(series, raw_label)
 
 

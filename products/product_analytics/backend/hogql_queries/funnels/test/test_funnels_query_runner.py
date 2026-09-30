@@ -162,6 +162,22 @@ class TestFunnelsSeriesCustomNames(BaseTest):
                 False,
             ),
             (
+                "core_event_label_is_not_a_rename",
+                EventsNode(event="$pageview", name="Pageview"),
+                StepOrderValue.ORDERED,
+                "$pageview",
+                None,
+                False,
+            ),
+            (
+                "all_events_label_is_not_a_rename",
+                EventsNode(event=None, name="All events"),
+                StepOrderValue.ORDERED,
+                None,
+                None,
+                False,
+            ),
+            (
                 "stale_action_name_is_not_a_rename",
                 ActionsNode(id=1, name="Old action name"),
                 StepOrderValue.ORDERED,
@@ -176,7 +192,7 @@ class TestFunnelsSeriesCustomNames(BaseTest):
         _name: str,
         series_node: EventsNode | ActionsNode,
         order_type: StepOrderValue,
-        cached_step_name: str,
+        cached_step_name: str | None,
         expected_custom_name: str | None,
         expect_modified: bool,
     ):
