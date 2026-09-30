@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 import pyarrow as pa
 import requests
@@ -126,6 +126,43 @@ def _parse_next_url(link_header: str) -> str | None:
     return None
 
 
+def _parse_total_count(response: requests.Response, data: Any) -> int | None:
+    total: Any = data.get("total_count") if isinstance(data, dict) else response.headers.get("X-Total-Count")
+    try:
+        return int(total)
+    except (TypeError, ValueError):
+        return None
+
+
+def _with_page(url: str, page: int) -> str:
+    parsed = urlparse(url)
+    params = [(key, value) for key, value in parse_qsl(parsed.query) if key != "page"]
+    params.append(("page", str(page)))
+    return parsed._replace(query=urlencode(params)).geturl()
+
+
+def _next_page_url(
+    config: GiteaEndpointConfig,
+    url: str,
+    response: requests.Response,
+    data: Any,
+    page_length: int,
+    largest_page_length: int,
+) -> str | None:
+    if config.pagination == "link_header":
+        return _parse_next_url(response.headers.get("Link", ""))
+
+    page = int(dict(parse_qsl(urlparse(url).query)).get("page") or 1)
+    if config.pagination == "total_count":
+        total = _parse_total_count(response, data)
+        # The largest page seen stands in for the page size: the instance may clamp `limit`
+        # below PAGE_SIZE and some endpoints drop rows after paging, so this estimate never
+        # overshoots the rows covered and can't stop early.
+        if total is not None and (page - 1) * largest_page_length + page_length >= total:
+            return None
+    return _with_page(url, page + 1)
+
+
 def _format_timestamp(value: Any) -> str:
     """Format an incremental cursor as the RFC 3339 Z form Gitea's `since` expects."""
     if isinstance(value, datetime):
@@ -142,13 +179,14 @@ def _build_initial_url(
     repository: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
+    index: int | None = None,
 ) -> str:
     params: dict[str, Any] = {"limit": PAGE_SIZE, **config.extra_params}
     # `since` is inclusive, so the boundary row is re-fetched and deduped by primary key
     # on merge — safer than missing a row updated in the same second as the watermark.
     if config.supports_since and should_use_incremental_field and db_incremental_field_last_value is not None:
         params["since"] = _format_timestamp(db_incremental_field_last_value)
-    path = config.path.format(repository=repository)
+    path = config.path.format(repository=repository, index=index)
     return f"{_api_url(base_url, path)}?{urlencode(params)}"
 
 
@@ -204,9 +242,20 @@ def _flatten_commit(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _add_comment_issue_number(item: dict[str, Any]) -> dict[str, Any]:
+    """Derive the issue or pull request number from the comment's URL, as the list carries no
+    other reference to it. Pull request comments leave issue_url empty."""
+    url = item.get("issue_url") or item.get("pull_request_url")
+    tail = url.rstrip("/").rsplit("/", 1)[-1] if isinstance(url, str) else ""
+    item["issue_number"] = int(tail) if tail.isdigit() else None
+    return item
+
+
 def _get_item_mapper(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]] | None:
     if endpoint == "commits":
         return _flatten_commit
+    if endpoint == "issue_comments":
+        return _add_comment_issue_number
     return None
 
 
@@ -241,6 +290,82 @@ def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogge
     return response
 
 
+def _iter_pages(
+    session: requests.Session,
+    url: str,
+    config: GiteaEndpointConfig,
+    base_url: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    """Yield (rows, next_url) for each page, starting from ``url``."""
+    largest_page_length = 0
+    while True:
+        response = _fetch_page(session, url, logger)
+        data = response.json()
+        items = data.get(config.data_selector) if config.data_selector and isinstance(data, dict) else data
+        if not isinstance(items, list) or not items:
+            return
+
+        largest_page_length = max(largest_page_length, len(items))
+        next_url = _next_page_url(config, url, response, data, len(items), largest_page_length)
+        if next_url is not None:
+            next_url = _pinned_url(base_url, next_url)
+
+        yield [item for item in items if isinstance(item, dict)], next_url
+
+        if not next_url:
+            return
+        url = next_url
+
+
+def _get_fan_out_rows(
+    session: requests.Session,
+    base_url: str,
+    repository: str,
+    config: GiteaEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[GiteaResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.parent is not None and config.parent_number_column is not None
+    parent_config = GITEA_ENDPOINTS[config.parent]
+
+    # Resume state holds the next parent page: every child of the pages before it is written.
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None:
+        parent_url = _pinned_url(base_url, resume_config.next_url)
+        logger.debug(f"Gitea: resuming {config.name} fan-out from parent URL: {parent_url}")
+    else:
+        parent_url = _build_initial_url(
+            parent_config, base_url, repository, should_use_incremental_field, db_incremental_field_last_value
+        )
+
+    for parents, next_parent_url in _iter_pages(session, parent_url, parent_config, base_url, logger):
+        for parent in parents:
+            number = parent.get("number")
+            if not isinstance(number, int):
+                continue
+            child_url = _build_initial_url(
+                config, base_url, repository, should_use_incremental_field, db_incremental_field_last_value, number
+            )
+            try:
+                for rows, _ in _iter_pages(session, child_url, config, base_url, logger):
+                    for row in rows:
+                        row[config.parent_number_column] = number
+                    if rows:
+                        yield rows
+            except requests.HTTPError as e:
+                # The parent was deleted after the parent page was listed.
+                if e.response is not None and e.response.status_code == 404:
+                    logger.debug(f"Gitea: {config.parent} #{number} not found, skipping {config.name}")
+                    continue
+                raise
+
+        if next_parent_url:
+            resumable_source_manager.save_state(GiteaResumeConfig(next_url=next_parent_url))
+
+
 def get_rows(
     base_url: str,
     access_token: str,
@@ -253,6 +378,20 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = GITEA_ENDPOINTS[endpoint]
     session = _get_session(access_token)
+
+    if config.parent is not None:
+        yield from _get_fan_out_rows(
+            session,
+            base_url,
+            repository,
+            config,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+        return
+
     item_mapper = _get_item_mapper(endpoint)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -264,27 +403,20 @@ def get_rows(
             config, base_url, repository, should_use_incremental_field, db_incremental_field_last_value
         )
 
-    while True:
-        response = _fetch_page(session, url, logger)
-        data = response.json()
-        if not isinstance(data, list) or not data:
-            return
+    try:
+        for items, next_url in _iter_pages(session, url, config, base_url, logger):
+            rows = [item_mapper(item) for item in items] if item_mapper else items
+            if rows:
+                yield rows
 
-        rows = [item_mapper(item) if item_mapper else item for item in data if isinstance(item, dict)]
-        next_url = _parse_next_url(response.headers.get("Link", ""))
-        if next_url is not None:
-            next_url = _pinned_url(base_url, next_url)
-
-        if rows:
-            yield rows
-
-        if not next_url:
-            return
-
-        # Save state AFTER yielding so a crash re-yields the in-flight page
-        # (merge dedupes on primary key).
-        resumable_source_manager.save_state(GiteaResumeConfig(next_url=next_url))
-        url = next_url
+            if next_url:
+                # Save state AFTER yielding so a crash re-yields the in-flight page
+                # (merge dedupes on primary key).
+                resumable_source_manager.save_state(GiteaResumeConfig(next_url=next_url))
+    except requests.HTTPError as e:
+        if config.not_found_error and e.response is not None and e.response.status_code == 404:
+            raise ValueError(config.not_found_error) from e
+        raise
 
 
 def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) -> Callable[[pa.Table], pa.Table]:
