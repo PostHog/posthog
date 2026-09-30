@@ -117,6 +117,46 @@ class TestPostHogCallback:
             mock_client.shutdown.assert_called_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "extra_fields,expected_latency",
+        [
+            pytest.param(
+                {"stream": True, "response_time": 0.0013, "startTime": 100.0, "endTime": 103.5},
+                3.5,
+                id="stream_covers_full_stream",
+            ),
+            pytest.param({"stream": True, "response_time": 0.0013}, 0.0013, id="stream_without_timestamps"),
+            pytest.param(
+                {"stream": False, "response_time": 1.5, "startTime": 100.0, "endTime": 101.5},
+                1.5,
+                id="non_stream_uses_response_time",
+            ),
+        ],
+    )
+    async def test_latency_covers_full_request(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+        extra_fields: dict[str, Any],
+        expected_latency: float,
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": {**standard_logging_object, **extra_fields},
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        assert mock_client.capture.call_args.kwargs["properties"]["$ai_latency"] == pytest.approx(expected_latency)
+
+    @pytest.mark.asyncio
     async def test_ai_lane_capture_off_builds_standard_lane_client(
         self,
         auth_user: AuthenticatedUser,
