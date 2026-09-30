@@ -8,7 +8,6 @@ const RENDERS_EVERYTHING: ChartDisplayOptionEligibility = {
     hasSingleSeriesOutput: true,
     hasTrendsFormula: false,
     boxPlotMissingProperty: false,
-    hasMetricInsight: false,
 }
 
 function disabledReasons(eligibility: ChartDisplayOptionEligibility): Map<ChartDisplayType, string | undefined> {
@@ -78,20 +77,18 @@ describe('getChartDisplayOptions', () => {
             ChartDisplayType.WorldMap,
             undefined,
         ],
+        [
+            'metric with multiple series',
+            { ...RENDERS_EVERYTHING, hasSingleSeriesOutput: false },
+            ChartDisplayType.Metric,
+            'This type currently only supports insights with one series, and this insight has multiple series.',
+        ],
+        ['metric with nothing in the way', RENDERS_EVERYTHING, ChartDisplayType.Metric, undefined],
         ['nothing in the way', RENDERS_EVERYTHING, ChartDisplayType.ActionsLineGraph, undefined],
     ])('says why %s disables a chart type', (_case, eligibility, display, disabledReason) => {
         const reasons = disabledReasons(eligibility)
 
         expect(reasons.has(display)).toBe(true)
         expect(reasons.get(display)).toBe(disabledReason)
-    })
-
-    it.each([
-        [true, true],
-        [false, false],
-    ])('offers the metric chart type only behind its flag (%s)', (hasMetricInsight, isOffered) => {
-        expect(disabledReasons({ ...RENDERS_EVERYTHING, hasMetricInsight }).has(ChartDisplayType.Metric)).toBe(
-            isOffered
-        )
     })
 })

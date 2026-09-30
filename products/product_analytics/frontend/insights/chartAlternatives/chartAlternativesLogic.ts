@@ -140,8 +140,7 @@ export interface chartAlternativesLogicMeta {
             isTrends: boolean,
             isSingleSeriesOutput: boolean,
             trendsSource: TrendsQuery | null,
-            series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
-            featureFlags: FeatureFlagsSet
+            series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
         ) => ChartDisplayOptionGroup[]
         alternatives: (options: ChartDisplayOptionGroup[], trendsSource: TrendsQuery | null) => ChartDisplayOption[]
         currentOption: (
@@ -230,13 +229,12 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
             ): TrendsQuery | null => (querySource && isTrendsQuery(querySource) ? querySource : null),
         ],
         options: [
-            (s) => [s.isTrends, s.isSingleSeriesOutput, s.trendsSource, s.series, s.featureFlags],
+            (s) => [s.isTrends, s.isSingleSeriesOutput, s.trendsSource, s.series],
             (
                 isTrends: boolean,
                 isSingleSeriesOutput: boolean,
                 trendsSource: TrendsQuery | null,
-                series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
-                featureFlags: FeatureFlagsSet
+                series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
             ): ChartDisplayOptionGroup[] =>
                 getChartDisplayOptions({
                     isTrends,
@@ -245,7 +243,6 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                     breakdown: trendsSource?.breakdownFilter?.breakdown,
                     breakdowns: trendsSource?.breakdownFilter?.breakdowns,
                     boxPlotMissingProperty: isBoxPlotMissingProperty(series as TrendsQuery['series']),
-                    hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
                 }),
         ],
         alternatives: [

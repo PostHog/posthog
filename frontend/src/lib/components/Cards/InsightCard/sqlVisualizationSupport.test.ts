@@ -91,7 +91,8 @@ describe('dashboard SQL visualization support', () => {
             for (const displayType of chartTypes) {
                 const saved = applyVisualizationType(baseQuery, displayType, columns, response.result.length)
 
-                expect(saved.chartSettings?.xAxis?.column).toEqual(expect.any(String))
+                const needsXAxis = displayType !== ChartDisplayType.Metric
+                expect(!needsXAxis || typeof saved.chartSettings?.xAxis?.column === 'string').toBe(true)
                 expect(saved.chartSettings?.yAxis?.length ?? 0).toBeGreaterThan(0)
             }
         }

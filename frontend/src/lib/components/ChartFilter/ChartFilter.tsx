@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
@@ -47,7 +45,6 @@ export function ChartFilter({
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { isTrends, isSingleSeriesOutput, formula, formulaNodes, formulas, breakdownFilter, series } = useValues(
         insightVizDataLogic(insightProps)
@@ -59,7 +56,6 @@ export function ChartFilter({
         breakdown: breakdownFilter?.breakdown,
         breakdowns: breakdownFilter?.breakdowns,
         boxPlotMissingProperty: isBoxPlotMissingProperty(series as TrendsQuery['series']),
-        hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
     }).map((group) => ({ title: group.title, options: group.options.map(chartDisplayOptionToSelectOption) }))
 
     return (
