@@ -4,13 +4,12 @@ from django.db import connection, transaction
 from django.db.models import Max, QuerySet
 
 from rest_framework import serializers, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.permissions import APIScopePermission
 
