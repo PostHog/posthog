@@ -3,6 +3,7 @@ import base64
 import hashlib
 import secrets
 import dataclasses
+from typing import TYPE_CHECKING
 from urllib.parse import quote_plus
 
 from posthog.test.base import APIBaseTest
@@ -20,6 +21,11 @@ from posthog.models.team.team import Team
 from products.access_control.backend.models.access_control import AccessControl
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
+
+    from posthog.models.oauth import OAuthApplication
 
 TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
 # Stored hashed by ClientSecretField.pre_save, so the plaintext has to live here for
@@ -147,7 +153,7 @@ class ProvisioningTestBase(APIBaseTest):
         return verifier, challenge
 
     def _mint_auth_code(
-        self, scopes: list[str] | None = None, partner=None, team_id: int | None = None
+        self, scopes: list[str] | None = None, partner: "OAuthApplication | None" = None, team_id: int | None = None
     ) -> tuple[str, str]:
         """Seed an auth code in the cache for the test partner. Returns (code, code_verifier)."""
         partner = partner or self.partner
@@ -171,8 +177,12 @@ class ProvisioningTestBase(APIBaseTest):
         return code, verifier
 
     def _request_bearer_token(
-        self, scopes: list[str] | None = None, partner=None, secret: str | None = None, team_id: int | None = None
-    ):
+        self,
+        scopes: list[str] | None = None,
+        partner: "OAuthApplication | None" = None,
+        secret: str | None = None,
+        team_id: int | None = None,
+    ) -> "_MonkeyPatchedResponse":
         partner = partner or self.partner
         code, verifier = self._mint_auth_code(scopes=scopes, partner=partner, team_id=team_id)
         data = {"grant_type": "authorization_code", "code": code, "code_verifier": verifier}
