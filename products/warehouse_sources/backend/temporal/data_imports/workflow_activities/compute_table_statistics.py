@@ -424,6 +424,12 @@ def _fold_commit_stats(
             return None
         row_counts.add(stored.row_count)
         delta_type = delta_schema_fields.get(name)
+        # Bounds stored under a type the fold can no longer maintain: schema evolution turned the
+        # column nested, or took it out of the Delta schema altogether. `_FoldState.fold` skips such
+        # a column, so carrying its bounds forward would freeze them while new files land — the full
+        # scan re-derives them instead.
+        if not isinstance(delta_type, str) and (stored.min_value is not None or stored.max_value is not None):
+            return None
         states[name] = _FoldState(
             delta_type=delta_type,
             null_count=stored.null_count,

@@ -2977,7 +2977,11 @@ class TaskActivityPageSerializer(DataclassSerializer):
 
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):
-    task_id = serializers.UUIDField(help_text="Task whose displayed activity should be marked read.")
+    task_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Task whose displayed activity should be marked read. Optional when activity_id is set.",
+    )
     activity_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -2986,6 +2990,11 @@ class TaskActivityReadMarkerSerializer(serializers.Serializer):
     seen_before = serializers.DateTimeField(
         help_text="Mark activity at or before this timestamp read without clearing newer activity."
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs.get("task_id") and not attrs.get("activity_id"):
+            raise serializers.ValidationError("Set task_id or activity_id.")
+        return attrs
 
 
 class TaskActivityMarkReadSerializer(serializers.Serializer):
@@ -4891,6 +4900,20 @@ class SlackThreadContextResponseSerializer(serializers.Serializer):
     )
 
 
+class AgentProxyProcessKilledSerializer(serializers.Serializer):
+    comm = serializers.CharField(max_length=64, help_text="Command name of the root process the watchdog stopped.")
+    signal = serializers.CharField(
+        max_length=16, help_text="Last signal the watchdog sent, such as SIGTERM or SIGKILL."
+    )
+    tree_rss_bytes = serializers.IntegerField(
+        min_value=0, help_text="Resident memory of the stopped process tree, in bytes."
+    )
+    memory_current_bytes = serializers.IntegerField(
+        min_value=0, help_text="Sandbox memory in use when the watchdog acted, in bytes."
+    )
+    memory_limit_bytes = serializers.IntegerField(min_value=0, help_text="Sandbox memory limit, in bytes.")
+
+
 class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """Request body for the agent-proxy side-effect callback.
 
@@ -4901,13 +4924,22 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=["heartbeat", "awaiting_input", "turn_failed", "command_dispatched", "agent_activity", "budget_steer"],
+        choices=[
+            "heartbeat",
+            "awaiting_input",
+            "turn_failed",
+            "command_dispatched",
+            "agent_activity",
+            "budget_steer",
+            "process_killed",
+        ],
         help_text=(
             "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
             "interactive run finishes a turn and is waiting for user input. 'turn_failed' fails "
             "the run outright when a pi turn ends in a runtime error. 'command_dispatched' "
-            "and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning."
+            "and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. "
+            "'process_killed' captures a sandbox memory watchdog kill."
         ),
     )
     agent_active = serializers.BooleanField(
@@ -4941,7 +4973,9 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
         help_text="Numeric team (project) ID. Must match the JWT claim.",
     )
     sequence = serializers.IntegerField(
-        required=False, min_value=1, help_text="Event sequence used to deduplicate a budget steer."
+        required=False,
+        min_value=1,
+        help_text="Event sequence used to deduplicate a budget steer or a process kill.",
     )
     timestamp = serializers.DateTimeField(required=False, help_text="Original event time, preserved across retries.")
     stage = serializers.CharField(required=False, help_text="Budget stage: warn or critical.")
@@ -4956,6 +4990,9 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     )
     threshold_at = serializers.DateTimeField(required=False, help_text="Time when the budget stage was reached.")
     delivered_at = serializers.DateTimeField(required=False, help_text="Time when the steer reached the agent.")
+    process_killed = AgentProxyProcessKilledSerializer(
+        required=False, help_text="The kill the sandbox memory watchdog reported. Required for 'process_killed'."
+    )
 
 
 class AgentProxyCallbackResponseSerializer(serializers.Serializer):

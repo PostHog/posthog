@@ -589,12 +589,6 @@ CREATE TABLE posthog.person_overrides (
   created_at DateTime64(6, 'UTC') DEFAULT now(),
   version Int32
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_overrides', '{replica}-{shard}', version) ORDER BY (team_id, old_person_id) PARTITION BY toYYYYMM(oldest_event) SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.person_property_mutation_log (
-  team_id Int64,
-  event_uuid UUID,
-  properties String,
-  ingested_at DateTime('UTC')
-) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
 CREATE TABLE posthog.person_static_cohort (
   id UUID,
   person_id UUID,
@@ -613,6 +607,28 @@ CREATE TABLE posthog.pg_embeddings (
   timestamp DateTime64(6, 'UTC') DEFAULT now('UTC'),
   is_deleted UInt8
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.pg_embeddings', '{replica}-{shard}', timestamp, is_deleted) ORDER BY (team_id, domain, id) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.platform_alert_events (
+  team_id Int64,
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  episode_started_at Nullable(DateTime64(6, 'UTC')),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  expires_at Date DEFAULT today() + toIntervalDay(90)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_platform_alert_events', cityHash64(team_id));
 CREATE TABLE posthog.plugin_log_entries (
   id UUID,
   team_id Int64,

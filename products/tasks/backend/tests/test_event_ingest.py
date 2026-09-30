@@ -45,6 +45,7 @@ from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 
 SKIP_COUNTER_SAMPLE = "posthog_tasks_task_run_stream_write_skipped_total"
+PROCESS_KILLED_COUNTER_SAMPLE = "posthog_tasks_sandbox_process_killed_notifications_total"
 
 
 class TestSessionUpdateContract(SimpleTestCase):
@@ -465,6 +466,54 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(retry_body["duplicate"], 1)
         self.assertEqual(capture_rtk_savings.call_count, 2)
         self.assertEqual(self._read_notification_methods(), ["_posthog/rtk_savings"])
+
+    @parameterized.expand([("captured", None, 1), ("capture_fails", [RuntimeError("capture failed"), None], 2)])
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_process_killed_capture_is_idempotent_and_never_fails_the_batch(
+        self, _name: str, capture_side_effect: list[object] | None, expected_captures: int
+    ) -> None:
+        token = self._create_token()
+        event = {
+            "seq": 1,
+            "event": {
+                "type": "notification",
+                "notification": {
+                    "method": "_posthog/process_killed",
+                    "params": {
+                        "comm": "node",
+                        "signal": "SIGTERM",
+                        "treeRssBytes": 12 * 1024**3,
+                        "memoryCurrentBytes": 14 * 1024**3,
+                        "memoryLimitBytes": 16 * 1024**3,
+                    },
+                },
+            },
+        }
+        counter_before = REGISTRY.get_sample_value(PROCESS_KILLED_COUNTER_SAMPLE) or 0.0
+
+        with patch("posthoganalytics.capture", side_effect=capture_side_effect) as capture:
+            first_status, first_body = self._call_ingest(token, [event])
+            retry_status, retry_body = self._call_ingest(token, [event])
+
+        self.assertEqual((first_status, first_body["accepted"]), (200, 1))
+        self.assertEqual((retry_status, retry_body["duplicate"]), (200, 1))
+        self.assertEqual(capture.call_count, expected_captures)
+        self.assertEqual(capture.call_args.kwargs["event"], "sandbox_process_killed")
+        self.assertEqual(
+            capture.call_args.kwargs["uuid"],
+            str(uuid5(NAMESPACE_URL, f"posthog-task-process-killed:{self.task_run.id}:1")),
+        )
+        self.assertLessEqual(
+            {
+                "process_comm": "node",
+                "process_signal": "SIGTERM",
+                "process_tree_rss_bytes": 12 * 1024**3,
+                "memory_limit_bytes": 16 * 1024**3,
+            }.items(),
+            capture.call_args.kwargs["properties"].items(),
+        )
+        self.assertEqual(REGISTRY.get_sample_value(PROCESS_KILLED_COUNTER_SAMPLE), counter_before + 1)
+        self.assertEqual(self._read_notification_methods(), ["_posthog/process_killed"])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_rtk_savings_capture_rejects_fractional_counters(self) -> None:

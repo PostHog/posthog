@@ -3066,6 +3066,26 @@ export interface PullRequestCiStatusesResponseApi {
     readonly statuses: readonly PullRequestCiStatusApi[]
 }
 
+export interface ReportReadStateRequestApi {
+    /**
+     * Reports to read or update, limited to the current project.
+     * @maxItems 100
+     */
+    report_ids: string[]
+    /** Set these reports read or unread for the current user. Omit to read their state. */
+    read?: boolean
+}
+
+/**
+ * Read state keyed by report UUID.
+ */
+export type ReportReadStateResponseApiStates = { [key: string]: boolean }
+
+export interface ReportReadStateResponseApi {
+    /** Read state keyed by report UUID. */
+    states: ReportReadStateResponseApiStates
+}
+
 export interface SignalReportMetricRefreshRequestApi {
     /**
      * Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call.
@@ -3226,8 +3246,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 8
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 9
      */
     write_scopes?: string[]
     /** Whether this scout runs on its schedule. Defaults to true. */
@@ -3526,8 +3546,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 8
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 9
      */
     readonly write_scopes: readonly string[]
     /**
@@ -3648,8 +3668,8 @@ export interface SignalScoutConfigCreateApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 8
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 9
      */
     write_scopes?: string[]
     /** Whether this scout runs on its schedule. Defaults to true. */
@@ -3789,8 +3809,8 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 8
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 9
      */
     write_scopes?: string[]
 }
@@ -6617,6 +6637,10 @@ export type SignalsReportsListParams = {
      * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
      */
     unclaimed?: boolean
+    /**
+     * Filter by the current user's report read state.
+     */
+    unread?: boolean
     /**
      * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
      */

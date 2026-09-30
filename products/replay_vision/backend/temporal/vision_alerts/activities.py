@@ -59,6 +59,7 @@ from products.replay_vision.backend.models.vision_alert import (
     VisionAlertMetric,
 )
 from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, plain_snippet
+from products.replay_vision.backend.prompt_questions import scanner_question
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_alerts.constants import (
     CLEANUP_BATCH_SIZE,
@@ -525,6 +526,7 @@ def _direction_label(alert: VisionAlertConfiguration) -> str:
 
 
 def _base_properties(alert: VisionAlertConfiguration, now: datetime) -> dict:
+    question = scanner_question(alert.scanner)
     return {
         "alert_id": str(alert.id),
         "alert_name": alert.name,
@@ -533,6 +535,8 @@ def _base_properties(alert: VisionAlertConfiguration, now: datetime) -> dict:
         "scanner_name": alert.scanner.name,
         # Slack templates read the escaped copy, and webhooks keep the raw scanner name.
         "scanner_name_mrkdwn": escape_slack_mrkdwn(alert.scanner.name),
+        "scanner_question": question,
+        "scanner_question_mrkdwn": escape_slack_mrkdwn(question),
         "triggered_at": now.isoformat(),
     }
 

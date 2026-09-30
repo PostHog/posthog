@@ -2032,6 +2032,36 @@ class TestSentryCustomIteratorEndpoints:
             {"stat": "received", "timestamp": 1772496000, "value": 8, "project_id": "1", "project_slug": "web"},
         ]
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_project_stats_skips_stat_on_persistent_server_error(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/projects/"):
+                return _response([{"id": "1", "slug": "web"}])
+            if (params or {}).get("stat") == "received":
+                # Sentry persistently 500s for this project's "received" stat.
+                return _response(None, status_code=500)
+            if (params or {}).get("stat") == "generated":
+                return _response([[1772409600, 12]])
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_stats",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        # The 500 on the "received" stat (first in PROJECT_STAT_NAMES) is skipped; the
+        # sync still reaches the later "generated" stat instead of stopping at the skip.
+        rows = list(cast(Any, resp.items()))
+        assert rows == [
+            {"stat": "generated", "timestamp": 1772409600, "value": 12, "project_id": "1", "project_slug": "web"}
+        ]
+
     @parameterized.expand(
         [
             ("pre_retention_watermark", 946684800, True),
