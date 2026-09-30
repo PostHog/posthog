@@ -22,6 +22,7 @@ import type {
     ScoutTrialResultApi,
     ScoutTrialComparisonApi,
 } from 'products/signals/frontend/generated/api.schemas'
+import { tasksRunsCancelCreate } from 'products/tasks/frontend/generated/api'
 
 import {
     trialFixtureConfig,
@@ -47,6 +48,11 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigTrialHistory: jest.fn(),
     signalsScoutConfigTrialResult: jest.fn(),
     signalsScoutConfigTrialSetup: jest.fn(),
+}))
+
+jest.mock('products/tasks/frontend/generated/api', () => ({
+    ...jest.requireActual('products/tasks/frontend/generated/api'),
+    tasksRunsCancelCreate: jest.fn(),
 }))
 
 describe('scoutTrialsLogic', () => {
@@ -632,5 +638,33 @@ describe('scoutTrialsLogic', () => {
 
         await expectLogic(logic, () => logic.actions.scoreComparison()).toFinishAllListeners()
         expect(jest.mocked(signalsScoutConfigTrialEvaluationCreate).mock.calls[1][2]).toEqual(request)
+    })
+
+    it('keeps a failed stop on its run so the retry stops the run instead of reloading setup', async () => {
+        const launchId = trialFixtureResult.launch_id
+        let stopped = false
+        jest.mocked(signalsScoutConfigTrialResult).mockImplementation(async (_, __, params) => ({
+            ...trialFixtureResult,
+            launch_id: params.launch_id,
+            status: stopped ? 'cancelled' : 'running',
+            task_status: stopped ? 'cancelled' : 'in_progress',
+        }))
+        logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId }])
+        await expectLogic(logic, () => logic.actions.refreshResults(true)).toFinishAllListeners()
+        const rowError = (): string | null | undefined =>
+            logic.values.rows.find((row) => row.launchId === launchId)?.error
+        jest.mocked(tasksRunsCancelCreate).mockRejectedValueOnce(new Error('Connection closed'))
+
+        await expectLogic(logic, () => logic.actions.cancelRun(launchId)).toFinishAllListeners()
+        expect(logic.values.pageError).toBeNull()
+        expect(rowError()).toBe("Couldn't stop this run. Try again.")
+
+        jest.mocked(tasksRunsCancelCreate).mockImplementationOnce(async () => {
+            stopped = true
+            return {} as Awaited<ReturnType<typeof tasksRunsCancelCreate>>
+        })
+        await expectLogic(logic, () => logic.actions.cancelRun(launchId)).toFinishAllListeners()
+        expect(tasksRunsCancelCreate).toHaveBeenCalledTimes(2)
+        expect(rowError()).toBeNull()
     })
 })

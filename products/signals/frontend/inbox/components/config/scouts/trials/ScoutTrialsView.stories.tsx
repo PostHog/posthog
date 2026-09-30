@@ -69,6 +69,7 @@ const defaults: ScoutTrialsViewProps = {
     submitting: false,
     refreshing: false,
     canceling: [],
+    cancelErrors: {},
     pageError: null,
     pollError: null,
     selectedLaunchId: null,
