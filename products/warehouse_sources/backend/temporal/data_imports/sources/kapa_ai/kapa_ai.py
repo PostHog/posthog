@@ -28,7 +28,6 @@ AUTH_ERRORS = {
 @frozen
 class KapaResumeConfig:
     paginator_state: dict[str, Any] | None = None
-    completed: bool = False
 
 
 def get_resource(name: str, project_id: str, page_size: int = 100) -> EndpointResource:
@@ -138,11 +137,9 @@ def kapa_ai_source(
 
     def get_rows() -> Iterator[list[dict[str, Any]]]:
         resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-        if resume and resume.completed:
-            return
         resource = build_resource(api_key, project_id, endpoint, team_id, job_id, resumable_source_manager, resume)
         yield from resource
-        resumable_source_manager.save_state(KapaResumeConfig(completed=True))
+        resumable_source_manager.clear_state()
 
     return SourceResponse(
         name=endpoint,

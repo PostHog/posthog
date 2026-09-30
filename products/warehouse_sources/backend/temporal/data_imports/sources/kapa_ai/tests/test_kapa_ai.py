@@ -69,7 +69,7 @@ def test_thread_pagination_preserves_nested_data_and_checkpoints_after_yield(
     manager.save_state.assert_not_called()
     assert list(rows) == ([terminal_rows] if terminal_rows else [])
     assert manager.save_state.call_args_list[0].args[0].paginator_state == {"cursor": "next-page"}
-    assert manager.save_state.call_args.args[0].completed
+    manager.clear_state.assert_called_once()
     first, second = [call.args[0] for call in http.call_args_list]
     assert first.headers["X-API-KEY"] == API_KEY
     params = parse_qs(urlsplit(first.url).query)
@@ -108,16 +108,13 @@ def test_page_links_are_followed_and_resume_at_the_saved_url(
     assert http.call_args.args[0].url == next_url
 
 
-def test_cursor_resume_and_completed_resume_do_not_restart(http: MagicMock, manager: MagicMock) -> None:
+def test_cursor_resume_clears_state_after_completion(http: MagicMock, manager: MagicMock) -> None:
     manager.can_resume.return_value = True
     manager.load_state.return_value = KapaResumeConfig(paginator_state={"cursor": "saved-cursor"})
     http.return_value = response({"results": [{"id": "last"}], "next_cursor": None})
     assert pages(source("threads", manager)) == [[{"id": "last"}]]
     assert parse_qs(urlsplit(http.call_args.args[0].url).query)["cursor"] == ["saved-cursor"]
-    manager.load_state.return_value = manager.save_state.call_args.args[0]
-    http.reset_mock()
-    assert pages(source("threads", manager)) == []
-    http.assert_not_called()
+    manager.clear_state.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -243,7 +240,7 @@ def test_invalid_configuration_never_sends_a_request(
 @pytest.mark.parametrize("status", [429, 500, 503])
 def test_transient_statuses_are_retried_by_shared_client(http: MagicMock, manager: MagicMock, status: int) -> None:
     http.side_effect = [response({}, status), response({"results": [{"id": "thread-1"}], "next_cursor": None})]
-    with patch.object(RESTClient._send_request.retry, "wait", return_value=0):
+    with patch.object(RESTClient._send_request.retry, "wait", return_value=0):  # type: ignore[attr-defined]
         assert pages(source("threads", manager)) == [[{"id": "thread-1"}]]
     assert http.call_count == 2
 
@@ -258,7 +255,7 @@ def test_missing_response_collection_fails_instead_of_erasing_the_table(http: Ma
     http.return_value = response({"unexpected": []})
     with pytest.raises(ValueError, match="results"):
         pages(source("threads", manager))
-    assert not any(call.args[0].completed for call in manager.save_state.call_args_list)
+    manager.clear_state.assert_not_called()
 
 
 @pytest.mark.parametrize("next_url", ["https://example.com/collect", "http://api.kapa.ai/query/v1/threads/"])
