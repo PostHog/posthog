@@ -15,7 +15,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
-from products.workflows.backend.presentation.views.hog_flow import DRAFT_CONTENT_FIELDS
+from products.workflows.backend.services.workflow_content import DRAFT_CONTENT_FIELDS
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 

@@ -1,11 +1,13 @@
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 from django.db.models import F
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
+from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
@@ -20,6 +22,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowTaskDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
@@ -33,18 +36,26 @@ from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
 )
+from products.workflows.backend.services.workflow_content import (
+    DRAFT_CONTENT_FIELDS,
+    snapshot_content_fields,
+    trigger_has_audience,
+    unstage_workflow_proposals,
+)
+from products.workflows.backend.services.workflow_secrets import (
+    TemplateCache,
+    partition_flow_secrets,
+    secret_keys_for_action,
+    strip_content_secrets,
+    strip_secrets_from_content,
+)
+from products.workflows.backend.services.workflow_writes import WorkflowUsageReporter, WorkflowWriter
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
     max_email_sending_tier,
 )
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
-
-if TYPE_CHECKING:
-    from posthog.models.team.team import Team
-    from posthog.models.user import User
-
-    from products.workflows.backend.services.workflow_writes import WorkflowUsageReporter, WorkflowWriter
 
 __all__ = [
     "MIN_EMAIL_SENDING_TIER",
@@ -60,6 +71,19 @@ __all__ = [
     "suspend_email_sending",
     "unsuspend_email_sending",
     "validate_rrule",
+    # The workflows views reach the save path and its helpers only through this facade, per the
+    # import contract. These serve this product's presentation layer, not other products.
+    "DRAFT_CONTENT_FIELDS",
+    "TemplateCache",
+    "WorkflowWriter",
+    "compute_action_redirects",
+    "partition_flow_secrets",
+    "secret_keys_for_action",
+    "snapshot_content_fields",
+    "strip_content_secrets",
+    "strip_secrets_from_content",
+    "trigger_has_audience",
+    "unstage_workflow_proposals",
 ]
 
 
@@ -185,8 +209,6 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: UUID, enabl
     next occurrence and keeps its schedule for when it is enabled again. Archived workflows
     are left alone. The user must hold editor access to the workflow, as in the API.
     """
-    from posthog.models.user import User  # noqa: PLC0415 — keeps the user model off the facade import path
-
     from products.workflows.backend.presentation.views.hog_flow import (  # noqa: PLC0415 - heavy DRF import
         HogFlowSerializer,
     )
@@ -217,8 +239,8 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: UUID, enabl
 
 
 def workflow_writer(
-    *, team: "Team", user: "User | None", was_impersonated: bool, report_usage: "WorkflowUsageReporter"
-) -> "WorkflowWriter":
+    *, team: Team, user: User | None, was_impersonated: bool, report_usage: WorkflowUsageReporter
+) -> WorkflowWriter:
     """The save path for workflows, acting as ``user`` in ``team``.
 
     Creating, updating and publishing a workflow all go through it, so every caller gets the same
@@ -229,10 +251,6 @@ def workflow_writer(
     serializer, which a cross-product contract must not, and it exists here because the import
     contract lets the workflows views reach product internals only through this facade.
     """
-    from products.workflows.backend.services.workflow_writes import (  # noqa: PLC0415 - heavy DRF import: the service reads the viewset module's content helpers
-        WorkflowWriter,
-    )
-
     return WorkflowWriter(team=team, user=user, was_impersonated=was_impersonated, report_usage=report_usage)
 
 

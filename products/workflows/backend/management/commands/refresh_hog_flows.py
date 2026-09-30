@@ -12,12 +12,11 @@ import structlog
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowSerializer,
-    TemplateCache,
     mask_secret_action_inputs,
     merge_secret_maps,
-    partition_flow_secrets,
     plaintext_secret_map,
 )
+from products.workflows.backend.services.workflow_secrets import TemplateCache, partition_flow_secrets
 
 logger = structlog.get_logger(__name__)
 

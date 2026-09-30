@@ -19,21 +19,22 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
-from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
-from products.workflows.backend.presentation.views.hog_flow import (
-    DRAFT_CONTENT_FIELDS,
-    TemplateCache,
-    _trigger_has_audience,
-    snapshot_flow_content,
-    strip_content_secrets,
-    strip_secrets_from_content,
-    unstage_workflow_proposals,
-)
+from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
 )
-from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
+from products.workflows.backend.services.workflow_content import (
+    DRAFT_CONTENT_FIELDS,
+    snapshot_flow_content,
+    trigger_has_audience,
+    unstage_workflow_proposals,
+)
+from products.workflows.backend.services.workflow_secrets import (
+    TemplateCache,
+    strip_content_secrets,
+    strip_secrets_from_content,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -152,7 +153,7 @@ class WorkflowWriter:
             else:
                 self.write_live(instance, before_update, validated, **(_CLEARED_DRAFT if clears_staged_draft else {}))
                 if clears_staged_draft:
-                    unstage_workflow_proposals(instance)
+                    unstage_workflow_proposals(team_id=instance.team_id, hog_flow_id=instance.id)
 
         if not options.stage_as_draft:
             self.after_live_write(before_update, instance)
@@ -230,7 +231,7 @@ class WorkflowWriter:
         instance.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
         # An edit over an approved draft may undo the suggestion, and publish reads approved as shipped.
-        unstage_workflow_proposals(instance)
+        unstage_workflow_proposals(team_id=instance.team_id, hog_flow_id=instance.id)
 
     def stage_revision_bump(self, instance: HogFlow, before: HogFlow, validated_data: dict) -> bool:
         """Set the next version on `instance` when the content changed. Call it inside the locked write transaction."""
@@ -362,6 +363,10 @@ class WorkflowWriter:
             action_ids = get_timing_reschedule_action_ids(before.actions, after.actions)
         if not action_ids:
             return
+        from products.workflows.backend.tasks.hog_flows import (  # noqa: PLC0415 - import cycle through posthog.tasks and this product's facade
+            reschedule_hog_flow_timing,
+        )
+
         team_id = self.team.id
         hog_flow_id = str(after.id)
         transaction.on_commit(
@@ -380,9 +385,9 @@ class WorkflowWriter:
         Called wherever the LIVE trigger changes (direct save, graph edit, publish), never for
         draft writes, which don't change what the scheduler reads.
         """
-        if not before or not _trigger_has_audience(after):
+        if not before or not trigger_has_audience(after.trigger):
             return
-        if _trigger_has_audience(before) and (before.trigger or {}).get("filters") == (after.trigger or {}).get(
+        if trigger_has_audience(before.trigger) and (before.trigger or {}).get("filters") == (after.trigger or {}).get(
             "filters"
         ):
             return

@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
-from typing import TYPE_CHECKING, Any, Final, NamedTuple, Optional, cast
+from typing import Any, Final, NamedTuple, Optional, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -127,7 +127,20 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
-from products.workflows.backend.facade.api import create_batch_job, workflow_writer
+from products.workflows.backend.facade.api import (
+    DRAFT_CONTENT_FIELDS,
+    TemplateCache,
+    WorkflowWriter,
+    create_batch_job,
+    partition_flow_secrets,
+    secret_keys_for_action,
+    snapshot_content_fields,
+    strip_content_secrets,
+    strip_secrets_from_content,
+    trigger_has_audience,
+    unstage_workflow_proposals,
+    workflow_writer,
+)
 from products.workflows.backend.facade.contracts import StaleWorkflowWrite, WorkflowUpdate
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
@@ -211,26 +224,7 @@ from products.workflows.backend.utils.durations import (
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
-if TYPE_CHECKING:
-    from products.workflows.backend.facade.api import WorkflowWriter
-
 logger = structlog.get_logger(__name__)
-
-
-# The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
-# else. Metadata (name, description) and lifecycle (status) always apply to the live row. The draft
-# blob is a full snapshot of these fields so publish is a plain copy, not a merge.
-DRAFT_CONTENT_FIELDS = (
-    "actions",
-    "edges",
-    "trigger",
-    "trigger_masking",
-    "conversion",
-    "exit_condition",
-    "email_sending_rate_limit",
-    "abort_action",
-    "variables",
-)
 
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
@@ -330,81 +324,8 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
     )
 
 
-def snapshot_flow_content(flow: HogFlow) -> dict:
-    snapshot = {field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}
-    # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
-    # so re-validation of a snapshot (draft publish, revision restore) doesn't choke on a
-    # never-edited column.
-    for field in ("actions", "edges"):
-        if not snapshot[field]:
-            snapshot[field] = []
-    # Defensively strip secrets: a legacy row written before encryption shipped still has plaintext
-    # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
-    # secrets. New rows are already stripped, so this is a no-op for them.
-    return strip_content_secrets(snapshot)
-
-
-# --- Secret function-action inputs -------------------------------------------------------------
-# Function/email/sms steps (and function-shaped triggers) can carry secret inputs - API keys, auth
-# headers - declared `secret: true` on their template's inputs_schema. We split those values out of
-# the plaintext `actions` blob into the encrypted `encrypted_inputs` column (keyed by action id then
-# input key), mirroring HogFunction.encrypted_inputs. The worker re-merges them at execution time.
-_FUNCTION_TRIGGER_CONFIG_TYPES = frozenset({"webhook", "manual", "tracking_pixel"})
-
-
-# A per-call {template_id: template_or_None} memo. Resolving a template is a DB query, and both the
-# read (masking) and write (stripping) paths touch every action, so callers pass one of these to
-# dedupe lookups - within a flow, and across a whole list page when stashed on the serializer context.
-TemplateCache = dict[str, Optional[Any]]
-
-
-def _function_template_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> Optional[Any]:
-    # A function step, or a trigger whose source is function-shaped, resolves a template whose
-    # inputs_schema tells us which inputs are secret. Everything else has no secret inputs.
-    config = action.get("config") or {}
-    action_type = action.get("type", "") or ""
-    is_function = "function" in action_type or (
-        action_type == "trigger" and config.get("type") in _FUNCTION_TRIGGER_CONFIG_TYPES
-    )
-    if not is_function:
-        return None
-    template_id = config.get("template_id", "") or ""
-    if template_cache is None:
-        return HogFunctionTemplate.get_template(template_id)
-    if template_id not in template_cache:
-        template_cache[template_id] = HogFunctionTemplate.get_template(template_id)
-    return template_cache[template_id]
-
-
-def _secret_keys_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> set[str]:
-    template = _function_template_for_action(action, template_cache)
-    if not template:
-        return set()
-    return {schema["key"] for schema in (template.inputs_schema or []) if schema.get("secret")}
-
-
-def partition_flow_secrets(
-    actions: list[dict], template_cache: Optional[TemplateCache] = None
-) -> tuple[list[dict], dict[str, dict]]:
-    """Split secret inputs out of each action's config.inputs.
-
-    Returns (stripped_actions, encrypted_map) where encrypted_map is {action_id: {input_key: value}}.
-    The input list is not mutated. The map is rebuilt from scratch each call - never merged onto a
-    prior map - so secrets for deleted or renamed actions drop out rather than orphaning.
-    """
-    stripped: list[dict] = []
-    encrypted: dict[str, dict] = {}
-    for original in actions:
-        action = deepcopy(original)
-        secret_keys = _secret_keys_for_action(action, template_cache)
-        if secret_keys:
-            inputs = (action.get("config") or {}).get("inputs")
-            if isinstance(inputs, dict):
-                moved = {key: inputs.pop(key) for key in list(inputs) if key in secret_keys}
-                if moved:
-                    encrypted[action["id"]] = moved
-        stripped.append(action)
-    return stripped, encrypted
+def _snapshot_flow_content(flow: HogFlow) -> dict:
+    return snapshot_content_fields({field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS})
 
 
 def plaintext_secret_map(actions: Any, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
@@ -457,7 +378,7 @@ def mask_secret_action_inputs(
     # the given action dicts (must be a copy - callers deepcopy first). A value counts as set if it
     # lives in the encrypted map or, for legacy rows written before the split, still sits in plaintext.
     for flow_action in actions:
-        secret_keys = _secret_keys_for_action(flow_action, template_cache)
+        secret_keys = secret_keys_for_action(flow_action, template_cache)
         if not secret_keys:
             continue
         inputs = (flow_action.get("config") or {}).get("inputs")
@@ -507,32 +428,6 @@ def mask_trigger_config(
     return masked[0].get("config")
 
 
-def strip_secrets_from_content(content: dict, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
-    # Move secret inputs out of content["actions"] into an encrypted map, updating content["actions"]
-    # (stripped) and the derived content["trigger"] in place. Returns the {action_id: {key: value}} map.
-    # Shared by the live write, the draft write, and (map discarded) the snapshot/compare paths.
-    actions = content.get("actions")
-    if not isinstance(actions, list):
-        return {}
-    stripped, encrypted = partition_flow_secrets(actions, template_cache)
-    content["actions"] = stripped
-    if "trigger" in content:
-        trigger_action = next((action for action in stripped if action.get("type") == "trigger"), None)
-        if trigger_action is not None:
-            content["trigger"] = trigger_action.get("config")
-    return encrypted
-
-
-def strip_content_secrets(content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
-    # Return a copy of a content snapshot with secret inputs stripped from actions (and the trigger
-    # re-derived). Used to snapshot revisions secret-free and to compare two snapshots secret-free, so a
-    # resent secret validation recovers into `actions` doesn't read as a content change against the
-    # stored (stripped) snapshot and spuriously bump the revision.
-    normalized = dict(content)
-    strip_secrets_from_content(normalized, template_cache)
-    return normalized
-
-
 def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
     """Strip secret inputs from a proposal's content, classifying each step against the live step it
     patches. A patch carries only the fields it changes, so it can set a secret input without the
@@ -548,7 +443,7 @@ def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Op
         inputs = (item.get("config") or {}).get("inputs") if isinstance(item, dict) else None
         if live_step is None or not isinstance(inputs, dict):
             continue
-        for key in _secret_keys_for_action(_deep_merge(deepcopy(live_step), item), template_cache):
+        for key in secret_keys_for_action(_deep_merge(deepcopy(live_step), item), template_cache):
             inputs.pop(key, None)
     return stripped
 
@@ -2257,15 +2152,6 @@ HOG_FLOW_RUN_IDEMPOTENCY_IN_PROGRESS = "in_progress"
 
 def _hog_flow_run_idempotency_cache_key(team_id: int, hog_flow_id: str, idempotency_key: str) -> str:
     return f"hog_flow_run_idempotency:{team_id}:{hog_flow_id}:{idempotency_key}"
-
-
-def _trigger_has_audience(hog_flow: HogFlow) -> bool:
-    """Whether a dispatch of this workflow fans out to persons matched by the trigger's filters.
-
-    Only the batch trigger does. A schedule trigger fires one person-less run, so there is no
-    audience to preview and no blast-radius token to demand.
-    """
-    return (hog_flow.trigger or {}).get("type") == "batch"
 
 
 def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, float | int]:
@@ -4250,7 +4136,7 @@ def _validate_merge_keys(field: str, items: Any) -> None:
 
 def describe_steps(hog_flow: HogFlow, step_ids: list[str]) -> list[str]:
     """Step names for a person to read. A step deleted since has no name left, so it keeps its id."""
-    names = {_item_id(item): item.get("name") for item in snapshot_flow_content(hog_flow).get("actions") or []}
+    names = {_item_id(item): item.get("name") for item in _snapshot_flow_content(hog_flow).get("actions") or []}
     return [names.get(step_id) or step_id for step_id in step_ids]
 
 
@@ -4280,7 +4166,7 @@ def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal, content: Op
     if base_content is None:
         # Without the snapshot the proposal read, "changed since" is unanswerable.
         return sorted({*touched_steps, *touched_fields})
-    live_content = snapshot_flow_content(hog_flow)
+    live_content = _snapshot_flow_content(hog_flow)
     base_actions = {_item_id(item): item for item in base_content.get("actions") or []}
     live_actions = {_item_id(item): item for item in live_content.get("actions") or []}
     proposed_actions = {_item_id(item): item for item in content.get("actions") or []}
@@ -4305,7 +4191,7 @@ def base_content_of(hog_flow: HogFlow, proposal: WorkflowProposal) -> dict | Non
     moved; after a publish it is the revision snapshot, which a workflow that has never been
     published under revision tracking may not have."""
     if hog_flow.version == proposal.base_version:
-        return snapshot_flow_content(hog_flow)
+        return _snapshot_flow_content(hog_flow)
     revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
     return dict(revision.content) if revision is not None else None
 
@@ -4376,21 +4262,6 @@ def _leaf(item: Any, path: tuple[str, ...]) -> Any:
         item = item[key]
     # A null leaf in a patch deletes the key, so it reads as the key being absent.
     return _ABSENT if item is None else item
-
-
-def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
-    """Put every approved suggestion back in the queue, because the draft it was approved into is
-    about to be replaced.
-
-    Approved means one thing here: this suggestion is what sits in the draft. Discarding the draft,
-    restoring a revision, approving a different suggestion or editing over it all replace that
-    draft, and publish reads approved as "this is what shipped", so it must not record one against
-    a version that never carried it. A suggestion whose change survives the replacement comes back
-    to the queue too, which costs a person one more approval rather than a wrong history entry.
-    """
-    WorkflowProposal.objects.filter(hog_flow=hog_flow, status=WorkflowProposal.Status.APPROVED).update(
-        status=WorkflowProposal.Status.SUGGESTED, resolved_at=None, resolved_by=None
-    )
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -5041,7 +4912,7 @@ class HogFlowViewSet(
             )
         return Response(data)
 
-    def _workflow_writer(self) -> "WorkflowWriter":
+    def _workflow_writer(self) -> WorkflowWriter:
         user = self.request.user
         return workflow_writer(
             team=self.team,
@@ -5330,7 +5201,7 @@ class HogFlowViewSet(
         return Response(self.get_serializer(locked).data)
 
     def _require_audience_confirm_token(self, request: Request, hog_flow: HogFlow) -> None:
-        """Only meaningful for triggers that fan out to a person audience; see _trigger_has_audience."""
+        """Only meaningful for triggers that fan out to a person audience; see trigger_has_audience."""
         confirm_token = request.data.get("confirm_token")
         if not confirm_token:
             raise exceptions.ValidationError(
@@ -5505,7 +5376,7 @@ class HogFlowViewSet(
             locked.draft = None
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
-            unstage_workflow_proposals(locked)
+            unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.id)
             # updated_at (auto_now) is deliberately bumped: without a fresh live stamp the
             # resource_edited broadcast carries the old updated_at — older than the draft stamp
             # concurrent editors loaded, so they'd ignore the discard, and their next draft save
@@ -5583,7 +5454,7 @@ class HogFlowViewSet(
             before_update = HogFlow.objects.get(pk=instance.pk)
             locked.draft = dict(revision.content)
             locked.draft_updated_at = timezone.now()
-            unstage_workflow_proposals(locked)
+            unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.id)
             # Revision snapshots carry no secrets (they're stripped before snapshotting), so the
             # restored draft re-attaches from the live encrypted_inputs on the follow-up publish.
             # Clear any stale draft secrets from a prior draft so they can't bleed into this one.
@@ -5671,7 +5542,7 @@ class HogFlowViewSet(
         if not HogFlowOptimization.objects.filter(hog_flow=instance, enabled=True).exists():
             raise WorkflowNotOptimisedError()
 
-        live_content = snapshot_flow_content(instance)
+        live_content = _snapshot_flow_content(instance)
         # Proposal content is stored in plaintext like a revision snapshot, so secrets are stripped.
         content = strip_proposal_secrets(dict(params["content"]), live_content)
 
@@ -5792,7 +5663,7 @@ class HogFlowViewSet(
             # The draft is a full snapshot (live plus what the suggestion changes), so publish stays
             # a plain copy. A field the suggestion merely echoed is not staged, since writing it back
             # would undo a later edit the conflict check let through.
-            merged = merge_proposal_content(snapshot_flow_content(locked), changes)
+            merged = merge_proposal_content(_snapshot_flow_content(locked), changes)
             try:
                 # Create validated the merge against the graph as it was then; it can have moved since.
                 validate_graph(merged.get("actions") or [], merged.get("edges") or [], merged.get("abort_action"))
@@ -5805,7 +5676,7 @@ class HogFlowViewSet(
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
             # The new draft replaces what was staged; an earlier approval stays only if the draft still carries it.
-            unstage_workflow_proposals(locked)
+            unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.id)
 
             locked_proposal.status = WorkflowProposal.Status.APPROVED
             locked_proposal.resolved_at = timezone.now()
@@ -6739,7 +6610,7 @@ class HogFlowViewSet(
             # could sidestep the batch_jobs token gate by scheduling the send instead. Same scoping:
             # the web builder keeps its own confirm UI, headless callers stay token-free. A schedule
             # trigger runs once per firing with no person audience, so there is nothing to size.
-            if get_event_source(request) in AGENT_EVENT_SOURCES and _trigger_has_audience(hog_flow):
+            if get_event_source(request) in AGENT_EVENT_SOURCES and trigger_has_audience(hog_flow.trigger):
                 # A draft's trigger can still be edited after the audience was sized, so a schedule
                 # staged on a draft could fire on a broadened audience once enabled. Same rule the
                 # MCP tool enforces, applied at the API boundary.
