@@ -23,7 +23,7 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutBackgroundBand, SignalScoutConfig
 from products.signals.backend.scout_harness import lazy_seed
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
@@ -41,6 +41,7 @@ from products.signals.backend.scout_harness.team_limits import (
     DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
     DEFAULT_ENROLLED_TEAM_IDS,
     SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
+    BackgroundBand,
     BackgroundEnrollment,
     Enrollment,
     _default_team_config,
@@ -56,6 +57,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _resolve_slot_aligned_dispatch,
     _resolve_withheld_skills,
     _team_configs,
+    background_sample_bucket,
     max_enabled_scouts_for_team,
     resolve_max_enabled_scouts,
 )
@@ -662,14 +664,43 @@ _GENERAL = "signals-scout-general"
             {"background": {"enabled": True, "team_ids": [3], "interval_minutes": 720, "max_new_teams_per_tick": 2}},
             BackgroundEnrollment(True, _GENERAL, frozenset({3}), 720, 2),
         ),
+        (
+            # A malformed band drops out alone and never costs the block its `team_ids`.
+            {
+                "background": {
+                    "enabled": True,
+                    "team_ids": [3],
+                    "bands": {
+                        "1": {"percent": 5, "interval_minutes": 10080},
+                        "2": {"percent": 101},
+                        "3": {"percent": True},
+                        "4": "nope",
+                    },
+                }
+            },
+            BackgroundEnrollment(
+                True,
+                _GENERAL,
+                frozenset({3}),
+                None,
+                DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
+                {1: BackgroundBand(percent=5, interval_minutes=10080)},
+            ),
+        ),
+        (
+            {"background": {"enabled": True, "team_ids": [3], "bands": ["1"]}},
+            BackgroundEnrollment(True, _GENERAL, frozenset({3}), None, DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK),
+        ),
     ],
 )
 def test_parse_background(payload, expected):
     assert _parse_background(payload) == expected
 
 
-def _background(team_ids: set[int], *, enabled: bool = True, max_new: int = 5) -> BackgroundEnrollment:
-    return BackgroundEnrollment(enabled, _GENERAL, frozenset(team_ids), 720, max_new)
+def _background(
+    team_ids: set[int], *, enabled: bool = True, max_new: int = 5, bands: dict[int, BackgroundBand] | None = None
+) -> BackgroundEnrollment:
+    return BackgroundEnrollment(enabled, _GENERAL, frozenset(team_ids), 720, max_new, bands or {})
 
 
 _NO_ENROLLMENT = Enrollment(wildcard=False, explicit=set(), skip=set())
@@ -744,6 +775,59 @@ class TestBackgroundEnrollment:
         background_config.refresh_from_db()
         assert background_config.status == SignalScoutConfig.Status.ACTIVE
         assert background_config.enabled is True
+
+    def _banded_teams(self, band: int, count: int) -> list[Team]:
+        teams = [self._team() for _ in range(count)]
+        now = timezone.now()
+        for team in teams:
+            SignalScoutBackgroundBand.all_teams.create(team=team, band=band, computed_at=now)
+        return teams
+
+    def test_band_sampling_keeps_earlier_picks_as_the_percent_rises(self):
+        teams = self._banded_teams(2, 30)
+        buckets = {team.id: background_sample_bucket(team.id) for team in teams}
+
+        def sampled(percent: int) -> set[int]:
+            bands = {2: BackgroundBand(percent=percent, interval_minutes=20160)}
+            _collect_planned_runs(_NO_ENROLLMENT, background=_background(set(), max_new=100, bands=bands))
+            return set(
+                SignalScoutConfig.all_teams.filter(
+                    team__in=teams, status=SignalScoutConfig.Status.ACTIVE, skill_name=_GENERAL
+                ).values_list("team_id", flat=True)
+            )
+
+        low, high = sampled(30), sampled(70)
+
+        assert low == {team_id for team_id, bucket in buckets.items() if bucket < 30}
+        assert high == {team_id for team_id, bucket in buckets.items() if bucket < 70}
+        assert low < high
+        assert set(
+            SignalScoutConfig.all_teams.filter(team__in=teams).values_list("background_band", "run_interval_minutes")
+        ) == {(2, 20160)}
+
+    def test_band_at_zero_pauses_band_configs_but_not_team_managed_or_hand_picked_ones(self):
+        banded, taken_over, hand_picked = self._banded_teams(1, 3)
+        with team_scope(banded.id, canonical=True):
+            banded_config = _create_config(
+                banded, _GENERAL, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND, background_band=1
+            )
+        with team_scope(taken_over.id, canonical=True):
+            taken_over_config = _create_config(taken_over, _GENERAL, background_band=1)
+        with team_scope(hand_picked.id, canonical=True):
+            hand_picked_config = _create_config(
+                hand_picked, _GENERAL, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND
+            )
+
+        bands = {1: BackgroundBand(percent=0, interval_minutes=None)}
+        _collect_planned_runs(_NO_ENROLLMENT, background=_background({hand_picked.id}, bands=bands))
+
+        for config in (banded_config, taken_over_config, hand_picked_config):
+            config.refresh_from_db()
+        assert banded_config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert banded_config.pause_reason == SignalScoutConfig.PauseReason.BACKGROUND_REMOVED
+        assert taken_over_config.status == SignalScoutConfig.Status.ACTIVE
+        assert hand_picked_config.status == SignalScoutConfig.Status.ACTIVE
+        assert hand_picked_config.background_band is None
 
 
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
