@@ -17282,7 +17282,7 @@ export namespace Schemas {
      * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
      */
     export interface BulkDeleteFilters {
-      /** Filter by active state.
+      /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
        *
        * * `true` - true
        * * `false` - false
@@ -29272,6 +29272,9 @@ export namespace Schemas {
      * * `Commslayer` - Commslayer
      * * `Sprinto` - Sprinto
      * * `Gem` - Gem
+     * * `AudioGO` - AudioGO
+     * * `ExactOnline` - ExactOnline
+     * * `LettrLabs` - LettrLabs
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -30627,6 +30630,9 @@ export namespace Schemas {
       Commslayer: 'Commslayer',
       Sprinto: 'Sprinto',
       Gem: 'Gem',
+      AudioGO: 'AudioGO',
+      ExactOnline: 'ExactOnline',
+      LettrLabs: 'LettrLabs',
     } as const;
 
     /**
@@ -31995,7 +32001,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -34576,7 +34585,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -45466,7 +45478,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -46855,7 +46870,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -47177,6 +47195,7 @@ export namespace Schemas {
       is_remote_configuration?: boolean | null;
       /** @nullable */
       has_encrypted_payloads?: boolean | null;
+      /** Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness. */
       readonly status: string;
       /** Specifies where this feature flag should be evaluated
        *
@@ -47483,7 +47502,7 @@ export namespace Schemas {
     }
 
     export interface FeatureFlagStatusResponse {
-      /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+      /** Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving state, and this response carries no serving-state field: read the `active` field of the flag itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted reports 'active', because disabled flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
@@ -56004,6 +56023,8 @@ export namespace Schemas {
       readonly source_name: string;
       /** Title of the document this chunk belongs to. */
       readonly document_title: string;
+      /** Fetched page URL. Empty for text and file sources. */
+      readonly url: string;
     }
 
     export interface KnowledgeGapSuggestion {
@@ -56057,6 +56078,8 @@ export namespace Schemas {
       readonly content: string;
       /** True when this chunk comes from a generated source learned from a past support ticket. */
       readonly is_generated: boolean;
+      /** Fetched page URL. Empty for text and file sources. */
+      readonly url: string;
     }
 
     /**
@@ -95182,7 +95205,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -96587,7 +96613,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -97974,7 +98003,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -101316,11 +101348,10 @@ export namespace Schemas {
     export type TaskRunResponseJsonSchema = { [key: string]: unknown } | null;
 
     /**
-     * Detail response for a task.
+     * The task ``run`` action's response: the refreshed task detail plus the run this call made.
      *
-     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+     * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
      */
     export interface TaskRunResponse {
       id: string;
@@ -101372,6 +101403,8 @@ export namespace Schemas {
       origin_key?: string | null;
       /** Error returned when the run could not start. */
       run_error?: string;
+      /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
+      run?: TaskRunDetailDTO | null;
     }
 
     export interface TaskRunStartRequest {
@@ -114166,6 +114199,9 @@ export namespace Schemas {
     } as const;
 
     export type FeatureFlagsListParams = {
+    /**
+     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+     */
     active?: FeatureFlagsListActive;
     /**
      * Filter by archived state. When omitted, archived flags are excluded.
