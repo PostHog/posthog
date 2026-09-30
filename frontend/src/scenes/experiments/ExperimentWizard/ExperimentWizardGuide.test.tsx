@@ -60,7 +60,7 @@ describe('ExperimentWizardGuide', () => {
     it("sends a question about adding the saved experiment's code on the implementation step", async () => {
         const openSidePanel = jest.spyOn(sidePanelLogic.actions, 'openSidePanel')
         createExperimentLogic().actions.setExperiment(SAVED_EXPERIMENT)
-        wizardLogic.actions._applyStep('implementation')
+        wizardLogic.actions._applyStep('implementation', 'save')
         render(<ExperimentWizardGuide />)
 
         expect(screen.getByText('Need help with the code? PostHog AI can explain how to add it.')).toBeInTheDocument()
