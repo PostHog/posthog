@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
@@ -172,6 +173,17 @@ function getRegexValidationError(operator: PropertyOperator, value: any): string
         }
     }
     return null
+}
+
+export function withRegexDraft(value: PropertyFilterValue | undefined, draft: string | null): PropertyFilterValue {
+    if (draft === null) {
+        return value ?? null
+    }
+    // In multi-value mode the draft becomes an extra pattern. In single-value mode it replaces the committed pattern.
+    if (Array.isArray(value)) {
+        return draft.trim() ? [...value, draft] : value
+    }
+    return draft.trim() ? draft : null
 }
 
 export function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
@@ -349,7 +361,22 @@ export function OperatorValueSelect({
         }
     }, [propertyDefinition, propertyKey, operator, operatorAllowlist, type]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const validationError = currentOperator && value ? getValidationError(currentOperator, value, propertyKey) : null
+    const [regexDraft, setRegexDraft] = useState<string | null>(null)
+    const valueToValidate = isOperatorRegex(currentOperator) ? withRegexDraft(value, regexDraft) : value
+    const validationError =
+        currentOperator && valueToValidate ? getValidationError(currentOperator, valueToValidate, propertyKey) : null
+
+    const committedRegexError = value ? getRegexValidationError(currentOperator, value) : null
+    useEffect(() => {
+        if (committedRegexError) {
+            posthog.capture('property_filter_regex_warning_shown', {
+                property_key: propertyKey,
+                property_type: type,
+                operator: currentOperator,
+                editable,
+            })
+        }
+    }, [committedRegexError]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>
@@ -449,6 +476,7 @@ export function OperatorValueSelect({
                             size={size}
                             forceSingleSelect={forceSingleSelect}
                             validationError={validationError}
+                            onDraftChange={setRegexDraft}
                             propertyTypeOverride={propertyDefinition?.property_type}
                         />
                     )}

@@ -1,6 +1,6 @@
 import { PropertyOperator } from '~/types'
 
-import { getValidationError } from './OperatorValueSelect'
+import { getValidationError, withRegexDraft } from './OperatorValueSelect'
 
 describe('getValidationError', () => {
     it('validates every pattern of a multi-value regex filter without crashing on the array', () => {
@@ -23,5 +23,23 @@ describe('getValidationError', () => {
 
     it('still reports an invalid single-value regex', () => {
         expect(getValidationError(PropertyOperator.Regex, '(unclosed')).not.toBeNull()
+    })
+
+    it.each([
+        { case: 'a cleared single-value draft', value: '(?=bad)', draft: '', expectError: false },
+        { case: 'a valid draft that replaces an invalid pattern', value: '(?=bad)', draft: '^ok$', expectError: false },
+        { case: 'an invalid draft over a valid pattern', value: '^ok$', draft: '(?=bad)', expectError: true },
+        {
+            case: 'an invalid draft added to multi-value patterns',
+            value: ['^ok$'],
+            draft: '(?<=bad)',
+            expectError: true,
+        },
+        { case: 'no draft over an invalid pattern', value: '(?=bad)', draft: null, expectError: true },
+    ])('validates the regex draft text for $case', ({ value, draft, expectError }) => {
+        const valueToValidate = withRegexDraft(value, draft)
+        const error = valueToValidate ? getValidationError(PropertyOperator.Regex, valueToValidate) : null
+
+        expect(error !== null).toBe(expectError)
     })
 })
