@@ -372,7 +372,7 @@ async def test_tick_pages_until_demand_is_exhausted(environment: WorkflowEnviron
             )
             for event in started
         }
-        # One inventory per tick, not per page.
+        # One inventory per tick, not per page, and abandoned so the tick never waits on it.
         inventory = {child_id for child_id in children if child_id.startswith("alerts-platform-record-inventory-")}
         assert [children.pop(child_id) for child_id in inventory] == ["alerts-platform-record-inventory"]
         assert children == {
@@ -383,6 +383,9 @@ async def test_tick_pages_until_demand_is_exhausted(environment: WorkflowEnviron
         }
         for event in events_of(history, EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED):
             attributes = event.start_child_workflow_execution_initiated_event_attributes
+            if attributes.workflow_id in inventory:
+                assert attributes.parent_close_policy == ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
+                continue
             assert attributes.parent_close_policy == ParentClosePolicy.PARENT_CLOSE_POLICY_TERMINATE
             assert attributes.task_queue.name == ORCHESTRATION_QUEUE
             assert attributes.workflow_execution_timeout.ToTimedelta() == dt.timedelta(seconds=30)
