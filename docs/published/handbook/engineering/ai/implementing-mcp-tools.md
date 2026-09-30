@@ -466,6 +466,7 @@ and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/po
 
 `insight-create` and `insight-query` return `_agentNote` guidance that asks the agent to offer an alert for an actionable metric, using a threshold grounded in the query results.
 The query handler checks the saved query kind and existing alerts before attaching the note.
+It withholds the note for temporary filter or variable overrides because alerts evaluate the saved query.
 Threshold suggestions cover Trends, SQL, Funnels, and Metrics insights, including their supported wrapper nodes.
 The guidance asks the agent to skip empty results, vanity metrics, high-cardinality breakdowns, unavailable alert tools, and offers the user already declined.
 The guidance tells the agent to wait for the user to accept before creating an alert.

@@ -154,10 +154,12 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
         path
     )
 
+    // Alerts evaluate the saved query, so an overridden result cannot ground their threshold.
+    const hasOverrides = normalizedVariables !== undefined || normalizedFilters !== undefined
     // The note offers an alert, so it is noise on an insight that already has one or cannot have one.
     const alerts = insightResult.data.alerts
     const hasAlert = Array.isArray(alerts) && alerts.length > 0
-    if (hasAlert || !isAlertableQuery(insightResult.data.query)) {
+    if (hasOverrides || hasAlert || !isAlertableQuery(insightResult.data.query)) {
         return payload
     }
     return withAgentNote(payload, ALERT_AGENT_NOTE)

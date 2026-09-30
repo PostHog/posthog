@@ -308,4 +308,16 @@ describe('queryHandler — alert note gate', () => {
 
         expect(typeof result._agentNote === 'string').toBe(expectsNote)
     })
+    it.each([
+        { name: 'variable object', overrides: { variables_override: variablesOverrideObject } },
+        { name: 'variable string', overrides: { variables_override: JSON.stringify(variablesOverrideObject) } },
+        { name: 'filter object', overrides: { filters_override: filtersOverrideObject } },
+        { name: 'filter string', overrides: { filters_override: JSON.stringify(filtersOverrideObject) } },
+    ])('withholds an alert offer for a $name override', async ({ overrides }) => {
+        const { context } = createContext()
+
+        const result = await queryHandler(context, { insightId: '42', output_format: 'json', ...overrides })
+
+        expect(result).not.toHaveProperty('_agentNote')
+    })
 })
