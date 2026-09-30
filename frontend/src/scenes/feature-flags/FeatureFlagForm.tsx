@@ -173,6 +173,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         hasEarlyAccessFeatures,
         alsoCreateInProjects,
         alsoCreateInProjectOptions,
+        currentKeyConflict,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -453,9 +454,23 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     label="Flag key"
                                     info="Unique identifier used in your code."
                                     help={
-                                        !isNewFeatureFlag &&
-                                        originalFeatureFlag &&
-                                        featureFlag.key !== originalFeatureFlag.key ? (
+                                        currentKeyConflict ? (
+                                            <span className={currentKeyConflict.exact ? 'text-danger' : 'text-warning'}>
+                                                {currentKeyConflict.exact
+                                                    ? 'A feature flag with this key already exists. Choose another key or '
+                                                    : `A feature flag with the key "${currentKeyConflict.existingFlagKey}" already exists. Keys that differ only by case are easy to confuse. `}
+                                                <Link
+                                                    to={urls.featureFlag(currentKeyConflict.existingFlagId)}
+                                                    target="_blank"
+                                                    data-attr="feature-flag-key-conflict-link"
+                                                >
+                                                    {currentKeyConflict.exact ? 'open the existing flag' : 'Open it'}
+                                                </Link>
+                                                .
+                                            </span>
+                                        ) : !isNewFeatureFlag &&
+                                          originalFeatureFlag &&
+                                          featureFlag.key !== originalFeatureFlag.key ? (
                                             <span className="text-warning">
                                                 <b>Warning! </b>Changing this key will break any existing code that
                                                 references it (e.g.{' '}
