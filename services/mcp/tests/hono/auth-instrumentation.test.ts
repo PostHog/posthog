@@ -93,6 +93,7 @@ describe('MCP auth instrumentation', () => {
             $mcp_auth_method: 'oauth',
             $mcp_client_name: 'claude-ai',
             $mcp_vendor_client: 'ClaudeAI',
+            $mcp_server_build: 'dev',
         })
         expect(call.properties.$mcp_missing_scope).toBeUndefined()
     })

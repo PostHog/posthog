@@ -120,7 +120,11 @@ export function readParamAliases(schema: z.ZodType): Record<string, readonly str
         const aliasMap =
             typeof transform === 'function' ? ALIAS_MAPS.get(transform as (input: unknown) => unknown) : undefined
         if (aliasMap) {
-            merged = Object.assign(merged ?? {}, aliasMap)
+            // Outer layers normalise first, so their aliases come first for a shared canonical.
+            merged ??= {}
+            for (const [canonical, aliases] of Object.entries(aliasMap)) {
+                merged[canonical] = [...new Set([...(merged[canonical] ?? []), ...aliases])]
+            }
         }
         current = current.out
     }
