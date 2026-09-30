@@ -844,6 +844,11 @@ function SearchSeparator({ className }: SearchSeparatorProps): JSX.Element {
 // Search.Results
 // ============================================================================
 
+/** React bubbles events from portaled content, such as a tooltip link, through the row that renders it. */
+function isFromPortal(event: React.MouseEvent<HTMLElement>): boolean {
+    return !event.currentTarget.contains(event.target as Node)
+}
+
 function SearchResults({
     className,
     listClassName,
@@ -923,6 +928,9 @@ function SearchResults({
                                                                 // Plain clicks only. LinkPrimitive returns early on
                                                                 // metaKey/ctrlKey, so modifier clicks never get here and
                                                                 // are handled in the capture phase below instead.
+                                                                if (isFromPortal(e)) {
+                                                                    return
+                                                                }
                                                                 e.preventDefault()
                                                                 handleItemClick(item)
                                                             }}
@@ -947,7 +955,10 @@ function SearchResults({
                                                                             // new-tab behave identically: the palette
                                                                             // closes, the selection is captured, and
                                                                             // action items stay inert.
-                                                                            if (e.metaKey || e.ctrlKey) {
+                                                                            if (
+                                                                                (e.metaKey || e.ctrlKey) &&
+                                                                                !isFromPortal(e)
+                                                                            ) {
                                                                                 e.preventDefault()
                                                                                 handleItemClick(item, true)
                                                                             }
