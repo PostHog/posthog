@@ -3894,8 +3894,8 @@ export interface EmojiSearchResponseApi {
 }
 
 export interface EventPropertyValueApi {
-    /** A value of the property. Strings, numbers, and booleans keep their type. */
-    name: string | number | boolean | null
+    /** A value of the property, always as a string. Booleans come back as 'true' or 'false', and objects and lists as JSON. */
+    name: string
     /** How many times the value occurs, when the lookup counts values. */
     count?: number
 }
