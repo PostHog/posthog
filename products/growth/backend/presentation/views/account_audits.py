@@ -34,14 +34,17 @@ class AccountAuditStartRequestSerializer(serializers.Serializer):
         min_value=1,
     )
     reason = serializers.CharField(max_length=500, help_text="Why the account audit is being requested.")
+    skill_project = serializers.IntegerField(
+        min_value=1,
+        help_text="Project ID containing the skill in this region. The credential owner must have read access.",
+    )
     skill_name = serializers.CharField(
         max_length=64,
-        default="onboarding-account-audit",
-        help_text="Name of the single-file skill in the US internal Growth project (team 2).",
+        help_text="Name of the single-file skill in skill_project. Uses its latest active version.",
     )
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
-        field_types = {"organization_id": str, "team_id": int, "reason": str, "skill_name": str}
+        field_types = {"organization_id": str, "team_id": int, "reason": str, "skill_project": int, "skill_name": str}
         if not isinstance(data, dict) or set(data) - field_types.keys():
             raise serializers.ValidationError(
                 {"non_field_errors": ["Expected an object containing only supported audit parameters."]}
@@ -114,6 +117,11 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             return Response(AccountAuditStartResponseSerializer(instance=result).data, status=202)
         if result.status == "skipped":
             return Response(status=204)
+        if result.status == "skill_unavailable":
+            return Response(
+                {"detail": "Skill not found, inaccessible, or unsupported. Check skill_project and skill_name."},
+                status=400,
+            )
         if result.status == "cooldown":
             return Response(
                 {

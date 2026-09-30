@@ -31,6 +31,7 @@ class AccountAuditAdmission(models.Model):
     organization_id = models.UUIDField()
     team_id = models.BigIntegerField()
     reason = models.CharField(max_length=500, default="", db_default="")
+    skill_project = models.BigIntegerField(null=True)
     skill_name = models.CharField(
         max_length=64, default="onboarding-account-audit", db_default="onboarding-account-audit"
     )

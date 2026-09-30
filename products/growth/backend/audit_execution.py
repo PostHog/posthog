@@ -109,6 +109,7 @@ def finish_account_audit(*, team_id: int, task_run_id: UUID) -> None:
                         "team_id": team_id,
                         "notebook_url": absolute_uri(f"/project/{team_id}/notebooks/{notebook_id}"),
                         "reason": admission.reason,
+                        "skill_project": admission.skill_project,
                         "skill_name": admission.skill_name,
                         "token_cost_cents": cost.token_cost,
                         "$insert_id": f"account-audit-finished-{task_run_id}",

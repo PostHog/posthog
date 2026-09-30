@@ -36,6 +36,7 @@ class TestAuditExecution(BaseTest):
             task_run_id=self.run_id,
             notebook_short_id="audit123",
             reason="testing",
+            skill_project=self.team.id,
             skill_name="custom-audit",
         )
         self.task_run = SimpleNamespace(
@@ -91,6 +92,7 @@ class TestAuditExecution(BaseTest):
                 "team_id": self.team.id,
                 "notebook_url": f"http://testserver/project/{self.team.id}/notebooks/audit123",
                 "reason": "testing",
+                "skill_project": self.team.id,
                 "skill_name": "custom-audit",
                 "token_cost_cents": token_cost,
                 "$insert_id": f"account-audit-finished-{self.run_id}",

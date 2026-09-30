@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 
 from products.skills.backend.facade.api import get_skill_prompt
 from products.skills.backend.models import LLMSkill, LLMSkillFile
@@ -34,13 +34,13 @@ class TestGetSkillPrompt(BaseTest):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         self._create_skill(body="# Other team\n", team=other_team)
 
-        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit") is None
+        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user) is None
 
     def test_returns_the_latest_active_version(self) -> None:
         self._create_skill(body="# Version one\n", version=1, is_latest=False)
         self._create_skill(body="# Version two\n", version=2)
 
-        prompt = get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit")
+        prompt = get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user)
 
         assert prompt is not None
         assert prompt.body == "# Version two\n"
@@ -59,15 +59,22 @@ class TestGetSkillPrompt(BaseTest):
         elif state == "empty":
             self._create_skill(body="")
 
-        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit") is None
+        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user) is None
 
     def test_returns_none_when_skill_has_bundled_files(self) -> None:
         skill = self._create_skill()
         LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guide\n")
 
-        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit") is None
+        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user) is None
 
     def test_returns_none_when_skill_body_exceeds_64_kb(self) -> None:
         self._create_skill(body="x" * (64 * 1024 + 1))
 
-        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit") is None
+        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user) is None
+
+    def test_returns_none_when_user_cannot_read_the_skill_project(self) -> None:
+        other_org = Organization.objects.create(name="Other organization")
+        other_team = Team.objects.create(organization=other_org, name="Other project")
+        self._create_skill(team=other_team)
+
+        assert get_skill_prompt(team_id=other_team.id, skill_name="onboarding-account-audit", user=self.user) is None

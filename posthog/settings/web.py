@@ -391,8 +391,6 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env(
     "GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 1 if (CLOUD_DEPLOYMENT or "").upper() == "EU" else 2, type_cast=int
 )
-# EU reads audit skills from US team 2 with a project-restricted llm_skill:read personal API key.
-GROWTH_ACCOUNT_AUDIT_US_API_KEY = get_from_env("GROWTH_ACCOUNT_AUDIT_US_API_KEY", "")
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")

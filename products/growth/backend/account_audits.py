@@ -14,10 +14,10 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.utils import get_instance_region
 
 from products.growth.backend.audit_execution import create_audit_task
-from products.growth.backend.audit_skills import get_audit_skill
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.notebooks.backend.facade import api as notebooks_facade
 from products.signals.backend.facade.api import resolve_audit_actor_for_team
+from products.skills.backend.facade.api import get_skill_prompt
 
 COOLDOWN = timedelta(days=7)
 PROJECT_ACTIVITY_WINDOW = timedelta(days=30)
@@ -29,13 +29,22 @@ class AccountAuditRequest:
     organization_id: UUID
     team_id: int | None
     reason: str
+    skill_project: int
     skill_name: str
 
 
 @frozen
 class AccountAuditResult:
     status: Literal[
-        "accepted", "skipped", "invalid", "unauthorized", "forbidden", "conflict", "cooldown", "unavailable"
+        "accepted",
+        "skipped",
+        "invalid",
+        "skill_unavailable",
+        "unauthorized",
+        "forbidden",
+        "conflict",
+        "cooldown",
+        "unavailable",
     ]
     task_run_id: UUID | None = None
     team_id: int | None = None
@@ -77,6 +86,7 @@ class AccountAuditService:
                             "team_id": team_id,
                             "reason": "no ai opt in",
                             "audit_reason": payload.reason,
+                            "skill_project": payload.skill_project,
                             "skill_name": payload.skill_name,
                             "$insert_id": f"audit-not-run-{credential.public_key_id}-{webhook_id}",
                         },
@@ -109,6 +119,7 @@ class AccountAuditService:
                     existing.organization_id != payload.organization_id
                     or (payload.team_id is not None and existing.team_id != payload.team_id)
                     or existing.reason != payload.reason
+                    or existing.skill_project != payload.skill_project
                     or existing.skill_name != payload.skill_name
                 ):
                     return AccountAuditResult(status="conflict")
@@ -127,9 +138,11 @@ class AccountAuditService:
             actor_id = resolve_audit_actor_for_team(team_id)
             if actor_id is None:
                 return AccountAuditResult(status="forbidden")
-            skill = get_audit_skill(payload.skill_name)
+            skill = get_skill_prompt(
+                team_id=payload.skill_project, skill_name=payload.skill_name, user=credential.owner
+            )
             if skill is None or not skill.body.strip():
-                return AccountAuditResult(status="invalid")
+                return AccountAuditResult(status="skill_unavailable")
             notebook = notebooks_facade.create_notebook(
                 team_id,
                 title="Account audit",
@@ -149,6 +162,7 @@ class AccountAuditService:
                 organization_id=payload.organization_id,
                 team_id=team_id,
                 reason=payload.reason,
+                skill_project=payload.skill_project,
                 skill_name=payload.skill_name,
                 task_run_id=run_id,
                 notebook_short_id=notebook.short_id,

@@ -14,7 +14,6 @@ from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -27,7 +26,6 @@ from products.growth.backend.account_audits import COOLDOWN, AccountAuditService
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
 
 
-@override_settings(GROWTH_ENRICHMENT_INTERNAL_TEAM_ID=2)
 class TestAccountAuditStartAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -52,7 +50,12 @@ class TestAccountAuditStartAPI(APIBaseTest):
         signing_body: bytes | None = None,
     ):
         if isinstance(payload, dict):
-            payload = {"reason": "testing", **payload}
+            payload = {
+                "reason": "testing",
+                "skill_project": self.team.id,
+                "skill_name": "onboarding-account-audit",
+                **payload,
+            }
         raw_body = json.dumps(payload, separators=(",", ":")).encode()
         timestamp = timestamp if timestamp is not None else str(int(time.time()))
         signed_body = signing_body if signing_body is not None else raw_body
@@ -82,20 +85,20 @@ class TestAccountAuditStartAPI(APIBaseTest):
             patch(
                 "products.growth.backend.account_audits.resolve_audit_actor_for_team", return_value=self.user.id
             ) as actor,
-            patch("products.growth.backend.account_audits.get_audit_skill", return_value=MagicMock()) as skill,
+            patch("products.growth.backend.account_audits.get_skill_prompt", return_value=MagicMock()) as skill,
             patch("products.growth.backend.account_audits.create_audit_task", return_value=uuid4()) as dispatch,
         ):
             yield actor, skill, dispatch
 
-    @parameterized.expand([("US", 2, True), ("EU", 1, False)])
+    @parameterized.expand([("US", 42, True), ("EU", 77, False)])
     def test_accepts_a_signed_delivery_and_reuses_the_same_run(
-        self, region: str, growth_team_id: int, explicit_team: bool
+        self, region: str, skill_project: int, explicit_team: bool
     ) -> None:
-        payload: dict[str, object] = {"organization_id": str(self.organization.id)}
+        payload: dict[str, object] = {"organization_id": str(self.organization.id), "skill_project": skill_project}
         if explicit_team:
             payload["team_id"] = self.team.id
         with (
-            self.settings(CLOUD_DEPLOYMENT=region, GROWTH_ENRICHMENT_INTERNAL_TEAM_ID=growth_team_id),
+            self.settings(CLOUD_DEPLOYMENT=region),
             self._request_patches() as (_, skill, dispatch),
         ):
             first = self._post(payload)
@@ -116,7 +119,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(notebook.status_code, 200)
         listed = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
         self.assertNotIn(admission.notebook_short_id, [item["short_id"] for item in listed.json()["results"]])
-        skill.assert_called_once_with("onboarding-account-audit")
+        skill.assert_called_once_with(team_id=skill_project, skill_name="onboarding-account-audit", user=self.user)
 
     @parameterized.expand([(False, False, False), (False, False, True), (True, False, True), (False, True, True)])
     def test_defaults_to_the_oldest_eligible_root_project_on_tied_activity(
@@ -192,10 +195,11 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload)
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], explicit_team.id)
-        skill.assert_called_once_with("activation-audit")
+        skill.assert_called_once_with(team_id=self.team.id, skill_name="activation-audit", user=self.user)
         self.assertEqual(dispatch.call_args.kwargs["skill"], skill.return_value)
         admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
         self.assertEqual(admission.reason, "activation-review")
+        self.assertEqual(admission.skill_project, self.team.id)
         self.assertEqual(admission.skill_name, "activation-audit")
 
     def test_failed_run_creation_rolls_back_and_allows_retry(self) -> None:
@@ -266,12 +270,25 @@ class TestAccountAuditStartAPI(APIBaseTest):
             json.dumps({"organization_id": str(self.organization.id)}).encode(),
             json.dumps({"organization_id": str(self.organization.id), "team_id": self.team.id, "extra": True}).encode(),
         ]
+        for missing in ("skill_project", "skill_name"):
+            payload = {
+                "organization_id": str(self.organization.id),
+                "reason": "testing",
+                "skill_project": self.team.id,
+                "skill_name": "audit",
+            }
+            del payload[missing]
+            payloads.append(json.dumps(payload).encode())
         for field, invalid in [
             ("reason", ""),
             ("reason", "   "),
             ("reason", None),
             ("reason", 1),
             ("reason", "x" * 501),
+            ("skill_project", None),
+            ("skill_project", True),
+            ("skill_project", "2"),
+            ("skill_project", 0),
             ("skill_name", ""),
             ("skill_name", None),
             ("skill_name", 1),
@@ -282,7 +299,15 @@ class TestAccountAuditStartAPI(APIBaseTest):
             ("team_id", 0),
         ]:
             payloads.append(
-                json.dumps({"organization_id": str(self.organization.id), "reason": "testing", field: invalid}).encode()
+                json.dumps(
+                    {
+                        "organization_id": str(self.organization.id),
+                        "reason": "testing",
+                        "skill_project": self.team.id,
+                        "skill_name": "audit",
+                        field: invalid,
+                    }
+                ).encode()
             )
         with self._request_patches():
             for index, raw_body in enumerate(payloads):
@@ -334,6 +359,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
                 "team_id": self.team.id,
                 "reason": "no ai opt in",
                 "audit_reason": "activation",
+                "skill_project": self.team.id,
                 "skill_name": "onboarding-account-audit",
                 "$insert_id": f"audit-not-run-{self.credential.public_key_id}-delivery-1",
             },
@@ -370,7 +396,11 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload)
 
         self.assertEqual(response.status_code, 400)
-        skill.assert_called_once_with("onboarding-account-audit")
+        self.assertEqual(
+            response.json()["detail"],
+            "Skill not found, inaccessible, or unsupported. Check skill_project and skill_name.",
+        )
+        skill.assert_called_once_with(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user)
         self.assertFalse(dispatch.called)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
@@ -393,11 +423,14 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(response.status_code, 403)
         self.assertFalse(dispatch.called)
 
-    @parameterized.expand([("team_id",), ("reason",), ("skill_name",)])
+    @parameterized.expand([("team_id",), ("reason",), ("skill_project",), ("skill_name",)])
     def test_rejects_a_repeated_delivery_with_changed_parameters(self, field: str) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        changed_payload = {**payload, field: other_team.id if field == "team_id" else "another-audit"}
+        changed_payload = {
+            **payload,
+            field: other_team.id if field in ("team_id", "skill_project") else "another-audit",
+        }
         with self._request_patches() as (_, _, dispatch):
             self.assertEqual(self._post(payload).status_code, 202)
             response = self._post(changed_payload)
