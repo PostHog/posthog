@@ -9,7 +9,9 @@ import {
   createSuccessResult,
   type MockQuery,
 } from "../../test/mocks/claude-sdk";
+import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
+import { DEFAULT_MODEL_PRICES, RunBudgetGuard } from "./session/budget-guard";
 
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: vi.fn(),
@@ -33,7 +35,10 @@ interface Harness {
   pushed: SDKUserMessage[];
 }
 
-function installHarness(sessionId: string): Harness {
+function installHarness(
+  sessionId: string,
+  budgetGuard?: RunBudgetGuard,
+): Harness {
   const client = {
     sessionUpdate: vi.fn().mockResolvedValue(undefined),
     extNotification: vi.fn().mockResolvedValue(undefined),
@@ -79,6 +84,7 @@ function installHarness(sessionId: string): Harness {
     taskRunId: "run-1",
     lastContextWindowSize: 200_000,
     modelId: "claude-sonnet-4-6",
+    budgetGuard,
   };
 
   (agent as unknown as { session: typeof session }).session = session;
@@ -115,13 +121,44 @@ function tick(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-async function runningTurnWithQueuedSecond(sessionId: string): Promise<
+function budgetGuard(): RunBudgetGuard {
+  return new RunBudgetGuard(
+    1,
+    DEFAULT_MODEL_PRICES,
+    new Logger({ debug: false }),
+  );
+}
+
+function sendCostlyAssistantMessage(query: MockQuery): void {
+  query._mockHelpers.sendMessage({
+    type: "assistant",
+    uuid: "a1",
+    session_id: "s",
+    parent_tool_use_id: null,
+    message: {
+      id: "m1",
+      role: "assistant",
+      model: "claude-opus-5",
+      content: [],
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_input_tokens: 2_000_000,
+      },
+    },
+  } as unknown as SDKMessage);
+}
+
+async function runningTurnWithQueuedSecond(
+  sessionId: string,
+  guard?: RunBudgetGuard,
+): Promise<
   Harness & {
     first: Promise<unknown>;
     second: Promise<unknown>;
   }
 > {
-  const harness = installHarness(sessionId);
+  const harness = installHarness(sessionId, guard);
   const first = harness.agent.prompt({
     sessionId,
     prompt: [{ type: "text", text: "first" }],
@@ -212,5 +249,62 @@ describe("ClaudeAcpAgent turn queue input dispatch", () => {
     } as unknown as SDKMessage);
     await expect(first).resolves.toMatchObject({ stopReason: "cancelled" });
     expect(pushed).toHaveLength(1);
+  });
+
+  it("cancels the running turn and refuses new prompts once the budget is spent", async () => {
+    const sessionId = "s-budget-stop";
+    const harness = installHarness(sessionId, budgetGuard());
+    harness.query.interrupt.mockImplementation(async () => {});
+    const first = harness.agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "first" }],
+    });
+    await tick();
+    echoTurn(harness.query, sessionOf(harness.agent).turnQueue[0].promptUuid);
+    await tick();
+
+    sendCostlyAssistantMessage(harness.query);
+    await tick();
+    expect(harness.query.interrupt).toHaveBeenCalledTimes(1);
+
+    await expect(
+      harness.agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "keep going" }],
+      }),
+    ).resolves.toEqual({
+      stopReason: "cancelled",
+      _meta: { interruptReason: "budget_exhausted" },
+    });
+    expect(harness.pushed).toHaveLength(1);
+
+    harness.query._mockHelpers.sendMessage({
+      type: "system",
+      subtype: "session_state_changed",
+      state: "idle",
+    } as unknown as SDKMessage);
+    await expect(first).resolves.toMatchObject({
+      stopReason: "cancelled",
+      _meta: { interruptReason: "budget_exhausted" },
+    });
+  });
+
+  it("never sends a prompt queued before the turn that spent the budget", async () => {
+    const { query, pushed, first, second } = await runningTurnWithQueuedSecond(
+      "s-budget-queued",
+      budgetGuard(),
+    );
+
+    query._mockHelpers.sendMessage(createSuccessResult({ total_cost_usd: 1 }));
+    await tick();
+
+    await expect(second).resolves.toEqual({
+      stopReason: "cancelled",
+      _meta: { interruptReason: "budget_exhausted" },
+    });
+    expect(pushed).toHaveLength(1);
+    expect(query.interrupt).not.toHaveBeenCalled();
+    query._mockHelpers.complete();
+    await expect(first).resolves.toMatchObject({ stopReason: "end_turn" });
   });
 });

@@ -6,6 +6,11 @@ read, has at least one readable head itself, and enough days have passed since t
 Pure function over the two metadata records so the rule is testable without S3. The champion's
 AUCs should be `champion_aucs`, its holdout booster graded on the candidate's holdout, so both
 models are compared on one set of reports; the stored numbers are the fallback.
+
+AUC reads the ranking only, so a candidate must also not be worse calibrated than the champion on
+those heads. The champion's calibration error comes from `champion_eces`, graded on the candidate's
+holdout the same way. There is no stored fallback: a champion's stored error was read on its own
+holdout, which can hold a different base rate, so a head without a paired error skips this check.
 """
 
 import datetime
@@ -17,6 +22,10 @@ from posthog.dataclasses import frozen
 # A candidate may be this much worse than the champion on a readable head and still promote: at
 # the readability floor the AUC's noise is about this size, so exact dominance would never trigger.
 AUC_TOLERANCE = 0.02
+# A candidate's holdout calibration error may exceed the champion's paired one by this much and
+# still promote. The error is in probability units and a decile read on one holdout is noisy by
+# about this much at the readability floor.
+ECE_TOLERANCE = 0.02
 
 
 @frozen
@@ -40,8 +49,14 @@ def decide_promotion(
     now: datetime.datetime,
     min_days_between: int,
     champion_aucs: Mapping[str, float] | None = None,
+    champion_eces: Mapping[str, float] | None = None,
 ) -> PromotionDecision:
     candidate_aucs = _readable_aucs(candidate)
+    candidate_eces = {
+        head["head"]: float(head["holdout_expected_calibration_error"])
+        for head in candidate.get("heads", [])
+        if head.get("holdout_expected_calibration_error") is not None
+    }
     if not candidate_aucs:
         return PromotionDecision(promote=False, reason="candidate has no readable head")
     if champion is None:
@@ -69,5 +84,12 @@ def decide_promotion(
         if candidate_auc < champion_auc - AUC_TOLERANCE:
             return PromotionDecision(
                 promote=False, reason=f"{head} regressed: {candidate_auc:.3f} vs champion {champion_auc:.3f}"
+            )
+        champion_ece = (champion_eces or {}).get(head)
+        candidate_ece = candidate_eces.get(head)
+        if champion_ece is not None and candidate_ece is not None and candidate_ece > champion_ece + ECE_TOLERANCE:
+            return PromotionDecision(
+                promote=False,
+                reason=f"{head} calibration regressed: ECE {candidate_ece:.3f} vs champion {champion_ece:.3f}",
             )
     return PromotionDecision(promote=True, reason="candidate at or above champion on every readable head")
