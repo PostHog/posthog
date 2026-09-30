@@ -27,6 +27,12 @@ import type {
     OfflineScorerVersionReadApi,
     OfflineSummaryPageApi,
 } from '../generated/api.schemas'
+import { loadOfflineRequest } from './loadOfflineRequest'
+import {
+    OFFLINE_ITEM_COLUMN_WIDTH,
+    OFFLINE_SCORER_BATCH_SIZE,
+    OFFLINE_SCORER_COLUMN_WIDTH,
+} from './offlineItemMatrixConstants'
 import { offlineCompletionError, offlineReadError } from './offlineResultPresentation'
 
 export interface OfflineExperimentLogicProps {
@@ -268,18 +274,11 @@ export const offlineExperimentLogic: LogicWrapper<offlineExperimentLogicType> = 
         experiment: [
             null as OfflineExperimentReadApi | null,
             {
-                loadOfflineExperiment: async (_: void, breakpoint) => {
-                    try {
-                        const result = await api.aiObservabilityOfflineExperimentsRetrieve(
-                            String(props.teamId),
-                            props.experimentId
-                        )
-                        breakpoint()
-                        return result
-                    } catch (error) {
-                        breakpoint()
-                        throw error
-                    }
+                loadOfflineExperiment: (_: void, breakpoint) => {
+                    return loadOfflineRequest(
+                        () => api.aiObservabilityOfflineExperimentsRetrieve(String(props.teamId), props.experimentId),
+                        breakpoint
+                    )
                 },
             },
         ],
@@ -312,38 +311,31 @@ export const offlineExperimentLogic: LogicWrapper<offlineExperimentLogicType> = 
         items: [
             null as OfflineItemPageApi | null,
             {
-                loadOfflineItems: async (_: void, breakpoint) => {
-                    try {
-                        const page = await api.aiObservabilityOfflineExperimentsItemsList(
-                            String(props.teamId),
-                            props.experimentId,
-                            { limit: 50, cursor: values.itemCursor || undefined }
-                        )
-                        breakpoint()
-                        return page
-                    } catch (error) {
-                        breakpoint()
-                        throw error
-                    }
+                loadOfflineItems: (_: void, breakpoint) => {
+                    return loadOfflineRequest(
+                        () =>
+                            api.aiObservabilityOfflineExperimentsItemsList(String(props.teamId), props.experimentId, {
+                                limit: 50,
+                                cursor: values.itemCursor || undefined,
+                            }),
+                        breakpoint
+                    )
                 },
             },
         ],
         completed: [
             null as ExperimentReceiptApi | null,
             {
-                completeOfflineExperiment: async (_: void, breakpoint) => {
-                    try {
-                        const result = await api.aiObservabilityOfflineExperimentsCompleteCreate(
-                            String(props.teamId),
-                            props.experimentId,
-                            { body: '{}' }
-                        )
-                        breakpoint()
-                        return result
-                    } catch (error) {
-                        breakpoint()
-                        throw error
-                    }
+                completeOfflineExperiment: (_: void, breakpoint) => {
+                    return loadOfflineRequest(
+                        () =>
+                            api.aiObservabilityOfflineExperimentsCompleteCreate(
+                                String(props.teamId),
+                                props.experimentId,
+                                { body: '{}' }
+                            ),
+                        breakpoint
+                    )
                 },
             },
         ],
@@ -481,10 +473,19 @@ export const offlineExperimentLogic: LogicWrapper<offlineExperimentLogicType> = 
                 },
                 scorers: OfflineScorerVersionReadApi[]
             ): number[] => {
-                const start = Math.max(0, Math.floor(Math.max(0, viewport.scrollLeft - 220) / 180 / 20) - 1)
+                const start = Math.max(
+                    0,
+                    Math.floor(
+                        Math.max(0, viewport.scrollLeft - OFFLINE_ITEM_COLUMN_WIDTH) /
+                            OFFLINE_SCORER_COLUMN_WIDTH /
+                            OFFLINE_SCORER_BATCH_SIZE
+                    ) - 1
+                )
                 const end = Math.min(
-                    Math.ceil(scorers.length / 20) - 1,
-                    Math.floor((viewport.scrollLeft + viewport.width) / 180 / 20) + 1
+                    Math.ceil(scorers.length / OFFLINE_SCORER_BATCH_SIZE) - 1,
+                    Math.floor(
+                        (viewport.scrollLeft + viewport.width) / OFFLINE_SCORER_COLUMN_WIDTH / OFFLINE_SCORER_BATCH_SIZE
+                    ) + 1
                 )
                 return Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index)
             },
@@ -516,7 +517,12 @@ export const offlineExperimentLogic: LogicWrapper<offlineExperimentLogicType> = 
                         index,
                         values.cellEpoch,
                         values.items.results.map((item) => item.id),
-                        values.scorers.slice(index * 20, index * 20 + 20).map((scorer) => scorer.id)
+                        values.scorers
+                            .slice(
+                                index * OFFLINE_SCORER_BATCH_SIZE,
+                                index * OFFLINE_SCORER_BATCH_SIZE + OFFLINE_SCORER_BATCH_SIZE
+                            )
+                            .map((scorer) => scorer.id)
                     )
                 }
             },

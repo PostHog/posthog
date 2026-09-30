@@ -7,6 +7,11 @@ import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import type { OfflineItemReadApi } from '../generated/api.schemas'
 import { OfflineExperimentLogicProps, offlineExperimentLogic } from './offlineExperimentLogic'
+import {
+    OFFLINE_ITEM_COLUMN_WIDTH,
+    OFFLINE_SCORER_BATCH_SIZE,
+    OFFLINE_SCORER_COLUMN_WIDTH,
+} from './offlineItemMatrixConstants'
 import { offlineResultLabel } from './offlineResultPresentation'
 
 export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Element {
@@ -37,7 +42,7 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
         {
             title: 'Item',
             key: 'item',
-            width: 220,
+            width: OFFLINE_ITEM_COLUMN_WIDTH,
             className: 'min-w-[220px] max-w-[220px]',
             render: (_, item) => (
                 <div className="min-w-0 flex flex-col items-start gap-1">
@@ -70,7 +75,7 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
         },
         ...scorers.map((scorer, index) => ({
             key: scorer.id,
-            width: 180,
+            width: OFFLINE_SCORER_COLUMN_WIDTH,
             className: 'min-w-[180px] max-w-[180px]',
             title: (
                 <span
@@ -80,7 +85,7 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
                 >{`${scorer.name} v${scorer.version}`}</span>
             ),
             render: (_: unknown, item: OfflineItemReadApi) => {
-                const batchIndex = Math.floor(index / 20)
+                const batchIndex = Math.floor(index / OFFLINE_SCORER_BATCH_SIZE)
                 const batch = cellBatches[batchIndex]
                 if (batch?.state === 'error') {
                     return (

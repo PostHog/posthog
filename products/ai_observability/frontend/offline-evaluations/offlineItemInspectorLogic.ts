@@ -22,6 +22,7 @@ import type {
     OfflineResultPayloadReadApi,
     OfflineResultReadApi,
 } from '../generated/api.schemas'
+import { loadOfflineRequest } from './loadOfflineRequest'
 import { offlineReadError } from './offlineResultPresentation'
 
 export interface OfflineItemInspectorLogicProps {
@@ -170,58 +171,49 @@ export const offlineItemInspectorLogic: LogicWrapper<offlineItemInspectorLogicTy
             item: [
                 null as OfflineItemReadApi | null,
                 {
-                    loadOfflineItem: async (_: void, breakpoint) => {
-                        try {
-                            const item = await api.aiObservabilityOfflineExperimentsItemsRetrieve(
-                                String(props.teamId),
-                                props.experimentId,
-                                props.itemId
-                            )
-                            breakpoint()
-                            return item
-                        } catch (error) {
-                            breakpoint()
-                            throw error
-                        }
+                    loadOfflineItem: (_: void, breakpoint) => {
+                        return loadOfflineRequest(
+                            () =>
+                                api.aiObservabilityOfflineExperimentsItemsRetrieve(
+                                    String(props.teamId),
+                                    props.experimentId,
+                                    props.itemId
+                                ),
+                            breakpoint
+                        )
                     },
                 },
             ],
             itemPayload: [
                 null as OfflineItemPayloadReadApi | null,
                 {
-                    loadOfflineItemPayload: async (_: void, breakpoint) => {
-                        try {
-                            const payload = await api.aiObservabilityOfflineExperimentsItemsPayloadRetrieve(
-                                String(props.teamId),
-                                props.experimentId,
-                                props.itemId
-                            )
-                            breakpoint()
-                            return payload
-                        } catch (error) {
-                            breakpoint()
-                            throw error
-                        }
+                    loadOfflineItemPayload: (_: void, breakpoint) => {
+                        return loadOfflineRequest(
+                            () =>
+                                api.aiObservabilityOfflineExperimentsItemsPayloadRetrieve(
+                                    String(props.teamId),
+                                    props.experimentId,
+                                    props.itemId
+                                ),
+                            breakpoint
+                        )
                     },
                 },
             ],
             results: [
                 null as OfflineResultPageApi | null,
                 {
-                    loadOfflineItemResults: async (_: void, breakpoint) => {
-                        try {
-                            const page = await api.aiObservabilityOfflineExperimentsItemsResultsList(
-                                String(props.teamId),
-                                props.experimentId,
-                                props.itemId,
-                                { limit: 20, cursor: values.resultCursor || undefined }
-                            )
-                            breakpoint()
-                            return page
-                        } catch (error) {
-                            breakpoint()
-                            throw error
-                        }
+                    loadOfflineItemResults: (_: void, breakpoint) => {
+                        return loadOfflineRequest(
+                            () =>
+                                api.aiObservabilityOfflineExperimentsItemsResultsList(
+                                    String(props.teamId),
+                                    props.experimentId,
+                                    props.itemId,
+                                    { limit: 20, cursor: values.resultCursor || undefined }
+                                ),
+                            breakpoint
+                        )
                     },
                 },
             ],
@@ -262,23 +254,20 @@ export const offlineItemInspectorLogic: LogicWrapper<offlineItemInspectorLogicTy
             resultPayload: [
                 null as OfflineResultPayloadReadApi | null,
                 {
-                    loadOfflineResultPayload: async (_: void, breakpoint) => {
+                    loadOfflineResultPayload: (_: void, breakpoint) => {
                         const selected = values.selectedResult
                         if (!selected) {
-                            return null
+                            return Promise.resolve(null)
                         }
-                        try {
-                            const payload = await api.aiObservabilityOfflineExperimentsResultsPayloadRetrieve(
-                                String(props.teamId),
-                                props.experimentId,
-                                selected.id
-                            )
-                            breakpoint()
-                            return payload
-                        } catch (error) {
-                            breakpoint()
-                            throw error
-                        }
+                        return loadOfflineRequest(
+                            () =>
+                                api.aiObservabilityOfflineExperimentsResultsPayloadRetrieve(
+                                    String(props.teamId),
+                                    props.experimentId,
+                                    selected.id
+                                ),
+                            breakpoint
+                        )
                     },
                 },
             ],
