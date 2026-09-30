@@ -99,6 +99,13 @@ class ForwardingChallengeRateLimitKeys:
 
 
 @frozen
+class ResolvedEmailConfig:
+    user: User
+    team: Team
+    config: EmailChannel
+
+
+@frozen
 class PendingCustomerEmailSetup:
     user: User
     team: Team
@@ -152,7 +159,7 @@ def _is_organization_admin(user: User, team: Team) -> bool:
     ).exists()
 
 
-def _resolve_config(request: Request, config_id: uuid.UUID) -> tuple[User, Team, EmailChannel] | Response:
+def _resolve_config(request: Request, config_id: uuid.UUID) -> ResolvedEmailConfig | Response:
     result = _get_team_from_request(request)
     if isinstance(result, Response):
         return result
@@ -162,10 +169,10 @@ def _resolve_config(request: Request, config_id: uuid.UUID) -> tuple[User, Team,
     if not config:
         return Response({"error": "Email config not found"}, status=404)
 
-    return user, team, config
+    return ResolvedEmailConfig(user=user, team=team, config=config)
 
 
-def _resolve_config_from_request(request: Request) -> tuple[User, Team, EmailChannel] | Response:
+def _resolve_config_from_request(request: Request) -> ResolvedEmailConfig | Response:
     id_serializer = ConfigIdSerializer(data=request.data)
     id_serializer.is_valid(raise_exception=True)
     return _resolve_config(request, id_serializer.validated_data["config_id"])
@@ -756,7 +763,7 @@ class EmailVerifyDomainView(APIView):
         result = _resolve_config_from_request(request)
         if isinstance(result, Response):
             return result
-        user, team, config = result
+        user, team, config = result.user, result.team, result.config
 
         try:
             mg_result = mailgun_verify_domain(config.domain)
@@ -807,7 +814,7 @@ class EmailSendTestView(APIView):
         result = _resolve_config_from_request(request)
         if isinstance(result, Response):
             return result
-        user, team, config = result
+        user, team, config = result.user, result.team, result.config
 
         if (
             config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION
@@ -928,7 +935,7 @@ class EmailSetTrustedRelayView(APIView):
         result = _resolve_config(request, request.validated_data["config_id"])
         if isinstance(result, Response):
             return result
-        user, team, config = result
+        user, team, config = result.user, result.team, result.config
         if config.kind != EmailChannelKind.SUPPORT:
             return Response({"error": "Only support email channels can use a trusted relay."}, status=400)
 

@@ -2435,6 +2435,17 @@ class TestEmailInboundTrustedRelay(MailgunWebhookTestMixin, BaseTest):
                 "jane@example.net",
                 "Jane Doe",
             ),
+            (
+                "dkim_signed_requester",
+                {
+                    "X-Mailgun-Spf": "",
+                    "X-Mailgun-Dkim-Check-Result": "Pass",
+                    "DKIM-Signature": "v=1; d=relay.example.com; h=from:subject:x-posthog-requester; b=abc",
+                    "X-PostHog-Requester": "Alex Smith <alex@example.net>",
+                },
+                "alex@example.net",
+                "Alex Smith",
+            ),
         ]
     )
     def test_trusted_relay_attributes_ticket_to_requester(
@@ -2476,6 +2487,25 @@ class TestEmailInboundTrustedRelay(MailgunWebhookTestMixin, BaseTest):
             (
                 "unauthenticated_relay",
                 {"X-Mailgun-Spf": ""},
+                "relay@relay.example.com",
+            ),
+            (
+                "dkim_does_not_sign_requester",
+                {
+                    "X-Mailgun-Spf": "",
+                    "X-Mailgun-Dkim-Check-Result": "Pass",
+                    "DKIM-Signature": "v=1; d=relay.example.com; h=from:subject; b=abc",
+                },
+                "relay@relay.example.com",
+            ),
+            (
+                "dkim_signs_one_of_duplicate_requesters",
+                {
+                    "X-Mailgun-Spf": "",
+                    "X-Mailgun-Dkim-Check-Result": "Pass",
+                    "DKIM-Signature": "v=1; d=relay.example.com; h=from:subject:x-posthog-requester; b=abc",
+                    "message-headers": '[["X-PostHog-Requester", "Alex Smith <alex@example.net>"]]',
+                },
                 "relay@relay.example.com",
             ),
         ]

@@ -34,4 +34,10 @@ export const Saving: Story = {
         ...Edited.args,
         savingConfigId: 'support-channel',
     },
+    parameters: {
+        testOptions: {
+            // The save button spinner is the state under test, so it never disappears.
+            waitForLoadersToDisappear: false,
+        },
+    },
 }

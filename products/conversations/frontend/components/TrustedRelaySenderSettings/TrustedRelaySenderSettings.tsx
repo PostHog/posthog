@@ -49,6 +49,7 @@ export function TrustedRelaySenderSettings({
                     size="small"
                     onClick={onSave}
                     loading={isSaving}
+                    data-attr="trusted-relay-sender-save"
                     disabledReason={disabledReason}
                 >
                     Save relay sender

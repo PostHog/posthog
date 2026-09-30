@@ -432,8 +432,15 @@ def _trusted_relay_requester(
     }
     _, inbound_recipient = parseaddr(request.POST.get("recipient", ""))
     inbound_domain = inbound_recipient.rpartition("@")[2].lower()
+    # Without SPF, a replay of relay-signed mail can add a requester header that DKIM does not cover.
+    # So DKIM-only mail can name a requester only in a single header that every signature covers.
+    spf_passed = _mailgun_authentication_passed(request, "X-Mailgun-Spf")
+    dkim_signed_headers = frozenset() if spf_passed else _headers_signed_by_every_dkim_signature(request)
     for header_name in ("X-PostHog-Requester", "Reply-To"):
-        for header_value in _message_header_values(request, header_name):
+        header_values = _message_header_values(request, header_name)
+        if not spf_passed and (header_name.lower() not in dkim_signed_headers or len(header_values) != 1):
+            continue
+        for header_value in header_values:
             for requester_name, requester_email in getaddresses([header_value]):
                 normalized_email = requester_email.strip().lower()
                 if (
@@ -486,15 +493,32 @@ def _mailgun_authentication_passed(request: MailgunRequest, header_name: str) ->
     return results == ("pass",)
 
 
+def _dkim_signature_tags(signature: str) -> dict[str, str]:
+    tags: dict[str, str] = {}
+    for raw_tag in signature.split(";"):
+        key, separator, value = raw_tag.partition("=")
+        if separator:
+            tags[key.strip().lower()] = value.strip()
+    return tags
+
+
+def _dkim_signed_headers(tags: dict[str, str]) -> frozenset[str]:
+    return frozenset(header.strip().lower() for header in tags.get("h", "").split(":"))
+
+
+def _headers_signed_by_every_dkim_signature(request: MailgunRequest) -> frozenset[str]:
+    signed_headers: frozenset[str] | None = None
+    for signature in _message_header_values(request, "DKIM-Signature"):
+        headers = _dkim_signed_headers(_dkim_signature_tags(signature))
+        signed_headers = headers if signed_headers is None else signed_headers & headers
+    return signed_headers or frozenset()
+
+
 def _dkim_signing_domains(request: MailgunRequest) -> tuple[str, ...]:
     domains: list[str] = []
     for signature in _message_header_values(request, "DKIM-Signature"):
-        tags: dict[str, str] = {}
-        for raw_tag in signature.split(";"):
-            key, separator, value = raw_tag.partition("=")
-            if separator:
-                tags[key.strip().lower()] = value.strip()
-        signed_headers = {header.strip().lower() for header in tags.get("h", "").split(":")}
+        tags = _dkim_signature_tags(signature)
+        signed_headers = _dkim_signed_headers(tags)
         domain = tags.get("d", "").rstrip(".").lower()
         if not domain or not {"from", "subject"}.issubset(signed_headers) or "l" in tags:
             return ()
