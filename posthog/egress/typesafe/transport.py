@@ -8,10 +8,9 @@ like the other incarnations, so the caller owns where the API key comes from:
 
 from typing import Any
 
-from django.conf import settings
-
 import requests
 
+from posthog.cloud_utils import is_cloud
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
 from posthog.egress.typesafe.limiter import ACCOUNT_SCOPE_ID, consume_typesafe_sync
@@ -53,7 +52,7 @@ DEFAULT_TIMEOUT: tuple[float, float] = (3.0, 15.0)
 
 
 def typesafe_allowed() -> bool:
-    return (settings.CLOUD_DEPLOYMENT or "").upper() in ("", "LOCAL")
+    return not is_cloud()
 
 
 def typesafe_request(
