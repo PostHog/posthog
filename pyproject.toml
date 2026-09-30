@@ -863,6 +863,16 @@ ignore_imports = [
     "products.**.backend.webhook_consumers -> products.**.backend.facade.**",
 ]
 
+# The workflows save path lives in services/ so that the views and every other caller share it.
+# A service that imports a view puts DRF and the whole viewset module on each caller's import
+# path, and the facade then has to defer its import of the service to avoid an import cycle.
+[[tool.importlinter.contracts]]
+name = "workflows services must not import presentation"
+type = "forbidden"
+source_modules = ["products.workflows.backend.services"]
+forbidden_modules = ["products.workflows.backend.presentation"]
+allow_indirect_imports = true
+
 # The facade is the layer below presentation. A facade that imports its product's presentation
 # inverts the layering (and drags DRF onto every consumer's import path); a facade that imports
 # DRF is presentation in disguise. Only direct imports are checked (allow_indirect_imports is
