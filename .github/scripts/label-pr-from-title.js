@@ -193,6 +193,11 @@ function isFlagsLowHangingFruit(files) {
     )
 }
 
+// The job applies every label after this request, and it has a five-minute
+// timeout. A stalled request must give up well before that, so the team and
+// docs labels still get applied.
+const FLAGS_FILES_REQUEST_TIMEOUT_MS = 10_000
+
 // One page is enough: a PR with more files than a page holds is far over the
 // file limit, so the result is the same. Returns null on failure, because a
 // missing size must not fail the job or apply the label.
@@ -207,6 +212,7 @@ async function fetchFlagsPrFiles() {
                     Authorization: `token ${GITHUB_TOKEN}`,
                     Accept: 'application/vnd.github.v3+json',
                 },
+                signal: AbortSignal.timeout(FLAGS_FILES_REQUEST_TIMEOUT_MS),
             }
         )
 
