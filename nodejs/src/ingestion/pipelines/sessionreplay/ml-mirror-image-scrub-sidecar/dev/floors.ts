@@ -3,7 +3,8 @@
  * Detection floors for faces and codes, against the floor at which each still carries information in
  * the stored artifact. The text version of this lives in glyph-floor.ts; the same question has to be
  * asked separately for each detector, because their inputs are sized on different rules: DBNet scales
- * with the frame, YuNet letterboxes into a fixed 640 square, and zxing works on the frame directly.
+ * with the frame, YuNet reads at most a 640px long side and never enlarges, and zxing reads the frame at the plan's
+ * code scale.
  *
  * For each subject size it reports two things:
  *   detected   – the production detector finds it at the detection resolution
@@ -25,7 +26,7 @@ import sharp from 'sharp'
 import { prepareZXingModule, writeBarcode } from 'zxing-wasm/writer'
 
 import { detectCodes } from '../src/qr.ts'
-import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
+import { FACE_INPUT_SIDE, limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src } from '../src/src-image.ts'
 import { detectFacesYunet, loadYunet } from '../src/yunet.ts'
 
@@ -78,6 +79,18 @@ async function atScale(frame: Buffer, targetPx: number): Promise<Src> {
     return { data, W, H, format: 'raw', inputPixels: FRAME_W * FRAME_H }
 }
 
+// A re-identification attempt can enlarge the stored image, and YuNet never enlarges a small input itself, so the survival check reads the stored image at YuNet's longest side.
+async function enlargedForReader(art: Src): Promise<Src> {
+    const scale = FACE_INPUT_SIDE / Math.max(art.W, art.H)
+    const W = Math.round(art.W * scale)
+    const H = Math.round(art.H * scale)
+    const { data } = await sharp(art.data, { raw: { width: art.W, height: art.H, channels: 3 } })
+        .resize(W, H, { fit: 'fill' })
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+    return { data, W, H, format: 'raw', inputPixels: art.inputPixels }
+}
+
 async function faceFloors(): Promise<void> {
     const yunet = await loadYunet('models/yunet.onnx')
     const dir = 'test-data/faces'
@@ -92,7 +105,7 @@ async function faceFloors(): Promise<void> {
         for (const f of files) {
             const frame = await place(await readFile(join(dir, f)), sidePx)
             const det = await atScale(frame, DETECT_PX)
-            const art = await atScale(frame, STORE_PX)
+            const art = await enlargedForReader(await atScale(frame, STORE_PX))
             if ((await detectFacesYunet(yunet, det, det.W, det.H)).length > 0) {
                 detected++
             }
@@ -121,7 +134,7 @@ async function codeFloors(): Promise<void> {
         const frame = await place(code, sidePx)
         const det = await atScale(frame, DETECT_PX)
         const art = await atScale(frame, STORE_PX)
-        const detected = (await detectCodes(det)).length > 0
+        const detected = (await detectCodes(det, PLAN.code.scale)).length > 0
         const decodable = (await detectCodes(art)).length > 0
         const inArtifact = sidePx * Math.sqrt(STORE_PX / (FRAME_W * FRAME_H))
         console.log(

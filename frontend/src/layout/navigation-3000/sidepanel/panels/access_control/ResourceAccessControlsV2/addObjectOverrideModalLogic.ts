@@ -110,6 +110,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -130,8 +131,10 @@ export interface addObjectOverrideModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -174,6 +177,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session',
         resourceId: string,
         level: AccessControlLevel | null
@@ -232,6 +236,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -252,8 +257,10 @@ export interface addObjectOverrideModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -296,6 +303,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
         resourceId: string
     } // accessDetailLogic
@@ -375,6 +383,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -395,8 +404,10 @@ export interface addObjectOverrideModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -439,6 +450,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     }
     openModal: () => {
@@ -502,6 +514,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -522,8 +535,10 @@ export interface addObjectOverrideModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -566,6 +581,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     }
     setLevel: (level: AccessControlLevel) => {
@@ -628,6 +644,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -648,8 +665,10 @@ export interface addObjectOverrideModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -692,6 +711,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     }
     setSearch: (search: string) => {
@@ -775,6 +795,7 @@ export interface addObjectOverrideModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -795,8 +816,10 @@ export interface addObjectOverrideModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -839,6 +862,7 @@ export interface addObjectOverrideModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
             objectId: string | null
         ) => AccessObjectRule | null
@@ -939,6 +963,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
                 loadObjectOptions: async (_, breakpoint) => {
                     await breakpoint(300)
                     // One backend endpoint serves every resource type with correct display names
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get<{ results: ObjectOption[] }>(
                         `api/projects/${props.projectId}/access_control_object_search?resource=${values.resource}&search=${encodeURIComponent(
                             values.search
@@ -1006,6 +1031,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
             // and silently replace the selection
             await breakpoint(300)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const response = await api.get<{ results: ObjectOption[] }>(
                     `api/projects/${props.projectId}/access_control_object_search?resource=${resource}&id=${encodeURIComponent(
                         lookupId

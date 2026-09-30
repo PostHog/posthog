@@ -165,6 +165,29 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestUsageMetricsQueryRunner.test_person_property_filter_splits_a_group_metric_by_user_type[new_events_schema]
+  '''
+  SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
+         accurateCastOrNull(countIf(and(and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^user_type)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^user_type)), if(isNull(nullIf(toString(events.person_properties.user_type), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.user_type, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.user_type, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.user_type), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.user_type, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.user_type, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.user_type, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.user_type), '[]'), '{}'), toString(events.person_properties.user_type))))), 'admin'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
+         accurateCastOrNull(countIf(and(and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^user_type)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^user_type)), if(isNull(nullIf(toString(events.person_properties.user_type), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.user_type, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.user_type, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.user_type), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.user_type, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.user_type, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.user_type, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.user_type), '[]'), '{}'), toString(events.person_properties.user_type))))), 'admin'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC'))))), 'Float64') AS m0_previous
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), equals(events.properties.`$group_0`, 'test_group'), greaterOrEquals(events.timestamp, toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')))
+  GROUP BY day
+  ORDER BY day ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestUsageMetricsQueryRunner.test_sum_math_aggregation[new_events_schema]
   '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,

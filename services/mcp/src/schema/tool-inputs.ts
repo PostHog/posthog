@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -48,6 +49,14 @@ export const DashboardTileCreateSchema = z.object({
         .max(4000)
         .describe(
             'Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.'
+        ),
+    agent_context: z
+        .string()
+        .max(10000)
+        .nullable()
+        .optional()
+        .describe(
+            'Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.'
         ),
     layouts: z
         .object({
@@ -102,9 +111,7 @@ export const BillingTeamIdsSchema = z
 export const BillingUsageTypesSchema = z
     .array(z.string().min(1))
     .nullish()
-    .describe(
-        'Usage type identifiers to filter by, e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
-    )
+    .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
 
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))

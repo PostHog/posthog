@@ -52,9 +52,9 @@ from products.product_analytics.backend.facade.models import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
 FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
-    "free": 10,
-    "paid": 15,
-    "enterprise": 25,
+    "free": 25,
+    "paid": 50,
+    "enterprise": 100,
 }
 
 

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import time, timedelta
 
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +15,7 @@ from posthog.api.team import TeamCustomerAnalyticsConfigSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -26,6 +27,8 @@ from posthog.test.persons import create_person, delete_person
 
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
@@ -1033,6 +1036,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "flag_evaluations_mode",
             "base_currency",
             "capture_dead_clicks",
             "cookieless_server_hash_mode",
@@ -1045,6 +1049,50 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertIn(field, data, f"/api/projects/ response is missing parity field '{field}'")
         # project_id on a Project equals its own id (Project ↔ Team is 1:1)
         self.assertEqual(data["project_id"], self.project.id)
+
+    def test_flag_evaluations_mode_is_read_only(self):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"flag_evaluations_mode": FlagEvaluationsMode.EVENTS}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["flag_evaluations_mode"], FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self.assertEqual(
+            OrganizationFeatureFlagsConfig.objects.get(organization=self.organization).flag_evaluations_mode,
+            FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "read_flag_evaluations_reads_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                FlagEvaluationsMode.EVENTS,
+            ),
+            (
+                "flag_evaluations_only_keeps_its_mode",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            ),
+        ]
+    )
+    def test_flag_evaluations_mode_while_the_usage_tab_is_forced_to_events(self, _name, stored_mode, expected_mode):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=stored_mode
+        )
+
+        with override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", True):
+            response = self.client.get(f"/api/projects/{self.project.id}/")
+
+        self.assertEqual(response.json()["flag_evaluations_mode"], expected_mode)
+        self.assertEqual(
+            OrganizationFeatureFlagsConfig.objects.get(organization=self.organization).flag_evaluations_mode,
+            stored_mode,
+        )
 
     def test_retrieve_project_does_not_500_when_broker_unavailable(self):
         # Regression: get_product_intents used to call calculate_product_activation.delay()
@@ -1158,6 +1206,59 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         config.refresh_from_db()
         self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+
+    def test_experiments_config_recalculation_times_sync_with_legacy_field(self):
+        # The hourly workflow and older clients read experiment_recalculation_time while
+        # newer clients read the list; if the sync breaks, recalcs run at the wrong hour.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_times": ["14:00:00", "02:00:00"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
+        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
+        self.assertEqual(config.experiment_recalculation_time, time(hour=14))
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_time": "08:00:00"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config.refresh_from_db()
+        self.assertEqual(config.experiment_recalculation_times, ["08:00:00"])
+        self.assertEqual(config.experiment_recalculation_time, time(hour=8))
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_times": None},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config.refresh_from_db()
+        self.assertIsNone(config.experiment_recalculation_times)
+        self.assertIsNone(config.experiment_recalculation_time)
+
+    @parameterized.expand(
+        [
+            ("not_on_the_hour", ["08:30:00"]),
+            ("bad_format", ["8am"]),
+            ("hour_out_of_range", ["24:00:00"]),
+            ("more_than_two", ["02:00:00", "10:00:00", "18:00:00"]),
+            ("duplicate_hours", ["02:00:00", "02:00:00"]),
+            ("closer_than_six_hours", ["08:00:00", "09:00:00"]),
+            ("closer_than_six_hours_across_midnight", ["23:00:00", "01:00:00"]),
+            ("empty_list", []),
+        ]
+    )
+    def test_experiments_config_rejects_invalid_recalculation_times(self, _name, times):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_times": times},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
     def test_tags_round_trip_and_land_in_the_project_team_namespace(self):
         # `tags` is not a Project column, so it must be pulled out before the serializer's

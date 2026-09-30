@@ -20,8 +20,6 @@
         "schema:build": "bin/hogli build:schema",
         "openapi:build": "bin/hogli build:openapi",
         "schema:build:python": "bash bin/build-schema-python.sh",
-        "taxonomy:build": "pnpm run taxonomy:build:json",
-        "taxonomy:build:json": "python bin/build-taxonomy-json.py",
         "grammar:build": "pnpm grammar:build:cpp",
         "grammar:build:cpp": "cd posthog/hogql/grammar && cat HogQLLexer.cpp.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 >> HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
         "build:products": "pnpm --filter=@posthog/frontend run build:products",

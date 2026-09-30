@@ -77,7 +77,11 @@ class SignalFinding(BaseModel, frozen=True):
         ge=0, description="When the issue ends, in whole seconds of video time — the same scale as `start_time`."
     )
     url: str = Field(
-        description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
+        description=(
+            "The page the issue happened on: the navigation timeline's URL for that window at that moment, or the "
+            "`URL:` in the video footer when the timeline has none (the footer drops the query string and cuts long "
+            "URLs short)."
+        )
     )
     description: str = Field(
         description=(

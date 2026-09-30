@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.models import SignalReport
+from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset import dag, queries
@@ -19,7 +20,6 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     MODEL_DATA_SCHEMA,
     assemble_model_rows,
     label_provenance_ok,
-    spine_report_filter,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import (
     IMPRESSIONS_SQL,

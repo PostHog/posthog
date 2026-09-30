@@ -136,6 +136,14 @@ export interface accessControlsLogicValues {
     panelEntryLoading: boolean
     panelOptionsSubject: AccessDetailSubject | null
     panelSubject: AccessDetailSubject | null
+    productsCollapse: {
+        canCollapse: boolean
+        collapsedCount: number
+        visibleResources: {
+            key: APIScopeObject
+            label: string
+        }[]
+    }
     resourceKeys: {
         key: APIScopeObject
         label: string
@@ -152,15 +160,7 @@ export interface accessControlsLogicValues {
         label: string
     }[]
     searchText: string
-    showAllTools: boolean
-    toolsCollapse: {
-        canCollapse: boolean
-        collapsedCount: number
-        visibleResources: {
-            key: APIScopeObject
-            label: string
-        }[]
-    }
+    showAllProducts: boolean
     visibleResourceKeySet: Set<APIScopeObject>
 }
 
@@ -439,6 +439,7 @@ export interface accessControlsLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -459,8 +460,10 @@ export interface accessControlsLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -503,6 +506,7 @@ export interface accessControlsLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session',
             AccessControlLevel | null
         >
@@ -518,7 +522,7 @@ export interface accessControlsLogicActions {
     setSearchText: (searchText: string) => {
         searchText: string
     }
-    setShowAllTools: (show: boolean) => {
+    setShowAllProducts: (show: boolean) => {
         show: boolean
     }
 }
@@ -534,13 +538,13 @@ export interface accessControlsLogicMeta {
             selectedTabOptions: string | null
         ) => AccessDetailSubject | null
         objectRuleResourceOptions: (defaults: AccessControlDefaultsResponse | null) => ObjectRuleResource[]
-        toolsCollapse: (
+        productsCollapse: (
             resourceKeys: {
                 key: APIScopeObject
                 label: string
             }[],
             panelEntry: AccessControlSettingsEntry | null,
-            showAllTools: boolean
+            showAllProducts: boolean
         ) => {
             canCollapse: boolean
             collapsedCount: number
@@ -614,6 +618,7 @@ export interface accessControlsLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -634,8 +639,10 @@ export interface accessControlsLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -678,6 +685,7 @@ export interface accessControlsLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
             )[],
             featureFlags: FeatureFlagsSet
@@ -766,6 +774,7 @@ export interface accessControlsLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -786,8 +795,10 @@ export interface accessControlsLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -830,6 +841,7 @@ export interface accessControlsLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
             >
         ) => AccessControlRoleEntry[]
@@ -890,6 +902,7 @@ export interface accessControlsLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -910,8 +923,10 @@ export interface accessControlsLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -954,6 +969,7 @@ export interface accessControlsLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
             >
         ) => AccessControlMemberEntry[]
@@ -1025,7 +1041,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         closeRuleModal: true,
         openAccessDetailPanel: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
         loadPanelEntry: (subject: AccessDetailSubject) => ({ subject }),
-        setShowAllTools: (show: boolean) => ({ show }),
+        setShowAllProducts: (show: boolean) => ({ show }),
         saveGroupedRules: (params: {
             scopeType: ScopeType
             scopeId: string
@@ -1039,6 +1055,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlDefaultsResponse | null,
             {
                 loadDefaults: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsAccessControlDefaultsRetrieve() from 'products/access_control/frontend/generated/api' instead.
                     api.get<AccessControlDefaultsResponse>(`api/projects/${props.projectId}/access_control_defaults`),
             },
         ],
@@ -1046,6 +1063,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlRolesResponse | null,
             {
                 loadRoles: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsAccessControlRolesRetrieve() from 'products/access_control/frontend/generated/api' instead.
                     api.get<AccessControlRolesResponse>(`api/projects/${props.projectId}/access_control_roles`),
             },
         ],
@@ -1053,6 +1071,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlMembersResponse | null,
             {
                 loadMembers: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsAccessControlMembersRetrieve() from 'products/access_control/frontend/generated/api' instead.
                     api.get<AccessControlMembersResponse>(`api/projects/${props.projectId}/access_control_members`),
             },
         ],
@@ -1066,6 +1085,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                             ? `access_control_roles?role_id=${subject.subjectId}`
                             : `access_control_members?member_id=${subject.subjectId}`
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.get<{ results: AccessControlSettingsEntry[] }>(
                             `api/projects/${props.projectId}/${query}`
                         )
@@ -1117,8 +1137,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         panelEntry: {
             openAccessDetailPanel: () => null,
         },
-        /** The Tools list starts collapsed for every newly opened subject. */
-        showAllTools: [false, { setShowAllTools: (_, { show }) => show, openAccessDetailPanel: () => false }],
+        /** The Products list starts collapsed for every newly opened subject. */
+        showAllProducts: [false, { setShowAllProducts: (_, { show }) => show, openAccessDetailPanel: () => false }],
         panelSubject: [
             null as AccessDetailSubject | null,
             {
@@ -1157,15 +1177,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
 
         /**
-         * The Tools list for the panel's subject: ruled tools first, at least 3 rows visible, the
+         * The Products list for the panel's subject: ruled products first, at least 3 rows visible, the
          * rest collapsed behind a toggle when there are enough to be worth hiding.
          */
-        toolsCollapse: [
-            (s) => [s.resourceKeys, s.panelEntry, s.showAllTools],
+        productsCollapse: [
+            (s) => [s.resourceKeys, s.panelEntry, s.showAllProducts],
             (
                 resourceKeys: { key: APIScopeObject; label: string }[],
                 panelEntry: AccessControlSettingsEntry | null,
-                showAllTools: boolean
+                showAllProducts: boolean
             ): {
                 visibleResources: { key: APIScopeObject; label: string }[]
                 collapsedCount: number
@@ -1181,7 +1201,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 const canCollapse = collapsedCount > 3
                 return {
                     visibleResources:
-                        showAllTools || !canCollapse ? orderedResources : orderedResources.slice(0, visibleCount),
+                        showAllProducts || !canCollapse ? orderedResources : orderedResources.slice(0, visibleCount),
                     collapsedCount,
                     canCollapse,
                 }

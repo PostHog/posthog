@@ -47,4 +47,46 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_updated_at": "ISO 8601 timestamp of when the contact was last updated.",
         },
     },
+    "campaign_reports": {
+        "description": "Per-contact engagement events for a campaign, materialized one row per (campaign, status, contact). Each documented report status is fetched separately and the status is attached to the row.",
+        "docs_url": "https://emailoctopus.com/api-documentation/v2",
+        "columns": {
+            "campaign_id": "Identifier of the campaign the report covers.",
+            "status": "Report status the row belongs to: sent, opened, clicked, bounced, complained, unsubscribed, not-opened or not-clicked.",
+            "contact_id": "Identifier of the contact the event relates to.",
+            "contact_email_address": "Email address of the contact the event relates to.",
+            "occurred_at": "ISO 8601 timestamp of when the event occurred.",
+        },
+    },
+    "campaign_report_summaries": {
+        "description": "Headline performance metrics for a campaign, one row per campaign that has started sending.",
+        "docs_url": "https://emailoctopus.com/api-documentation/v2",
+        "columns": {
+            "id": "Identifier of the campaign the summary covers.",
+            "sent": "Number of contacts the campaign was sent to.",
+            "bounced": "Bounce counts, split into hard and soft bounces.",
+            "opened": "Open counts, split into total opens and unique openers.",
+            "clicked": "Click counts, split into total clicks and unique clickers.",
+            "complained": "Number of contacts who marked the campaign as spam.",
+            "unsubscribed": "Number of contacts who unsubscribed from the campaign.",
+        },
+    },
+    "campaign_report_links": {
+        "description": "Click performance of each link in a campaign, one row per (campaign, link URL).",
+        "docs_url": "https://emailoctopus.com/api-documentation/v2",
+        "columns": {
+            "campaign_id": "Identifier of the campaign the link appeared in.",
+            "url": "Destination URL of the link.",
+            "clicked_total": "Number of total clicks on the link.",
+            "clicked_unique": "Number of contacts who clicked the link at least once.",
+        },
+    },
+    "list_tags": {
+        "description": "Tags defined on a list, one row per (list, tag). Resolves the tags carried on contact rows.",
+        "docs_url": "https://emailoctopus.com/api-documentation/v2",
+        "columns": {
+            "list_id": "Identifier of the list the tag is defined on.",
+            "tag": "Name of the tag.",
+        },
+    },
 }

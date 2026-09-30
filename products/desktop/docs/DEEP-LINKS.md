@@ -20,12 +20,6 @@ Links can also be dispatched from inside the app: the `deepLink.open` tRPC route
 
 Report references in agent messages open the full report page in the current app, including inside task chats. They do not open a general object preview or an external browser. The hover card's explicit **Open in PostHog** action still opens the web page.
 
-Quick Ask sends report navigation to the main Desktop window through `deepLink.openInboxReport`.
-This route accepts only a non-empty report ID and is included in the Quick Ask IPC allowlist.
-The broader `deepLink.openAgentAction` route remains blocked for Quick Ask.
-Report references bypass the panel's click suppression; other reference kinds keep their preview-only behavior.
-Its separate window does not use the main window's router or tab services.
-
 ## User-facing links
 
 These are the deep links you would share with someone or wire up from another tool.
@@ -95,13 +89,13 @@ Open an existing task. Optionally jump to a specific run, or focus a comment thr
 | `<taskId>` | Yes | Task ID |
 | `run/<taskRunId>` | No | Specific run to open |
 | `comment` | No | Comment thread (root comment id) to focus after the task opens |
-| `scope` | No | Comment target scope when the thread lives on a sub-resource: `desktop_canvas` or `task_artifact`. Defaults to the task itself. |
+| `scope` | No | Comment target scope when the thread lives on a sub-resource: `canvas` or `task_artifact`. Defaults to the task itself. The app also accepts the old name `desktop_canvas`. |
 | `item` | No | Row id of the canvas/artifact the thread lives on; required alongside `scope` |
 
 ```
 posthog-code://task/abc123
 posthog-code://task/abc123/run/xyz789
-posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
+posthog-code://task/abc123?comment=thread-1&scope=canvas&item=canvas-9
 ```
 
 An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.

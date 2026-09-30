@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 import pytest
@@ -16,12 +17,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.
     DiscourseHostNotAllowedError,
     DiscoursePostsPaginator,
     DiscourseResumeConfig,
+    DiscourseUserActionsPaginator,
     _flatten_directory_item,
     discourse_source,
     hostname_of,
     normalize_base_url,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.settings import USER_ACTIONS_PAGE_SIZE
 
 # RESTClient builds its pipeline session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -90,6 +93,12 @@ def _wire(session: MagicMock, responses: list[requests.Response]) -> list[dict[s
     return param_snapshots
 
 
+def _urls(session: MagicMock) -> list[str]:
+    """URLs of every request the run prepared. Unlike ``request.params``, ``request.url`` is not
+    mutated between pages, so it can be read after the run."""
+    return [call.args[0].url for call in session.prepare_request.call_args_list]
+
+
 def _rows(source_response: Any) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
@@ -101,6 +110,7 @@ def _source(
     base_url: str = BASE_URL,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: Optional[str] = None,
 ) -> Any:
     return discourse_source(
         base_url=base_url,
@@ -112,7 +122,21 @@ def _source(
         resumable_source_manager=manager,
         should_use_incremental_field=should_use_incremental_field,
         db_incremental_field_last_value=db_incremental_field_last_value,
+        incremental_field=incremental_field,
     )
+
+
+def _action(created_at: str, **overrides: Any) -> dict[str, Any]:
+    row = {
+        "action_type": 5,
+        "created_at": created_at,
+        "target_user_id": 7,
+        "acting_user_id": 9,
+        "topic_id": 3,
+        "post_number": 2,
+    }
+    row.update(overrides)
+    return row
 
 
 class TestNormalizeAndHostname:
@@ -421,6 +445,279 @@ class TestPipelineTransport:
             _source(_make_manager(), "posts", should_use_incremental_field=True, db_incremental_field_last_value=0)
         )
         assert rows == [_post(1)]
+
+
+class TestDiscourseUserActionsPaginator:
+    WATERMARK = datetime(2026, 3, 1, tzinfo=UTC)
+
+    def _page(self, rows: list[dict[str, Any]], watermark: Optional[datetime]) -> DiscourseUserActionsPaginator:
+        paginator = DiscourseUserActionsPaginator(limit=USER_ACTIONS_PAGE_SIZE, stop_at_or_before=watermark)
+        paginator.update_state(_json_response({"user_actions": rows}), data=rows)
+        return paginator
+
+    @parameterized.expand([("short_page", 1, False), ("full_page", USER_ACTIONS_PAGE_SIZE, True)])
+    def test_full_refresh_walks_on_only_while_pages_stay_full(
+        self, _name: str, row_count: int, expects_next_page: bool
+    ) -> None:
+        rows = [_action("2026-01-01T00:00:00.000Z")] * row_count
+        assert self._page(rows, None).has_next_page is expects_next_page
+
+    @parameterized.expand(
+        [
+            # The whole page is already synced, so this user's walk is done.
+            ("page_predates_the_watermark", ["2026-02-28T12:00:00.000Z"] * USER_ACTIONS_PAGE_SIZE, False),
+            # Only the first row is newer, but the rest of the stream still has to be walked.
+            (
+                "page_still_holds_newer_rows",
+                ["2026-03-05T00:00:00.000Z"] + ["2026-02-01T00:00:00.000Z"] * (USER_ACTIONS_PAGE_SIZE - 1),
+                True,
+            ),
+            # Nothing on the page can be compared against the watermark, so it proves nothing
+            # about how far back the walk has got.
+            ("unparsable_timestamps", ["not-a-date"] * USER_ACTIONS_PAGE_SIZE, True),
+        ]
+    )
+    def test_incremental_stops_only_once_a_whole_page_predates_the_watermark(
+        self, _name: str, created_ats: list[str], expects_next_page: bool
+    ) -> None:
+        rows = [_action(created_at) for created_at in created_ats]
+        assert self._page(rows, self.WATERMARK).has_next_page is expects_next_page
+
+
+class TestAdminUsers:
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_reads_the_bare_array_body_and_starts_at_page_one(self, MockSession: Any, _safe: Any) -> None:
+        # Discourse clamps page 0 to page 1, so a 0-based walk would sync the first 100 users twice.
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _json_response([{"id": 1, "username": "alice"}]),
+                _json_response([]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "admin_users"))
+        assert rows == [{"id": 1, "username": "alice"}]
+        assert [p["page"] for p in params] == [1, 2]
+
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_sorts_ascending_by_creation_date_and_never_asks_for_emails(self, MockSession: Any, _safe: Any) -> None:
+        # `show_emails=true` writes a staff action log entry per request, so a sync of a large
+        # forum would bury the customer's own audit log.
+        session = MockSession.return_value
+        params = _wire(session, [_json_response([])])
+
+        _rows(_source(_make_manager(), "admin_users"))
+        assert params[0]["order"] == "created"
+        assert params[0]["asc"] == "true"
+        assert "show_emails" not in params[0]
+
+
+class TestBadges:
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_syncs_only_the_badges_list_from_the_multi_key_body(self, MockSession: Any, _safe: Any) -> None:
+        # The response also carries badge_types, badge_groupings and admin_badges; only the
+        # badge records belong in the table.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _json_response(
+                    {
+                        "badges": [{"id": 1, "name": "Welcome"}],
+                        "badge_types": [{"id": 3, "name": "Bronze"}],
+                        "badge_groupings": [{"id": 1, "name": "Getting Started"}],
+                        "admin_badges": {"badge_ids": [1]},
+                    }
+                )
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "badges"))
+        assert rows == [{"id": 1, "name": "Welcome"}]
+        assert session.send.call_count == 1
+
+
+class TestGroupMembers:
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_groups_and_stamps_the_group_onto_each_member(self, MockSession: Any, _safe: Any) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _json_response({"groups": [{"id": 41, "name": "staff"}, {"id": 42, "name": "moderators"}]}),
+                _json_response({"members": [{"id": 1, "username": "alice"}], "meta": {"total": 1}}),
+                _json_response({"members": [{"id": 2, "username": "bob"}], "meta": {"total": 1}}),
+                _json_response({"groups": []}),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "group_members"))
+        assert rows == [
+            {"id": 1, "username": "alice", "group_id": 41, "group_name": "staff"},
+            {"id": 2, "username": "bob", "group_id": 42, "group_name": "moderators"},
+        ]
+        # The membership row's own creation time is the only ordering that can't shift under an
+        # offset walk while the sync runs.
+        assert params[1]["order"] == "added_at"
+        assert params[1]["asc"] == "true"
+
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_walks_offset_pages_within_one_group(self, MockSession: Any, _safe: Any) -> None:
+        session = MockSession.return_value
+        page1 = [{"id": member_id} for member_id in range(1000)]
+        params = _wire(
+            session,
+            [
+                _json_response({"groups": [{"id": 41, "name": "staff"}]}),
+                _json_response({"members": page1, "meta": {"total": 1001}}),
+                _json_response({"members": [{"id": 1000}], "meta": {"total": 1001}}),
+                _json_response({"groups": []}),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "group_members"))
+        assert len(rows) == 1001
+        assert [p["offset"] for p in params[1:3]] == [0, 1000]
+
+    @parameterized.expand([("restricted_roster", 403), ("group_gone", 404)])
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_skips_a_group_whose_roster_cannot_be_read(
+        self, _name: str, status: int, MockSession: Any, _safe: Any
+    ) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _json_response({"groups": [{"id": 41, "name": "secret"}, {"id": 42, "name": "staff"}]}),
+                _json_response({"errors": ["nope"]}, status_code=status),
+                _json_response({"members": [{"id": 2}], "meta": {"total": 1}}),
+                _json_response({"groups": []}),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "group_members"))
+        assert rows == [{"id": 2, "group_id": 42, "group_name": "staff"}]
+
+
+class TestUserActions:
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_admin_users_without_a_server_side_action_filter(self, MockSession: Any, _safe: Any) -> None:
+        # Discourse drops private message topics from the stream only while `filter` is blank,
+        # and for an admin identity a non-blank `filter` removes the exclusion entirely. Sending
+        # one would pull replies and likes made inside private messages into the table.
+        session = MockSession.return_value
+        action = _action("2026-03-05T00:00:00.000Z")
+        params = _wire(
+            session,
+            [
+                _json_response([{"id": 7, "username": "alice"}]),
+                _json_response({"user_actions": [action]}),
+                _json_response([]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "user_actions"))
+        assert rows == [action]
+        assert _urls(session)[1] == f"{BASE_URL}/user_actions.json?username=alice"
+        assert "filter" not in params[1]
+
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_narrows_to_public_actions_and_drops_post_text(self, MockSession: Any, _safe: Any) -> None:
+        # With no server-side filter the stream carries every action type, and the admin
+        # identity also reads whispers and hidden posts, so both narrowing steps run over the
+        # response instead.
+        session = MockSession.return_value
+        reply = _action("2026-03-05T00:00:00.000Z", excerpt="post body", edit_reason="typo")
+        private_message = _action("2026-03-04T00:00:00.000Z", action_type=12)
+        _wire(
+            session,
+            [
+                _json_response([{"id": 7, "username": "alice"}]),
+                _json_response({"user_actions": [reply, private_message]}),
+                _json_response([]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "user_actions"))
+        assert rows == [_action("2026-03-05T00:00:00.000Z")]
+
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_incremental_stops_walking_a_user_at_the_watermark(self, MockSession: Any, _safe: Any) -> None:
+        session = MockSession.return_value
+        page = [_action("2026-02-28T12:00:00.000Z")] * USER_ACTIONS_PAGE_SIZE
+        _wire(
+            session,
+            [
+                _json_response([{"id": 7, "username": "alice"}]),
+                _json_response({"user_actions": page}),
+                _json_response([]),
+            ],
+        )
+
+        rows = _rows(
+            _source(
+                _make_manager(),
+                "user_actions",
+                should_use_incremental_field=True,
+                incremental_field="created_at",
+                db_incremental_field_last_value="2026-03-01T00:00:00Z",
+            )
+        )
+        assert len(rows) == USER_ACTIONS_PAGE_SIZE
+        # One parent page, one child page, one terminal parent page: the child never walked on.
+        assert session.send.call_count == 3
+
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_ignores_the_stored_watermark_and_walks_the_whole_stream(
+        self, MockSession: Any, _safe: Any
+    ) -> None:
+        session = MockSession.return_value
+        page1 = [_action("2026-01-01T00:00:00.000Z")] * USER_ACTIONS_PAGE_SIZE
+        params = _wire(
+            session,
+            [
+                _json_response([{"id": 7, "username": "alice"}]),
+                _json_response({"user_actions": page1}),
+                _json_response({"user_actions": [_action("2025-01-01T00:00:00.000Z")]}),
+                _json_response([]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "user_actions", db_incremental_field_last_value="2026-03-01T00:00:00Z"))
+        assert len(rows) == USER_ACTIONS_PAGE_SIZE + 1
+        assert [p["offset"] for p in params[1:3]] == [0, USER_ACTIONS_PAGE_SIZE]
+
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_skips_a_user_whose_stream_is_not_visible(self, MockSession: Any, _safe: Any) -> None:
+        # Discourse answers 404 both for a hidden profile and for a user deleted between the
+        # listing and this fetch; either way the other users still have activity worth syncing.
+        session = MockSession.return_value
+        action = _action("2026-03-05T00:00:00.000Z")
+        _wire(
+            session,
+            [
+                _json_response([{"id": 7, "username": "hidden"}, {"id": 8, "username": "alice"}]),
+                _json_response({"errors": ["nope"]}, status_code=404),
+                _json_response({"user_actions": [action]}),
+                _json_response([]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "user_actions"))
+        assert rows == [action]
 
 
 class TestErrorHandling:

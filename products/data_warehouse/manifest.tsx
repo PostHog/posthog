@@ -94,6 +94,9 @@ export const manifest: ProductManifest = {
         '/data-warehouse/sources': () => urls.sources(),
         '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
+        // Every scene route under a source names a tab, so trimming one off a shared link or the
+        // address bar lands on a path no route matches. Send it to the source's first tab.
+        '/data-management/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     },
     urls: {
         dataOps: (tab?: string): string => {
@@ -149,7 +152,7 @@ export const manifest: ProductManifest = {
         {
             path: 'SQL editor',
             intents: [ProductKey.DATA_WAREHOUSE_SAVED_QUERY, ProductKey.DATA_WAREHOUSE],
-            category: ProductItemCategory.ANALYTICS,
+            category: ProductItemCategory.DATA,
             type: 'sql',
             iconType: 'sql_editor',
             iconColor: ['var(--color-product-data-warehouse-light)'],
@@ -186,17 +189,22 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: `Sources`,
-            category: 'Pipeline',
+            category: 'CDP',
             type: 'hog_function/source',
-            iconType: 'data_pipeline_metadata',
+            iconType: 'data_source',
+            iconColor: ['var(--color-product-sources-light)', 'var(--color-product-sources-dark)'],
             href: urls.sources(),
             sceneKey: 'Sources',
             sceneKeys: ['Sources'],
         },
         {
             path: 'Warehouse destinations',
-            category: 'Pipeline',
-            iconType: 'data_warehouse',
+            category: 'CDP',
+            iconType: 'warehouse_destination',
+            iconColor: [
+                'var(--color-product-warehouse-destinations-light)',
+                'var(--color-product-warehouse-destinations-dark)',
+            ],
             href: urls.warehouseDestinations(),
             flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
             sceneKey: 'WarehouseDestinations',
@@ -206,6 +214,7 @@ export const manifest: ProductManifest = {
             path: 'Managed viewsets',
             category: 'Unreleased',
             iconType: 'managed_viewsets',
+            iconColor: ['var(--color-product-managed-viewsets-light)', 'var(--color-product-managed-viewsets-dark)'],
             href: urls.dataWarehouseManagedViewsets(),
             flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
             // Covers the data modeling scene keys too, so these rows stay highlighted on /models.

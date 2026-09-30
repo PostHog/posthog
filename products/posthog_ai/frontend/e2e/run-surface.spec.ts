@@ -173,7 +173,9 @@ async function openRunDeepLink(page: Page, teamId: string): Promise<void> {
         const ph = (window as unknown as { posthog?: { reloadFeatureFlags?: () => void } }).posthog
         ph?.reloadFeatureFlags?.()
     })
-    await expect(page.getByRole('heading', { name: 'Run surface e2e task', exact: true })).toBeVisible({
+    // An editable title renders as the rename button rather than a heading, so match the
+    // scene-name container instead of the element inside it.
+    await expect(page.locator('[data-attr="scene-name"]').first()).toContainText('Run surface e2e task', {
         timeout: 40000,
     })
 }
