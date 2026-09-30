@@ -15,15 +15,10 @@ export const getMCPServerBuild = (): string | undefined => {
     }
 }
 
-// `PostHogMCP` is a drop-in subclass of posthog-node's `PostHog` (capture /
-// identify / flush / shutdown all inherited) that adds `captureToolCall` /
-// `captureInitialize`. Using it for the shared client means every existing
-// `.capture()` callsite keeps working while the hono analytics path gets the
-// canonical `$mcp_*` event helpers.
+// `PostHogMCP` owns canonical MCP events and custom events from `capture()` or
+// `captureImmediate()`. Configure `serverBuild` once so the SDK stamps both paths.
 export const getPostHogClient = (): PostHogMCP => {
     if (!_client) {
-        const serverBuild = getMCPServerBuild()
-
         _client = new PostHogMCP(env.POSTHOG_ANALYTICS_API_KEY ?? '', {
             disabled: !env.POSTHOG_ANALYTICS_API_KEY || !env.POSTHOG_ANALYTICS_HOST, // Disable if the API key or host is not set
             ...(env.POSTHOG_ANALYTICS_HOST ? { host: env.POSTHOG_ANALYTICS_HOST } : {}),
@@ -33,7 +28,7 @@ export const getPostHogClient = (): PostHogMCP => {
             // from fanning out a separate `$exception` event into Error Tracking.
             enableExceptionAutocapture: false,
             captureModel: true,
-            ...(serverBuild ? { serverBuild } : {}),
+            serverBuild: getMCPServerBuild(),
             before_send: (event) => {
                 if (event?.properties?.is_impersonated === true) {
                     return null
