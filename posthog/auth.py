@@ -171,8 +171,9 @@ class ZxcvbnValidator:
 
 
 class SessionAuthentication(
-    ActivityCredentialMixin, authentication.SessionAuthentication
-):  # nosemgrep: no-drf-session-authentication
+    ActivityCredentialMixin,
+    authentication.SessionAuthentication,  # nosemgrep: no-drf-session-authentication
+):
     """
     This class is needed, because REST Framework's default SessionAuthentication does never return 401's,
     because they cannot fill the WWW-Authenticate header with a valid value in the 401 response. As a
