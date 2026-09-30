@@ -43,19 +43,19 @@ def gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:
 class TestPromptJev(SimpleTestCase):
     @parameterized.expand(
         [
-            ("SELECT promptJev('a', 'q') AS p", 1000),
-            ("SELECT promptJev('a', 'q') AS p, promptJev('b', 'q') AS q LIMIT 500", 1000),
-            ("SELECT promptJev('a', 'q') AS p, promptJev('b', 'q') AS q LIMIT 0", 0),
+            ("SELECT jev('a', 'q') AS p", 1000),
+            ("SELECT jev('a', 'q') AS p, jev('b', 'q') AS q LIMIT 500", 1000),
+            ("SELECT jev('a', 'q') AS p, jev('b', 'q') AS q LIMIT 0", 0),
             (
-                "WITH c AS (SELECT promptJev('a', 'q') AS p LIMIT 1000) SELECT a.p, b.p FROM c a CROSS JOIN c b",
+                "WITH c AS (SELECT jev('a', 'q') AS p LIMIT 1000) SELECT a.p, b.p FROM c a CROSS JOIN c b",
                 1000,
             ),
             (
-                "WITH c AS (SELECT promptJev('a', 'q') AS p LIMIT 600) SELECT 0.0 AS p UNION ALL SELECT p FROM c",
+                "WITH c AS (SELECT jev('a', 'q') AS p LIMIT 600) SELECT 0.0 AS p UNION ALL SELECT p FROM c",
                 600,
             ),
             (
-                "WITH c AS (SELECT promptJev('a', 'q') AS p LIMIT 600) SELECT p FROM c UNION ALL SELECT p FROM c",
+                "WITH c AS (SELECT jev('a', 'q') AS p LIMIT 600) SELECT p FROM c UNION ALL SELECT p FROM c",
                 600,
             ),
         ]
@@ -67,21 +67,19 @@ class TestPromptJev(SimpleTestCase):
 
     def test_unused_ctes_do_not_reserve_budget(self) -> None:
         budget = PromptJevBudget()
-        budget.visit(
-            parse_select("WITH a AS (SELECT promptJev('a', 'q') AS p), b AS (SELECT promptJev('b', 'q') AS p) SELECT 1")
-        )
+        budget.visit(parse_select("WITH a AS (SELECT jev('a', 'q') AS p), b AS (SELECT jev('b', 'q') AS p) SELECT 1"))
         self.assertEqual(budget.decisions, 0)
 
     @parameterized.expand(
         [
-            ("promptJev('a', '')", "non-empty"),
-            ("promptJev('a', instructions)", "literal"),
-            ("promptJev('a', 'q', choice := ['a', 'a'])", "unique"),
-            ("promptJev('a', 'q', choice := ['a'])", "between 2"),
-            ("promptJev('a', 'q', batch_size := 0)", "between 1"),
-            ("promptJev('a', 'q', noul := ['yes', 'no'])", "exactly"),
-            ("promptJev('a', 'q', choice := ['a','b'], noul := ['true','false'])", "either"),
-            ("promptJev('a', 'q', score := ['a','b'])", "supports"),
+            ("jev('a', '')", "non-empty"),
+            ("jev('a', instructions)", "literal"),
+            ("jev('a', 'q', choice := ['a', 'a'])", "unique"),
+            ("jev('a', 'q', choice := ['a'])", "between 2"),
+            ("jev('a', 'q', batch_size := 0)", "between 1"),
+            ("jev('a', 'q', noul := ['yes', 'no'])", "exactly"),
+            ("jev('a', 'q', choice := ['a','b'], noul := ['true','false'])", "either"),
+            ("jev('a', 'q', score := ['a','b'])", "supports"),
         ]
     )
     def test_invalid_arguments(self, query: str, message: str) -> None:
@@ -91,7 +89,7 @@ class TestPromptJev(SimpleTestCase):
             PromptJevCall.parse(node)
 
     def test_batches_deduplicates_and_skips_nulls(self) -> None:
-        node = parse_expr("promptJev(body, 'Refund?', batch_size := 2)")
+        node = parse_expr("jev(body, 'Refund?', batch_size := 2)")
         assert isinstance(node, ast.Call)
         spec = PromptJevCall.parse(node)
         runner = PromptJevRunner(team_id=123, distinct_id="test-user")
@@ -106,14 +104,14 @@ class TestPromptJev(SimpleTestCase):
 
     @parameterized.expand([(42, "must be text"), ("x" * 8193, "8 KiB")])
     def test_rejects_invalid_input_before_network(self, value: object, message: str) -> None:
-        node = parse_expr("promptJev(body, 'Refund?')")
+        node = parse_expr("jev(body, 'Refund?')")
         assert isinstance(node, ast.Call)
         with patch("httpx.AsyncClient.post") as post, self.assertRaisesRegex(QueryError, message):
             PromptJevRunner(team_id=1, distinct_id=None).evaluate(PromptJevCall.parse(node), [value])
         post.assert_not_called()
 
     def test_gateway_failure_does_not_return_a_decision(self) -> None:
-        node = parse_expr("promptJev('refund', 'Refund?')")
+        node = parse_expr("jev('refund', 'Refund?')")
         assert isinstance(node, ast.Call)
         with (
             patch("httpx.AsyncClient.post", return_value=httpx.Response(429)),
@@ -122,7 +120,7 @@ class TestPromptJev(SimpleTestCase):
             PromptJevRunner(team_id=1, distinct_id=None).evaluate(PromptJevCall.parse(node), ["refund"])
 
     def test_deadline_cancels_inflight_requests_and_pending_batches(self) -> None:
-        node = parse_expr("promptJev(body, 'Refund?', batch_size := 1)")
+        node = parse_expr("jev(body, 'Refund?', batch_size := 1)")
         assert isinstance(node, ast.Call)
         runner = PromptJevRunner(team_id=1, distinct_id=None)
         cancelled = 0
@@ -157,7 +155,7 @@ class TestPromptJev(SimpleTestCase):
         self.assertEqual(cancelled, 4)
 
     def test_expired_deadline_sends_no_requests(self) -> None:
-        node = parse_expr("promptJev(body, 'Refund?')")
+        node = parse_expr("jev(body, 'Refund?')")
         assert isinstance(node, ast.Call)
         runner = PromptJevRunner(team_id=1, distinct_id=None)
         runner.deadline = time.monotonic() - 1
@@ -177,13 +175,13 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("SELECT " + ", ".join(f"promptJev('a', 'q{i}') AS p{i}" for i in range(10)) + " LIMIT 101",),
-            ("SELECT promptJev('a', 'q') AS p, promptJev('b', 'q') AS q",),
-            ("SELECT promptJev('a', 'q') AS p LIMIT 501 UNION ALL SELECT promptJev('b', 'q') AS p LIMIT 500",),
-            ("SELECT promptJev(toString(p), 'q') AS q FROM (SELECT promptJev('a', 'q') AS p LIMIT 501) LIMIT 500",),
+            ("SELECT " + ", ".join(f"jev('a', 'q{i}') AS p{i}" for i in range(10)) + " LIMIT 101",),
+            ("SELECT jev('a', 'q') AS p, jev('b', 'q') AS q",),
+            ("SELECT jev('a', 'q') AS p LIMIT 501 UNION ALL SELECT jev('b', 'q') AS p LIMIT 500",),
+            ("SELECT jev(toString(p), 'q') AS q FROM (SELECT jev('a', 'q') AS p LIMIT 501) LIMIT 500",),
             (
-                "WITH c AS (SELECT promptJev(toString(number), 'first') AS p FROM numbers(1000) LIMIT 1000) "
-                "SELECT 0.0 AS p UNION ALL SELECT promptJev('refund', 'second') AS p FROM c LIMIT 1",
+                "WITH c AS (SELECT jev(toString(number), 'first') AS p FROM numbers(1000) LIMIT 1000) "
+                "SELECT 0.0 AS p UNION ALL SELECT jev('refund', 'second') AS p FROM c LIMIT 1",
             ),
         ]
     )
@@ -205,7 +203,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             patch("httpx.AsyncClient.post") as post,
             self.assertRaisesRegex(QueryError, "not enabled for this project"),
         ):
-            execute_hogql_query("SELECT promptJev('refund', 'Refund?') AS p", self.team, user=self.user)
+            execute_hogql_query("SELECT jev('refund', 'Refund?') AS p", self.team, user=self.user)
         execute.assert_not_called()
         post.assert_not_called()
         self.assertEqual(self.feature_enabled.call_args.kwargs["groups"]["project"], str(self.team.pk))
@@ -221,7 +219,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             patch("httpx.AsyncClient.post") as post,
             self.assertRaisesRegex(QueryError, "native ClickHouse connection"),
         ):
-            execute_hogql_query("SELECT promptJev('refund', 'Refund?') AS p", self.team, user=self.user)
+            execute_hogql_query("SELECT jev('refund', 'Refund?') AS p", self.team, user=self.user)
         execute.assert_not_called()
         post.assert_not_called()
 
@@ -238,7 +236,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 {
                     "query": {
                         "kind": "HogQLQuery",
-                        "query": "SELECT promptJev(properties.message, 'Refund?') AS probability FROM events WHERE event = 'jev_test_message' LIMIT 10",
+                        "query": "SELECT jev(properties.message, 'Refund?') AS probability FROM events WHERE event = 'jev_test_message' LIMIT 10",
                     }
                 },
             )
@@ -249,33 +247,33 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             (
-                "SELECT probability FROM (SELECT promptJev('refund please', 'Refund?') AS probability) WHERE probability > 0.5",
+                "SELECT probability FROM (SELECT jev('refund please', 'Refund?') AS probability) WHERE probability > 0.5",
                 [(0.9,)],
             ),
             (
-                "SELECT result.choice, count() FROM (SELECT promptJev(body, 'Route?', choice := ['billing', 'other']) AS result FROM (SELECT arrayJoin(['refund', 'hello', 'refund']) AS body)) GROUP BY result.choice ORDER BY result.choice",
+                "SELECT result.choice, count() FROM (SELECT jev(body, 'Route?', choice := ['billing', 'other']) AS result FROM (SELECT arrayJoin(['refund', 'hello', 'refund']) AS body)) GROUP BY result.choice ORDER BY result.choice",
                 [("billing", 2), ("other", 1)],
             ),
             (
-                "WITH classified AS (SELECT promptJev('refund', 'Refund?') AS p) SELECT a.p, b.p FROM classified a CROSS JOIN classified b",
+                "WITH classified AS (SELECT jev('refund', 'Refund?') AS p) SELECT a.p, b.p FROM classified a CROSS JOIN classified b",
                 [(0.9, 0.9)],
             ),
             (
-                "WITH a AS (SELECT promptJev('refund', 'Refund?') AS p), b AS (SELECT p FROM a) SELECT p FROM b",
+                "WITH a AS (SELECT jev('refund', 'Refund?') AS p), b AS (SELECT p FROM a) SELECT p FROM b",
                 [(0.9,)],
             ),
             (
-                "SELECT label FROM (SELECT promptJev(body, 'Refund?') AS label FROM (SELECT label AS body FROM (SELECT 'refund' AS label)))",
+                "SELECT label FROM (SELECT jev(body, 'Refund?') AS label FROM (SELECT label AS body FROM (SELECT 'refund' AS label)))",
                 [(0.9,)],
             ),
-            ("SELECT promptJev(NULL, 'Refund?') AS p", [(None,)]),
-            ("SELECT promptJev('hello', 'Refund?') AS p LIMIT 0", []),
+            ("SELECT jev(NULL, 'Refund?') AS p", [(None,)]),
+            ("SELECT jev('hello', 'Refund?') AS p LIMIT 0", []),
             (
-                "SELECT " + ", ".join(f"promptJev('refund', 'Refund?') AS p{i}" for i in range(10)) + " LIMIT 100",
+                "SELECT " + ", ".join(f"jev('refund', 'Refund?') AS p{i}" for i in range(10)) + " LIMIT 100",
                 [(0.9,) * 10],
             ),
             (
-                "WITH messages AS (SELECT 'refund' AS body) SELECT 0.0 AS p UNION ALL SELECT promptJev(body, 'Refund?') AS p FROM messages LIMIT 10",
+                "WITH messages AS (SELECT 'refund' AS body) SELECT 0.0 AS p UNION ALL SELECT jev(body, 'Refund?') AS p FROM messages LIMIT 10",
                 [(0.0,), (0.9,)],
             ),
         ]
@@ -288,8 +286,8 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("WITH unused AS (SELECT promptJev('refund', 'Refund?') AS p) SELECT 1",),
-            ("WITH a AS (SELECT promptJev('refund', 'Refund?') AS p), b AS (SELECT p FROM a) SELECT 1",),
+            ("WITH unused AS (SELECT jev('refund', 'Refund?') AS p) SELECT 1",),
+            ("WITH a AS (SELECT jev('refund', 'Refund?') AS p), b AS (SELECT p FROM a) SELECT 1",),
         ]
     )
     def test_unused_ctes_send_no_requests(self, query: str) -> None:
@@ -301,7 +299,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
     def test_explicit_limit_above_the_default_keeps_every_row(self) -> None:
         with patch("httpx.AsyncClient.post", side_effect=gateway_response):
             response = execute_hogql_query(
-                "SELECT promptJev(toString(number), 'Refund?') AS p FROM numbers(150) LIMIT 150",
+                "SELECT jev(toString(number), 'Refund?') AS p FROM numbers(150) LIMIT 150",
                 self.team,
                 user=self.user,
             )
@@ -317,7 +315,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         with patch("httpx.AsyncClient.post", side_effect=gateway_response):
             response = execute_hogql_query(
-                "SELECT props.category, p FROM (SELECT properties AS props, promptJev(properties.message, 'Refund?') AS p FROM events WHERE event = 'jev_test_message' LIMIT 1)",
+                "SELECT props.category, p FROM (SELECT properties AS props, jev(properties.message, 'Refund?') AS p FROM events WHERE event = 'jev_test_message' LIMIT 1)",
                 self.team,
                 user=self.user,
             )
@@ -328,7 +326,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             patch("httpx.AsyncClient.post", side_effect=gateway_response),
             patch("posthog.hogql.query.sync_execute", wraps=sync_execute) as execute,
         ):
-            execute_hogql_query("SELECT promptJev('refund', 'Refund?') AS p", self.team, user=self.user)
+            execute_hogql_query("SELECT jev('refund', 'Refund?') AS p", self.team, user=self.user)
         timeouts = [
             int(seconds)
             for call in execute.call_args_list
@@ -339,13 +337,13 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("SELECT promptJev('a', 'q')", "named SELECT"),
-            ("SELECT promptJev('a', 'q') AS p ORDER BY p", "outside"),
-            ("SELECT promptJev('a', 'q') AS p WHERE p > 0.5", "outer query"),
-            ("SELECT labl FROM (SELECT promptJev('refund', 'Refund?') AS label)", "labl"),
-            ("SELECT promptJev(toString(number), 'q') AS p FROM numbers(1001)", "at most 1000"),
+            ("SELECT jev('a', 'q')", "named SELECT"),
+            ("SELECT jev('a', 'q') AS p ORDER BY p", "outside"),
+            ("SELECT jev('a', 'q') AS p WHERE p > 0.5", "outer query"),
+            ("SELECT labl FROM (SELECT jev('refund', 'Refund?') AS label)", "labl"),
+            ("SELECT jev(toString(number), 'q') AS p FROM numbers(1001)", "at most 1000"),
             (
-                "SELECT promptJev(toString(number), 'Topic?') AS a, promptJev(toString(number), 'Tone?') AS b FROM numbers(600)",
+                "SELECT jev(toString(number), 'Topic?') AS a, jev(toString(number), 'Tone?') AS b FROM numbers(600)",
                 "query budget",
             ),
         ]
@@ -358,5 +356,5 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
     @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
     def test_missing_gateway_configuration(self) -> None:
         with patch("httpx.AsyncClient.post") as post, self.assertRaisesRegex(QueryError, "not configured"):
-            execute_hogql_query("SELECT promptJev('a', 'q') AS p", self.team, user=self.user)
+            execute_hogql_query("SELECT jev('a', 'q') AS p", self.team, user=self.user)
         post.assert_not_called()
