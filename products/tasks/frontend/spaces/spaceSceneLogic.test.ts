@@ -18,6 +18,9 @@ describe('spaceSceneLogic', () => {
                     200,
                     { id: params.id, name: String(params.id), system_role: null },
                 ],
+                '/api/projects/:team_id/task_channels/:id/members/': [
+                    { id: 7, uuid: 'user-7', first_name: 'Ada', email: 'ada@example.com' },
+                ],
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const channel = new URL(request.url).searchParams.get('channel')
                     const results =
@@ -79,5 +82,17 @@ describe('spaceSceneLogic', () => {
 
         expect(logic.values.spaceMissing).toBe(missing)
         expect(logic.values.spaceUnavailable).toBe(true)
+    })
+
+    it('loads the members once the space turns private', async () => {
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.members).toEqual([])
+
+        logic.actions.updateSpace({ channel_type: 'private' })
+        await expectLogic(logic).toDispatchActions(['spaceSaved', 'loadMembersSuccess'])
+
+        expect(logic.values.members.map((member) => member.id)).toEqual([7])
     })
 })

@@ -1,1 +1,1 @@
-0340_drop_metrics_avro1_kafka_ingest
+0341_drop_trace_spans_old_projections

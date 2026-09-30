@@ -1,9 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
-
-import { cn } from 'lib/utils/css-classes'
+import { IconCloud } from '@posthog/icons'
+import {
+    Button,
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+    Skeleton,
+    Text,
+    cn,
+} from '@posthog/quill'
 
 import { TodaySessionRow } from '~/layout/today/TodaySessionRow'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
@@ -18,36 +27,54 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
 
     if (sessionsLoading && !feedGroups.length) {
         return (
-            <div className="TodayPane__state">
-                <Spinner />
+            <div className="flex max-w-3xl flex-col gap-3 px-2 py-2">
+                <Skeleton className="h-4 w-1/4" />
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-4 w-1/2" />
             </div>
         )
     }
     if (sessionsUnavailable && !feedGroups.length) {
         return (
-            <div className="TodayPane__state">
-                <span>This space’s sessions didn’t load.</span>
-                <LemonButton
-                    size="small"
-                    type="secondary"
+            <div className="flex flex-col items-start gap-2 px-2 py-2">
+                <Text size="sm" variant="muted">
+                    This space’s sessions didn’t load.
+                </Text>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    loading={sessionsLoading}
                     onClick={() => loadSessions()}
                     data-attr="today-space-feed-retry"
                 >
                     Try again
-                </LemonButton>
+                </Button>
             </div>
         )
     }
     if (!feedGroups.length) {
-        return <div className="TodayPane__state">No sessions in this space yet.</div>
+        return (
+            <Empty className="py-12">
+                <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                        <IconCloud />
+                    </EmptyMedia>
+                    <EmptyTitle>No sessions yet</EmptyTitle>
+                    <EmptyDescription>
+                        Sessions that you or your agents start in this space show up here.
+                    </EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
     }
     return (
-        <div className="TodaySpaceFeed">
+        <div className="flex max-w-3xl flex-col gap-px">
             {feedGroups.map((group, index) => (
                 <Fragment key={group.key}>
-                    <div className={cn('TodayPane__group', index === 0 && 'TodayPane__group--first')}>
+                    <Text size="xs" variant="muted" className={cn('block px-2 pb-1', index === 0 ? 'pt-1' : 'pt-3')}>
                         {group.label}
-                    </div>
+                    </Text>
                     {group.items.map((item) => (
                         <TodaySessionRow
                             key={item.id}

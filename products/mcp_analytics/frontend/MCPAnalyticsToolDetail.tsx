@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconArrowLeft, IconArrowRight, IconCopy, IconInfo } from '@posthog/icons'
@@ -56,8 +57,9 @@ import {
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
+import { mcpSessionUrl } from './sessionUrls'
 import { CreateFixTaskButton } from './tool-quality/CreateFixTaskButton'
-import { type MCPErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
+import { type MCPErrorContext, formatErrorContext } from './tool-quality/errorContext'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -806,6 +808,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
 // Drill-down into one failure bucket: the individual errored calls, each with a
 // copyable, paste-ready context block for handing to a coding agent.
 function FailureOccurrencesModal(): JSX.Element {
+    const { searchParams } = useValues(router)
     const { toolName, selectedFailure, failureOccurrences, failureOccurrencesLoading } =
         useValues(mcpAnalyticsToolDetailLogic)
     const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic)
@@ -878,7 +881,7 @@ function FailureOccurrencesModal(): JSX.Element {
                                     {occurrence.session_id ? (
                                         <LemonButton
                                             size="xsmall"
-                                            to={mcpSessionUrl(occurrence.session_id)}
+                                            to={mcpSessionUrl(occurrence.session_id, searchParams)}
                                             tooltip="View the session this call belongs to"
                                         >
                                             Session

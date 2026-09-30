@@ -213,6 +213,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
+    { key: 'support_ticket', objectName: 'Support ticket', objectPlural: 'support tickets' },
     {
         key: 'survey',
         objectName: 'Survey',
@@ -290,6 +291,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'feature_flag:read',
     'account:read',
     'account:write',
+    'support_ticket:read',
     'loop:write',
     'experiment:read',
     'offline_evaluation_ingestion:write',
@@ -522,6 +524,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'customer_profile_config',
             'usage_metric',
             'ticket',
+            'support_ticket',
         ],
     },
     {
