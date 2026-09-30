@@ -36,6 +36,14 @@ def _bad_request_error() -> BadRequestError:
     return BadRequestError("bad request", response=httpx.Response(400, request=_REQUEST), body=None)
 
 
+def _unreadable_request_error() -> BadRequestError:
+    return BadRequestError(
+        "Error code: 400 - {'message': 'Something went wrong reading your request.'}",
+        response=httpx.Response(400, request=_REQUEST),
+        body=None,
+    )
+
+
 def _connection_error() -> APIConnectionError:
     # A proxy or LB resetting a long-parked flex request surfaces as the bare parent class,
     # not APITimeoutError, so the fallback must catch APIConnectionError itself.
@@ -277,7 +285,14 @@ class TestSummarizeWithOpenAI:
                 mock_client.with_options.assert_called_once_with(max_retries=0)
 
     @pytest.mark.parametrize(
-        "flex_error", [_rate_limit_error(), _connection_error(), _gateway_ceiling_error(), _flex_408_error()]
+        "flex_error",
+        [
+            _rate_limit_error(),
+            _connection_error(),
+            _gateway_ceiling_error(),
+            _flex_408_error(),
+            _unreadable_request_error(),
+        ],
     )
     def test_flex_failure_falls_back_to_standard_tier(self, valid_response_json, flex_error):
         mock_response = MagicMock()
