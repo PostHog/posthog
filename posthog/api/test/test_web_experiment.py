@@ -100,6 +100,7 @@ class TestWebExperiment(APIBaseTest):
                 "experiment_id": web_experiment.id,
                 "experiment_name": web_experiment.name,
                 "feature_flag_key": web_experiment.feature_flag.key,
+                "persist_across_authentication": False,
                 "type": "web",
                 "status": "draft",
                 "metrics_count": 0,
