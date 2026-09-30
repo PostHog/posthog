@@ -7,7 +7,7 @@ import { promisify } from 'util'
 import { toFiniteNumber } from './capture/config'
 import { RasterizationError } from './errors'
 import { createLogger } from './logger'
-import { downloadFromS3, uploadToS3 } from './storage'
+import { downloadFromS3, parseS3Uri, uploadToS3 } from './storage'
 import type { ExtractThumbnailInput, ExtractThumbnailOutput } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -16,14 +16,6 @@ const log = createLogger()
 // One frame out of an existing MP4 never approaches the render timeouts; a longer wait means ffmpeg
 // is wedged on a corrupt file rather than working.
 const FFMPEG_TIMEOUT_MS = 60_000
-
-function parseS3Uri(uri: string): { bucket: string; key: string } {
-    const match = /^s3:\/\/([^/]+)\/(.+)$/.exec(uri)
-    if (!match) {
-        throw new RasterizationError(`Not an S3 URI: ${uri}`, false, 'INVALID_INPUT')
-    }
-    return { bucket: match[1], key: match[2] }
-}
 
 export interface Rect {
     w: number

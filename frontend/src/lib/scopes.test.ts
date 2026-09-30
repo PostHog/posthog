@@ -2,6 +2,7 @@ import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
+    API_SCOPE_GROUPS,
     API_SCOPES,
     API_SCOPES_OMITTED_FROM_MODAL,
     getScopeDescription,
@@ -58,6 +59,21 @@ describe('API_SCOPES modal coverage', () => {
     it('never both offers and omits the same scope', () => {
         const overlap = [...omitted].filter((obj) => offered.has(obj as (typeof API_SCOPE_OBJECTS)[number]))
         expect(overlap).toEqual([])
+    })
+})
+
+describe('API_SCOPE_GROUPS', () => {
+    it('files every scope object in exactly one group', () => {
+        // A new scope object fails here until someone picks the product area it belongs to.
+        const filed = API_SCOPE_GROUPS.flatMap(({ objects }) => objects)
+        const duplicates = [...new Set(filed.filter((obj, index) => filed.indexOf(obj) !== index))]
+        const missing = API_SCOPE_OBJECTS.filter((obj) => !filed.includes(obj))
+        expect({ duplicates, missing }).toEqual({ duplicates: [], missing: [] })
+    })
+
+    it('uses each group label once', () => {
+        const labels = API_SCOPE_GROUPS.map(({ label }) => label)
+        expect(labels).toEqual([...new Set(labels)])
     })
 })
 

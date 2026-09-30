@@ -172,6 +172,14 @@
     color: var(--destructive-foreground);
 }
 
+[data-quill] .text-success-foreground {
+    color: var(--success-foreground);
+}
+
+[data-quill] .text-info-foreground {
+    color: var(--info-foreground);
+}
+
 [data-quill] .text-accent-foreground {
     color: var(--accent-foreground);
 }

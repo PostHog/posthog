@@ -20,10 +20,12 @@ see `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml`).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum, StrEnum
 from typing import Protocol
+
+from products.alerts.backend.facade.contracts import FiringEpisode
 
 MAX_CONSECUTIVE_FAILURES = 5
 
@@ -84,9 +86,16 @@ class AlertPolicy:
     clear_check_ends_snooze: bool = False
     # True: reaching BROKEN also disables the alert (outcome.disable is set).
     disable_when_broken: bool = False
+    # True: a mute holds the announcement and the check still runs, so `enabled=False` and
+    # BROKEN become the only states that stop one.
+    mute_gates_notification_only: bool = False
 
 
 LOGS_ALERT_POLICY = AlertPolicy()
+
+# Two constants rather than one changed default, because production logs keeps its own mute
+# semantics until it migrates.
+PLATFORM_LOGS_ALERT_POLICY = replace(LOGS_ALERT_POLICY, mute_gates_notification_only=True)
 
 BILLING_ALERT_POLICY = AlertPolicy(
     broken_is_terminal=False,
@@ -110,6 +119,10 @@ class CheckInput:
     is_inconclusive: bool = False
     error_message: str | None = None
     is_transient_error: bool = False
+    # A mute the machine cannot see for itself, such as a schedule restriction the source
+    # resolves against the team's timezone. Read only under `mute_gates_notification_only`, so a
+    # source that sets it against another policy is silently unmuted.
+    muted: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,6 +139,7 @@ class AlertSnapshot:
     datapoints_to_alarm: int = 1
     # Breach flags of the most recent prior checks, newest first (excludes the current one).
     recent_events_breached: tuple[bool, ...] = ()
+    firing_started_at: datetime | None = None
 
 
 class StatefulSnapshot(Protocol):
@@ -147,6 +161,8 @@ class AlertCheckOutcome:
     error_message: str | None
     # Set when policy.disable_when_broken kicks in — the adapter must persist enabled=False.
     disable: bool = False
+    # What a mute held back, so a muted fire is distinguishable from a check that said nothing.
+    muted_notification: NotificationAction = NotificationAction.NONE
 
 
 @dataclass(frozen=True)
@@ -163,6 +179,10 @@ class ControlPlaneOutcome:
 
 Outcome = AlertCheckOutcome | ControlPlaneOutcome
 
+# States that mean the alert is inside a firing. PENDING_RESOLVE is one: the condition has
+# cleared but the resolution is not announced yet, so the firing has not ended.
+FIRING_STATES = (AlertState.FIRING, AlertState.PENDING_RESOLVE)
+
 
 def _stay(snapshot: AlertSnapshot) -> AlertCheckOutcome:
     return AlertCheckOutcome(
@@ -172,6 +192,57 @@ def _stay(snapshot: AlertSnapshot) -> AlertCheckOutcome:
         update_last_notified_at=False,
         error_message=None,
     )
+
+
+# A mute is about the alert's condition, not its health.
+_MUTABLE_NOTIFICATIONS = frozenset({NotificationAction.FIRE, NotificationAction.RESOLVE})
+
+
+def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
+    """Holds an announcement without changing what the check decided.
+
+    `update_last_notified_at` is held with it, so the cooldown keeps measuring real
+    notifications and an unmuted alert is not gated by a send that never happened.
+    """
+    if outcome.notification not in _MUTABLE_NOTIFICATIONS:
+        return outcome
+    return replace(
+        outcome,
+        notification=NotificationAction.NONE,
+        update_last_notified_at=False,
+        muted_notification=outcome.notification,
+    )
+
+
+def decide_firing_episode(
+    snapshot: AlertSnapshot, outcome: Outcome, now: datetime, *, policy: AlertPolicy
+) -> FiringEpisode | None:
+    """The firing this check concerns, or None when no firing is involved at all.
+
+    A check that leaves the state where it found it keeps the same firing, so an alert rides
+    through a failed or inconclusive check without starting a second one.
+
+    The rule lives here rather than in a product's persistence layer, because only a policy says
+    whether two states belong to one firing. Under `clear_check_ends_snooze` a breached alert
+    parks in SNOOZED with the firing still running underneath the mute, so a caller reading the
+    two state strings cannot tell that state from a resolve.
+    """
+    was_firing = snapshot.state in FIRING_STATES or (
+        policy.clear_check_ends_snooze and snapshot.state == AlertState.SNOOZED
+    )
+    if outcome.new_state == AlertState.SNOOZED:
+        if not (policy.clear_check_ends_snooze and was_firing):
+            return None
+        return FiringEpisode(started_at=snapshot.firing_started_at, ended=False)
+    if outcome.new_state in FIRING_STATES:
+        # A firing that began before the platform recorded starts keeps an unknown one rather
+        # than taking `now`, because a start later than `last_notified_at` would read as never
+        # announced.
+        started_at = snapshot.firing_started_at if was_firing else now
+        return FiringEpisode(started_at=started_at, ended=False)
+    if not was_firing:
+        return None
+    return FiringEpisode(started_at=snapshot.firing_started_at, ended=True)
 
 
 def evaluate_alert_check(
@@ -190,6 +261,10 @@ def evaluate_alert_check(
     suppresses evaluation when state is also SNOOZED — adopters must set both
     together on snooze (as logs' apply_snooze path does); a stray future
     `snooze_until` on a non-SNOOZED alert is not honored here.
+
+    Under `mute_gates_notification_only` a future `snooze_until` needs no companion state,
+    because it no longer decides whether the check runs. The check runs either way and the
+    announcement is held.
     """
     if snapshot.state == AlertState.BROKEN and policy.broken_is_terminal:
         # Terminal until a user reset — schedulers already exclude BROKEN alerts,
@@ -198,10 +273,17 @@ def evaluate_alert_check(
 
     snoozing = snapshot.snooze_until is not None and snapshot.snooze_until > now
 
-    if snapshot.state == AlertState.SNOOZED and snoozing and not policy.clear_check_ends_snooze:
-        return _stay(snapshot)
+    if policy.mute_gates_notification_only:
+        muted = snoozing or check.muted
+    else:
+        muted = False
+        if snapshot.state == AlertState.SNOOZED and snoozing and not policy.clear_check_ends_snooze:
+            return _stay(snapshot)
 
     if check.error_message is not None:
+        # Not muted: a failure announces ERROR or BROKEN, which describe the alert's health rather
+        # than its condition, and BROKEN stops further checks so a held announcement would never
+        # be released.
         return evaluate_alert_failure(
             snapshot,
             error_message=check.error_message,
@@ -252,7 +334,7 @@ def evaluate_alert_check(
         else:
             new_state = AlertState.NOT_FIRING
 
-    elif effective_state in (AlertState.FIRING, AlertState.PENDING_RESOLVE):
+    elif effective_state in FIRING_STATES:
         if breached:
             new_state = AlertState.FIRING
             if policy.renotify_while_firing:
@@ -278,13 +360,14 @@ def evaluate_alert_check(
         else:
             update_last_notified_at = True
 
-    return AlertCheckOutcome(
+    outcome = AlertCheckOutcome(
         new_state=new_state,
         notification=notification,
         consecutive_failures=0,
         update_last_notified_at=update_last_notified_at,
         error_message=None,
     )
+    return _muted(outcome) if muted else outcome
 
 
 def evaluate_alert_failure(
@@ -349,6 +432,18 @@ def apply_user_reset(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
     if snapshot.state != AlertState.BROKEN:
         raise InvalidTransition(f"Only broken alerts can be reset. Current state is {snapshot.state.value}.")
     return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
+
+
+def apply_broken_config(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
+    """A configuration that cannot be evaluated at all, whatever the data says.
+
+    The failure counter survives, because it records checks that ran and failed. A user who
+    fixes the configuration resets it through `apply_user_reset`.
+    """
+    return ControlPlaneOutcome(
+        new_state=AlertState.BROKEN,
+        consecutive_failures=snapshot.consecutive_failures,
+    )
 
 
 def apply_disable(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:

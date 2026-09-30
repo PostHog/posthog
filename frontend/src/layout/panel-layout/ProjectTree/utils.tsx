@@ -481,6 +481,21 @@ export function joinPath(path: string[]): string {
     return path.map(escapePath).join('/')
 }
 
+export interface ShortcutInput {
+    path: string
+    type?: string
+    ref?: string
+    href?: string
+}
+
+// The shortcut row that stars an entry: a folder is linked by its path, anything else by its ref or href.
+export function shortcutFromEntry(item: FileSystemEntry | FileSystemImport): ShortcutInput {
+    const path = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
+    return item.type === 'folder'
+        ? { path, type: 'folder', ref: item.path }
+        : { path, type: (item as FileSystemImport).iconType || item.type, ref: item.ref, href: item.href }
+}
+
 // A product shortcut keeps the path it had when starred, so a renamed product only matches it by href.
 export function findProductShortcut(
     item: Pick<FileSystemImport, 'path' | 'href'>,

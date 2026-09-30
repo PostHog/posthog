@@ -131,7 +131,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# IF UPDATING THIS, ALSO RUN `pnpm run taxonomy:build` to update core-filter-definitions-by-group.json
+# IF UPDATING THIS, ALSO RUN `hogli build:projections` to update core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -2546,6 +2546,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
             "examples": [True, False],
         },
+        "$ai_evaluation_probability": {
+            "label": "AI evaluation probability",
+            "description": "The probability of a true verdict for a boolean evaluation.",
+            "examples": [0.9],
+            "type": "Numeric",
+        },
+        "$ai_evaluation_categorical_result": {
+            "label": "AI evaluation categorical result",
+            "description": "The category keys returned by an online evaluation. An empty list is an applicable result with no matching categories.",
+            "examples": ['["resolved"]', '["fast", "reliable"]', "[]"],
+        },
         "$ai_evaluation_numeric_result": {
             "label": "AI evaluation numeric result",
             "description": "The raw numeric score returned by an online evaluation.",
@@ -3061,8 +3072,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_protocol_version": {
             "label": "MCP protocol version",
-            "description": "The MCP protocol version negotiated between client and server during initialize.",
-            "examples": ["2025-11-25", "2025-06-18"],
+            "description": "The MCP protocol revision the request was made under, such as 2025-11-25 or 2026-07-28.",
+            "examples": ["2025-11-25", "2025-06-18", "2026-07-28"],
         },
         "$mcp_transport": {
             "label": "MCP transport",
