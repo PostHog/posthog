@@ -320,14 +320,15 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                                         sourceRunId,
                                                         notifyOwners
                                                     ) => {
-                                                        identifiers.forEach((identifier) =>
+                                                        identifiers.forEach((identifier, index) =>
                                                             quarantineIdentifier(
                                                                 identifier,
                                                                 entry.run_type,
                                                                 reason,
                                                                 expiresAt,
                                                                 sourceRunId,
-                                                                notifyOwners
+                                                                // One notice per story, not per theme variant.
+                                                                notifyOwners && index === 0
                                                             )
                                                         )
                                                     }}

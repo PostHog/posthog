@@ -661,14 +661,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             const effectiveSourceRunId = sourceRunId ?? run.id
             try {
                 await Promise.all(
-                    identifiers.map((identifier) =>
+                    identifiers.map((identifier, index) =>
                         visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, run.run_type, {
                             identifier,
                             reason,
                             expires_at: expiresAt,
                             source_run_id: effectiveSourceRunId,
-                            // Theme variants of one story share a team, and the backend sends it one notice.
-                            notify_owners: notifyOwners,
+                            // Theme variants of one story share a team, so only the first asks for a notice.
+                            notify_owners: notifyOwners && index === 0,
                         })
                     )
                 )

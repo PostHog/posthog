@@ -361,7 +361,7 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
         quarantineIdentifier: async ({ reason, identifiers, expiresAt, sourceRunId, notifyOwners }) => {
             try {
                 await Promise.all(
-                    identifiers.map((identifier) =>
+                    identifiers.map((identifier, index) =>
                         visualReviewReposQuarantineCreate(
                             String(values.currentProjectId),
                             props.repoId,
@@ -373,8 +373,8 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                                 // Forward the prior source when extending — keeps the "view
                                 // the failing run" link intact across renewals.
                                 source_run_id: sourceRunId,
-                                // Theme variants of one story share a team, and the backend sends it one notice.
-                                notify_owners: notifyOwners,
+                                // Theme variants of one story share a team, so only the first asks for a notice.
+                                notify_owners: notifyOwners && index === 0,
                             }
                         )
                     )

@@ -140,13 +140,7 @@ export function QuarantineModal({
         if (!isExtend && sibling && includeSibling) {
             identifiers.push(sibling)
         }
-        onQuarantine(
-            reason,
-            identifiers,
-            expiresAt ? expiresAt.toISOString() : null,
-            sourceRunId ?? null,
-            !isExtend && notifyOwners
-        )
+        onQuarantine(reason, identifiers, expiresAt ? expiresAt.toISOString() : null, sourceRunId ?? null, notifyOwners)
         onClose()
     }
 
