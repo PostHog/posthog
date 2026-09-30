@@ -83,7 +83,7 @@ EDITABLE_PAGE = """# Session replay
 
 Old intro.
 
-## What does it capture?
+  ## What does it capture?
 
 Clicks.
 
@@ -142,7 +142,7 @@ class TestApplyEdits(SimpleTestCase):
             (
                 "replacing_the_intro_keeps_the_title",
                 PageEdit(action="replace_intro", heading="", markdown="New answer."),
-                ["# Session replay", "New answer.", "## What does it capture?"],
+                ["# Session replay", "New answer.", "  ## What does it capture?"],
                 ["Old intro."],
                 (),
             ),

@@ -6,7 +6,7 @@ from posthog.dataclasses import frozen
 EditAction = Literal["replace_intro", "replace_section", "insert_after_section", "append"]
 EDIT_ACTIONS: tuple[EditAction, ...] = get_args(EditAction)
 
-_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
+_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
 _FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}(?=[^`]*$)|~{3,})")
 _FENCE_CLOSE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 _FAQ_RE = re.compile(r"frequently asked questions|^faqs?$")
@@ -47,7 +47,7 @@ class _Section:
 
 def _heading(line: str) -> tuple[int, str] | None:
     match = _HEADING_RE.match(line)
-    return (len(match.group(1)), match.group(2)) if match else None
+    return (len(match.group(1)), match.group(2) or "") if match else None
 
 
 def _normalize(heading: str) -> str:
