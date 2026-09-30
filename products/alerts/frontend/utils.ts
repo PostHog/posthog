@@ -78,6 +78,9 @@ export function getActiveAlertsTab({
     if (canViewLogAlerts) {
         return AlertsTab.LOGS
     }
+    if (canViewPlatformAlerts) {
+        return AlertsTab.PLATFORM
+    }
     return null
 }
 
@@ -94,7 +97,7 @@ export function getAlertsTabs({
         tabs.push({ key: AlertsTab.LOGS, label: 'Log alerts' })
     }
     if (canViewPlatformAlerts) {
-        tabs.push({ key: AlertsTab.PLATFORM, label: 'Platform' })
+        tabs.push({ key: AlertsTab.PLATFORM, label: 'Platform alerts' })
     }
     return tabs
 }

@@ -35,6 +35,8 @@ export interface platformAlertsLogicActions {
 
 export type platformAlertsLogicType = MakeLogicType<platformAlertsLogicValues, platformAlertsLogicActions>
 
+const PAGE_SIZE = 500
+
 export const platformAlertsLogic = kea<platformAlertsLogicType>([
     path(['products', 'alerts', 'frontend', 'logic', 'platformAlertsLogic']),
 
@@ -47,9 +49,18 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
             null as PlatformAlertConfigurationApi[] | null,
             {
                 loadPlatformAlerts: async (_ = null, breakpoint) => {
-                    const response = await platformAlertsList(String(values.currentTeamId), { limit: 500 })
-                    breakpoint()
-                    return response.results
+                    const configurations: PlatformAlertConfigurationApi[] = []
+                    let hasMore = true
+                    while (hasMore) {
+                        const response = await platformAlertsList(String(values.currentTeamId), {
+                            limit: PAGE_SIZE,
+                            offset: configurations.length,
+                        })
+                        breakpoint()
+                        configurations.push(...response.results)
+                        hasMore = !!response.next && response.results.length > 0
+                    }
+                    return configurations
                 },
             },
         ],

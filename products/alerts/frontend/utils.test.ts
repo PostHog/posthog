@@ -48,6 +48,15 @@ describe('alerts utils', () => {
                 expected: AlertsTab.PLATFORM,
             },
             {
+                name: 'defaults to the platform tab when it is the only available tab',
+                alertId: null,
+                requestedTab: undefined,
+                canViewInsightAlerts: false,
+                canViewLogAlerts: false,
+                canViewPlatformAlerts: true,
+                expected: AlertsTab.PLATFORM,
+            },
+            {
                 name: 'falls back to insight alerts when the platform tab is requested without the flag',
                 alertId: null,
                 requestedTab: AlertsTab.PLATFORM,

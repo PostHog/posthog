@@ -12,7 +12,7 @@ import {
 import { platformAlertsLogic } from '../logic/platformAlertsLogic'
 
 const STATE_TAGS: Record<BillingAlertConfigurationStateEnumApi, { label: string; type: LemonTagType }> = {
-    [BillingAlertConfigurationStateEnumApi.NotFiring]: { label: 'OK', type: 'success' },
+    [BillingAlertConfigurationStateEnumApi.NotFiring]: { label: 'Not firing', type: 'default' },
     [BillingAlertConfigurationStateEnumApi.Firing]: { label: 'Firing', type: 'danger' },
     [BillingAlertConfigurationStateEnumApi.Errored]: { label: 'Errored', type: 'danger' },
     [BillingAlertConfigurationStateEnumApi.Snoozed]: { label: 'Snoozed', type: 'muted' },
@@ -92,7 +92,6 @@ export function PlatformAlerts(): JSX.Element {
                 action={{
                     children: 'Try again',
                     onClick: () => loadPlatformAlerts(),
-                    loading: platformAlertsLoading,
                     'data-attr': 'platform-alerts-retry',
                 }}
             >
