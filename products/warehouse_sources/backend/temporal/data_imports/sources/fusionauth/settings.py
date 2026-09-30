@@ -13,7 +13,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class FusionAuthEndpointConfig:
     name: str
     path: str
