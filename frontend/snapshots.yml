@@ -2812,6 +2812,14 @@ snapshots:
         hash: v1.k794b7964.7cb2348662f942bc00e904aca1cf74990ac3b8e25549be308b29e907c156d0eb.WQ5R8L0lbbFdH9oG3RShU2S1nHfj_SHpnz9PrjLAx6A
     errortracking-volumesparkline--events-before-data-range--light:
         hash: v1.k794b7964.c88c4e3b028915efba3fdbbac7107a063662d8210dfb6ba8667e96d719fa3d4f.tzwEQFa4F1f1O9PGqBkcaqSavbFVgAwPAjyh9Uf9NL8
+    experiments-replayvisionscannercard--off--dark:
+        hash: v1.k794b7964.cdbe69e03ff3a0838fc68d73f19c7769d7228129f42c095a6facb4a0cb68348a.SRjYRrJddFyhXVuEhe8awfBB2sM_n6ZmlW6ZLAik6cU
+    experiments-replayvisionscannercard--off--light:
+        hash: v1.k794b7964.55264f2628df2684102fdcc823da34b7cae72147efe12207cb52be637ad2179b.p34wJU8-03ua2Ty-N6yncmLgNztuItIAmAQyS9wWjo0
+    experiments-replayvisionscannercard--on--dark:
+        hash: v1.k794b7964.86aa7fd8def29f543c5e5a629bb400711340df28044a3be3e0135bcf5eb5bcfc.sgE4a6uegmmffR39B5IdZbpDkLx-lbXhVNjPkeW10YQ
+    experiments-replayvisionscannercard--on--light:
+        hash: v1.k794b7964.4730e61e31d84d00d23cf368ec95aad7d5c8b4d3b3136b355b5320b961bc9c98.kzGX189cqWhNE-5udrFu-DbS6-YW1I0HEbZ5cRZyABA
     experiments-varianttimeseriestooltip--pending-day--dark:
         hash: v1.k794b7964.97727c0656cd286fbe329fe68ea8b0b635911b169247a8b45ecc5a6571563509.V2WbyXdFPiGIw4bJpjP7eoK2QZW4iqJo9w68-A_60wM
     experiments-varianttimeseriestooltip--pending-day--light:
