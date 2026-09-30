@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -188,6 +190,12 @@ def _list_params(config: GitGuardianEndpointConfig) -> dict[str, Any]:
     return params
 
 
+@frozen
+class _GitGuardianPage:
+    url: str
+    rows: list[dict[str, Any]]
+
+
 def _iter_pages(
     session: requests.Session,
     url: str,
@@ -195,7 +203,7 @@ def _iter_pages(
     base_url: str,
     endpoint: str,
     logger: FilteringBoundLogger,
-) -> Iterator[tuple[str, list[dict[str, Any]]]]:
+) -> Iterator[_GitGuardianPage]:
     """Walk the Link-header cursor from `url`, yielding each page's fetch URL and rows."""
     while True:
         response = _fetch_page(session, url, headers, logger)
@@ -206,7 +214,7 @@ def _iter_pages(
             raise ValueError(f"GitGuardian returned a non-list response for {endpoint}: {type(rows).__name__}")
         next_url = _next_page_url(response)
 
-        yield url, rows
+        yield _GitGuardianPage(url=url, rows=rows)
 
         if not next_url:
             break
@@ -223,18 +231,18 @@ def _get_fan_out_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     parent_url = _build_url(base_url, parent.path, _list_params(parent))
 
-    for _, parent_rows in _iter_pages(session, parent_url, headers, base_url, parent.name, logger):
-        for parent_row in parent_rows:
+    for page in _iter_pages(session, parent_url, headers, base_url, parent.name, logger):
+        for parent_row in page.rows:
             parent_id = parent_row.get("id")
             if parent_id is None:
                 continue
             path = config.path.format(parent_id=quote(str(parent_id), safe=""))
             try:
-                for _, rows in _iter_pages(
+                for page in _iter_pages(
                     session, _build_url(base_url, path, _list_params(config)), headers, base_url, config.name, logger
                 ):
-                    if rows:
-                        yield rows
+                    if page.rows:
+                        yield page.rows
             except requests.HTTPError as e:
                 # The parent can be deleted between listing it and fetching its children.
                 if e.response is not None and e.response.status_code == 404:
@@ -289,14 +297,15 @@ def get_rows(
         else _build_url(base_url, config.path, params)
     )
 
-    for page_url, rows in _iter_pages(session, url, headers, base_url, endpoint, logger):
+    for page in _iter_pages(session, url, headers, base_url, endpoint, logger):
+        rows = page.rows
         if rows:
             if config.excluded_fields:
                 rows = [{k: v for k, v in row.items() if k not in config.excluded_fields} for row in rows]
             yield rows
         # Checkpoint the CURRENT page's URL after yielding, so a crash re-fetches this page.
         if config.resumable:
-            resumable_source_manager.save_state(GitGuardianResumeConfig(url=page_url))
+            resumable_source_manager.save_state(GitGuardianResumeConfig(url=page.url))
 
     # The walk finished cleanly, so drop the checkpoint. Otherwise a retry that re-runs extract
     # after a completed walk would resume from the final page and skip everything before it.

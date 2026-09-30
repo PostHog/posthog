@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -51,7 +52,7 @@ class _FakeManager:
 def _run_get_rows(
     monkeypatch: Any,
     endpoint: str,
-    responses: list[MagicMock | Exception],
+    responses: Sequence[MagicMock | Exception],
     manager: _FakeManager | None = None,
     **kwargs: Any,
 ) -> tuple[list[dict], list[str], _FakeManager]:
