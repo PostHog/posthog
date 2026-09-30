@@ -16,5 +16,6 @@ def find_behavioral_cohort_name(project_id: int, cohort_ids: list) -> str | None
             if dep.is_static:
                 continue
             if any(p.type == "behavioral" for p in dep.properties.flat):
-                return dep.name
+                # Cohort.name is nullable, and the caller reads None as "no behavioral cohort".
+                return str(dep.name)
     return None
