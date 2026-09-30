@@ -2450,14 +2450,6 @@
             ],
             "label": "MCP scope preset"
         },
-        "$mcp_server_build": {
-            "description": "The git commit (12 hex characters) PostHog's MCP server was built from, or `dev` outside a release build. $mcp_server_version stays the protocol-facing version clients display; use this one to tie a change in behaviour to the deploy that shipped it.",
-            "examples": [
-                "b3b941584ba0",
-                "dev"
-            ],
-            "label": "MCP server build"
-        },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": [
@@ -4919,14 +4911,6 @@
                 "user"
             ],
             "label": "MCP scope preset"
-        },
-        "$mcp_server_build": {
-            "description": "The git commit (12 hex characters) PostHog's MCP server was built from, or `dev` outside a release build. $mcp_server_version stays the protocol-facing version clients display; use this one to tie a change in behaviour to the deploy that shipped it.",
-            "examples": [
-                "b3b941584ba0",
-                "dev"
-            ],
-            "label": "MCP server build"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
@@ -7881,14 +7865,6 @@
                 "user"
             ],
             "label": "MCP scope preset"
-        },
-        "$mcp_server_build": {
-            "description": "The git commit (12 hex characters) PostHog's MCP server was built from, or `dev` outside a release build. $mcp_server_version stays the protocol-facing version clients display; use this one to tie a change in behaviour to the deploy that shipped it.",
-            "examples": [
-                "b3b941584ba0",
-                "dev"
-            ],
-            "label": "MCP server build"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",

@@ -104,8 +104,6 @@ rows where `$mcp_input_keys` is set, not against every `$mcp_tool_call`. Group t
 `$mcp_client_name` to see which spelling each agent reaches for and how much of it the alias layer
 absorbs. A tool that wraps `normalizeParamAliases` inside its own preprocess (`read-data-schema`)
 reads as alias-free.
-`$mcp_server_build` is the git commit the server was built from (`dev` locally); prefer it to
-`$mcp_server_version`, which is the protocol-facing constant, when tying a change to a deploy.
 A `learn` call also carries `exec_learn_kind` (`search`, `load`, `list` for `learn skills` and a bare `learn`, `describe`, `guide`),
 stamped before the availability check so a rejected skill command still records its form, plus
 the raw `exec_search_query` for `search` (and for a `load` that searches inside the skill with `-s`) and `exec_learn_target` (the qualified skill) for `load`.

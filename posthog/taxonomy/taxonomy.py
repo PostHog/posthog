@@ -2972,11 +2972,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
             "examples": ["experiment-get", "unrecognized"],
         },
-        "$mcp_server_build": {
-            "label": "MCP server build",
-            "description": "The git commit (12 hex characters) PostHog's MCP server was built from, or `dev` outside a release build. $mcp_server_version stays the protocol-facing version clients display; use this one to tie a change in behaviour to the deploy that shipped it.",
-            "examples": ["b3b941584ba0", "dev"],
-        },
         "$mcp_auth_method": {
             "label": "MCP auth method",
             "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection — for example when a user works around a broken OAuth flow by switching to a personal API key.",
