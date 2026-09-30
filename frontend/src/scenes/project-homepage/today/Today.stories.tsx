@@ -271,12 +271,14 @@ export const SpacesPane: Story = {
 
 async function selectTwoSessions({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByLabelText('Spaces'))
-    await userEvent.keyboard('{Meta>}')
-    await userEvent.click(await canvas.findByText('Fix the flaky checkout test'))
-    await userEvent.keyboard('{/Meta}{Shift>}')
-    await userEvent.click(await canvas.findByText('Add a retry to the billing webhook'))
-    await userEvent.keyboard('{/Shift}')
+    // One session keeps the held modifier keys across calls.
+    const user = userEvent.setup()
+    await user.click(await canvas.findByLabelText('Spaces'))
+    await user.keyboard('{Meta>}')
+    await user.click(await canvas.findByText('Fix the flaky checkout test'))
+    await user.keyboard('{/Meta}{Shift>}')
+    await user.click(await canvas.findByText('Add a retry to the billing webhook'))
+    await user.keyboard('{/Shift}')
 }
 
 export const SpacesPaneWithSelectedSessions: Story = {
