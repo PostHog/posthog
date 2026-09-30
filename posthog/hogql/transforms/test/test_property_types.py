@@ -1890,6 +1890,13 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 [("x", "x", "2", "1", 2.0), (None, None, None, None, None), (None, None, None, None, None)],
             ),
             (
+                "array_index_on_a_declared_array",
+                "SELECT properties.$exception_functions[-1], properties.$exception_functions.1",
+                None,
+                None,
+                [("second", "first"), (None, None), (None, None)],
+            ),
+            (
                 "percent_in_key",
                 "SELECT JSONExtractString(properties, 'completion%'), JSONHas(properties, 'completion%'), "
                 "JSONExtractRaw(properties, 'completion%'), JSONExtractInt(properties, 'completion%')",
@@ -1926,6 +1933,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                     "arr_obj": [{"id": 1}],
                     "completion%": "50",
                     "by_tier": {"gold": "ok"},
+                    "$exception_functions": ["first", "second"],
                     "$set": {"email": "user@example.com"},
                     "$set_once": {"tier": "gold"},
                 },

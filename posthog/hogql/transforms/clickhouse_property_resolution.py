@@ -52,6 +52,7 @@ from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.events_json import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
+    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX,
     TEMPORARY_EVENT_PROPERTY_ROOTS,
     TEMPORARY_PROPERTIES_COLUMN,
@@ -394,24 +395,50 @@ def _materialized_head_expr(
 
 def _json_subcolumn_access(
     field_type: ast.FieldType,
-    keys: Sequence[str],
+    keys: Sequence[str | int],
     *,
     source: MaterializedPropertySource,
     is_nullable: bool,
     access_type: Literal["path", "sub_object"] = "path",
 ) -> ast.Expr:
+    path: list[str] = []
+    for key in keys:
+        if not isinstance(key, str):
+            break
+        path.append(key)
     json_field = (
         ast.Field(chain=[field_type.name], type=field_type)
         if source.json_column is None
         else _synthetic_column_field(field_type, source.json_column, is_nullable=False)
     )
     assert json_field is not None
-    return ast.JsonSubcolumnAccess(
+    value: ast.Expr = ast.JsonSubcolumnAccess(
         expr=json_field,
-        keys=list(keys),
+        keys=path,
         access_type=access_type,
         type=_column_constant_type_for_read(source, is_nullable=is_nullable),
     )
+    for key in keys[len(path) :]:
+        if isinstance(key, int):
+            value = ast.ArrayAccess(array=value, property=ast.Constant(value=key), type=ast.StringType(nullable=True))
+        else:
+            value = ast.JsonSubcolumnAccess(expr=value, keys=[key], type=ast.StringType(nullable=True))
+    return value
+
+
+def _is_declared_array_path(
+    field_type: ast.FieldType, keys: Sequence[str | int], source: MaterializedPropertySource
+) -> bool:
+    """Whether the native events table declares an array type for the path, so that every row holds an array there."""
+    if source.json_column is not None or field_type.name != "properties":
+        return False
+    table_type: ast.Type | None = field_type.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    if not isinstance(table_type, ast.TableType):
+        return False
+    declared_type = EVENTS_PROPERTIES_JSON_SUBCOLUMNS.get(".".join(str(key) for key in keys), "")
+    return declared_type.startswith("Array(")
 
 
 def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
@@ -552,7 +579,7 @@ def _json_subcolumn_value_expr(
     as_json: bool = False,
 ) -> ast.Expr:
     index_position = next((position for position, key in enumerate(keys) if isinstance(key, int)), None)
-    if index_position is not None:
+    if index_position is not None and not _is_declared_array_path(field_type, keys[:index_position], source):
         # ClickHouse runs arrayElement on every type a Dynamic path holds in the block, so one row with a string or
         # a number at the path fails the whole query. Index the JSON text of the value instead, as the legacy table
         # indexes the raw document, so that such a row reads NULL.
@@ -561,8 +588,7 @@ def _json_subcolumn_value_expr(
         )
         return ast.PropertyAccess(expr=document, keys=list(keys[index_position:]), type=ast.StringType(nullable=True))
 
-    string_keys = cast(Sequence[str], keys)
-    value = _json_subcolumn_access(field_type, string_keys, source=source, is_nullable=True)
+    value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
     scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
     scalar_or_null = ast.Call(
         name="if",
@@ -578,7 +604,9 @@ def _json_subcolumn_value_expr(
         ],
         type=ast.StringType(nullable=True),
     )
-    object_value = _dynamic_json_object_string_expr(field_type, list(string_keys), source=source)
+    if index_position is not None:
+        return scalar_or_null
+    object_value = _dynamic_json_object_string_expr(field_type, list(cast(Sequence[str], keys)), source=source)
     return ast.Call(
         name="if",
         args=[_call("notEquals", [clone_expr(object_value), _sentinel("{}")]), object_value, scalar_or_null],
