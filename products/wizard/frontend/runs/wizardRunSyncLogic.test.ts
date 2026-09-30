@@ -53,11 +53,11 @@ describe('wizardRunSyncLogic', () => {
 
         expect(mockWizardRunsList).toHaveBeenCalledWith('1', {
             status: ['created', 'running'],
-            created_after: '2026-09-28T14:20:13Z',
+            created_after: '2026-09-28T00:00:00Z',
             limit: 5,
         })
         expect(mockWizardRunsList).toHaveBeenCalledWith('1', {
-            created_after: '2026-09-28T14:20:13Z',
+            created_after: '2026-09-28T00:00:00Z',
             limit: 5,
         })
         expect(logic.values.activeCount).toBe(2)
@@ -136,7 +136,7 @@ describe('wizardRunSyncLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             expect(mockWizardRunsList).toHaveBeenCalledWith('1', {
-                created_after: '2026-09-28T14:20:13Z',
+                created_after: '2026-09-28T00:00:00Z',
                 limit: 5,
             })
             expect(logic.values.run).toEqual(terminal)
