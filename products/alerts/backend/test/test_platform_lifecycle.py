@@ -36,19 +36,20 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             )
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
 
-    def _record(self, now: datetime | None = None, **overrides) -> None:
+    def _record(self, *, at: datetime | None = None, **overrides) -> None:
+        at = at or self.cutoff
         fields = {
             "configuration_id": self.configuration.id,
-            "evaluation_key": f"window:{self.cutoff.isoformat()}",
             "kind": AlertEventKind.FIRING,
             "new_state": "firing",
             "notified": True,
             "consecutive_failures": 0,
         }
+        fields["evaluation_key"] = f"window:{at.isoformat()}"
         fields.update(overrides)
         # History rides `transaction.on_commit`, which a `TestCase` transaction never reaches.
         with self.captureOnCommitCallbacks(execute=True):
-            record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], now or self.cutoff)
+            record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], at)
 
     def _alert(self) -> PlatformAlert:
         with team_scope(self.team.id):
@@ -62,7 +63,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         self._record(
             new_state="not_firing",
             firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
-            now=self.cutoff + timedelta(hours=1),
+            at=self.cutoff + timedelta(hours=1),
         )
         assert self._alert().firing_started_at is None
 

@@ -222,11 +222,23 @@ class PlatformAlertOutcome:
 
 @frozen
 class GroupTransition:
-    """One transition a delivery would carry. `grouping_key` is empty until a source groups,
-    so delivery reads a list of one today and a list of N when fan-out ships."""
+    """One transition a delivery carries, with everything a message renders from.
+
+    `grouping_key` is empty until a source groups, so delivery reads a list of one today and a
+    list of N when fan-out ships.
+
+    Only bounded facts travel here. The condition and the source config a message also needs are
+    on the history row, which `evaluation_key` addresses: `source_config` is an unbounded filter
+    tree, and one per transition would blow the activity payload bound that
+    `MAX_PREVIEWS_PER_CYCLE` was sized against.
+    """
 
     grouping_key: str
     notification: str
+    kind: AlertEventKind
+    previous_state: str
+    state: str
+    value: float | None = None
 
 
 @frozen

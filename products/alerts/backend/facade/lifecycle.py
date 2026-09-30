@@ -163,6 +163,7 @@ class AlertCheckOutcome:
     disable: bool = False
     # What a mute held back, so a muted fire is distinguishable from a check that said nothing.
     muted_notification: NotificationAction = NotificationAction.NONE
+    # The alert is firing and nobody was told, so the next unmuted check has to announce it.
 
 
 @dataclass(frozen=True)
@@ -214,6 +215,21 @@ def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
     )
 
 
+def firing_is_unannounced(snapshot: AlertSnapshot) -> bool:
+    """Whether the firing the alert is in was never announced, so one is still owed.
+
+    Derived rather than stored, because the two timestamps already say it: a firing that was
+    announced has a notification at or after its start. A mute, a cooldown or any other gate
+    leaves `last_notified_at` behind the start, which is exactly the set of fires still owed.
+
+    A firing that began before the platform recorded starts has no start to compare, and reads as
+    announced. Reading it the other way re-fires it on every later check, forever.
+    """
+    if snapshot.firing_started_at is None:
+        return False
+    return snapshot.last_notified_at is None or snapshot.last_notified_at < snapshot.firing_started_at
+
+
 def decide_firing_episode(
     snapshot: AlertSnapshot, outcome: Outcome, now: datetime, *, policy: AlertPolicy
 ) -> FiringEpisode | None:
@@ -246,6 +262,22 @@ def decide_firing_episode(
 
 
 def evaluate_alert_check(
+    snapshot: AlertSnapshot,
+    check: CheckInput,
+    now: datetime,
+    *,
+    policy: AlertPolicy,
+) -> AlertCheckOutcome:
+    """Decide the transition for one scheduled/manual check, and whether a fire is still owed.
+
+    The held fire is resolved here rather than inside `_decide`, so every early return carries it.
+    A check that reaches no verdict leaves the alert firing, and clearing the flag there would
+    lose the announcement the mute was holding.
+    """
+    return _decide(snapshot, check, now, policy=policy)
+
+
+def _decide(
     snapshot: AlertSnapshot,
     check: CheckInput,
     now: datetime,
@@ -310,7 +342,11 @@ def evaluate_alert_check(
             error_message=None,
         )
 
-    if snapshot.state == AlertState.SNOOZED:
+    if policy.mute_gates_notification_only and not muted and firing_is_unannounced(snapshot):
+        # Re-evaluating from scratch is what makes a condition that survived the mute announce
+        # itself, and is what the SNOOZED branch below does for an expired snooze.
+        effective_state = AlertState.NOT_FIRING
+    elif snapshot.state == AlertState.SNOOZED:
         # clear_check_ends_snooze: a snoozed alert was breached when parked, so a clear
         # check resolves it (FIRING-like). Otherwise the snooze simply expired and the
         # alert re-evaluates from scratch.

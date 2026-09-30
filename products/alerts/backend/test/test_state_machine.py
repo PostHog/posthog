@@ -14,6 +14,7 @@ from products.alerts.backend.facade.lifecycle import (
     NotificationAction,
     decide_firing_episode,
     evaluate_alert_check,
+    firing_is_unannounced,
 )
 
 NOW = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
@@ -286,6 +287,22 @@ class TestPolicyDecisionTable:
                 NotificationAction.NONE,
             ),
             (
+                "unmute_announces_a_held_fire",
+                snapshot(state=AlertState.FIRING, firing_started_at=NOW, last_notified_at=None),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+                NotificationAction.NONE,
+            ),
+            (
+                "unmute_stays_quiet_when_the_condition_cleared",
+                snapshot(state=AlertState.FIRING, firing_started_at=NOW, last_notified_at=None),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
                 "an_unmuted_check_still_announces",
                 snapshot(),
                 BREACH,
@@ -310,6 +327,30 @@ class TestPolicyDecisionTable:
         assert outcome.muted_notification == expected_muted
         if expected_muted is not NotificationAction.NONE:
             assert outcome.update_last_notified_at is False
+
+    @parameterized.expand(
+        [
+            ("never_fired", None, None, False),
+            ("announced_at_the_start", NOW, NOW, False),
+            ("announced_after_the_start", NOW, NOW + timedelta(minutes=1), False),
+            ("a_mute_held_the_first_fire_ever", NOW, None, True),
+            # A firing that began after the last notification was never announced, whatever
+            # suppressed it. A mute is one gate; a cooldown inside its window is another, and the
+            # stored flag reported only the first.
+            ("a_gate_suppressed_the_fire", NOW, NOW - timedelta(minutes=20), True),
+            # No start to compare. Reading this as unannounced re-fires it on every later check.
+            ("a_firing_older_than_recorded_starts", None, NOW - timedelta(hours=1), False),
+        ]
+    )
+    def test_when_a_firing_is_still_owed_an_announcement(
+        self,
+        _name: str,
+        firing_started_at: datetime | None,
+        last_notified_at: datetime | None,
+        expected: bool,
+    ) -> None:
+        snap = snapshot(firing_started_at=firing_started_at, last_notified_at=last_notified_at)
+        assert firing_is_unannounced(snap) is expected
 
     def test_inconclusive_preserves_failure_counter(self) -> None:
         outcome = evaluate_alert_check(

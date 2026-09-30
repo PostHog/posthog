@@ -309,14 +309,24 @@ def _delivery(
         source=SourceKind.LOGS,
         alert_id=str(check.id),
         alert_name=check.name,
-        # The recorded key, not a second construction of one. This becomes the delivery child
-        # workflow id, so a key without the slot lets two scheduled checks that clamped to the
-        # same window end collide and drops the later announcement.
+        # The recorded key, prefixed by the alert. This becomes the delivery child workflow id,
+        # which has to be unique across every alert: the row key is scoped to its alert by the
+        # row's own columns, so on its own it collides between two alerts in one slot. Without
+        # the slot it collides between two checks of one alert that clamped to the same window.
         evaluation_key=f"{check.id}:{recorded.evaluation_key}",
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
-        transitions=(GroupTransition(grouping_key="", notification=outcome.notification.value),),
+        transitions=(
+            GroupTransition(
+                grouping_key="",
+                notification=outcome.notification.value,
+                kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
+                previous_state=check.state,
+                state=outcome.new_state.value,
+                value=value,
+            ),
+        ),
     )
 
 

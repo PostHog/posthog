@@ -269,17 +269,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
         kwargs = query.call_args.kwargs
         assert kwargs["date_to"] - kwargs["date_from"] == timedelta(minutes=expected_lookback_minutes)
 
-    def test_the_evaluation_key_comes_from_the_tick_occasion_not_the_clock(self) -> None:
+    def test_a_preview_and_its_recorded_outcome_name_the_same_evaluation(self) -> None:
         configuration = self._configuration(next_check_at=None)
 
         evaluation, _ = self._run(configuration)
 
-        # The preview key is the recorded key, so the slot travels with it. It becomes the
-        # delivery workflow id, and a window-only id lets two checks that clamped to the same
-        # window end collide and drops the later announcement.
+        # The preview key is the recorded key prefixed by the alert, because it becomes the
+        # delivery workflow id. Dropping the prefix collides between alerts in one slot; dropping
+        # the slot collides between two checks of one alert clamped to the same window.
         assert [p.evaluation_key for p in evaluation.previews] == [
-            f"{configuration.id}:slot:{self.cutoff.isoformat()}|window:{self.cutoff.isoformat()}"
+            f"{configuration.id}:{evaluation.outcomes[0].evaluation_key}"
         ]
+        assert self.cutoff.isoformat() in evaluation.outcomes[0].evaluation_key
 
 
 class TestEvaluationTimeoutLadder(SimpleTestCase):
