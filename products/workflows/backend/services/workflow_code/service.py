@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from copy import deepcopy
-from functools import cache
+from functools import cache, partial
 from typing import Any, Optional
 
 from django.db import IntegrityError, transaction
@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 from rest_framework import exceptions, serializers
 
 from posthog.dataclasses import frozen
+from posthog.models.integration import Integration
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -26,6 +27,7 @@ from products.workflows.backend.services.workflow_code.compiler import (
     FunctionTemplate,
     compile_document,
     definition_errors,
+    sender_errors,
     template_errors,
     with_stored_editor_fields,
 )
@@ -116,7 +118,7 @@ class WorkflowCode:
             raise _rejected(invalid, loaded) from invalid
 
     def _plan(self, loaded: LoadedContent) -> CodePlan:
-        compiled, key = _compile(loaded)
+        compiled, key = _compile(loaded, self._team_id)
         workflow = self._find_workflow(key, required_level="viewer")
         validated = self._validated(compiled, workflow).validated_data
         if workflow is None:
@@ -124,11 +126,11 @@ class WorkflowCode:
         else:
             counts = self._count_in_flight(workflow)
             plan = _plan_update(key, workflow, validated, counts, staged=self._stages_active_content(workflow))
-        self._refuse_status_change_through_mcp(plan)
+        self._refuse_status_change(plan)
         return plan
 
     def _apply(self, loaded: LoadedContent) -> WorkflowCodeApplied:
-        compiled, key = _compile(loaded)
+        compiled, key = _compile(loaded, self._team_id)
         workflow = self._find_workflow(key, required_level="editor")
         if workflow is None:
             return self._create(compiled, key)
@@ -140,7 +142,7 @@ class WorkflowCode:
             raise exceptions.PermissionDenied("You don't have access to create workflows in this project.")
         validated = self._validated(compiled, None)
         plan = plan_create(_state(validated.validated_data, content=validated.validated_data))
-        self._refuse_status_change_through_mcp(plan)
+        self._refuse_status_change(plan)
         try:
             # A savepoint, so a lost race on the key leaves the request's transaction usable.
             with transaction.atomic():
@@ -164,7 +166,7 @@ class WorkflowCode:
         def validate(locked: HogFlow, stored: HogFlow, staged: bool) -> Optional[ValidatedWorkflow]:
             validated = self._validated(compiled, locked)
             plan = _plan_update(key, stored, validated.validated_data, counts, staged=staged)
-            self._refuse_status_change_through_mcp(plan)
+            self._refuse_status_change(plan)
             plans.append(plan)
             return None if plan.result == WorkflowCodePlanResult.UNCHANGED else validated
 
@@ -189,8 +191,10 @@ class WorkflowCode:
         # Through MCP, publish and its confirm token stay the only way content goes live on an active workflow.
         return self._writer.stages_as_draft(workflow, stage_active=self._through_mcp)
 
-    def _refuse_status_change_through_mcp(self, plan: CodePlan) -> None:
+    def _refuse_status_change(self, plan: CodePlan) -> None:
         stored, proposed = plan.status["from"], plan.status["to"]
+        if stored == HogFlow.State.ARCHIVED:
+            raise DocumentInvalid([_workflow_archived(plan)])
         if not self._through_mcp or stored == proposed:
             return
         if stored is None and proposed != HogFlow.State.ACTIVE:
@@ -267,20 +271,35 @@ def _status_change_not_allowed(stored: Optional[str], proposed: Optional[str]) -
     if stored is None:
         message = "status is active, and a file sent through MCP cannot create an active workflow."
         fix = "Set status to draft and apply the file. Then turn the workflow on with workflows-enable."
-    elif stored in (HogFlow.State.DRAFT, HogFlow.State.ACTIVE):
+    else:
         message = (
             f"status is {proposed}, and the workflow is {stored}. A file sent through MCP cannot change the status."
         )
-        fix = f"Set status to {stored} in the file. To turn the workflow on or off, use workflows-enable or workflows-disable."
-    else:
-        message = f"The workflow is {stored}, and a file sent through MCP cannot change the status."
-        fix = "Ask a person to restore the workflow in PostHog first, then apply the file again."
+        fix = (
+            f"Set status to {stored} in the file. To turn the workflow on, use workflows-enable. "
+            "To turn it off, ask a person to do it in PostHog."
+        )
     return DocumentError(
         status=WorkflowCodeErrorStatus.STATUS_CHANGE_NOT_ALLOWED,
         message=message,
-        why="An agent turns a workflow on or off only with the tools made for that, so each change of status is a step of its own.",
+        why="An agent turns a workflow on only with workflows-enable, and only a person turns one off, so each change of status is a step of its own.",
         fix=fix,
         path=("status",),
+    )
+
+
+def _workflow_archived(plan: CodePlan) -> DocumentError:
+    key = plan.workflow.key if plan.workflow else ""
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.STATUS_CHANGE_NOT_ALLOWED,
+        message=f"The workflow with the key {key} is archived, and applying the file would bring it back as {plan.status['to']}.",
+        why="Someone archived the workflow in PostHog, so a file that still names it does not bring it back on its own.",
+        fix=(
+            "To apply the file to this workflow, restore it in PostHog first. "
+            "To keep it archived, delete the file. "
+            "To make a new workflow from the file, give the file a new key."
+        ),
+        path=("key",),
     )
 
 
@@ -294,7 +313,7 @@ def _key_conflict(key: str) -> DocumentError:
     )
 
 
-def _compile(loaded: LoadedContent) -> tuple[CompiledWorkflow, str]:
+def _compile(loaded: LoadedContent, team_id: int) -> tuple[CompiledWorkflow, str]:
     try:
         document = validate_document(loaded.data, loaded.scalar_sources)
     except DocumentInvalid as invalid:
@@ -302,10 +321,16 @@ def _compile(loaded: LoadedContent) -> tuple[CompiledWorkflow, str]:
     if loaded.errors:
         raise DocumentInvalid(loaded.errors)
     compiled = compile_document(document)
-    errors = template_errors(compiled, cache(_get_template))
+    errors = template_errors(compiled, cache(_get_template)) + sender_errors(compiled, partial(_email_senders, team_id))
     if errors:
         raise DocumentInvalid(errors)
     return compiled, document.key
+
+
+def _email_senders(team_id: int, integration_ids: set[int]) -> set[int]:
+    return set(
+        Integration.objects.filter(team_id=team_id, kind="email", id__in=integration_ids).values_list("id", flat=True)
+    )
 
 
 def _get_template(template_id: str) -> Optional[FunctionTemplate]:

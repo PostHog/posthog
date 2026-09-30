@@ -123,6 +123,62 @@ def template_errors(
     return errors
 
 
+def sender_errors(compiled: CompiledWorkflow, project_senders: Callable[[set[int]], set[int]]) -> list[DocumentError]:
+    """Refuse email senders that are not email integrations of the project. `project_senders` returns
+    which of the ids it is given are."""
+    senders = {action["id"]: _email_senders(action) for action in compiled.definition["actions"]}
+    named = {integration_id for inputs in senders.values() for ids in inputs.values() for integration_id in ids}
+    if not named:
+        return []
+    known = project_senders(named)
+    errors: list[DocumentError] = []
+    for action_id, inputs in senders.items():
+        for input_key, ids in inputs.items():
+            unknown = sorted(ids - known)
+            if unknown:
+                errors.append(_unknown_sender(unknown, _sender_path(action_id, input_key, compiled)))
+    return errors
+
+
+def _email_senders(action: dict[str, Any]) -> dict[str, set[int]]:
+    inputs = (action.get("config") or {}).get("inputs")
+    if not isinstance(inputs, dict):
+        return {}
+    senders: dict[str, set[int]] = {}
+    for input_key, entry in inputs.items():
+        value = entry.get("value") if isinstance(entry, dict) else None
+        sender = value.get("from") if isinstance(value, dict) else None
+        if not isinstance(sender, dict):
+            continue
+        listed = sender.get("integrationIds")
+        ids = {
+            integration_id
+            for integration_id in [sender.get("integrationId"), *(listed if isinstance(listed, list) else [])]
+            if isinstance(integration_id, int) and not isinstance(integration_id, bool)
+        }
+        if ids:
+            senders[input_key] = ids
+    return senders
+
+
+def _sender_path(action_id: str, input_key: str, compiled: CompiledWorkflow) -> DocumentPath | None:
+    if action_id in compiled.input_paths:
+        return (*compiled.input_paths[action_id], input_key, "value", "from")
+    step_path = compiled.step_paths.get(action_id)
+    return (*step_path, "from", "integration_ids") if step_path is not None else None
+
+
+def _unknown_sender(ids: list[int], path: DocumentPath | None) -> DocumentError:
+    named = f"integration {ids[0]}" if len(ids) == 1 else f"integrations {', '.join(str(i) for i in ids)}"
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.INVALID_VALUE,
+        message=f"{describe_path(path)} sends from {named}, which this project has no email integration for.",
+        why="An email step sends from one of the project's own email integrations, so PostHog checks each id against them.",
+        fix="Use the id of one of this project's email integrations. The integrations API lists them with kind email.",
+        path=path,
+    )
+
+
 def definition_errors(detail: Any, compiled: CompiledWorkflow) -> list[DocumentError]:
     """Place the errors HogFlowSerializer and validate_graph raise on the compiled definition back in the file."""
     if not isinstance(detail, dict):

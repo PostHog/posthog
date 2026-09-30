@@ -256,7 +256,7 @@ class TestHogFlowCodeApply(APIBaseTest):
         [error] = refused["errors"]
         assert (error["status"], error["path"], error["line"]) == ("status_change_not_allowed", "key", 2)
         assert "archived" in error["message"]
-        assert "Restore" in error["fix"]
+        assert "restore it in PostHog" in error["fix"]
         assert checked.json() == refused
         after = self._workflow("crm-sync")
         assert (after.status, after.version, after.actions) == (

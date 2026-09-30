@@ -4,6 +4,8 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
+from django.db import models
+
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import HogFlowBatchJobState
@@ -217,7 +219,7 @@ class WorkflowStatus(StrEnum):
     ARCHIVED = "archived"
 
 
-class WorkflowCodeErrorStatus(StrEnum):
+class WorkflowCodeErrorStatus(models.TextChoices):
     INVALID_YAML = "invalid_yaml"
     YAML_FEATURE_NOT_ALLOWED = "yaml_feature_not_allowed"
     DUPLICATE_KEY = "duplicate_key"
@@ -235,14 +237,14 @@ class WorkflowCodeErrorStatus(StrEnum):
     CONFLICT = "conflict"
 
 
-class WorkflowCodePlanResult(StrEnum):
+class WorkflowCodePlanResult(models.TextChoices):
     CREATE = "create"
     UPDATE = "update"
     STAGE = "stage"
     UNCHANGED = "unchanged"
 
 
-class WorkflowCodeApplyResult(StrEnum):
+class WorkflowCodeApplyResult(models.TextChoices):
     CREATED = "created"
     UPDATED = "updated"
     STAGED = "staged"

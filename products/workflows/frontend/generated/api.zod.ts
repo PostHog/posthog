@@ -3134,7 +3134,7 @@ export const HogFlowsCodeApplyCreateBody = /* @__PURE__ */ zod.object({
     content: zod
         .string()
         .describe(
-            'The workflow file as text, in YAML, or in JSON when it starts with {. At most 1048576 bytes. Get its schema from code_schema.'
+            'The workflow file as text, in YAML, or in JSON when it starts with {. At most 1048576 bytes. Get its schema from the code_schema endpoint, or the workflows-get-code-schema MCP tool.'
         ),
 })
 
@@ -3145,7 +3145,7 @@ export const HogFlowsCodeCheckCreateBody = /* @__PURE__ */ zod.object({
     content: zod
         .string()
         .describe(
-            'The workflow file as text, in YAML, or in JSON when it starts with {. At most 1048576 bytes. Get its schema from code_schema.'
+            'The workflow file as text, in YAML, or in JSON when it starts with {. At most 1048576 bytes. Get its schema from the code_schema endpoint, or the workflows-get-code-schema MCP tool.'
         ),
 })
 
