@@ -492,6 +492,22 @@ export class PersonhogPersonsStore implements PersonsStore {
         return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
     }
 
+    private purgeExtraDistinctIds(
+        teamId: number,
+        extraDistinctIds: { distinctId: string }[] | undefined,
+        generation: number
+    ): number {
+        if (!extraDistinctIds?.length) {
+            return generation
+        }
+        for (const { distinctId } of extraDistinctIds) {
+            this.removeDistinctIdFromCache(teamId, distinctId, 'extra_distinct_id')
+        }
+        const unpurged = generation === this.generationOf(teamId)
+        this.bumpGeneration(teamId)
+        return unpurged ? this.generationOf(teamId) : generation
+    }
+
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -520,6 +536,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             CALLER_TAG
         )
         const { created } = createResult
+        const recordGeneration = this.purgeExtraDistinctIds(teamId, extraDistinctIds, generation)
         let person: InternalPerson
         if (createResult.created) {
             person = createResult.person
@@ -536,11 +553,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         const recorded = this.cacheFetchedPerson(teamId, primaryDistinctId.distinctId, person, batchId, {
             grade: 'update',
-            generation,
+            generation: recordGeneration,
         })
-        // Extras are never cached: the service can leave a conflicting
-        // extra mapped to its existing person. No messages: the identity
-        // service publishes its own on creation.
+        // No messages: the identity service publishes its own on creation.
         return { success: true, person: recorded ?? this.snapshot(person), messages: [], created }
     }
 
