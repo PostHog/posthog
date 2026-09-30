@@ -62,12 +62,6 @@ class MetricSeries:
     app_source_id: str
 
 
-# Query parameters that pick a narrower series than the object's whole history. An endpoint whose
-# serializer does not declare one refuses it, because dropping it silently answers from the whole
-# history under the name of the narrower number.
-SERIES_NARROWING_PARAMS = frozenset({"version"})
-
-
 class AppMetricsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(
         required=False,
@@ -486,7 +480,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
     @action(detail=True, methods=["GET"])
     def metrics(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-        param_serializer = self._metrics_params(request)
+        param_serializer = self.metrics_request_serializer_class(data=request.query_params)
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
@@ -527,15 +521,6 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         serializer = AppMetricResponseSerializer(instance=data)
         return Response(serializer.data)
 
-    def _metrics_params(self, request: Request) -> AppMetricsRequestSerializer:
-        serializer = self.metrics_request_serializer_class(data=request.query_params)
-        # A serializer ignores a parameter it does not declare, so a narrowing parameter this endpoint
-        # cannot honour is refused rather than dropped.
-        for param in SERIES_NARROWING_PARAMS & request.query_params.keys():
-            if param not in serializer.fields:
-                raise serializers.ValidationError({param: f"This endpoint does not record metrics per {param}."})
-        return serializer
-
     def _metric_series_for(self, obj, params: Mapping[str, Any]) -> MetricSeries:
         """The series this request reads. A viewset that also records a narrower series overrides
         this and keys it on the narrowing parameters its own serializer declares."""
@@ -545,7 +530,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
     @action(detail=True, methods=["GET"], url_path="metrics/totals")
     def metrics_totals(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-        param_serializer = self._metrics_params(request)
+        param_serializer = self.metrics_request_serializer_class(data=request.query_params)
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
