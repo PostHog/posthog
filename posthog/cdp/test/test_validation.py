@@ -1429,10 +1429,6 @@ class TestTaskInputTypeValidation(SimpleTestCase):
 
 
 class TestChoiceInputTemplating(SimpleTestCase):
-    # A sub-template can prefill a choice input with a Hog expression that no user could pick from
-    # the dropdown, for example the PagerDuty `event_action` that has to send `resolve` on the
-    # issue-resolved event. Uncompiled, the expression reaches the destination as literal text and
-    # the template rejects it, so every delivery of that alert fails.
     CHOICE_SCHEMA = [
         {
             "key": "event_action",
