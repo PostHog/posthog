@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
@@ -31,11 +31,21 @@ export function MemberSelectMultipleOptions({
     const { me, selectableMembers, membersLoading, search } = useValues(membersLogic)
     const { setSearch } = useActions(membersLogic)
     const [selectedIdsAtTop, setSelectedIdsAtTop] = useState(() => new Set(value))
+    const [pointerOverList, setPointerOverList] = useState(false)
+    const lastSelectionAt = useRef(Date.now())
 
     useEffect(() => {
-        const timeout = setTimeout(() => setSelectedIdsAtTop(new Set(value)), 600)
+        if (pointerOverList) {
+            return
+        }
+        const remainingDelay = Math.max(0, 600 - (Date.now() - lastSelectionAt.current))
+        if (remainingDelay === 0) {
+            setSelectedIdsAtTop(new Set(value))
+            return
+        }
+        const timeout = setTimeout(() => setSelectedIdsAtTop(new Set(value)), remainingDelay)
         return () => clearTimeout(timeout)
-    }, [value])
+    }, [value, pointerOverList])
 
     const members = selectableMembers(excludedMembers, 'id')
     const selectedMembersAtTop = search ? [] : members.filter((member) => selectedIdsAtTop.has(member.user.id))
@@ -47,6 +57,7 @@ export function MemberSelectMultipleOptions({
         } else {
             selected.add(userId)
         }
+        lastSelectionAt.current = Date.now()
         onChange(Array.from(selected))
     }
 
@@ -75,7 +86,11 @@ export function MemberSelectMultipleOptions({
             >
                 Clear selection
             </LemonButton>
-            <div className="max-h-80 overflow-y-auto flex flex-col gap-px">
+            <div
+                className="max-h-80 overflow-y-auto flex flex-col gap-px"
+                onMouseEnter={() => setPointerOverList(true)}
+                onMouseLeave={() => setPointerOverList(false)}
+            >
                 {selectedMembersAtTop.length > 0 && (
                     <ul className="flex flex-col gap-px" aria-label="Selected members">
                         {selectedMembersAtTop.map((member) => renderRow(member, 'selected-'))}
