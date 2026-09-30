@@ -86,7 +86,7 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
             output_field=IntegerField(),
         )
 
-    def perform_create(self, serializer):
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         instance = serializer.save(team_id=self.team_id, created_by=self.request.user)
         instance.view_count = 0
 
