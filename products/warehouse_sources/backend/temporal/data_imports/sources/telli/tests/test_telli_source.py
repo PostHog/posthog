@@ -82,6 +82,7 @@ def test_resumable_manager_uses_telli_state() -> None:
     manager = TelliSource().get_resumable_source_manager(inputs)
 
     assert isinstance(manager, ResumableSourceManager)
+    assert manager._inputs is inputs
     assert manager._data_class is TelliResumeConfig
 
 
