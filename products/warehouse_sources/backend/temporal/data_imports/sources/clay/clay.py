@@ -136,10 +136,10 @@ _CLAY_UNAVAILABLE_MESSAGE = (
 def _unexpected_status_message(status_code: int, rejected_message: str) -> str:
     """Copy for a status the checks above don't recognise.
 
-    Only a 5xx clears on its own, so a 4xx has to point at what the customer can change rather
-    than tell them to wait for a request Clay will refuse every time.
+    A 429 or a 5xx clears on its own, so waiting is a real next step for both. Every other 4xx
+    fails the same way on every attempt, so it has to point at what the customer can change.
     """
-    return _CLAY_UNAVAILABLE_MESSAGE if status_code >= 500 else rejected_message
+    return _CLAY_UNAVAILABLE_MESSAGE if status_code == 429 or status_code >= 500 else rejected_message
 
 
 def validate_credentials(api_key: str, table_ids: list[str]) -> tuple[bool, str | None]:

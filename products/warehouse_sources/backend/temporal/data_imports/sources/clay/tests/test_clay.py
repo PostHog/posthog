@@ -133,13 +133,16 @@ class TestClaySourceBehavior:
     [
         (200, 200, True, None),
         (401, None, False, "rejected the API key"),
-        # A 5xx clears on its own, so waiting is the right next step. A 4xx never does, so the
-        # copy has to point at what the customer can change instead.
+        (403, None, False, "while checking your API key"),
+        # 429 and 5xx clear on their own, so waiting is a real next step. Every other 4xx fails
+        # the same way on every attempt, so the copy names what the customer can change instead.
+        (429, None, False, "Try again in a few minutes"),
         (500, None, False, "Try again in a few minutes"),
         (200, 403, False, "Enterprise plan"),
         (200, 404, False, "could not find table"),
         (200, 400, False, "Enable for API"),
         (200, 422, False, "Enable for API"),
+        (200, 429, False, "Try again in a few minutes"),
         (200, 503, False, "Try again in a few minutes"),
     ],
 )
@@ -163,8 +166,8 @@ def test_validate_credentials(
 
 
 def test_validate_credentials_does_not_echo_the_table_id_for_an_unrecognised_status() -> None:
-    # The old copy carried the table ID and a status code and nothing else, so the message was
-    # entirely values the customer typed plus a number they can't act on.
+    # The message for an unrecognised status must carry neither the submitted table ID nor the
+    # status code: one is a value the customer already has, the other is not actionable.
     with patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.clay.clay.make_tracked_session"
     ) as MockSession:
