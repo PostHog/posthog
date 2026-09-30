@@ -53,7 +53,7 @@ export interface QuickFilterValuesLogicProps {
 }
 
 function toValueNames(results: EventPropertyValueApi[]): string[] {
-    const names = results.map((result) => (result.name === null ? '' : String(result.name)))
+    const names = results.map((result) => String(result.name))
     return Array.from(new Set(names.filter((name) => name !== '')))
 }
 

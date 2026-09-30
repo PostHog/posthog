@@ -217,12 +217,9 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
             }
 
             const updatedOption = resolveQuickFilterOption(filter, currentSelection.optionId)
-            // An auto-discovery filter resolves any option id to itself as the value, so a stale manual
-            // option id also resolves. Only a stored value and property that still match are valid.
+            // A discovered value belongs to one property, so it no longer applies after the property changes
             const selectionStillMatches =
-                filter.type !== 'auto-discovery' ||
-                (currentSelection.propertyName === filter.property_name &&
-                    currentSelection.value === updatedOption?.value)
+                filter.type !== 'auto-discovery' || currentSelection.propertyName === filter.property_name
             if (updatedOption && selectionStillMatches) {
                 actions.setQuickFilterValue(filter.id, filter.property_name, updatedOption)
             } else {

@@ -12,7 +12,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, viewsets
@@ -130,13 +130,11 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}], "nullable": True})
-class PropertyValueField(serializers.JSONField):
-    pass
-
-
 class EventPropertyValueSerializer(serializers.Serializer):
-    name = PropertyValueField(help_text="A value of the property. Strings, numbers, and booleans keep their type.")
+    name = serializers.CharField(
+        help_text="A value of the property, always as a string. Booleans come back as 'true' or 'false', "
+        "and objects and lists as JSON."
+    )
     count = serializers.IntegerField(
         required=False, help_text="How many times the value occurs, when the lookup counts values."
     )

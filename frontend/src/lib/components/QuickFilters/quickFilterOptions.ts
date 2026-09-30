@@ -1,8 +1,18 @@
 import { PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
 
-/** An auto-discovered value uses the value itself as its option id, so the URL and widget configs can store it. */
+// Auto-discovered option ids carry this prefix, so the URL and widget configs can store the value itself.
+// Option ids from the manual form are UUIDs and never start with it. A stale manual id from an old link
+// therefore does not resolve to a value after its filter switches to auto-discovery.
+const DISCOVERED_OPTION_ID_PREFIX = '~'
+
 export function autoDiscoveredOption(value: string): QuickFilterOption {
-    return { id: value, value, label: value, operator: PropertyOperator.Exact }
+    return { id: `${DISCOVERED_OPTION_ID_PREFIX}${value}`, value, label: value, operator: PropertyOperator.Exact }
+}
+
+function discoveredValueFromOptionId(optionId: string): string | null {
+    return optionId.startsWith(DISCOVERED_OPTION_ID_PREFIX) && optionId.length > DISCOVERED_OPTION_ID_PREFIX.length
+        ? optionId.slice(DISCOVERED_OPTION_ID_PREFIX.length)
+        : null
 }
 
 export function resolveQuickFilterOption(
@@ -10,7 +20,8 @@ export function resolveQuickFilterOption(
     optionId: string
 ): QuickFilterOption | null {
     if (filter.type === 'auto-discovery') {
-        return optionId ? autoDiscoveredOption(optionId) : null
+        const value = discoveredValueFromOptionId(optionId)
+        return value === null ? null : autoDiscoveredOption(value)
     }
     return filter.options.find((option) => option.id === optionId) ?? null
 }
@@ -20,5 +31,6 @@ export function withSelectedOption(options: QuickFilterOption[], selectedOptionI
     if (!selectedOptionId || options.some((option) => option.id === selectedOptionId)) {
         return options
     }
-    return [autoDiscoveredOption(selectedOptionId), ...options]
+    const value = discoveredValueFromOptionId(selectedOptionId)
+    return value === null ? options : [autoDiscoveredOption(value), ...options]
 }

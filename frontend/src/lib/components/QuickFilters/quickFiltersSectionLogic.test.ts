@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
 
 import { QuickFiltersEvents } from './consts'
+import { autoDiscoveredOption } from './quickFilterOptions'
 import { quickFiltersLogic } from './quickFiltersLogic'
 import { quickFiltersSectionLogic } from './quickFiltersSectionLogic'
 
@@ -69,7 +70,7 @@ const mockQuickFilters: QuickFilter[] = [
 const autoDiscoveredSelection = (value: string): Record<string, unknown> => ({
     filterId: 'filter-4',
     propertyName: '$release',
-    optionId: value,
+    optionId: `~${value}`,
     value,
     operator: PropertyOperator.Exact,
 })
@@ -153,7 +154,7 @@ describe('quickFiltersSectionLogic', () => {
             {
                 description: 'leaves out an auto-discovered value, which is raw event data',
                 filter: mockQuickFilters[3],
-                option: { id: 'v1', value: 'v1', label: 'v1', operator: PropertyOperator.Exact },
+                option: autoDiscoveredOption('v1'),
                 expectedValues: {},
             },
         ])('$description', async ({ filter, option, expectedValues }) => {
@@ -231,7 +232,7 @@ describe('quickFiltersSectionLogic', () => {
             {
                 description: 'auto-discovered values containing separators are encoded',
                 selections: { 'filter-4': autoDiscoveredSelection('v1,2:beta') },
-                expectedParam: 'filter-4:v1%2C2%3Abeta',
+                expectedParam: 'filter-4:~v1%2C2%3Abeta',
             },
         ])('$description', async ({ selections, expectedParam }) => {
             await expectLogic(logic, () => {
@@ -324,7 +325,7 @@ describe('quickFiltersSectionLogic', () => {
         })
 
         it('restores auto-discovered values that no option lists', async () => {
-            await mountWithUrl(`filter-4:${encodeURIComponent('v1,2:beta')}`)
+            await mountWithUrl(`filter-4:${encodeURIComponent('~v1,2:beta')}`)
 
             expectLogic(logic).toMatchValues({
                 selectedQuickFilters: { 'filter-4': autoDiscoveredSelection('v1,2:beta') },
@@ -339,8 +340,14 @@ describe('quickFiltersSectionLogic', () => {
             })
         })
 
-        it('ignores unknown option IDs in URL', async () => {
-            await mountWithUrl('filter-1:nonexistent')
+        it.each([
+            { description: 'ignores unknown option IDs in URL', param: 'filter-1:nonexistent' },
+            {
+                description: 'ignores a manual option ID from an old link on an auto-discovery filter',
+                param: 'filter-4:opt-1',
+            },
+        ])('$description', async ({ param }) => {
+            await mountWithUrl(param)
 
             expectLogic(logic).toMatchValues({
                 selectedQuickFilters: {},
@@ -396,7 +403,7 @@ describe('quickFiltersSectionLogic', () => {
             {
                 description: 'keeps an auto-discovered selection when the filter is renamed',
                 selectedFilter: mockQuickFilters[3],
-                selectedOption: { id: 'v1', value: 'v1', label: 'v1', operator: PropertyOperator.Exact },
+                selectedOption: autoDiscoveredOption('v1'),
                 updatedFilter: { ...mockQuickFilters[3], name: 'Version' },
                 expectedAction: 'setQuickFilterValue',
                 expectedSelection: { 'filter-4': autoDiscoveredSelection('v1') },
@@ -404,7 +411,7 @@ describe('quickFiltersSectionLogic', () => {
             {
                 description: 'clears an auto-discovered selection when the property changes',
                 selectedFilter: mockQuickFilters[3],
-                selectedOption: { id: 'v1', value: 'v1', label: 'v1', operator: PropertyOperator.Exact },
+                selectedOption: autoDiscoveredOption('v1'),
                 updatedFilter: { ...mockQuickFilters[3], property_name: '$app_version' },
                 expectedAction: 'clearQuickFilter',
                 expectedSelection: {},

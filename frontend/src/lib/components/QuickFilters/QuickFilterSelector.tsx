@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonSearchableSelect, LemonSelect, LemonSelectOption, Spinner } from '@posthog/lemon-ui'
+import { LemonSearchableSelect, LemonSelect, LemonSelectOptionLeaf, Spinner } from '@posthog/lemon-ui'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
@@ -18,7 +18,7 @@ interface QuickFilterSelectorProps {
 
 type SelectValue = string | null
 
-function selectOptions(filterName: string, options: QuickFilterOption[]): LemonSelectOption<SelectValue>[] {
+function selectOptions(filterName: string, options: QuickFilterOption[]): LemonSelectOptionLeaf<SelectValue>[] {
     return [
         { value: null, label: `Any ${filterName.toLowerCase() || 'items'}` },
         ...options.map((option) => ({ value: option.id, label: option.label })),
@@ -75,7 +75,10 @@ function DiscoveredValuesSelector({
     const sections = useMemo(
         () => [
             {
-                options: selectOptions(filter.name, options),
+                // Discovered values are raw event data, so keep them out of autocapture and replay
+                options: selectOptions(filter.name, options).map((option) =>
+                    option.value === null ? option : { ...option, className: 'ph-no-capture' }
+                ),
                 footer:
                     discoveredValuesStatus === 'loading' ? (
                         <span className="flex items-center gap-1">
@@ -93,6 +96,7 @@ function DiscoveredValuesSelector({
     return (
         <LemonSearchableSelect
             value={selectedValue(options, selectedOptionId)}
+            className={selectedValue(options, selectedOptionId) ? 'ph-no-capture' : undefined}
             onChange={(optionId) => onChange(findOption(options, optionId))}
             options={sections}
             searchPlaceholder="Search values"

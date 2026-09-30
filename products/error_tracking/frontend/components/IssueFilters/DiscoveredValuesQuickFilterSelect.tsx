@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
@@ -20,19 +21,7 @@ import {
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
 
-// Controls and property values share one item list. The prefixes keep a property value such as
-// "control:any" from acting as a control, because every value item starts with VALUE_PREFIX.
-const ANY_ITEM = 'control:any'
-const STATUS_ITEM = 'control:status'
-const VALUE_PREFIX = 'value:'
-
-function toItem(optionId: string): string {
-    return `${VALUE_PREFIX}${optionId}`
-}
-
-function fromItem(item: string): string | null {
-    return item.startsWith(VALUE_PREFIX) ? item.slice(VALUE_PREFIX.length) : null
-}
+import { ANY_ITEM, STATUS_ITEM, discoveredValuesComboboxItems } from './discoveredValuesComboboxItems'
 
 export interface DiscoveredValuesQuickFilterSelectProps {
     filter: QuickFilter
@@ -54,22 +43,35 @@ export function DiscoveredValuesQuickFilterSelect({
 
     const anyLabel = `Any ${filter.name.toLowerCase()}`
     const statusMessage = discoveredValuesMessage(discoveredValuesStatus, search, discoveredOptions.length)
+    const selectedOption = selectedOptionId ? resolveQuickFilterOption(filter, selectedOptionId) : null
+    const selectedLabel = selectedOption?.label ?? anyLabel
 
-    const items = useMemo(() => {
-        const valueItems = withSelectedOption(discoveredOptions, selectedOptionId).map((option) => toItem(option.id))
-        return [ANY_ITEM, ...valueItems, ...(statusMessage ? [STATUS_ITEM] : [])]
-    }, [discoveredOptions, selectedOptionId, statusMessage])
+    const labelByItem = useMemo(
+        () =>
+            new Map(withSelectedOption(discoveredOptions, selectedOptionId).map((option) => [option.id, option.label])),
+        [discoveredOptions, selectedOptionId]
+    )
+    const items = useMemo(
+        () =>
+            discoveredValuesComboboxItems({
+                search,
+                discoveredOptions,
+                selectedOptionId,
+                showStatus: !!statusMessage,
+            }),
+        [search, discoveredOptions, selectedOptionId, statusMessage]
+    )
 
     return (
         <Combobox
             items={items}
-            value={selectedOptionId === null ? ANY_ITEM : toItem(selectedOptionId)}
+            value={selectedOption ? selectedOption.id : ANY_ITEM}
             inputValue={search}
             // Search runs on the server, so the list shows the returned values unfiltered
             filter={null}
             autoHighlight
             highlightItemOnHover
-            itemToStringLabel={(item: string) => (item === ANY_ITEM ? anyLabel : (fromItem(item) ?? ''))}
+            itemToStringLabel={(item: string) => (item === ANY_ITEM ? anyLabel : (labelByItem.get(item) ?? ''))}
             onInputValueChange={(value: string, { reason }) => {
                 if (reason === 'input-change' || reason === 'input-clear') {
                     setSearch(value)
@@ -85,18 +87,27 @@ export function DiscoveredValuesQuickFilterSelect({
                     onChange(null)
                     return
                 }
-                const optionId = item === null ? null : fromItem(item)
-                if (optionId !== null) {
-                    onChange(resolveQuickFilterOption(filter, optionId))
+                const option = item === null || item === STATUS_ITEM ? null : resolveQuickFilterOption(filter, item)
+                if (option) {
+                    onChange(option)
                 }
             }}
         >
             <ComboboxTrigger
                 ref={triggerRef}
-                render={<Button variant="outline" size="default" left className="justify-between gap-3" />}
-                aria-label={`${filter.name}: ${selectedOptionId ?? anyLabel}`}
+                render={
+                    <Button
+                        variant="outline"
+                        size="default"
+                        left
+                        // Discovered values are raw event data, so keep them out of autocapture and replay
+                        className={clsx('justify-between gap-3', selectedOption && 'ph-no-capture')}
+                        title={selectedLabel}
+                    />
+                }
+                aria-label={`${filter.name}: ${selectedLabel}`}
             >
-                <span className="max-w-60 truncate">{selectedOptionId ?? anyLabel}</span>
+                <span className="max-w-60 truncate">{selectedLabel}</span>
             </ComboboxTrigger>
             <ComboboxContent
                 anchor={triggerRef}
@@ -114,19 +125,30 @@ export function DiscoveredValuesQuickFilterSelect({
                     </InputGroupAddon>
                 </ComboboxInput>
                 <ComboboxList>
-                    {(item: string) =>
-                        item === STATUS_ITEM ? (
-                            <ComboboxItem key={item} value={item} disabled className="text-sm">
-                                <Text size="sm" variant="muted" className="italic">
-                                    {statusMessage}
-                                </Text>
-                            </ComboboxItem>
-                        ) : (
-                            <ComboboxItem key={item} value={item} className="text-sm">
-                                <span className="truncate">{item === ANY_ITEM ? anyLabel : fromItem(item)}</span>
+                    {(item: string) => {
+                        if (item === STATUS_ITEM) {
+                            return (
+                                <ComboboxItem key={item} value={item} disabled className="text-sm">
+                                    <Text size="sm" variant="muted" className="italic">
+                                        {statusMessage}
+                                    </Text>
+                                </ComboboxItem>
+                            )
+                        }
+                        if (item === ANY_ITEM) {
+                            return (
+                                <ComboboxItem key={item} value={item} className="text-sm">
+                                    {anyLabel}
+                                </ComboboxItem>
+                            )
+                        }
+                        // A plain string child lets ComboboxItem set a title, so a truncated value shows in full on hover
+                        return (
+                            <ComboboxItem key={item} value={item} className="text-sm ph-no-capture">
+                                {labelByItem.get(item) ?? ''}
                             </ComboboxItem>
                         )
-                    }
+                    }}
                 </ComboboxList>
             </ComboboxContent>
         </Combobox>
