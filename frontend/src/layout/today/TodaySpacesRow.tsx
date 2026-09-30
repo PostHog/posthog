@@ -1,6 +1,10 @@
+import { useState } from 'react'
+
 import { Button, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+
+import { TodayOverflowText } from './TodayOverflowText'
 
 interface TodaySpacesRowProps {
     label: string
@@ -11,9 +15,15 @@ interface TodaySpacesRowProps {
     action?: JSX.Element | null
     /** Stays visible at the end of the row, after the hover action. */
     badge?: JSX.Element | null
+    /** How many stacked badges `badge` holds, so the label truncates before them. */
+    badgeCount?: 1 | 2
     /** How many icon buttons `action` holds, so the label truncates before them. */
     actionCount?: 1 | 2
     unread?: boolean
+    /** Off when the row's icon already marks it unread. */
+    unreadDot?: boolean
+    /** Fade a long label and scroll it on hover instead of cutting it with an ellipsis. */
+    ticker?: boolean
 }
 
 export function TodaySpacesRow({
@@ -24,28 +34,52 @@ export function TodaySpacesRow({
     dataAttr,
     action,
     badge,
+    badgeCount = 1,
     actionCount = 1,
     unread = false,
+    unreadDot = true,
+    ticker = false,
 }: TodaySpacesRowProps): JSX.Element {
+    const [hovered, setHovered] = useState(false)
+    const [keyboardFocused, setKeyboardFocused] = useState(false)
     return (
-        <div className="group/row relative flex min-w-0 items-center">
+        <div
+            className="group/row relative flex min-w-0 items-center"
+            onPointerEnter={ticker ? () => setHovered(true) : undefined}
+            onPointerLeave={ticker ? () => setHovered(false) : undefined}
+        >
             <Button
                 size="row"
                 left
                 render={<LinkPrimitive to={to} />}
                 aria-current={active ? 'page' : undefined}
                 data-attr={dataAttr}
+                onFocus={
+                    ticker
+                        ? (e: React.FocusEvent<HTMLElement>) =>
+                              setKeyboardFocused(e.currentTarget.matches(':focus-visible'))
+                        : undefined
+                }
+                onBlur={ticker ? () => setKeyboardFocused(false) : undefined}
                 className={cn(
-                    'min-w-0 text-muted-foreground',
-                    (active || unread) && 'text-foreground',
+                    'min-w-0 text-xs font-medium text-foreground',
                     active && 'bg-fill-selected',
                     action && !badge && (actionCount === 2 ? 'pr-12' : 'pr-8'),
-                    badge && 'pr-24'
+                    badge && (badgeCount === 2 ? 'pr-16' : 'pr-12')
                 )}
             >
                 <span className="flex size-3.5 shrink-0 items-center justify-center">{icon}</span>
-                <span className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold')}>{label}</span>
-                {unread && !active && (
+                {ticker ? (
+                    <TodayOverflowText
+                        reveal={hovered || keyboardFocused}
+                        className={cn('flex-1', unread && 'font-semibold')}
+                    >
+                        {label}
+                    </TodayOverflowText>
+                ) : (
+                    <span className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold')}>{label}</span>
+                )}
+                {unread && unreadDot && !active && (
                     <span
                         role="img"
                         aria-label="Unread"
