@@ -106,6 +106,20 @@ const dashboardActionsMapping: Record<
             summary: [isFavoriteAfter ? 'pinned the dashboard' : 'unpinned the dashboard'],
         }
     },
+    archived: function onArchived(change, logItem, asNotification) {
+        const isArchivedAfter = detectBoolean(change?.after)
+        return {
+            description: [
+                <>
+                    <div className="highlighted-activity">
+                        {isArchivedAfter ? '' : 'un-'}archived{asNotification && ' the dashboard '}
+                    </div>
+                </>,
+            ],
+            suffix: <>{nameAndLink(logItem)}</>,
+            summary: [isArchivedAfter ? 'archived the dashboard' : 'unarchived the dashboard'],
+        }
+    },
     filters: function onChangedFilters(change, logItem) {
         const filtersAfter = change?.after as DashboardFilter
         return {

@@ -2590,7 +2590,10 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                 "archived",
                 OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
-                description="Optional. Return only archived dashboards. By default archived dashboards are included alongside non-archived ones.",
+                description=(
+                    "Optional. true returns only archived dashboards, false returns only non-archived "
+                    "ones. Omitted, both are included."
+                ),
             ),
             OpenApiParameter(
                 "exclude_generated",
@@ -2803,8 +2806,8 @@ class DashboardsViewSet(
         if self.action == "list" and self.request.query_params.get("pinned") == "true":
             queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name", "id")
 
-        if self.action == "list" and self.request.query_params.get("archived") == "true":
-            queryset = queryset.filter(archived=True)
+        if self.action == "list" and "archived" in self.request.query_params:
+            queryset = queryset.filter(archived=self.request.query_params.get("archived") == "true")
 
         # Allow filtering by creation_mode query param
         creation_mode = self.request.query_params.get("creation_mode")

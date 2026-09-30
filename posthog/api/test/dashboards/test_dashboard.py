@@ -491,7 +491,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         _, patched = self.dashboard_api.update_dashboard(archived_id, {"archived": True})
         assert patched["archived"] is True
 
-        # Archiving does not exclude the dashboard from the default list — only the
+        # Archiving does not exclude the dashboard from the default list. Only the
         # `archived=true` filter narrows down to it, so the frontend can keep loading the
         # full set and filter client-side.
         default_ids = {d["id"] for d in self.dashboard_api.list_dashboards(parent="environment")["results"]}
@@ -504,6 +504,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ]
         ]
         assert archived_only_ids == [archived_id]
+
+        non_archived_ids = [
+            d["id"]
+            for d in self.dashboard_api.list_dashboards(parent="environment", query_params={"archived": "false"})[
+                "results"
+            ]
+        ]
+        assert non_archived_ids == [active_id]
 
         _, unarchived = self.dashboard_api.update_dashboard(archived_id, {"archived": False})
         assert unarchived["archived"] is False

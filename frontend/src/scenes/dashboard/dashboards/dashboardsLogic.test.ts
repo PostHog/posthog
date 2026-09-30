@@ -420,16 +420,22 @@ describe('dashboardsLogic', () => {
         })
 
         await expectLogic(logic, () => {
-            logic.actions.setFilters({ tags: ['finance', 'q4'] })
+            logic.actions.setFilters({ tags: ['finance', 'q4'], archived: true })
             logic.actions.setSearch('sales')
         }).toDispatchActions(['loadSearchedDashboardsSuccess'])
 
         expect(lastRequestUrl).not.toBeNull()
         expect(lastRequestUrl!.searchParams.get('search')).toBe('sales')
         expect(lastRequestUrl!.searchParams.getAll('tags')).toEqual(['finance', 'q4'])
+        // Sent explicitly (not merely omitted) so the server-side limit:200 cap applies to the
+        // archived population, not the mixed one, matching the tag/folder rationale above.
+        expect(lastRequestUrl!.searchParams.get('archived')).toBe('true')
     })
 
-    it('refetches when tags change while a search is active', async () => {
+    it.each([
+        ['tags', { tags: ['finance'] }],
+        ['archived', { archived: true }],
+    ])('refetches when %s changes while a search is active', async (_name, filterChange) => {
         let requestCount = 0
         useMocks({
             get: {
@@ -446,7 +452,7 @@ describe('dashboardsLogic', () => {
         const afterSearch = requestCount
 
         await expectLogic(logic, () => {
-            logic.actions.setFilters({ tags: ['finance'] })
+            logic.actions.setFilters(filterChange)
         }).toDispatchActions(['loadSearchedDashboardsSuccess'])
 
         expect(requestCount).toBe(afterSearch + 1)

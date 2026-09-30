@@ -36,7 +36,7 @@ export interface DashboardsFilters {
     createdBy: number[] | 'All users'
     pinned: boolean
     shared: boolean
-    /** Show only archived dashboards. When false, archived dashboards are hidden from the list. */
+    /** true shows only archived dashboards; false (the default) excludes them from the list. */
     archived: boolean
     tags?: string[]
     /** Folder path to filter to, e.g. 'Unfiled/Dashboards' (empty string = project root). null means no folder filter. */
@@ -130,10 +130,21 @@ export interface dashboardsLogicActions {
     loadMoreTagResults: () => {
         value: true
     }
-    loadSearchedDashboards: ({ search, tags, folder }: { folder: string | null; search: string; tags: string[] }) => {
+    loadSearchedDashboards: ({
+        search,
+        tags,
+        folder,
+        archived,
+    }: {
+        archived: boolean
+        folder: string | null
+        search: string
+        tags: string[]
+    }) => {
         search: string
         tags: string[]
         folder: string | null
+        archived: boolean
     }
     loadSearchedDashboardsFailure: (
         error: string,
@@ -148,6 +159,7 @@ export interface dashboardsLogicActions {
             search: string
             tags: string[]
             folder: string | null
+            archived: boolean
         }
     ) => {
         searchedDashboards: DashboardBasicType[] | null
@@ -155,6 +167,7 @@ export interface dashboardsLogicActions {
             search: string
             tags: string[]
             folder: string | null
+            archived: boolean
         }
     }
     loadTagResults: ({ search, offset }: { offset: number; search: string }) => {
@@ -339,7 +352,12 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                  * in-flight request can't clobber a freshly cleared search.
                  */
                 loadSearchedDashboards: async (
-                    { search, tags, folder }: { search: string; tags: string[]; folder: string | null },
+                    {
+                        search,
+                        tags,
+                        folder,
+                        archived,
+                    }: { search: string; tags: string[]; folder: string | null; archived: boolean },
                     breakpoint
                 ) => {
                     await breakpoint(250)
@@ -355,11 +373,13 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         search: term,
                         limit: '200',
                         exclude_generated: 'true',
+                        archived: archived ? 'true' : 'false',
                     })
-                    // Push tag/folder filtering to the server so MCP and API clients see the same
-                    // result shape as the UI, and so the limit:200 cap operates on the right
-                    // population — filtered first, not after. Without this, a folder filter combined
-                    // with search would only narrow the top-200 global matches and silently drop the rest.
+                    // Push tag/folder/archived filtering to the server so MCP and API clients see the
+                    // same result shape as the UI, and so the limit:200 cap operates on the right
+                    // population, filtered first rather than after. Without this, a folder filter
+                    // combined with search would only narrow the top-200 global matches and silently
+                    // drop the rest.
                     for (const tag of tags) {
                         params.append('tags', tag)
                     }
@@ -449,9 +469,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     filters.search && searchedDashboards
                         ? searchedDashboards.map((d) => (rawDashboards[d.id] as DashboardBasicType | undefined) ?? d)
                         : allDashboards
-                // Archived dashboards are hidden from every tab unless explicitly filtered for, so
-                // toggling `filters.archived` swaps between the two — never both at once.
-                haystack = haystack.filter((d) => Boolean(d.archived) === filters.archived)
+                // A persisted filters object predating this field has no `archived` key, so treat
+                // a missing value as false rather than leaving every dashboard filtered out.
+                haystack = haystack.filter((d) => Boolean(d.archived) === Boolean(filters.archived))
                 if (currentTab === DashboardsTab.Pinned) {
                     haystack = haystack.filter((d) => d.pinned)
                 }
@@ -701,17 +721,20 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 search,
                 tags: values.filters.tags ?? [],
                 folder: values.filters.folder ?? null,
+                archived: Boolean(values.filters.archived),
             })
         },
         setFilters: ({ filters }) => {
-            // Tag/folder changes refetch when a search is active so server-side filtering stays
-            // accurate. Other filter keys (pinned/shared/createdBy/currentTab) are still
-            // applied client-side over the in-memory list so they don't refetch.
-            if (('tags' in filters || 'folder' in filters) && values.filters.search) {
+            // Tag/folder/archived changes refetch when a search is active so server-side filtering
+            // stays accurate, since those three are also sent to the search endpoint. Other filter
+            // keys (pinned/shared/createdBy/currentTab) are still applied client-side over the
+            // in-memory list so they don't refetch.
+            if (('tags' in filters || 'folder' in filters || 'archived' in filters) && values.filters.search) {
                 actions.loadSearchedDashboards({
                     search: values.filters.search,
                     tags: values.filters.tags ?? [],
                     folder: values.filters.folder ?? null,
+                    archived: Boolean(values.filters.archived),
                 })
             }
         },

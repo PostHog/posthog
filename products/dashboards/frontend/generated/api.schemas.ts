@@ -10618,7 +10618,7 @@ export const DashboardTemplatesListScope = {
 
 export type DashboardsListParams = {
     /**
-     * Optional. Return only archived dashboards. By default archived dashboards are included alongside non-archived ones.
+     * Optional. true returns only archived dashboards, false returns only non-archived ones. Omitted, both are included.
      */
     archived?: boolean
     /**

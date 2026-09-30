@@ -170,6 +170,7 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Dashboard
   list([
+    'archived',
     'breakdown_colors',
     'created_at',
     'creation_mode',

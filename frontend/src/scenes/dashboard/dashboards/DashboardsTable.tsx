@@ -84,6 +84,7 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard, archiveDashboard, unarchiveDashboard } = useActions(dashboardsModel)
+    const { archivingDashboardIds } = useValues(dashboardsModel)
     const { tableSortingChanged, setFilters, moveDashboardsToFolder } = useActions(dashboardsLogic)
     const { tableSorting, filters, filedDashboardIds } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
@@ -349,6 +350,8 @@ export function DashboardsTable({
                                                       : archiveDashboard(id, DashboardEventSource.DashboardsList)
                                               }
                                               fullWidth
+                                              loading={archivingDashboardIds.has(id)}
+                                              disabled={archivingDashboardIds.has(id)}
                                               data-attr={archived ? 'dashboard-unarchive' : 'dashboard-archive'}
                                           >
                                               {archived ? 'Unarchive dashboard' : 'Archive dashboard'}
