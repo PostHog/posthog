@@ -30,16 +30,18 @@ from posthog.dags.data_deletion_requests import (
     _refuse_property_removal_unsweepable,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
+    complete_event_deletion,
     data_deletion_request_event_removal,
     data_deletion_request_hogql_event_removal,
     data_deletion_request_person_removal,
     data_deletion_request_pickup_sensor,
     data_deletion_request_property_removal,
+    delete_event_removal_shard,
     delete_person_events_op,
     delete_person_profiles_op,
     delete_person_recordings_op,
-    execute_event_deletion,
     finalize_deletion_request,
+    get_event_removal_shards,
     get_property_removal_shards,
     load_deletion_request,
     load_hogql_event_removal_request,
@@ -432,6 +434,14 @@ def test_finalize_deletion_request_transitions_status(execution_mode, start_stat
     assert request.status == expected_status
 
 
+def _run_event_deletion(cluster: ClickhouseCluster, deletion_ctx: DeletionRequestContext) -> None:
+    fan_out = get_event_removal_shards(build_op_context(), cluster, deletion_ctx)
+    deleted = [
+        delete_event_removal_shard(build_op_context(), cluster, output.value, deletion_ctx) for output in fan_out
+    ]
+    complete_event_deletion(build_op_context(), cluster, deletion_ctx, deleted)
+
+
 @pytest.mark.django_db
 def test_execute_event_deletion_deletes_matching_events(cluster: ClickhouseCluster):
     now = datetime.now()
@@ -455,8 +465,7 @@ def test_execute_event_deletion_deletes_matching_events(cluster: ClickhouseClust
         end_time=end_time,
         events=["$pageview"],
     )
-    context = build_op_context()
-    execute_event_deletion(context, cluster, deletion_ctx)
+    _run_event_deletion(cluster, deletion_ctx)
 
     # Matching events should be deleted
     assert cluster.any_host(partial(_count_events_by_name, TEAM_ID, "$pageview")).result() == 10  # only outside_range
@@ -492,8 +501,7 @@ def test_execute_event_deletion_delete_all_events_drops_every_event_for_team(clu
         events=[],
         delete_all_events=True,
     )
-    context = build_op_context()
-    execute_event_deletion(context, cluster, deletion_ctx)
+    _run_event_deletion(cluster, deletion_ctx)
 
     # Every event for the team within the time range is gone (only outside_range survives).
     assert cluster.any_host(partial(_count_events, TEAM_ID)).result() == 5
@@ -531,8 +539,7 @@ def test_execute_event_deletion_applies_hogql_predicate(cluster: ClickhouseClust
         events=["$pageview"],
         hogql_predicate="properties.$browser = 'Chrome'",
     )
-    context = build_op_context()
-    execute_event_deletion(context, cluster, deletion_ctx)
+    _run_event_deletion(cluster, deletion_ctx)
 
     # Only the Chrome events should be deleted; Firefox events remain.
     assert cluster.any_host(partial(_count_events_by_name, team.id, "$pageview")).result() == 5
@@ -557,8 +564,7 @@ def test_execute_event_deletion_multiple_event_names(cluster: ClickhouseCluster)
         end_time=end_time,
         events=["$pageview", "$screen"],
     )
-    context = build_op_context()
-    execute_event_deletion(context, cluster, deletion_ctx)
+    _run_event_deletion(cluster, deletion_ctx)
 
     assert cluster.any_host(partial(_count_events_by_name, TEAM_ID, "$pageview")).result() == 0
     assert cluster.any_host(partial(_count_events_by_name, TEAM_ID, "$screen")).result() == 0
@@ -596,6 +602,7 @@ def test_full_job_event_deletion(cluster: ClickhouseCluster):
         resources={"cluster": cluster},
     )
     assert result.success
+    assert "delete_event_removal_shard[sharded_events_shard_1]" in {event.step_key for event in result.all_events}
 
     # Target events deleted
     assert cluster.any_host(partial(_count_events_by_name, TEAM_ID, "$pageview")).result() == 0
@@ -638,8 +645,7 @@ def test_execute_event_deletion_deferred_queues_into_adhoc_table(cluster: Clickh
         events=["$pageview"],
         execution_mode=ExecutionMode.DEFERRED.value,
     )
-    context = build_op_context()
-    execute_event_deletion(context, cluster, deletion_ctx)
+    _run_event_deletion(cluster, deletion_ctx)
 
     # Events NOT deleted.
     assert cluster.any_host(partial(_count_events_by_name, DEFERRED_TEAM_ID, "$pageview")).result() == 25
@@ -2292,7 +2298,7 @@ def test_deferred_event_removal_queues_flag_evaluations_and_blocks_promotion(clu
         events=[FLAG_EVALUATIONS_SOURCE_EVENT],
         execution_mode=ExecutionMode.DEFERRED.value,
     )
-    execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+    _run_event_deletion(cluster, deletion_ctx)
 
     queued = cluster.any_host(partial(_adhoc_pending_uuids, DEFERRED_TEAM_ID)).result()
     assert flag_uuid in queued
@@ -2443,7 +2449,7 @@ def test_immediate_event_deletion_skips_flag_evaluations(cluster: ClickhouseClus
         events=[FLAG_EVALUATIONS_SOURCE_EVENT],
         hogql_predicate="properties.$browser = 'Chrome'",
     )
-    execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+    _run_event_deletion(cluster, deletion_ctx)
 
     assert cluster.any_host(partial(_count_events_by_name, team.id, FLAG_EVALUATIONS_SOURCE_EVENT)).result() == 0
     assert len(cluster.any_host(partial(_flag_evaluation_person_ids, team.id)).result()) == 1
