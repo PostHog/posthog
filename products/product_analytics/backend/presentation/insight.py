@@ -55,6 +55,7 @@ from posthog.auth import (
 )
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT, AvailableFeature
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
@@ -1423,32 +1424,32 @@ class InsightSerializer(InsightBasicSerializer):
                     last_refresh=None,
                 )
             except Exception as e:
-                if classify_query_error(e) == QueryErrorCategory.RATE_LIMITED:
+                is_rate_limited = classify_query_error(e) == QueryErrorCategory.RATE_LIMITED
+                error_message = str(e)
+                if is_rate_limited:
+                    # Older dashboard clients retry on this marker. Other capacity messages can
+                    # contain internal Redis keys, task IDs or raw ClickHouse details.
+                    error_message = (
+                        "concurrency_limit_exceeded"
+                        if isinstance(e, ConcurrencyLimitExceeded)
+                        else ClickHouseAtCapacity.default_detail
+                    )
                     logger.warn(
                         "insight_calculation_rate_limited",
                         exception=e,
                         insight_id=insight.id,
                         team_id=insight.team_id,
                     )
-                    return self._degraded_insight_result(
-                        insight,
-                        dashboard,
-                        error=e,
-                        # A capacity failure carries either internal redis keys and task ids or a raw
-                        # ClickHouse message, so all of them answer with the one message for a person.
-                        error_message=ClickHouseAtCapacity.default_detail,
-                        error_code=QueryErrorCategory.RATE_LIMITED,
-                        last_refresh=now(),
-                    )
-                # Capture unexpected crashes so the API list doesn't fail
-                logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
+                else:
+                    # Capture unexpected crashes so the API list doesn't fail
+                    logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
                 return self._degraded_insight_result(
                     insight,
                     dashboard,
                     error=e,
-                    error_message=str(e),
-                    error_code=None,
-                    last_refresh=None,
+                    error_message=error_message,
+                    error_code=QueryErrorCategory.RATE_LIMITED if is_rate_limited else None,
+                    last_refresh=now() if is_rate_limited else None,
                 )
 
     def _degraded_insight_result(

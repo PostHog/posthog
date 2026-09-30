@@ -4214,10 +4214,11 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             ("ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse", None),
             ("ExposedHogQLError", "Invalid HogQL syntax", "hogql_error"),
             ("HogVMException", "Global variable not found: variables", None),
+            ("RuntimeError", "Unexpected calculation failure", None),
         ]
     )
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    def test_retrieve_degrades_in_place_for_exposed_errors(
+    def test_retrieve_degrades_in_place_for_non_capacity_errors(
         self, _name: str, error_message: str, expected_error_code: str | None, mock_calculate: mock.MagicMock
     ) -> None:
         from posthog.hogql.errors import ExposedHogQLError
@@ -4230,6 +4231,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             "ExposedCHQueryError": ExposedCHQueryError,
             "ExposedHogQLError": ExposedHogQLError,
             "HogVMException": HogVMException,
+            "RuntimeError": RuntimeError,
         }
         mock_calculate.side_effect = error_classes[_name](error_message)
 
@@ -4241,14 +4243,22 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cluster_at_capacity", ClickHouseAtCapacity()),
-            ("org_concurrency_limit", ConcurrencyLimitExceeded("too many queries")),
-            ("no_free_clickhouse_connection", wrap_clickhouse_query_error(ServerException("no free connection", 203))),
+            ("cluster_at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail),
+            (
+                "org_concurrency_limit",
+                ConcurrencyLimitExceeded("internal limiter details"),
+                "concurrency_limit_exceeded",
+            ),
+            (
+                "no_free_clickhouse_connection",
+                wrap_clickhouse_query_error(ServerException("no free connection", 203)),
+                ClickHouseAtCapacity.default_detail,
+            ),
         ]
     )
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_retrieve_labels_every_capacity_failure_as_rate_limited(
-        self, _name: str, error: Exception, mock_calculate: mock.MagicMock
+        self, _name: str, error: Exception, expected_message: str, mock_calculate: mock.MagicMock
     ) -> None:
         mock_calculate.side_effect = error
 
@@ -4257,7 +4267,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         # The dashboard retries on this code, so every transient capacity failure has to carry it.
         self.assertTrue(query_status["error"])
         self.assertEqual(query_status["error_code"], "rate_limited")
-        self.assertEqual(query_status["error_message"], ClickHouseAtCapacity.default_detail)
+        self.assertEqual(query_status["error_message"], expected_message)
 
 
 class TestInsightQueryScan(APIBaseTest):

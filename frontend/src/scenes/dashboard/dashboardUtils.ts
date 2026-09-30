@@ -204,6 +204,7 @@ export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 // The backend labels every transient capacity failure with this code, whatever its message: PostHog's
 // own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
 const RATE_LIMITED_ERROR_CODE = 'rate_limited'
+const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
 // insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
@@ -329,6 +330,16 @@ export async function getInsightWithRetry(
     let attempt = 0
     let rateLimitedAttempts = 0
 
+    const captureRecovery = (result: InsightModel | null): void => {
+        if (rateLimitedAttempts > 0 && result?.result != null && !result.query_status?.error) {
+            posthog.capture('dashboard tile recovered from capacity error', {
+                insight_short_id: insight.short_id,
+                dashboard_id: dashboardId,
+                attempts: rateLimitedAttempts,
+            })
+        }
+    }
+
     while (attempt < maxAttempts) {
         try {
             const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
@@ -345,7 +356,10 @@ export async function getInsightWithRetry(
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
             const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
 
-            if (result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE) {
+            if (
+                result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
+                result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
+            ) {
                 attempt++
                 rateLimitedAttempts++
 
@@ -385,7 +399,13 @@ export async function getInsightWithRetry(
                                 const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
                                 if (legacyInsight) {
                                     const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
-                                    return { ...queryBasedInsight, query_status: finalStatus }
+                                    captureRecovery(queryBasedInsight)
+                                    return {
+                                        ...queryBasedInsight,
+                                        query_status: queryBasedInsight.query_status?.error
+                                            ? queryBasedInsight.query_status
+                                            : finalStatus,
+                                    }
                                 }
                             }
                         }
@@ -417,14 +437,7 @@ export async function getInsightWithRetry(
                 continue // Retry
             }
 
-            if (rateLimitedAttempts > 0) {
-                posthog.capture('dashboard tile recovered from capacity error', {
-                    insight_short_id: insight.short_id,
-                    dashboard_id: dashboardId,
-                    attempts: rateLimitedAttempts,
-                })
-            }
-
+            captureRecovery(result)
             return result
         } catch (e: any) {
             if (shouldCancelQuery(e)) {
