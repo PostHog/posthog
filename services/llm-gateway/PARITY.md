@@ -59,11 +59,10 @@ Open-weight models added to the Python gateway under the freeze stay there for t
 Its callers are PostHog Desktop and PostHog Code, so the model depends on the OAuth application allowlists, the request-selected project validated against OAuth scope and live organization membership, and the billing policy.
 No open-weight model is behind a per-model access flag now; the mechanism stays for the next rollout.
 The Go catalog serves GLM 5.2 only, and Baseten on Go still depends on the provider deployment check below.
-`gpt-6-astra` is also Python-only because the Go catalog does not serve it, while Desktop, Code, and cloud agents require the Python product policy above.
-`claude-opus-5-5`, `gpt-6-sol` and `gpt-6-luna` stay Python-only for the same reason: the Go catalog does not serve them.
+`claude-opus-5-5` is also Python-only because the Go catalog does not serve it, while Desktop, Code, and cloud agents require the Python product policy above.
 
-`gpt-6.1-sol` uses the Python product policies for Desktop, Code, Slack tasks, and background agents.
-These callers still require the OAuth application restrictions and product billing policies above, even when the Go catalog discovers the model.
+`gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` and `gpt-6.1-sol` use the Python product policies for Desktop, Code, Slack tasks, and background agents.
+The Go catalog serves all four, but these callers still require the OAuth application restrictions and product billing policies above.
 
 ### 🔎 Verify before switching
 
