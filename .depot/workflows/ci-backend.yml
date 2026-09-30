@@ -52,11 +52,13 @@
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
 #   The shadow routes cache writes to Depot Cache, so it must not fill the GitHub
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
-# - Superseded-run cancel: canonical's concurrency group spans the PR, and GitHub Actions keeps
-#   the run it created last. Depot's policy keeps the workflow it created last, but Depot creates
-#   a workflow some time after its run, so it can keep an older event and cancel the event that
-#   GitHub Actions handed off. Here the group is unique per event, and the
-#   `cancel-superseded-runs` job cancels every run of the PR that Depot created before this one.
+# - Superseded-run cancel: the GitHub Actions workflow's concurrency group spans the PR, and
+#   GitHub Actions keeps the run it created last. Depot's policy keeps the workflow it created
+#   last, but Depot creates a workflow some time after its run, so it can keep an older event
+#   and cancel the event that GitHub Actions handed off. Here the group is unique per event,
+#   and the `cancel-superseded-runs` job cancels every run of the PR that Depot created before
+#   this one, whether or not GitHub Actions hands this event off, because GitHub Actions cancels
+#   the older run either way. An `opened` event has no older run, so the job skips it.
 #   See "Superseded runs" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 # - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
 #   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
@@ -340,13 +342,12 @@ jobs:
                   }
                   post "$WAIT_CHECK" success
                   [ "$HANDED_OFF" = true ] || post "$GATE_CHECK" skipped
-    # Replaces the PR-wide concurrency group of canonical, because Depot orders that group by
-    # workflow creation and can keep an older event. Depot creates runs in event order, so this
-    # job orders the PR's runs by run creation, as GitHub Actions orders its own runs. It runs
-    # whether or not GitHub Actions hands this event off, because GitHub Actions cancels the
-    # older run either way.
+    # See "Superseded-run cancel" in the header.
     cancel-superseded-runs:
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: >-
+            github.event_name == 'pull_request'
+            && github.event.action != 'opened'
+            && github.event.pull_request.head.repo.full_name == github.repository
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Cancel superseded Backend CI runs
@@ -367,14 +368,11 @@ jobs:
                       echo "::warning::DEPOT_JOB_URL names no workflow, so no run was cancelled."
                       exit 0
                   fi
-                  cancelled=()
-                  # An older run can exist before Depot creates its workflow, so the job polls
-                  # until every older run has a workflow to cancel.
+                  # Depot creates a run before its workflow, so the job polls until every older
+                  # run has a workflow. Workflows are read first, so the run list holds the run
+                  # of every listed workflow, and terminal workflows count as present.
                   for attempt in $(seq 1 12); do
-                      # Workflows first: Depot creates a run before its workflow, so the run list
-                      # read after it holds the run of every listed workflow.
-                      # Terminal workflows are listed too, so a run whose workflow already ended is not awaited.
-                      if ! workflows=$(depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --status queued --status running --status finished --status failed --status cancelled -n 200 -o json) ||
+                      if ! workflows=$(depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --trigger pull_request --status queued --status running --status finished --status failed --status cancelled -n 200 -o json) ||
                           ! runs=$(depot ci run list --repo "$REPO" --pr "$PR_NUMBER" --trigger pull_request --status queued --status running -n 200 -o json); then
                           echo "::warning::Could not list this PR's Depot runs, so no run was cancelled."
                           exit 0
@@ -384,33 +382,33 @@ jobs:
                       # A tie between two commits cancels neither run, because the run id cannot
                       # tell which commit is the PR's head. The order is a string comparison, so
                       # any other timestamp format stops the job rather than risk cancelling a newer run.
-                      plan=$(jq -n --arg own "$own_workflow" --argjson workflows "$workflows" --argjson runs "$runs" '
+                      if ! plan=$(jq -n --arg own "$own_workflow" --argjson workflows "$workflows" --argjson runs "$runs" '
                           ($runs | map({key: .run_id, value: [.created_at, .run_id]}) | from_entries) as $order
                           | ($runs | map({key: .run_id, value: "\(.created_at) \(.head_sha)"}) | from_entries) as $event
                           | [$workflows[] | select(.workflow_path == "ci-backend.yml" and $order[.run_id] != null)] as $backend
                           | ($backend | map(select(.workflow_id == $own)) | first) as $me
                           | if any($runs[]; .created_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") | not) then {unordered: true}
-                            elif $me == null then {cancel: [], pending: ["self"]}
+                            elif $me == null then {cancel: [], waiting: 1}
                             else $order[$me.run_id] as $mine
                               | {
                                   cancel: [$backend[] | select((.status == "queued" or .status == "running") and $order[.run_id] < $mine
                                       and ($order[.run_id][0] < $mine[0] or $event[.run_id] == $event[$me.run_id])) | "\(.run_id) \(.workflow_id)"],
-                                  pending: [$runs[] | select([.created_at, .run_id] < $mine) | .run_id as $run
-                                      | select($backend | all(.run_id != $run)) | $run]
+                                  waiting: [$runs[] | select([.created_at, .run_id] < $mine) | .run_id as $run
+                                      | select($workflows | all(.run_id != $run))] | length
                                 }
-                            end') || exit 0
+                            end'); then
+                          echo "::warning::Could not read the Depot run lists, so no run was cancelled."
+                          exit 0
+                      fi
                       if jq -e '.unordered' <<<"$plan" >/dev/null; then
                           echo "::warning::A Depot run has no whole-second created_at, so no run was cancelled."
                           exit 0
                       fi
                       while read -r run workflow; do
-                          [ -n "$run" ] || continue
                           echo "Cancelling superseded run $run (workflow $workflow)"
                           depot ci cancel "$run" --workflow "$workflow" || echo "::warning::Could not cancel run $run"
-                          cancelled+=("$run")
                       done < <(jq -r '.cancel[]' <<<"$plan")
-                      waiting=$(jq -r --args '[.pending[] | select(. as $run | $ARGS.positional | any(. == $run) | not)] | length' "${cancelled[@]}" <<<"$plan")
-                      [ "$waiting" -eq 0 ] && exit 0
+                      [ "$(jq '.waiting' <<<"$plan")" -eq 0 ] && exit 0
                       [ "$attempt" -lt 12 ] && sleep 15
                   done
                   echo "::warning::An older run of this PR still had no workflow to cancel."
