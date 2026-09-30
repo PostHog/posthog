@@ -622,14 +622,16 @@ describe('scoutTrialsLogic', () => {
     })
 
     it.each([
-        'Save a reviewed rubric before scoring this comparison.',
-        'Generate suggestions, adopt their reference, and save the rubric before scoring.',
-    ])('shows rubric validation errors and allows an explicit retry: %s', async (message) => {
+        ['Save a reviewed rubric before scoring this comparison.', 400],
+        ['Generate suggestions, adopt their reference, and save the rubric before scoring.', 400],
+        ['This project has reached its daily scout run budget. Try again later.', 429],
+        ['This project has reached its daily report limit.', 403],
+    ])('shows the server reason for a rejected score and allows an explicit retry: %s', async (message, status) => {
         logic.actions.registerComparison(trialFixtureComparison)
         await expectLogic(logic, () =>
             logic.actions.selectComparison(trialFixtureComparison.configId, trialFixtureComparison.id)
         ).toFinishAllListeners()
-        jest.mocked(signalsScoutConfigTrialEvaluationCreate).mockRejectedValueOnce(new ApiError(message, 400))
+        jest.mocked(signalsScoutConfigTrialEvaluationCreate).mockRejectedValueOnce(new ApiError(message, status))
         await expectLogic(logic, () => logic.actions.scoreComparison()).toFinishAllListeners()
         expect(logic.values.evaluationState.error).toBe(message)
         expect(logic.values.evaluationState.notStarted).toBe(true)
