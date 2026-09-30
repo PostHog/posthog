@@ -13,6 +13,8 @@ import { actionsList } from '../generated/api'
 export const actionsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.ACTIONS,
     path: ['products', 'actions', 'frontend', 'emptyState', 'actionsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await actionsList(projectId, { limit: 1 })

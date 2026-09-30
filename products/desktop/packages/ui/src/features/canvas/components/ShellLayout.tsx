@@ -33,6 +33,7 @@ import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFram
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import { useCanvasFrameStore } from "@posthog/ui/features/canvas/freeform/canvasFrameStore";
 import { CANVAS_QUERY_KEY } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
+import { useCanvasCommentsEnabled } from "@posthog/ui/features/canvas/hooks/useCanvasCommentsEnabled";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
@@ -42,6 +43,7 @@ import {
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
@@ -92,7 +94,9 @@ function FreeformEditControls({
   const editing = useIsDashboardEditing(dashboardId);
   const setEditing = useDashboardEditStore((s) => s.setEditing);
   const openChat = useCanvasChatPanelStore((state) => state.openChat);
+  const openBlocks = useCanvasChatPanelStore((state) => state.openBlocks);
   const { dashboard } = useDashboard(dashboardId);
+  const builtByAgent = !!dashboard?.generationTaskId;
   const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
   // "Delete…" opens a confirmation rather than deleting inline — the canvas and
@@ -249,7 +253,8 @@ function FreeformEditControls({
             dashboard_id: dashboardId,
             editing: !editing,
           });
-          if (!editing) openChat();
+          if (!editing && builtByAgent) openChat();
+          if (!editing && !builtByAgent) openBlocks();
           setEditing(dashboardId, !editing);
         }}
       >
@@ -283,15 +288,16 @@ function CanvasBreadcrumb({
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
   const commentTarget = {
-    scope: "desktop_canvas" as const,
+    scope: "canvas" as const,
     itemId: dashboardId,
   };
   const commentTaskId = canvasCommentTaskId(
     dashboard?.generationTaskId,
     versions,
   );
+  const commentsEnabled = useCanvasCommentsEnabled(commentTaskId);
   const comments = useCommentsQuery(
-    commentTaskId ? commentTarget : null,
+    commentsEnabled ? commentTarget : null,
     commentTaskId ?? "",
     { live: true },
   );
@@ -317,7 +323,7 @@ function CanvasBreadcrumb({
       }
       trailing={
         <>
-          {commentTaskId && (
+          {commentsEnabled && (
             <Button size="sm" variant="outline" onClick={openComments}>
               <ChatCircleIcon />
               Comments
@@ -335,6 +341,7 @@ function CanvasBreadcrumb({
 
 export function ShellLayout() {
   const spacesLayout = useChannelsLayout();
+  const workLayout = useWorkLayout();
   const pathname = useRouterState({
     select: (s) =>
       s.location.pathname.startsWith("/spaces/") ? s.location.pathname : "",
@@ -386,7 +393,7 @@ export function ShellLayout() {
   // The canvases grid (its own sub-route now that the channel index is the
   // static homepage, which carries its own header content).
   const isDashboardsGrid =
-    Boolean(channelId) && pathname === `${base}/canvases`;
+    !workLayout && Boolean(channelId) && pathname === `${base}/canvases`;
 
   // Whether the single toolbar should render: the canvases grid, or any single
   // canvas (so Edit lives here too).
@@ -406,7 +413,7 @@ export function ShellLayout() {
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && (
-        <ChromeBar inset="control">
+        <ChromeBar inset="title">
           {isDashboardDetail && toolbarDashboardId && toolbarChannelId ? (
             <CanvasBreadcrumb
               channelName={toolbarChannelName}

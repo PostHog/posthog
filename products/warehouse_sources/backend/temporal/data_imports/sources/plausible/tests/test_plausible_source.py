@@ -61,6 +61,9 @@ class TestSourceConfig:
         [
             # A 400 is a permanent rejection from Plausible for this site.
             ("400 Client Error: Bad Request for url: https://plausible.io/api/v2/query", "400 Client Error"),
+            # A 402 means the site's subscription lapsed or its plan has no stats API; retrying
+            # re-hits the same billing state.
+            ("402 Client Error: Payment Required for url: https://plausible.io/api/v2/query", "402 Client Error"),
             # A self-hosted Host that doesn't resolve via DNS is raised from source_for_pipeline's
             # host validation; retrying replays the same check, so it must stop.
             (

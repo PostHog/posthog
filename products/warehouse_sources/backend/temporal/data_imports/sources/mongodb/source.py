@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
-    get_leading_index_keys,
+    get_index_keys_by_collection,
     get_schemas as get_mongo_schemas,
     get_server_metadata as get_mongo_server_metadata,
     mongo_client,
@@ -71,6 +71,11 @@ _MONGO_ATLAS_SQL_MESSAGE = (
 _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "The MongoDB host could not be resolved. Check that the cluster address in your connection "
     "string is spelled correctly."
+)
+
+_MONGO_SERVER_TOO_OLD_MESSAGE = (
+    "This MongoDB server runs a version PostHog no longer supports. Upgrade the cluster to "
+    "MongoDB 4.2 or newer, then try again."
 )
 
 # pymongo drops a server from the topology when its replica set name differs from the one the
@@ -137,6 +142,11 @@ _DNS_RESOLUTION_FAILURE_MARKERS = (*_DNS_NAME_NOT_FOUND_MARKERS, _DNS_TEMPORARY_
 # a deleted, renamed, or mistyped cluster hostname — distinct from a timed-out lookup.
 _SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
 
+# pymongo raises ConfigurationError from server selection when every server's wire version is
+# below the driver's minimum (pymongo 4.15 dropped MongoDB 4.0). The variable parts are the
+# address and version numbers; this fragment stays fixed.
+_SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
+
 
 @SourceRegistry.register
 class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
@@ -148,6 +158,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         auth_failed_msg = _MONGO_AUTHENTICATION_FAILED_MESSAGE
         return {
             "The DNS query name does not exist": None,
+            _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
             # connection string contain unescaped reserved characters (e.g. ':', '/', '@', '%' in the
@@ -255,6 +266,18 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # paused" above, not a persistently unreachable cluster: it carries a host and configured
         # timeouts but no "Topology Description:" dump, and the next connection attempt (this one,
         # or a fresh one on the activity's Temporal retry) succeeds once the network recovers.
+        #
+        # pymongo wraps a bare ConnectionResetError in AutoReconnect the same way, when a socket a
+        # cursor is reading from gets an RST mid-sync (a load balancer or the server ending an idle
+        # connection) rather than timing out. Same recovery path as the timeout case above.
+        #
+        # OperationFailure code 50 (MaxTimeMSExpired / pymongo's ExecutionTimeout) fires when a
+        # getMore is killed by a cluster-enforced execution-time cap we never configure ourselves
+        # (mongo.py's _EXECUTION_TIMEOUT_ERROR_CODE) — notably Atlas free/shared/flex tiers. mongo.py
+        # already resumes from last_id when this happens mid-stream, and only re-raises when a
+        # getMore was killed before yielding anything (resuming immediately would hit the same cap
+        # in a tight loop). A fresh Temporal retry isn't bound by that same in-flight time budget, so
+        # it is self-recovering and must not flood error tracking on every no-progress getMore.
         return {
             "The resolution lifetime expired",
             "connection pool paused",
@@ -262,6 +285,8 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             "interrupted at shutdown",
             "Topology Description:",
             "timed out (configured timeouts:",
+            "Connection reset by peer",
+            "operation exceeded time limit",
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -291,38 +316,37 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
         connection_params = _parse_connection_string(config.connection_string, config.database_name)
-        leading_keys_by_collection: dict[str, set[str] | None] = {}
         with mongo_client(config.connection_string, team_id=team_id) as client:
             db = client[connection_params["database"]]
-            filtered_results = [
-                (collection_name, filter_mongo_incremental_fields(columns, db[collection_name]))
-                for collection_name, columns in mongo_schemas.items()
-            ]
-            for collection_name in mongo_schemas:
-                leading_keys_by_collection[collection_name] = get_leading_index_keys(db[collection_name])
+            index_keys_by_collection = get_index_keys_by_collection(db, list(mongo_schemas))
 
-        return [
-            SourceSchema(
-                name=name,
-                supports_incremental=len(incremental_fields) > 0,
-                supports_append=len(incremental_fields) > 0,
-                incremental_fields=[
-                    {
-                        "label": field_name,
-                        "type": field_type,
-                        "field": field_name,
-                        "field_type": field_type,
-                        "is_indexed": (
-                            True
-                            if leading_keys_by_collection.get(name) is None
-                            else field_name in (leading_keys_by_collection.get(name) or set())
-                        ),
-                    }
-                    for field_name, field_type in incremental_fields
-                ],
+        schemas: list[SourceSchema] = []
+        for collection_name, columns in mongo_schemas.items():
+            index_keys = index_keys_by_collection.get(collection_name)
+            incremental_fields = filter_mongo_incremental_fields(
+                columns, index_keys.covered if index_keys else frozenset()
             )
-            for name, incremental_fields in filtered_results
-        ]
+            schemas.append(
+                SourceSchema(
+                    name=collection_name,
+                    supports_incremental=len(incremental_fields) > 0,
+                    supports_append=len(incremental_fields) > 0,
+                    incremental_fields=[
+                        {
+                            "label": field_name,
+                            "type": field_type,
+                            "field": field_name,
+                            "field_type": field_type,
+                            # Index discovery failed, so we can't tell an unindexed field from an
+                            # indexed one. Don't warn on a guess.
+                            "is_indexed": True if index_keys is None else field_name in index_keys.leading,
+                        }
+                        for field_name, field_type in incremental_fields
+                    ],
+                )
+            )
+
+        return schemas
 
     def validate_credentials(
         self,
@@ -401,6 +425,8 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             message = str(e)
             if _SRV_DNS_NAME_NOT_FOUND_MARKER in message:
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            if _SERVER_TOO_OLD_MARKER in message:
+                return False, _MONGO_SERVER_TOO_OLD_MESSAGE
             if "must be escaped according to RFC 3986" in message:
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
             capture_exception(e)

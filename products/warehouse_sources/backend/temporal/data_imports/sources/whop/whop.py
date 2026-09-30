@@ -317,8 +317,8 @@ def create_webhook(api_key: str, company_id: str, webhook_url: str) -> WebhookCr
             return WebhookCreationResult(
                 success=False,
                 error=(
-                    f"Whop rejected the webhook registration (HTTP {response.status_code}). The API key needs the "
-                    "developer:manage_webhook permission. Please create the webhook manually below."
+                    "Whop refused to register the webhook. Add the developer:manage_webhook permission to your "
+                    "API key and reconnect, or create the webhook manually below."
                 ),
             )
 
@@ -326,13 +326,13 @@ def create_webhook(api_key: str, company_id: str, webhook_url: str) -> WebhookCr
         if not secret:
             return WebhookCreationResult(
                 success=False,
-                error="Whop created the webhook but did not return a signing secret. Please create it manually below.",
+                error="Whop registered the webhook but returned no signing secret. Create the webhook manually below.",
             )
         return WebhookCreationResult(success=True, extra_inputs={"signing_secret": secret})
-    except Exception as e:
+    except Exception:
         return WebhookCreationResult(
             success=False,
-            error=f"Failed to create the Whop webhook: {e}. Please create it manually below.",
+            error="Couldn't reach Whop to register the webhook. Create the webhook manually below.",
         )
 
 

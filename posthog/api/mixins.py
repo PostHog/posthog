@@ -23,6 +23,10 @@ T = TypeVar("T", bound=BaseModel)
 
 _SCHEMA_HINT = "Please update the provided API schema to ensure API docs remain up to date"
 
+# What drf-spectacular accepts for one status code, and what this decorator validates against.
+# A bare serializer class or instance is as valid as an OpenApiResponse wrapping one.
+ResponseDeclaration = OpenApiResponse | type[serializers.BaseSerializer[Any]] | serializers.BaseSerializer[Any] | None
+
 
 class ValidatedRequest(Request):
     """
@@ -108,7 +112,7 @@ class _ResponseValidator:
     """Checks what a view returned against the responses the decorator declares."""
 
     view_name: str
-    responses: dict[int, OpenApiResponse | None] | None
+    responses: dict[int, ResponseDeclaration] | None
     strict: bool
 
     def check(self, view: Any, result: Any) -> None:
@@ -143,7 +147,13 @@ class _ResponseValidator:
             return
 
         response_config = self.responses[status_code]
-        response_serializer = response_config.response if response_config else None
+        # `responses` is passed straight to drf-spectacular, which accepts a bare serializer as
+        # well as an OpenApiResponse wrapping one. Reading `.response` unconditionally raised
+        # AttributeError on the bare form, so an endpoint that declared one 500ed here under
+        # DEBUG while passing every test, because this block does not run with DEBUG off.
+        response_serializer = (
+            response_config.response if isinstance(response_config, OpenApiResponse) else response_config
+        )
         if response_serializer is None:
             self._check_declared_empty(status_code, result.data)
         else:
@@ -221,7 +231,7 @@ def validated_request(
     request_serializer: type[serializers.Serializer] | None = None,
     *,
     query_serializer: type[serializers.Serializer] | None = None,
-    responses: dict[int, OpenApiResponse | None] | None = None,
+    responses: dict[int, ResponseDeclaration] | None = None,
     summary: str | None = None,
     description: str | None = None,
     tags: list[str] | None = None,

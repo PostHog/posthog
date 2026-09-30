@@ -204,6 +204,7 @@ class TestScoutInactivitySweep(BaseTest):
             # wanted, even when they never resolve or dismiss it.
             ("view_action", None, None, SignalReportAction.ActionType.VIEW),
             ("feedback_action", None, None, SignalReportAction.ActionType.FEEDBACK),
+            ("slack_discussion", None, None, SignalReportAction.ActionType.SLACK_DISCUSSION),
         ]
     )
     def test_engagement_with_a_report_keeps_a_scout_running(

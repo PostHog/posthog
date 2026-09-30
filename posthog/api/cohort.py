@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
@@ -44,7 +44,7 @@ from posthog.api.services.flags_service import (
     PropertyMatchingVersionConflictError,
     batch_evaluate_flag_for_team,
 )
-from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, SerializedPersonActorSerializer, UserBasicSerializer
 from posthog.api.utils import action, parse_actor_property_filters
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -112,6 +112,7 @@ from products.cohorts.backend.realtime_state import (
     has_realtime_state,
     resolve_realtime_readiness,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError, is_v1_config
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
     PropertyMatchingVersion,
@@ -121,25 +122,8 @@ from products.feature_flags.backend.realtime_targeting import is_realtime_cohort
 from products.product_analytics.backend.facade.models import Insight
 
 
-# Mirrors SerializedPerson in posthog/hogql_queries/serialized_actors.py.
-# Nullability mirrors the TypedDict: only Optional[...] fields are nullable; matched_recordings
-# and value_at_data_point are always present in the response (always-set keys), even if empty/None.
-class CohortPersonResultSerializer(serializers.Serializer):
-    id = serializers.CharField()
-    uuid = serializers.UUIDField()
-    type = serializers.ChoiceField(choices=["person"])
-    name = serializers.CharField()
-    distinct_ids = serializers.ListField(child=serializers.CharField())
-    properties = serializers.DictField()
-    created_at = serializers.DateTimeField(allow_null=True)
-    last_seen_at = serializers.DateTimeField(allow_null=True)
-    is_identified = serializers.BooleanField(allow_null=True)
-    matched_recordings = serializers.ListField(child=serializers.DictField())
-    value_at_data_point = serializers.FloatField(allow_null=True)
-
-
 class CohortPersonsResponseSerializer(serializers.Serializer):
-    results = CohortPersonResultSerializer(many=True)
+    results = SerializedPersonActorSerializer(many=True)
     next = serializers.URLField(allow_null=True)
     previous = serializers.URLField(allow_null=True)
 
@@ -640,14 +624,6 @@ class CSVConfig:
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
-
-
-class CohortMinimalSerializer(serializers.ModelSerializer):
-    """Minimal serializer for cohort references (e.g., person cohorts endpoint)."""
-
-    class Meta:
-        model = Cohort
-        fields = ["id", "name", "count"]
 
 
 @extend_schema_field(CohortFilters)  # type: ignore[arg-type]
@@ -1430,7 +1406,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         cohort_id = instance.pk
 
         flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True)
-        cohort_used_in_flags = any(cohort_id in flag.get_cohort_ids(stop_traversal_at_static=True) for flag in flags)
+        cohort_used_in_flags = any(
+            cohort_id in flag.get_cohort_ids(stop_traversal_at_static=True) for flag in _v1_flags(flags)
+        )
 
         if not cohort_used_in_flags:
             return
@@ -1667,6 +1645,16 @@ def _flags_with_cohort_filters(cohort: Cohort) -> QuerySet[FeatureFlag]:
     )
 
 
+def _v1_flags(flags: Iterable[FeatureFlag]) -> Iterator[FeatureFlag]:
+    """Rows whose document carries the v1 release groups the cohort walks below read.
+
+    A flag in another config format references cohorts in its own shape; until those reads
+    exist it is skipped here rather than read as a flag with no conditions. Lazy, so a caller
+    that short-circuits stops at the first match.
+    """
+    return (flag for flag in flags if is_v1_config(flag.filters))
+
+
 def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
     """Cohort ids each flag references directly in its filter conditions.
 
@@ -1693,7 +1681,7 @@ def _filter_flags_referencing_cohort(
     target still resolves: ``used_in`` reports flags referencing a deleted cohort, which
     matches the insights and cohorts blocks (neither checks the target's deleted state).
     """
-    flag_list = list(flags)
+    flag_list = list(_v1_flags(flags))
     seen_cohorts_cache: dict[int, CohortOrEmpty] = {cohort.id: cohort}
     direct_ids = _directly_referenced_cohort_ids(flag_list) - seen_cohorts_cache.keys()
     if direct_ids:
@@ -2405,7 +2393,19 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         return
 
-    if not feature_flag.active or feature_flag.aggregation_group_type_index is not None:
+    if not feature_flag.active:
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
+        return
+
+    try:
+        aggregates_by_group = feature_flag.aggregation_group_type_index is not None
+    except ConfigFormatError:
+        cohort._safe_save_cohort_state(
+            team_id=team_id, processing_error="This flag uses a configuration format that cannot populate a cohort."
+        )
+        return
+
+    if aggregates_by_group:
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         return
 

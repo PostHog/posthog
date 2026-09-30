@@ -18,9 +18,9 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.query_creator_access import creator_access_revoked
 from posthog.redis import get_client
+from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.signals.backend.models import SignalReport, SignalScoutRun
-from products.signals.backend.slack_formatting import escape_slack_mrkdwn
 
 logger = structlog.get_logger(__name__)
 

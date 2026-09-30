@@ -1149,6 +1149,37 @@ describe('replayScannerLogic', () => {
             expect(patchedBody.credit_limit).toBe(100)
             expect(patchedBody).not.toHaveProperty('credit_limit_enabled')
         })
+
+        it('turns on self-driving with a patch of that one field and keeps the version the save bumped', async () => {
+            let patchedBody: any
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': async ({ request }: { request: Request }) => {
+                        patchedBody = await request.json()
+                        return [
+                            200,
+                            {
+                                ...loadedScanner,
+                                emits_signals: true,
+                                scanner_version: 7,
+                                updated_at: '2026-09-24T10:00:00Z',
+                            },
+                        ]
+                    },
+                },
+            })
+            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            await expectLogic(editLogic, () => editLogic.actions.turnOnSelfDriving()).toDispatchActions([
+                'turnOnSelfDrivingSuccess',
+            ])
+            expect(patchedBody).toEqual({ emits_signals: true })
+            expect(editLogic.values.scanner).toMatchObject({ emits_signals: true, scanner_version: 7 })
+            expect(editLogic.values.originalScanner).toMatchObject({
+                emits_signals: true,
+                scanner_version: 7,
+                updated_at: '2026-09-24T10:00:00Z',
+            })
+        })
     })
 
     describe('buildObservationListParams', () => {
