@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 
-import { CollapsibleChevron } from './CollapsibleChevron'
 import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 import { getVariableValue } from './playgroundTemplating'
@@ -19,15 +19,19 @@ export function PlaygroundVariablesPanel(): JSX.Element {
 
     return (
         <div className="border rounded p-4 py-2 shrink-0">
-            <div
-                className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
-                onClick={() => toggleCollapsed('variables')}
-            >
-                <CollapsibleChevron collapsed={collapsed} />
-                <LemonTag type="default" size="small">
-                    Variables
-                </LemonTag>
-                {detectedVariables.length > 0 && <span className="text-xs text-muted">{detectedVariables.length}</span>}
+            <div className={collapsed ? '' : 'mb-2'}>
+                <LemonButton
+                    size="small"
+                    noPadding
+                    icon={
+                        <IconChevronRight className={`transition-transform ${collapsed ? 'rotate-0' : 'rotate-90'}`} />
+                    }
+                    onClick={() => toggleCollapsed('variables')}
+                    aria-expanded={!collapsed}
+                    data-attr="llma-playground-toggle-variables"
+                >
+                    Variables{detectedVariables.length > 0 ? ` (${detectedVariables.length})` : ''}
+                </LemonButton>
             </div>
 
             <AnimatedCollapsible collapsed={collapsed}>
