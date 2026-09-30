@@ -3138,32 +3138,32 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("empty_write", {}, "background"),
-            ("schedule_edit", {"run_interval_minutes": 60}, "user"),
-            ("pause", {"enabled": False}, "user"),
+            ("schedule_edit", {"run_interval_minutes": 60}, "team"),
+            ("pause", {"enabled": False}, "team"),
         ]
     )
-    def test_a_human_edit_takes_over_a_background_enrollment(
-        self, _name: str, payload: dict, expected_origin: str
+    def test_a_human_edit_takes_over_a_background_scout(
+        self, _name: str, payload: dict, expected_managed_by: str
     ) -> None:
         config = SignalScoutConfig.objects.create(
             team=self.team,
             skill_name="signals-scout-foo",
-            enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND,
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
         )
 
         response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["enrollment_origin"] == expected_origin
+        assert response.json()["managed_by"] == expected_managed_by
         config.refresh_from_db()
-        assert config.enrollment_origin == expected_origin
-        origin_changes = [
+        assert config.managed_by == expected_managed_by
+        managed_by_changes = [
             (change["before"], change["after"])
             for entry in ActivityLog.objects.filter(team_id=self.team.id, scope="SignalScoutConfig", item_id=config.id)
             for change in (entry.detail or {}).get("changes", [])
-            if change["field"] == "enrollment origin"
+            if change["field"] == "managed by"
         ]
-        assert origin_changes == ([("background", "user")] if expected_origin == "user" else [])
+        assert managed_by_changes == ([("background", "team")] if expected_managed_by == "team" else [])
 
     def test_partial_update_slack_destination_is_project_scoped_and_round_trips(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
