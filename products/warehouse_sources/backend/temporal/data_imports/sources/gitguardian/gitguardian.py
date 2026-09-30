@@ -2,11 +2,13 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urljoin, urlsplit
+from urllib.parse import quote, urlencode, urljoin, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -161,7 +163,9 @@ def check_endpoint_access(api_key: str, base_url: str, endpoint: str) -> str | N
     stay retryable, so they report the endpoint as reachable rather than blocking the schema.
     """
     config = GITGUARDIAN_ENDPOINTS[endpoint]
-    url = _build_url(base_url, config.path, {"per_page": 1})
+    # Fan-out children share their parent's scope, and their path needs a real parent id.
+    probe_path = GITGUARDIAN_ENDPOINTS[config.parent_endpoint].path if config.parent_endpoint else config.path
+    url = _build_url(base_url, probe_path, {"per_page": 1})
     try:
         # capture=False keeps GitGuardian security metadata (repo names, file paths, secret hashes)
         # out of the HTTP sample bucket — the name-based scrubbers can't recognise these fields.
@@ -177,6 +181,76 @@ def check_endpoint_access(api_key: str, base_url: str, endpoint: str) -> str | N
     if detail:
         return detail
     return f"Your API token is missing the `{config.required_scope}` scope required for this table."
+
+
+def _list_params(config: GitGuardianEndpointConfig) -> dict[str, Any]:
+    params: dict[str, Any] = {"per_page": config.page_size}
+    if config.ordering:
+        params["ordering"] = config.ordering
+    return params
+
+
+@frozen
+class _GitGuardianPage:
+    url: str
+    rows: list[dict[str, Any]]
+
+
+def _iter_pages(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    base_url: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[_GitGuardianPage]:
+    """Walk the Link-header cursor from `url`, yielding each page's fetch URL and rows."""
+    while True:
+        response = _fetch_page(session, url, headers, logger)
+        rows = response.json()
+        if not isinstance(rows, list):
+            # Every GitGuardian list endpoint returns a plain JSON array; anything else means the
+            # URL walked somewhere unexpected. Bail loudly rather than yield garbage rows.
+            raise ValueError(f"GitGuardian returned a non-list response for {endpoint}: {type(rows).__name__}")
+        next_url = _next_page_url(response)
+
+        yield _GitGuardianPage(url=url, rows=rows)
+
+        if not next_url:
+            break
+        url = _ensure_same_origin(next_url, base_url)
+
+
+def _get_fan_out_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    base_url: str,
+    config: GitGuardianEndpointConfig,
+    parent: GitGuardianEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    parent_url = _build_url(base_url, parent.path, _list_params(parent))
+
+    for page in _iter_pages(session, parent_url, headers, base_url, parent.name, logger):
+        for parent_row in page.rows:
+            parent_id = parent_row.get("id")
+            if parent_id is None:
+                continue
+            path = config.path.format(parent_id=quote(str(parent_id), safe=""))
+            try:
+                for page in _iter_pages(
+                    session, _build_url(base_url, path, _list_params(config)), headers, base_url, config.name, logger
+                ):
+                    if page.rows:
+                        yield page.rows
+            except requests.HTTPError as e:
+                # The parent can be deleted between listing it and fetching its children.
+                if e.response is not None and e.response.status_code == 404:
+                    logger.info(
+                        f"GitGuardian {parent.name} {parent_id} not found while syncing {config.name}; skipping"
+                    )
+                    continue
+                raise
 
 
 def get_rows(
@@ -196,9 +270,12 @@ def get_rows(
     # (repo names, file paths, secret hashes) out of the HTTP sample bucket.
     session = make_tracked_session(allow_redirects=False, capture=False)
 
-    params: dict[str, Any] = {"per_page": config.page_size}
-    if config.ordering:
-        params["ordering"] = config.ordering
+    if config.parent_endpoint:
+        parent = GITGUARDIAN_ENDPOINTS[config.parent_endpoint]
+        yield from _get_fan_out_rows(session, headers, base_url, config, parent, logger)
+        return
+
+    params = _list_params(config)
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         value = db_incremental_field_last_value
         if isinstance(value, datetime | date) and config.incremental_lookback:
@@ -214,32 +291,23 @@ def get_rows(
     resume = (
         resumable_source_manager.load_state() if config.resumable and resumable_source_manager.can_resume() else None
     )
-    url = (
-        _ensure_same_origin(resume.url, base_url)
-        if resume and resume.url
-        else _build_url(base_url, config.path, params)
-    )
+    if resume and resume.url:
+        urls = [_ensure_same_origin(resume.url, base_url)]
+    elif config.statuses:
+        urls = [_build_url(base_url, config.path, params | {"status": status}) for status in config.statuses]
+    else:
+        urls = [_build_url(base_url, config.path, params)]
 
-    while True:
-        response = _fetch_page(session, url, headers, logger)
-        rows = response.json()
-        if not isinstance(rows, list):
-            # Every GitGuardian list endpoint returns a plain JSON array; anything else means the
-            # URL walked somewhere unexpected. Bail loudly rather than yield garbage rows.
-            raise ValueError(f"GitGuardian returned a non-list response for {endpoint}: {type(rows).__name__}")
-        next_url = _next_page_url(response)
-
-        if rows:
-            if config.excluded_fields:
-                rows = [{k: v for k, v in row.items() if k not in config.excluded_fields} for row in rows]
-            yield rows
-        # Checkpoint the CURRENT page's URL after yielding, so a crash re-fetches this page.
-        if config.resumable:
-            resumable_source_manager.save_state(GitGuardianResumeConfig(url=url))
-
-        if not next_url:
-            break
-        url = _ensure_same_origin(next_url, base_url)
+    for url in urls:
+        for page in _iter_pages(session, url, headers, base_url, endpoint, logger):
+            rows = page.rows
+            if rows:
+                if config.excluded_fields:
+                    rows = [{k: v for k, v in row.items() if k not in config.excluded_fields} for row in rows]
+                yield rows
+            # Checkpoint the CURRENT page's URL after yielding, so a crash re-fetches this page.
+            if config.resumable:
+                resumable_source_manager.save_state(GitGuardianResumeConfig(url=page.url))
 
     # The walk finished cleanly, so drop the checkpoint. Otherwise a retry that re-runs extract
     # after a completed walk would resume from the final page and skip everything before it.
