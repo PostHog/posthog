@@ -14973,6 +14973,22 @@
             "readOnlyHint": true
         }
     },
+    "workflows-get-code": {
+        "description": "Get any workflow as a YAML workflow file, whether it was built in PostHog, through MCP or from a file. The file holds the live workflow, not a staged draft, and workflows-check-code accepts it as it is. warnings list what the file cannot carry exactly, such as secret inputs (left out, and apply keeps the stored value), a missing key (the file makes one from the name, so applying it creates a new workflow) or a staged draft; the same warnings open the file as # comments. Edit the file, check it with workflows-check-code, then apply it with workflows-apply-code.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get a workflow as a file",
+        "title": "Get a workflow as a file",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-as-code",
+        "feature_flag_behavior": "enable"
+    },
     "workflows-get-code-schema": {
         "description": "Get the JSON Schema of a workflow file: one YAML file per workflow with version, key, name, trigger and steps. Every field carries a description, and each trigger and step is picked by its type. Read it before writing a file, then check the file with workflows-check-code. A file cannot carry secrets, so leave secret inputs out.",
         "category": "Workflows",

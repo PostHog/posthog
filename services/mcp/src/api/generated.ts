@@ -51781,9 +51781,26 @@ export namespace Schemas {
       errors: HogFlowCodeError[];
     }
 
+    export interface HogFlowCodeRenderWarning {
+      /**
+         * The step the warning is about. Null when it concerns the whole workflow.
+         * @nullable
+         */
+      action_id: string | null;
+      /** What the file leaves out or changes, and what applying it does. */
+      message: string;
+    }
+
     export interface HogFlowCodeRequest {
       /** The workflow file as text, in YAML, or in JSON when it starts with {. At most 1048576 bytes. Get its schema from code_schema. */
       content: string;
+    }
+
+    export interface HogFlowCodeResponse {
+      /** The live workflow as a YAML workflow file. Each warning also opens the file as a # comment line. */
+      content: string;
+      /** Parts of the workflow the file cannot carry exactly. Empty when the file is exact. */
+      warnings: HogFlowCodeRenderWarning[];
     }
 
     /**

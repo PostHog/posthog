@@ -20,6 +20,7 @@ import type {
     HogFlowCodeApplyResponseApi,
     HogFlowCodeCheckResponseApi,
     HogFlowCodeRequestApi,
+    HogFlowCodeResponseApi,
     HogFlowInvocationApi,
     HogFlowOptimizationApi,
     HogFlowPublishRequestApi,
@@ -522,6 +523,24 @@ export const hogFlowsBatchJobsCancelCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getHogFlowsCodeRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/code/`
+}
+
+/**
+ * The live workflow as a YAML workflow file that code_check accepts, with warnings for what it cannot carry.
+ */
+export const hogFlowsCodeRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowCodeResponseApi> => {
+    return apiMutator<HogFlowCodeResponseApi>(getHogFlowsCodeRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {

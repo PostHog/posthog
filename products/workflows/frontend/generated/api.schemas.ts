@@ -1032,6 +1032,23 @@ export interface HogFlowBatchJobCancelResponseApi {
     done: boolean
 }
 
+export interface HogFlowCodeRenderWarningApi {
+    /**
+     * The step the warning is about. Null when it concerns the whole workflow.
+     * @nullable
+     */
+    action_id: string | null
+    /** What the file leaves out or changes, and what applying it does. */
+    message: string
+}
+
+export interface HogFlowCodeResponseApi {
+    /** The live workflow as a YAML workflow file. Each warning also opens the file as a # comment line. */
+    content: string
+    /** Parts of the workflow the file cannot carry exactly. Empty when the file is exact. */
+    warnings: HogFlowCodeRenderWarningApi[]
+}
+
 /**
  * * `update_action` - update_action
  * * `add_action` - add_action
