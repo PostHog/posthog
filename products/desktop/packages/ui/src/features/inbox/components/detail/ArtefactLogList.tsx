@@ -69,9 +69,6 @@ const WORK_RELEASE_REASON_LABELS: Record<WorkReleaseContent["reason"], string> =
     taken_over: "Taken over",
   };
 
-// Types whose content has no text, so a degraded row shows only its label.
-const NO_TEXT_PREVIEW_TYPES = new Set(["ranking_score"]);
-
 function typeLabel(type: string): string {
   return TYPE_LABELS[type] ?? type;
 }
@@ -390,7 +387,8 @@ function ArtefactBody({
   // Degraded rows carry a plain text preview instead of their type's content
   // shape — render that rather than feeding mismatched content to a typed body.
   if (artefact.degraded) {
-    if (NO_TEXT_PREVIEW_TYPES.has(artefact.type)) return null;
+    // A score has no text, so its preview would be a JSON dump. Show only the label.
+    if (artefact.type === "ranking_score") return null;
     const text = (artefact.content as SignalReportArtefactContent | null)
       ?.content;
     return (
