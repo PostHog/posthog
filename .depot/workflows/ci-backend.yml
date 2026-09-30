@@ -336,10 +336,7 @@ jobs:
                   post "$WAIT_CHECK" success
                   [ "$HANDED_OFF" = true ] || post "$GATE_CHECK" skipped
     cancel-superseded-runs:
-        if: >-
-            github.event_name == 'pull_request'
-            && github.event.action != 'opened'
-            && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Cancel superseded Backend CI runs
