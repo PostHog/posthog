@@ -3309,7 +3309,11 @@ class FeatureFlagConditionAnalysisSerializer(serializers.Serializer):
     rollout_excluded = serializers.BooleanField(
         help_text="Whether this condition matched properties but was excluded due to rollout"
     )
-    variant = serializers.CharField(allow_null=True, help_text="Variant associated with this condition")
+    variant = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        help_text="Variant associated with this condition. Empty or null when the condition has no variant override.",
+    )
     properties = FeatureFlagConditionPropertyAnalysisSerializer(
         many=True, help_text="Analysis of each property in this condition"
     )
@@ -5840,6 +5844,8 @@ class FeatureFlagViewSet(
                 flag_keys=[feature_flag.key],
                 internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
+                # A pooled connection that the service closed fails once with a reset, so retry it.
+                max_retries=1,
             )
 
             # Extract the flag result from the Rust response
@@ -5934,9 +5940,49 @@ class FeatureFlagViewSet(
             }
 
             response_serializer = FeatureFlagTestEvaluationResponseSerializer(data=response_data)
-            response_serializer.is_valid(raise_exception=True)
+            if not response_serializer.is_valid():
+                logger.error(
+                    "Flag evaluation service response failed validation in test_evaluation",
+                    extra={"flag_key": feature_flag.key, "errors": response_serializer.errors},
+                )
+                capture_exception(serializers.ValidationError(response_serializer.errors))
+                return Response(
+                    {"error": "Unexpected response format from flag evaluation service"},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
             return Response(response_serializer.data)
 
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            logger.warning(
+                "Flag evaluation service unreachable for flag %s: %s", feature_flag.key, e, extra=log_context
+            )
+            return Response(
+                {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except requests.exceptions.HTTPError as e:
+            service_status = e.response.status_code if e.response is not None else None
+            if service_status == status.HTTP_400_BAD_REQUEST:
+                # The service writes its 400 bodies as client-facing messages about the request input.
+                service_message = e.response.text.strip()[:500] if e.response is not None else ""
+                logger.warning(
+                    "Flag evaluation service rejected test evaluation for flag %s: %s",
+                    feature_flag.key,
+                    service_message,
+                    extra=log_context,
+                )
+                return Response(
+                    {"error": f"Flag evaluation service rejected the request: {service_message or 'bad request'}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            logger.exception(
+                "Flag evaluation service returned an error for flag %s", feature_flag.key, extra=log_context
+            )
+            capture_exception(e)
+            return Response(
+                {"error": f"Flag evaluation service returned HTTP {service_status}. Please retry."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         except Exception as e:
             logger.exception(
                 "Error evaluating flag '%s' for distinct_id='%s' person_id='%s' timestamp='%s': %s",
