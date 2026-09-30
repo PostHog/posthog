@@ -14,7 +14,7 @@ export function TodayPreviewFacts({ facts }: { facts: TodayPreviewFact[] }): JSX
             {shown.map((fact) => (
                 <div key={fact.label} className="contents">
                     <dt className="text-muted-foreground">{fact.label}</dt>
-                    <dd className="m-0 truncate text-foreground">{fact.value}</dd>
+                    <dd className="m-0 text-foreground wrap-anywhere">{fact.value}</dd>
                 </div>
             ))}
         </dl>

@@ -91,7 +91,7 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         status: null,
         channel: null,
         createdById: conversation.user?.id ?? null,
-        createdByName: conversation.user ? fullNameOrEmail(conversation.user) : null,
+        createdByName: null,
         latestRunId: null,
         runEnvironment: null,
         originProduct: null,

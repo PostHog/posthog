@@ -60,12 +60,9 @@ export const todayPreviewCardLogic = kea<todayPreviewCardLogicType>([
             {} as Record<string, TaskUserBasicInfoApi[] | null>,
             {
                 loadSpaceMembers: async ({ spaceId }: { spaceId: string }) => {
-                    let members: TaskUserBasicInfoApi[] | null = null
-                    try {
-                        members = await taskChannelsMembersRetrieve(String(values.currentTeamId), spaceId)
-                    } catch {
-                        members = null
-                    }
+                    const members = await taskChannelsMembersRetrieve(String(values.currentTeamId), spaceId).catch(
+                        () => null
+                    )
                     return { ...values.spaceMembers, [spaceId]: members }
                 },
             },
