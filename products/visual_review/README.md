@@ -109,6 +109,10 @@ Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:
 The beat task runs on Monday morning and fans out only to the repositories that are on.
 A repository that owes nothing posts nothing.
 
+`./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand on any day, whatever `debt_digest_enabled` says, because a run somebody starts is already a decision to send it.
+`--mode preview`, the default, prints and logs the plain text behind every message without posting.
+`--mode live` posts.
+
 ### Quarantine notice
 
 The quarantine dialog has a "Notify the owning team in Slack" switch, on by default.
@@ -119,6 +123,8 @@ It finds the owner with the same lookup as the flakiness page, and posts to the 
 The message names the person who quarantined and shows the story, the reason, the expiry, and a button to the snapshot.
 It works for Storybook runs only, and it is best effort: a story no team owns, a project with no Slack integration, or a refused post sends nothing, and nothing retries.
 The weekly digest still lists the quarantine before it expires.
+
+## The flow
 
 ### Single-command flow (`vr submit`)
 
