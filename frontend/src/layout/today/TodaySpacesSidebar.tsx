@@ -28,10 +28,18 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentItems,
         recentGroups,
         recentLoading,
+        recentTasksUnavailable,
         collapsedSections,
     } = useValues(todaySpacesLogic)
-    const { toggleSpace, loadSpaces, loadSpaceTasks, toggleSection, setBrowsingSpaces, setSpaceStarred } =
-        useActions(todaySpacesLogic)
+    const {
+        toggleSpace,
+        loadSpaces,
+        loadSpaceTasks,
+        loadRecentTasks,
+        toggleSection,
+        setBrowsingSpaces,
+        setSpaceStarred,
+    } = useActions(todaySpacesLogic)
     const { location, searchParams } = useValues(router)
     const onAi = location.pathname.endsWith('/ai')
 
@@ -83,6 +91,18 @@ export function TodaySpacesSidebar(): JSX.Element {
                     {recentLoading && !recentItems.length ? (
                         <div className="TodayPane__state">
                             <Spinner />
+                        </div>
+                    ) : recentTasksUnavailable && !recentItems.length ? (
+                        <div className="TodayPane__state">
+                            <span>Recent sessions didn’t load.</span>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                onClick={() => loadRecentTasks()}
+                                data-attr="today-recent-retry"
+                            >
+                                Try again
+                            </LemonButton>
                         </div>
                     ) : !recentItems.length ? (
                         <div className="TodayPane__state">Sessions and chats you open show up here.</div>
