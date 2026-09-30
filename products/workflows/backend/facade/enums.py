@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from django.db import models
+from posthog.enums import LabeledStrEnum
 
 
 class EmailTrackingConsentMode(StrEnum):
@@ -19,7 +19,7 @@ EMAIL_TRACKING_CONSENT_MODE_CHOICES = [
 ]
 
 
-class HogFlowTemplateScope(models.TextChoices):
+class HogFlowTemplateScope(LabeledStrEnum):
     """Visibility of the workflow template"""
 
     ONLY_TEAM = "team", "Only team"
@@ -27,14 +27,14 @@ class HogFlowTemplateScope(models.TextChoices):
     GLOBAL = "global", "Global"
 
 
-class HogFlowTemplateExitCondition(models.TextChoices):
+class HogFlowTemplateExitCondition(LabeledStrEnum):
     CONVERSION = "exit_on_conversion"
     TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
     TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
     ONLY_AT_END = "exit_only_at_end"
 
 
-class HogFlowBatchJobState(models.TextChoices):
+class HogFlowBatchJobState(LabeledStrEnum):
     WAITING = "waiting"
     QUEUED = "queued"
     ACTIVE = "active"
