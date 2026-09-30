@@ -2,7 +2,7 @@
 
 `JSONCleanPostHogEventProperties` groups `$feature/<key>` event properties into `$feature_flags`.
 Before emitting JSON for insertion, it sorts the keys in `$feature_flags` alphabetically using case-sensitive string order.
-This also applies to existing `$feature_flags` objects, after cleanup resolves duplicates and expands dotted keys.
+This also applies to existing `$feature_flags` objects, after cleanup resolves duplicates.
 A flag value that is the JSON string `"false"` (a variant named false) is stored as `$false`, so it stays distinct from a flag that was evaluated and switched off (JSON `false`, which the typed map stores as `false`).
 `$false` is a reserved variant key; the flag API rejects it.
 Flag values and person-property ordering follow the existing cleanup rules.
@@ -20,8 +20,7 @@ The event, person, and temporary cleaners reuse at most 4,096 parser nodes acros
 Recycled nodes keep small backing arrays for reuse and release larger arrays whose capacity exceeds twice their used length, so a wide row does not make later small rows repeatedly clear oversized arrays.
 They clear references across the remaining backing arrays, including entries removed during cleanup, so borrowed property keys do not retain previously processed input rows.
 The parser validates discarded properties without allocating their value trees or decoding their strings into buffers.
-Dotted-key expansion reuses a scratch entry slice and up to eight cleared backing arrays, one per size class, totaling less than 192 KiB.
-The backing-array cache releases buffers larger than the next input row; scratch slices and lookup maps exceeding 4,096 entries are released.
+Lookup maps exceeding 4,096 entries are released.
 Output and decoded-string buffers larger than 64 KiB are released when their capacity exceeds twice the next input row's length.
 Each worker uses 64 KiB input and output buffers and borrows ordinary input rows directly from the reader.
 Rows exceeding the reader buffer are assembled into an owned slice without imposing a new row-size limit.
@@ -42,9 +41,38 @@ The temporary cleaner emits `{}` because the permanent cleaner preserves the ori
 Run both event cleaners on the original document to retain that guarantee.
 Malformed JSON still fails instead of entering this quarantine path.
 
+### `JSONCleanPostHogEvent(properties, person_properties)`
+
+One call per event row for the native JSON events table. It takes the raw event and person properties, parses each document once, and returns a named tuple:
+
+| Field                            | Type            | Content                                                                       |
+| -------------------------------- | --------------- | ----------------------------------------------------------------------------- |
+| `properties`                     | `String`        | What `JSONCleanPostHogEventProperties` returns                                |
+| `temporary_properties`           | `String`        | What `JSONCleanPostHogTemporaryProperties` returns                            |
+| `person_properties`              | `String`        | What `JSONCleanPostHogPersonProperties` returns                               |
+| `properties_null_keys`           | `Array(String)` | Paths of the object fields removed from `properties` because they were `null` |
+| `temporary_properties_null_keys` | `Array(String)` | The same for `temporary_properties`                                           |
+| `person_properties_null_keys`    | `Array(String)` | The same for `person_properties`                                              |
+
+The typed JSON column cannot store `null`, so the cleaners drop null fields. The null-key arrays keep the difference between a property sent as `null` and one never sent. No reader uses them yet: queries, filters and exports treat a null property the same as a missing one, and the arrays keep the data so that a later change can restore the nulls. A path joins the object keys with `.` and writes array positions as numbers: `{"items":[{"a":null}]}` records `items.0.a`. A dot inside one key is written as `%2E`, the spelling `json_type_escape_dots_in_keys` uses, so `{"user":{"plan":null},"a.b":null}` records `user.plan` and `a%2Eb`. A path that still holds a value after duplicate handling is not recorded, so `{"a":null,"a":1}` records nothing. Nulls inside arrays are not object fields; they stay in the array. The paths of one document can use at most 256 KiB. If they need more, that document records no null keys, and its cleaned properties are unchanged. A path repeats every key above it, so without this limit a small document with a long key and many null children could produce gigabytes of paths.
+
+The function never fails. Blank input becomes `{}`. Malformed, non-object, or too-deep input comes back quarantined under `$unparseable_properties` in that document, with `{}` temporary properties and no null keys, so the calling SQL needs no `isValidJSON` guards. Rows travel as `JSONEachRow` in both directions and the executable pool reads a chunk header before each batch.
+
+Read every field off one alias so the process runs once per row:
+
+```sql
+SELECT cleaned.properties, cleaned.temporary_properties, cleaned.properties_null_keys
+FROM (SELECT JSONCleanPostHogEvent(properties, person_properties) AS cleaned FROM events)
+```
+
+```sql
+SELECT JSONCleanPostHogEvent('{"$set":{"score":7},"$feature/demo":"control","plan":null,"custom":"kept"}', '{"email":null}');
+-- ('{"custom":"kept","$feature_flags":{"demo":"control"}}','{"$set":{"score":7}}','{}',['plan'],[],['email'])
+```
+
 ### `JSONCleanPostHogTemporaryProperties(json)`
 
-Accepts a JSON object and retains only the following top-level properties, including their dotted descendants. It uses the event cleaner's dotted-key expansion, null-object-field removal, duplicate handling, and integer protection, without coercing values to declared schema types. Non-object input fails.
+Accepts a JSON object and retains only the following top-level properties. A dotted key is one flat key, so `$set.foo` is not retained; a key that starts with `$sdk_debug_` is. It uses the event cleaner's null-object-field removal, duplicate handling, and integer protection, without coercing values to declared schema types. Non-object input fails.
 
 | Category                      | Allowlist                                                                                                                                        |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -169,22 +197,22 @@ They measure parser work separately from whole-process memory.
 The first pass removed discarded-value allocations, per-row input copies, redundant traversals, and oversized I/O buffers.
 Repeated CPU profiles then identified depth-counter updates, scalar recursion, string classification, recycling, and root-key hashing as remaining costs.
 The final version passes depth explicitly, skips no-op scalar cleanup while preserving depth checks, classifies string bytes with a 256-byte table, avoids redundant copies, and replaces the fixed discard map with a string switch.
-A bounded entry-buffer cache removes repeated dotted-expansion allocations: allocated bytes for the dotted workload fell from 37,972 to approximately 5 per row, amortizing initial buffer allocation, with zero allocations after warmup.
 The final Bluesky CPU profile attributes approximately 31% of samples to string parsing, 10% to recycling, and 7% to duplicate checking, including callees.
 Two portable eight-byte string-scanning experiments were rejected because they did not improve Bluesky and slowed escaped strings or small objects.
 
 Validation covered the module's unit tests, race detector, `go vet`, both Linux architecture builds, and the ClickHouse stateless fixtures, including quarantine-to-JSON casts.
 Temporary differential fuzzing against the baseline compared output bytes and error acceptance across all three modes for approximately 12 million inputs during the first pass, then 988,086 additional generated inputs on the final implementation.
-Regression tests cover malformed discarded values, duplicate handling in wide objects, every string byte at multiple offsets, dotted expansion at the depth boundary, escaped rows exceeding the I/O buffer, truncated chunks, processor recovery, and retained-memory limits.
-The buffer-reuse test alternates dotted-object widths and verifies exact output, cleared references, the cache bound, and release after a small row.
+Regression tests cover malformed discarded values, duplicate handling in wide objects, every string byte at multiple offsets, escaped rows exceeding the I/O buffer, truncated chunks, processor recovery, and retained-memory limits.
 
 These local measurements should be repeated on deployment hardware before estimating fleet capacity.
 
 ### `JSONDropKeysPool(json, keys)`
 
 Removes the given keys from a JSON document and returns the result as a `String`.
-It produces the same output as `JSONDropKeys(keys)(json)`, including dotted-key expansion.
+It produces the same output as `JSONDropKeys(keys)(json)`.
 Each key is a dot-separated path, such as `properties.secret`.
+A dotted key name and the nested path it spells are the same property, so `a.b` drops both `{"a.b":1}` and `{"a":{"b":1}}`.
+The function removes matching keys and leaves the rest of the document in its original shape.
 
 ```sql
 SELECT JSONDropKeysPool('{"a":1,"b":{"c":2,"d":3}}', ['a', 'b.c']);

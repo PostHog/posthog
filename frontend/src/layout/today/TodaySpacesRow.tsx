@@ -9,9 +9,11 @@ interface TodaySpacesRowProps {
     active: boolean
     dataAttr: string
     action?: JSX.Element | null
+    /** Stays visible at the end of the row, after the hover action. */
+    badge?: JSX.Element | null
 }
 
-export function TodaySpacesRow({ label, icon, to, active, dataAttr, action }: TodaySpacesRowProps): JSX.Element {
+export function TodaySpacesRow({ label, icon, to, active, dataAttr, action, badge }: TodaySpacesRowProps): JSX.Element {
     return (
         <div className="group/row relative flex min-w-0 items-center">
             <Button
@@ -23,18 +25,21 @@ export function TodaySpacesRow({ label, icon, to, active, dataAttr, action }: To
                 className={cn(
                     'min-w-0 text-muted-foreground',
                     active && 'bg-fill-selected text-foreground',
-                    action && 'pr-8'
+                    action && !badge && 'pr-8',
+                    badge && 'pr-24'
                 )}
             >
-                <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
+                <span className="flex size-3.5 shrink-0 items-center justify-center">{icon}</span>
                 <span className="min-w-0 flex-1 truncate">{label}</span>
             </Button>
-            {action && (
-                <div
-                    data-not-quill
-                    className="absolute right-1 flex opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100"
-                >
-                    {action}
+            {(action || badge) && (
+                <div className="absolute right-1 flex min-w-0 items-center gap-0.5">
+                    {action && (
+                        <div className="flex opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
+                            {action}
+                        </div>
+                    )}
+                    {badge}
                 </div>
             )}
         </div>

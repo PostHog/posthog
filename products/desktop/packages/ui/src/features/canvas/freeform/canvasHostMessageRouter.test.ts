@@ -1,6 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 
+// Lets the router hand a freed slot to the next queued request before the
+// test asserts on it.
+function flushTimers(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+// Settles every in-flight request, then the ones each freed slot starts.
+async function drain(
+  completions: Array<(value: unknown) => void>,
+): Promise<void> {
+  await flushTimers();
+  while (completions.length > 0) {
+    for (const resolve of completions.splice(0)) resolve(null);
+    await flushTimers();
+  }
+}
+
 describe("createCanvasHostMessageRouter", () => {
   it.each([false, true])(
     "requires activation for task composition (%s)",
@@ -199,10 +216,10 @@ describe("createCanvasHostMessageRouter", () => {
                 : { provider: "mcp:calendar.example.com", tool: "list_events" },
         });
 
-        // Elapse well past the 30s generic data-request timeout: an approval
+        // Elapse well past the 90s generic data-request timeout: an approval
         // dialog can sit open this long, and the canvas must not be told it
         // failed while a later approval could still start the run.
-        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(180_000);
         expect(post).not.toHaveBeenCalled();
 
         // The viewer's approval is the only response the canvas receives.
@@ -222,7 +239,55 @@ describe("createCanvasHostMessageRouter", () => {
     },
   );
 
-  it("bounds pending connectors separately from ordinary requests", async () => {
+  it("gives a cold query time to compute before it times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const post = vi.fn();
+      const finishes: Array<(value: unknown) => void> = [];
+      const route = createCanvasHostMessageRouter({
+        post,
+        callbacks: () => ({
+          onDataRequest: () =>
+            new Promise<unknown>((resolve) => {
+              finishes.push(resolve);
+            }),
+        }),
+        hasUserActivation: () => false,
+        openExternal: vi.fn(),
+      });
+      const request = (id: string) =>
+        route({
+          channel: "posthog-canvas",
+          type: "data-request",
+          id,
+          method: "query",
+          payload: { hogql: "SELECT 1" },
+        });
+
+      const cold = request("cold");
+      const stuck = request("stuck");
+      await vi.advanceTimersByTimeAsync(45_000);
+      finishes[0]({ columns: [], results: [] });
+      await cold;
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "cold", ok: true }),
+      );
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      await stuck;
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "stuck",
+          ok: false,
+          error: "Canvas data request timed out",
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("queues pending connectors separately from ordinary requests", async () => {
     const post = vi.fn();
     const completions: Array<(value: unknown) => void> = [];
     const route = createCanvasHostMessageRouter({
@@ -245,20 +310,13 @@ describe("createCanvasHostMessageRouter", () => {
         payload: { provider: "github", tool: "list_pull_requests" },
       }),
     );
-    await route({
+    const overflow = route({
       channel: "posthog-canvas",
       type: "data-request",
       id: "overflow",
       method: "connectorCall",
       payload: { provider: "github", tool: "list_pull_requests" },
     });
-    expect(post).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "overflow",
-        ok: false,
-        error: "Canvas data request exceeds runtime limits",
-      }),
-    );
     await route({
       channel: "posthog-canvas",
       type: "data-request",
@@ -269,10 +327,263 @@ describe("createCanvasHostMessageRouter", () => {
     expect(post).toHaveBeenCalledWith(
       expect.objectContaining({ id: "ordinary", ok: true }),
     );
-    completions.forEach((resolve) => {
-      resolve(null);
-    });
+    // The 9th connector holds its turn instead of failing.
+    expect(post).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: "overflow" }),
+    );
+
+    for (const resolve of completions.splice(0)) resolve(null);
     await Promise.all(requests);
+    await flushTimers();
+    for (const resolve of completions.splice(0)) resolve(null);
+    await overflow;
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "overflow", ok: true }),
+    );
+  });
+
+  it("runs a queued request as soon as a slot frees", async () => {
+    const post = vi.fn();
+    const completions: Array<(value: unknown) => void> = [];
+    let concurrent = 0;
+    let peakConcurrent = 0;
+    let canvas = "first";
+    const owners: string[] = [];
+    const route = createCanvasHostMessageRouter({
+      post,
+      callbacks: () => {
+        const owner = canvas;
+        return {
+          onDataRequest: () => {
+            owners.push(owner);
+            concurrent += 1;
+            peakConcurrent = Math.max(peakConcurrent, concurrent);
+            return new Promise((resolve) => {
+              completions.push((value) => {
+                concurrent -= 1;
+                resolve(value);
+              });
+            });
+          },
+        };
+      },
+      hasUserActivation: () => true,
+      openExternal: vi.fn(),
+    });
+
+    // A canvas whose cards fan out past the concurrency cap: every request
+    // must still be answered, none dropped. The warm-frame pool can swap the
+    // frame to another canvas while requests wait, and a waiting request must
+    // still run as the canvas that sent it.
+    const requests = Array.from({ length: 20 }, (_, index) =>
+      route({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: `query-${index}`,
+        method: "stateGet",
+        payload: { scope: "user", key: `k${index}` },
+      }),
+    );
+    canvas = "second";
+    await drain(completions);
+    await Promise.all(requests);
+
+    expect(owners).toEqual(Array(20).fill("first"));
+    expect(peakConcurrent).toBe(8);
+    expect(post).toHaveBeenCalledTimes(20);
+    expect(post.mock.calls.every(([message]) => message.ok === true)).toBe(
+      true,
+    );
+  });
+
+  it("names the cause when the queue is full, and marks it retryable", async () => {
+    const post = vi.fn();
+    const onDataRequestRejected = vi.fn();
+    const completions: Array<(value: unknown) => void> = [];
+    const route = createCanvasHostMessageRouter({
+      post,
+      callbacks: () => ({
+        onDataRequest: () =>
+          new Promise((resolve) => {
+            completions.push(resolve);
+          }),
+      }),
+      hasUserActivation: () => true,
+      openExternal: vi.fn(),
+      onDataRequestRejected,
+    });
+
+    // 8 in flight plus a full 32-deep queue; the next one has nowhere to wait.
+    const requests = Array.from({ length: 40 }, (_, index) =>
+      route({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: `query-${index}`,
+        method: "stateGet",
+        payload: { scope: "user", key: `k${index}` },
+      }),
+    );
+    await route({
+      channel: "posthog-canvas",
+      type: "data-request",
+      id: "overflow",
+      method: "stateGet",
+      payload: { scope: "user", key: "overflow" },
+    });
+
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "overflow",
+        ok: false,
+        error: "Too many canvas data requests are already waiting",
+        retryable: true,
+      }),
+    );
+    expect(onDataRequestRejected).toHaveBeenCalledWith(
+      "data-queue-full",
+      "stateGet",
+    );
+
+    await drain(completions);
+    await Promise.all(requests);
+  });
+
+  it("keeps a timed-out request's slot until its call settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const post = vi.fn();
+      const completions: Array<(value: unknown) => void> = [];
+      const route = createCanvasHostMessageRouter({
+        post,
+        callbacks: () => ({
+          onDataRequest: () =>
+            new Promise((resolve) => {
+              completions.push(resolve);
+            }),
+        }),
+        hasUserActivation: () => true,
+        openExternal: vi.fn(),
+      });
+      for (let index = 0; index < 8; index += 1) {
+        void route({
+          channel: "posthog-canvas",
+          type: "data-request",
+          id: `query-${index}`,
+          method: "stateGet",
+          payload: { scope: "user", key: `k${index}` },
+        });
+      }
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "query-0",
+          ok: false,
+          error: "Canvas data request timed out",
+        }),
+      );
+
+      // No host passes an abort signal, so a reported timeout leaves the query
+      // running. Starting the next request on its slot would put 9 in flight.
+      void route({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: "after-timeout",
+        method: "stateGet",
+        payload: { scope: "user", key: "after" },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(completions).toHaveLength(8);
+
+      // The slot is free once the call itself settles.
+      for (const resolve of completions.splice(0)) resolve(null);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(completions).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops waiting for a slot before the canvas runtime gives up", async () => {
+    vi.useFakeTimers();
+    try {
+      const post = vi.fn();
+      const onDataRequest = vi.fn(() => new Promise<unknown>(() => {}));
+      const route = createCanvasHostMessageRouter({
+        post,
+        callbacks: () => ({ onDataRequest }),
+        hasUserActivation: () => true,
+        openExternal: vi.fn(),
+      });
+      for (let index = 0; index < 8; index += 1) {
+        void route({
+          channel: "posthog-canvas",
+          type: "data-request",
+          id: `query-${index}`,
+          method: "stateGet",
+          payload: { scope: "user", key: `k${index}` },
+        });
+      }
+      const queued = route({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: "queued",
+        method: "stateGet",
+        payload: { scope: "user", key: "queued" },
+      });
+
+      // The canvas runtime abandons a request 120s after it sends it. A wait
+      // that outlives the queue limit must come back as the real cause, not
+      // as a query the host starts once nobody is listening.
+      await vi.advanceTimersByTimeAsync(10_000);
+      await queued;
+
+      expect(onDataRequest).toHaveBeenCalledTimes(8);
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "queued",
+          ok: false,
+          error: "Too many canvas data requests are already waiting",
+          retryable: true,
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("separates an oversized payload from a full queue, and never retries it", async () => {
+    const post = vi.fn();
+    const onDataRequest = vi.fn();
+    const onDataRequestRejected = vi.fn();
+    const route = createCanvasHostMessageRouter({
+      post,
+      callbacks: () => ({ onDataRequest }),
+      hasUserActivation: () => true,
+      openExternal: vi.fn(),
+      onDataRequestRejected,
+    });
+
+    await route({
+      channel: "posthog-canvas",
+      type: "data-request",
+      id: "oversized",
+      method: "stateSet",
+      payload: { scope: "user", key: "k", value: "x".repeat(64 * 1024 + 1) },
+    });
+
+    expect(onDataRequest).not.toHaveBeenCalled();
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "oversized",
+        ok: false,
+        error: "Canvas data request is over the 64KB payload limit",
+        retryable: false,
+      }),
+    );
+    expect(onDataRequestRejected).toHaveBeenCalledWith(
+      "payload-too-large",
+      "stateSet",
+    );
   });
 
   it.each(["agentRequest", "connectorCall"] as const)(
