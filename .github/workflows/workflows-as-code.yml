@@ -47,7 +47,7 @@ jobs:
         timeout-minutes: 10
         # Only master may deploy to this environment. Its POSTHOG_WORKFLOWS_API_KEY holds the write key and
         # wins over the repository secret of the same name, which holds the read key for the check job.
-        environment: posthog-workflows
+        environment: workflows-as-code
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:

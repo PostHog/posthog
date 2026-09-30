@@ -3,7 +3,7 @@
 Two jobs: one checks every workflow file on a pull request, the other applies them on a push to the default branch.
 They need only bash, curl and jq, which GitHub's Ubuntu runners have, so nothing is installed.
 Check errors show as annotations on the file in the pull request.
-The [posthog-workflows-action](https://github.com/Silthus/posthog-workflows-action) runs the same client as a composite action, with the same setup.
+The [posthog-workflows-action](https://github.com/Silthus/posthog-workflows-action) makes the same calls, with the same setup and the same retry and host rules.
 
 ## Set it up
 
@@ -14,7 +14,7 @@ The [posthog-workflows-action](https://github.com/Silthus/posthog-workflows-acti
 
 Both secrets have the same name and hold different keys. The `apply` job names the environment, so it reads the write key. The `check` job reads the repository's read key.
 If the environment has no `POSTHOG_API_KEY`, the `apply` job reads the read key and every apply fails with HTTP 403.
-Environment secrets in a private repository need GitHub Pro, Team or Enterprise.
+In a private repository, environments need GitHub Pro, Team or Enterprise. Without an environment there is no safe place for the write key, so never put it in a repository secret.
 
 When the secret is empty, each job prints one line and succeeds, as a warning in the `apply` job. Pull requests from forks get no secrets, so they pass this way.
 
@@ -47,13 +47,14 @@ helpers='
 def data: tostring | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
 def prop: data | gsub(":"; "%3A") | gsub(","; "%2C");
 def count(list): list // [] | length;
+def whole: if type == "number" then floor else null end;
 '
 
 post() {
   rm -f "$work/response"
   jq -Rs '{content: .}' "$1" | curl --silent --show-error --max-time 60 --header "@$work/auth" \
     --header 'Content-Type: application/json' --data-binary @- \
-    --output "$work/response" --write-out '%{http_code}' "$url" 2> /dev/null || true
+    --output "$work/response" --write-out '%{http_code}' "$url" 2> "$work/curl-error" || true
 }
 
 # Readable lines go to $work/out and annotations to $work/annotations. Text from PostHog could hold a
@@ -61,7 +62,7 @@ post() {
 report() {
   local file="$1" code="$2"
   if [[ "$code" == 000 ]]; then
-    echo "$file: could not reach $url"
+    echo "$file: could not reach $url: $(head -n 1 "$work/curl-error")"
     return 1
   fi
   if [[ "$code" == 2* ]]; then
@@ -71,18 +72,19 @@ report() {
       .plan as $plan
       | "\($file): \(.result // $plan.result) \(.workflow.key // $plan.workflow.key // "a new workflow"): \(count($plan.added_steps)) added, \(count($plan.changed_steps)) changed, \(count($plan.removed_steps)) removed",
         (($plan.removed_steps // [])[] | "  removes \(.name), \(if .runs == null then "people in it not counted" else "\(.runs) people in it" end)"),
-        ((.warnings // [])[] | "\($file): warning: \(.message)\n  fix: \(.fix)")' "$work/response"
+        ((.warnings // [])[] | "\($file): warning: \(.message)\n  fix: \(.fix)")' "$work/response" || return 1
     return 0
   fi
   if jq -e '.errors | type == "array"' "$work/response" > /dev/null 2>&1; then
     jq -r --arg file "$file" '.errors[]
       | (if .line then ":\(.line)" + (if .column then ":\(.column)" else "" end) else "" end) as $at
-      | "\($file)\($at): \(.status): \(.message)\n  why: \(.why)\n  fix: \(.fix)"' "$work/response"
+      | "\($file)\($at): \(.status): \(.message)\n  why: \(.why)\n  fix: \(.fix)"' "$work/response" || return 1
     jq -r --arg file "$file" "$helpers"'.errors[]
-      | "::error file=\($file | prop)\(if .line then ",line=\(.line)" else "" end)\(if .column then ",col=\(.column)" else "" end),title=\(.status | prop)::\("\(.message)\n\(.fix)" | data)"' \
+      | (.line | whole) as $line | (.column | whole) as $column
+      | "::error file=\($file | prop)\(if $line then ",line=\($line)" else "" end)\(if $line and $column then ",col=\($column)" else "" end),title=\(.status | prop)::\("\(.message)\n\(.fix)" | data)"' \
       "$work/response" >> "$work/annotations"
   else
-    echo "$file: PostHog answered HTTP $code: $(head -c 300 "$work/response" 2> /dev/null)"
+    echo "$file: PostHog answered HTTP $code: $(head -c 300 "$work/response" 2> /dev/null | tr -s '\r\n' ' ')"
   fi
   return 1
 }

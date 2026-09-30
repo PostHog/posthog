@@ -45,8 +45,8 @@ A repository admin sets these in the repository settings. Create the environment
 | Name                           | Kind                                                 | Holds                                                                          |
 | ------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `POSTHOG_WORKFLOWS_API_KEY`    | Repository secret                                    | An API key with `hog_flow:read`, for the check on pull requests                |
-| `posthog-workflows`            | Environment, deployment branches limited to `master` | Holds the write key, so a pull request run cannot read it                      |
-| `POSTHOG_WORKFLOWS_API_KEY`    | Secret on the `posthog-workflows` environment        | An API key with `hog_flow:write`, for the apply on `master`                    |
+| `workflows-as-code`            | Environment, deployment branches limited to `master` | Holds the write key, so a pull request run cannot read it                      |
+| `POSTHOG_WORKFLOWS_API_KEY`    | Secret on the `workflows-as-code` environment        | An API key with `hog_flow:write`, for the apply on `master`                    |
 | `POSTHOG_WORKFLOWS_PROJECT_ID` | Repository variable, optional                        | The project id. Defaults to `2`                                                |
 | `POSTHOG_WORKFLOWS_HOST`       | Repository variable, optional                        | The PostHog host. Defaults to `https://us.posthog.com`. It must use `https://` |
 
@@ -58,4 +58,9 @@ If the environment has no `POSTHOG_WORKFLOWS_API_KEY`, the apply job reads the r
 - The job calls the `code_check` and `code_apply` endpoints, so set its keys only after those endpoints serve in production ([#108920](https://github.com/PostHog/posthog/pull/108920)). Until then the job passes without doing anything.
 - A personal API key with `hog_flow:read` (check) or `hog_flow:write` (apply) works today. A project secret key (`phs_`) works once [#104202](https://github.com/PostHog/posthog/pull/104202) is deployed. Until then PostHog answers 401 to it.
 - Marking an applied workflow as managed by code, and recording the file and commit it came from, waits for [#103540](https://github.com/PostHog/posthog/pull/103540), and then for the job to send them. Until then an applied workflow stays editable in PostHog, and the next apply replaces any edit.
-- The welcome workflow sends no email yet. It marks each person who signed up a day ago and has an email address with `welcome_email_ready`. An email step needs the id of one of the project's email senders, and check and apply refuse any other id, so a placeholder would fail both jobs. To send the email, replace that step with an `email` step whose `from.integration_ids` holds the sender's id from PostHog, under Workflows, Channels. The pull request's check shows whether the id is right.
+
+## The welcome workflow
+
+`welcome-new-signups.yaml` sends no email yet. A day after signup, it marks each person who has an email address with the person property `welcome_email_ready`. It stays a draft, so it runs only once someone sets `status: active`.
+An email step needs the id of one of the project's email senders, and check and apply refuse any other id, even in a draft. A placeholder id would fail both jobs.
+To send the email, replace the last step with an `email` step whose `from.integration_ids` holds the sender's id, listed in PostHog under Workflows, Channels. The pull request's check shows whether the id is right.

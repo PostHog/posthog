@@ -31,7 +31,7 @@ Done when: check returns a plan with no errors, the user has seen the removed st
 - `changed_fields` names the workflow fields that change, such as `name` or `edges`. `status` has `from` and `to`.
 - `added_steps` and `changed_steps` carry the step `id`, `name` and `type`, and `changed_steps[].changes` lists the paths that differ. `type` is the stored action type, so a `branch` shows as `conditional_branch`, an `email` as `function_email`, and a `webhook` as `function`.
 - `removed_steps` carry `action_id`, `name`, `runs` (the people in the step), `moves_to` (the step they go to) and `exits` (true when they leave the workflow).
-- `in_flight_runs` counts the people in the workflow now, and `position_unknown` those whose step PostHog could not tell. A count is null when PostHog could not count, which is not 0, and on an `unchanged` plan, where PostHog does not count.
+- `in_flight_runs` counts the people in the workflow now, and `position_unknown` those whose step PostHog could not tell. A count is null when PostHog could not count, which is not 0. On an `unchanged` plan PostHog does not count, so both are null.
 - `empty_variables` and `schedule_conflicts` list variables that runs already underway may read as empty, and schedules that set a variable the file removes.
 - `discards_draft` is true when applying replaces a draft someone staged in PostHog. Tell the user before you apply.
 - `warnings[]` have a `message` and a `fix`. A warning never blocks apply, so read each one.
@@ -40,7 +40,7 @@ Done when: check returns a plan with no errors, the user has seen the removed st
 
 `workflows-get-code` returns `content` and `warnings`. Tell the user about each warning before anyone commits the file.
 
-- **A workflow built in PostHog, not from a file, has no key.** Its file gets a key made from its name and no `status` line, so it applies as a draft. Applying it creates a second workflow, and the original keeps running with its history and the people in it. To move to the file, the user archives the original in PostHog, then sets `status: active` in the file.
+- **A workflow built in PostHog, not from a file, has no key.** Its file gets a key made from its name and no `status` line, so it applies as a draft. Check it first: `create` means applying makes a second workflow, and the original keeps running with its history and the people in it. `update` means another workflow already has that key, and applying replaces its content, so give the file a new key. To move to the file, the user archives the original in PostHog, then turns the new workflow on: `status: active` in the file when CI applies it, or `workflows-enable` through MCP.
 - **Credentials come out as plain text.** A header, input or URL query value that looks like a credential, and that the template does not mark secret, is in the file with a warning. Leaving it out removes it on apply, so ask the user where the file will live before you commit it.
 - **Some parts do not fit in a file.** A warning names each field, step or variable the file leaves out or changes, and a file larger than check accepts.
 
@@ -54,13 +54,13 @@ Done when: check returns a plan with no errors, the user has seen the removed st
 - **No secrets in a file.** A file that sets a secret input is refused (`secret_input`). Leave the input out: apply keeps the value stored on the workflow under the same step id.
 - **Where a condition goes decides when it is checked.** Conditions in the event trigger's `properties` are checked when the event arrives. A condition that must hold later, for example after a delay, goes in a `branch` step placed there.
 - **Values in an email use Liquid** (`{{ person.properties.email }}`). Values in a webhook or function step use Hog templating (`{event.distinct_id}`).
-- **Email senders are ids.** `from.integration_ids` takes the ids of the project's email integrations, listed in PostHog under Workflows, Channels, or with `integrations-list` (kind `email`). Check and apply refuse any other id with `invalid_value` at `from.integration_ids`, whatever the file's `status`, so a file with an email step needs a real sender before its first check.
+- **Email senders are ids.** `from.integration_ids` takes the ids of the project's email integrations, listed in PostHog under Workflows, Channels, or with `integrations-list` (kind `email`). Check and apply refuse any other id with `invalid_value` at `from.integration_ids`, for a draft too. So put a real sender id in an email step before its first check.
 - **Quote text that looks like a number.** Check refuses a plain number YAML would change, such as `1.10`, `012`, `0x1F` or `1e3`. Quote version strings, codes and ids: `'1.10'`.
 - **Function steps name a template.** Find the id and its inputs with `cdp-function-templates-list` and `cdp-function-templates-retrieve`.
 - **`type: step` passes any other action through** as the workflows API takes it. Start from a stored workflow's `workflows-get-code` output rather than guessing a config.
 - **A schedule trigger carries no cadence.** Attach the schedule in PostHog, or with `workflows-schedule-create`, after the first apply.
 - **What a file cannot hold.** A branch arm that joins a later step or ends at the exit cannot be written. Apply removes a step's `on_error` and step `filters`, so tell the user before you apply a pulled file that had them. Apply keeps the stored `conversion`, `trigger_masking`, `email_sending_rate_limit` and `abort_action`. `workflows-get-code` warns about each of these.
-- **To retire a workflow, delete its file, then archive the workflow** with `workflows-archive` once the user agrees. Deleting the file deletes nothing in PostHog. Check and apply refuse a file whose workflow is archived (`status_change_not_allowed` at `key`), so an archived workflow whose file remains fails every check and apply of that file until someone deletes the file or restores the workflow.
+- **To retire a workflow, delete its file, then archive the workflow** with `workflows-archive` once the user agrees. When CI applies the files, archive it only after the deletion is merged. Deleting the file deletes nothing in PostHog. Check and apply refuse a file whose workflow is archived (`status_change_not_allowed` at `key`), so an archived workflow whose file remains fails every check and apply of that file until someone deletes the file or restores the workflow.
 
 ## Example
 
