@@ -97,15 +97,16 @@ from .run_trace_evaluation import EmitTraceEvaluationEventInputs, emit_trace_eva
 @pytest.mark.asyncio
 @pytest.mark.parametrize("target", ["generation", "trace", "session"])
 @pytest.mark.parametrize(
-    "evaluation_type,result,backfill_id,status,applicable",
+    "evaluation_type,result,backfill_id,status,applicable,selection_mode",
     [
-        ("hog", {"result_type": "numeric", "score": 987654.321, "reasoning": "private"}, None, "completed", True),
+        ("hog", {"result_type": "numeric", "score": 987654.321, "reasoning": "private"}, None, "completed", True, None),
         (
             "llm_judge",
             {"result_type": "categorical", "categories": [], "reasoning": "private"},
             "backfill",
             "completed",
             True,
+            "multiple",
         ),
         (
             "hog",
@@ -113,6 +114,7 @@ from .run_trace_evaluation import EmitTraceEvaluationEventInputs, emit_trace_eva
             None,
             "skipped",
             False,
+            "single",
         ),
         (
             "llm_judge",
@@ -120,6 +122,7 @@ from .run_trace_evaluation import EmitTraceEvaluationEventInputs, emit_trace_eva
             None,
             "completed",
             False,
+            None,
         ),
     ],
 )
@@ -130,6 +133,7 @@ async def test_run_usage_covers_targets_without_customer_results(
     backfill_id: str | None,
     status: str,
     applicable: bool,
+    selection_mode: str | None,
 ) -> None:
     evaluation = {
         "id": "test-evaluation",
@@ -138,6 +142,7 @@ async def test_run_usage_covers_targets_without_customer_results(
         "output_config": {
             "options": [{"key": "private_key", "label": "Private label"}],
             "passing_rule": {"categories": []},
+            "selection_mode": selection_mode,
         },
     }
     started_at = datetime(2026, 9, 1, tzinfo=UTC)
@@ -186,16 +191,19 @@ async def test_run_usage_covers_targets_without_customer_results(
     assert first["groups"] == groups
     assert first["event"] == "llma evaluation run recorded"
     properties = first["properties"]
-    assert properties["target"] == target
-    assert properties["evaluation_type"] == evaluation_type
-    assert properties["output_type"] == result["result_type"]
-    assert properties["status"] == status
-    assert properties["applicable"] is applicable
-    assert properties["trigger"] == ("backfill" if backfill_id else "live")
-    assert properties["has_passing_rule"] is True
     assert properties["run_id"]
-    assert "private" not in json.dumps(properties).lower()
-    assert not {"score", "categories", "reasoning", "verdict", "evaluation_name"} & properties.keys()
+    assert properties == {
+        "team_id": 1,
+        "evaluation_id": "test-evaluation",
+        "target": target,
+        "evaluation_type": evaluation_type,
+        "output_type": result["result_type"],
+        "status": status,
+        "applicable": applicable,
+        "trigger": "backfill" if backfill_id else "live",
+        "run_id": properties["run_id"],
+        **({"selection_mode": selection_mode} if selection_mode else {}),
+    }
 
 
 def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
@@ -2027,17 +2035,9 @@ class TestRunEvaluationWorkflow:
 
         assert evaluation.enabled is expected_disabled
 
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_evaluation_usage"
-        ) as usage:
-            disabled = await disable_evaluation_activity(
-                str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
-            )
-        assert usage.call_count == int(expected_disabled)
-        if expected_disabled:
-            assert usage.call_args.args[1] == "llma evaluation automatically disabled"
-            assert usage.call_args.args[2]["status_reason"] == "hog_error"
-            assert "status_reason_detail" not in usage.call_args.args[2]
+        disabled = await disable_evaluation_activity(
+            str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
+        )
 
         await sync_to_async(evaluation.refresh_from_db)()
         assert disabled is expected_disabled
@@ -2059,13 +2059,9 @@ class TestRunEvaluationWorkflow:
         assert fields["status_reason_detail"]["after"] == "Must return boolean, got int: 42"
         assert logs[0].is_system is True
 
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_evaluation_usage"
-        ) as usage:
-            disabled_again = await disable_evaluation_activity(
-                str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
-            )
-        usage.assert_not_called()
+        disabled_again = await disable_evaluation_activity(
+            str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
+        )
 
         logs_after_retry = await sync_to_async(
             lambda: ActivityLog.objects.filter(

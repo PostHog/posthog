@@ -13,22 +13,6 @@ from posthog.ph_client import ph_background_capture
 logger = structlog.get_logger(__name__)
 
 
-def evaluation_output_usage_properties(
-    output_type: str, output_config: Mapping[str, object] | None
-) -> dict[str, object]:
-    config = output_config or {}
-    properties: dict[str, object] = {
-        "output_type": output_type,
-        "allows_na": bool(config.get("allows_na", False)),
-        "has_passing_rule": output_type == "boolean" or config.get("passing_rule") is not None,
-    }
-    if output_type == "categorical":
-        options = config.get("options")
-        properties["category_count"] = len(options) if isinstance(options, list) else 0
-        properties["selection_mode"] = "multiple" if config.get("selection_mode") == "multiple" else "single"
-    return properties
-
-
 @ttl_cache(maxsize=10_000, ttl=300)
 def _usage_groups(team_id: int) -> dict[str, str]:
     team = Team.objects.values("organization_id", "uuid").get(id=team_id)

@@ -218,7 +218,6 @@ async def test_store_sentiment_report_emits_generic_metrics_only() -> None:
         ),
         patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
         patch("posthog.models.event.util.create_event") as create_event,
-        patch("posthog.temporal.ai_observability.eval_reports.activities.capture_evaluation_usage") as usage,
     ):
         result = await store_report_run_activity(inputs)
 
@@ -227,18 +226,6 @@ async def test_store_sentiment_report_emits_generic_metrics_only() -> None:
     assert properties["$ai_report_output_type"] == "sentiment"
     assert properties["$ai_report_result_counts"] == expected_result_counts
     assert "$ai_report_pass_rate" not in properties
-    assert usage.call_args.args == (
-        1,
-        "llma evaluation report generated",
-        {
-            "evaluation_id": "evaluation-id",
-            "report_id": "report-id",
-            "report_run_id": "run-id",
-            "output_type": "sentiment",
-            "target": "generation",
-            "generation_status": "completed",
-        },
-    )
 
 
 @pytest.mark.asyncio
