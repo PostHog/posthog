@@ -7,6 +7,7 @@ from uuid import UUID
 from django.conf import settings
 
 from ..facade.contracts import SavedQuerySummary
+from ..models.data_modeling_job import DataModelingJob
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
 from ..models.node import Node, NodeType
@@ -91,6 +92,15 @@ def all_saved_query_names(team_id: int) -> dict[str, str]:
     """The current name of every saved query in this team that still resolves. One query."""
     rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "name")
     return {str(saved_query_id): name for saved_query_id, name in rows}
+
+
+def saved_query_ids_by_workflow_id(team_id: int, workflow_ids: Collection[str]) -> dict[str, str]:
+    if not workflow_ids:
+        return {}
+    rows = DataModelingJob.objects.filter(
+        team_id=team_id, workflow_id__in=list(workflow_ids), saved_query__isnull=False
+    ).values_list("workflow_id", "saved_query_id")
+    return {workflow_id: str(saved_query_id) for workflow_id, saved_query_id in rows if workflow_id}
 
 
 def allowed_saved_query_ids(

@@ -47,6 +47,7 @@ _LAZY = {
     "all_saved_query_names": "logic.saved_query_reads",
     "allowed_saved_query_ids": "logic.saved_query_reads",
     "backing_table_ids_by_saved_query": "logic.saved_query_reads",
+    "saved_query_ids_by_workflow_id": "logic.saved_query_reads",
     "saved_query_materialized_at": "logic.saved_query_freshness",
     "latest_saved_query_materialization_job": "logic.saved_query_freshness",
     "is_materialization_fresh": "logic.saved_query_freshness",
