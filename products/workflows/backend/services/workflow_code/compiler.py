@@ -130,14 +130,22 @@ def definition_errors(detail: Any, compiled: CompiledWorkflow) -> list[DocumentE
     for field, value in detail.items():
         if field == "actions" and isinstance(value, dict):
             for index, action_detail in value.items():
-                action_id = compiled.definition["actions"][int(index)]["id"]
-                errors.append(_invalid_workflow(" ".join(_messages(action_detail)), compiled.step_paths.get(action_id)))
+                errors.append(_invalid_workflow(" ".join(_messages(action_detail)), _action_path(index, compiled)))
         elif field == "graph":
             errors.extend(_invalid_workflow(message, _step_named_in(message, compiled)) for message in _messages(value))
         else:
             path: DocumentPath | None = (field,) if field in _DOCUMENT_FIELDS else None
             errors.append(_invalid_workflow(" ".join(_messages(value)), path))
     return errors
+
+
+def _action_path(index: Any, compiled: CompiledWorkflow) -> DocumentPath | None:
+    actions = compiled.definition["actions"]
+    if not (isinstance(index, int) or (isinstance(index, str) and index.isdigit())) or not 0 <= int(index) < len(
+        actions
+    ):
+        return None
+    return compiled.step_paths.get(actions[int(index)]["id"])
 
 
 _DOCUMENT_FIELDS = {"name", "description", "status", "exit_condition", "variables"}

@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 from jsonschema import Draft202012Validator
 from parameterized import parameterized
 
+from products.workflows.backend.services.workflow_code.compiler import compile_document, definition_errors
 from products.workflows.backend.services.workflow_code.errors import DocumentInvalid, format_path
 from products.workflows.backend.services.workflow_code.schema import validate_document, workflow_document_schema
 from products.workflows.backend.services.workflow_code.yaml_loader import load_content
@@ -69,6 +70,25 @@ class TestWorkflowCodeSchema(SimpleTestCase):
             errors = invalid.errors
 
         assert [error.status for error in errors] == statuses
+
+    @parameterized.expand(
+        [
+            ("step_index", {"actions": {1: ["Bad config."]}}, ("steps", 0)),
+            ("index_past_the_actions", {"actions": {99: ["Bad config."]}}, None),
+            ("non_numeric_key", {"actions": {"x": ["Bad config."]}}, None),
+            ("message_for_all_actions", {"actions": ["Exactly one trigger action is required"]}, None),
+        ]
+    )
+    def test_serializer_errors_map_to_their_step_or_to_the_workflow(
+        self, _name: str, detail: dict[str, Any], path: tuple | None
+    ) -> None:
+        compiled = compile_document(
+            validate_document(_document({"type": "delay", "name": "Wait", "duration": "1d"}), {})
+        )
+
+        [error] = definition_errors(detail, compiled)
+
+        assert (error.status, error.path) == ("invalid_workflow", path)
 
     def test_yaml_syntax_error_carries_its_position(self) -> None:
         with self.assertRaises(DocumentInvalid) as raised:
