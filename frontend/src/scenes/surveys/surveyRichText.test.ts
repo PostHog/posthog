@@ -1,7 +1,9 @@
 import { Editor } from '@tiptap/core'
 
+import { buildSupportExtensions } from 'products/conversations/frontend/components/Editor'
+
 import {
-    SURVEY_RICH_TEXT_EXTENSIONS,
+    SURVEY_RICH_TEXT_FORMATS,
     htmlToPlainText,
     isRichTextCompatibleHtml,
     normalizeRichTextHtml,
@@ -52,17 +54,21 @@ describe('surveyRichText', () => {
         ['<p></p>', ''],
         ['<p>Hello <strong>you</strong></p>', 'Hello <strong>you</strong>'],
         ['<p>One</p><p>Two</p>', '<p>One</p><p>Two</p>'],
+        [
+            '<p><a class="SupportEditor__link" href="https://example.com">l</a></p>',
+            '<a href="https://example.com">l</a>',
+        ],
     ])('normalizeRichTextHtml(%j)', (html, expected) => {
         expect(normalizeRichTextHtml(html)).toEqual(expected)
     })
 
     it('accepts all formatting that the editor outputs', () => {
         const editor = new Editor({
-            extensions: SURVEY_RICH_TEXT_EXTENSIONS,
+            extensions: buildSupportExtensions(SURVEY_RICH_TEXT_FORMATS),
             content:
                 '<p><strong>b</strong> <em>i</em> <u>u</u> <s>s</s> <a href="https://example.com">l</a></p><p>x<br>y</p>',
         })
-        const html = editor.getHTML()
+        const html = normalizeRichTextHtml(editor.getHTML())
         editor.destroy()
         expect(isRichTextCompatibleHtml(html)).toBe(true)
     })

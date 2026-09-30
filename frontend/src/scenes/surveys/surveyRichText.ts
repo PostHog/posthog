@@ -1,24 +1,8 @@
-import StarterKit from '@tiptap/starter-kit'
+import type { SupportEditorFormat } from 'products/conversations/frontend/components/Editor'
 
-import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
+export const SURVEY_RICH_TEXT_FORMATS: SupportEditorFormat[] = ['bold', 'italic', 'underline', 'strike', 'link']
 
-export const SURVEY_RICH_TEXT_EXTENSIONS = [
-    StarterKit.configure({
-        heading: false,
-        code: false,
-        codeBlock: false,
-        blockquote: false,
-        horizontalRule: false,
-        bulletList: false,
-        orderedList: false,
-        listItem: false,
-        listKeymap: false,
-        link: false,
-    }),
-    LinkExtension.configure({ openOnClick: false }),
-]
-
-// The tags and attributes that SURVEY_RICH_TEXT_EXTENSIONS output. The editor drops all others.
+// The tags and attributes that SURVEY_RICH_TEXT_FORMATS output, after normalizeRichTextHtml. The editor drops all others.
 const RICH_TEXT_TAGS = new Set(['P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'A'])
 const RICH_TEXT_LINK_ATTRIBUTES = new Set(['href', 'target', 'rel'])
 
@@ -62,12 +46,14 @@ export function isRichTextCompatibleHtml(html: string): boolean {
 /**
  * The SDKs render the description inside their own <p>, so a single paragraph is saved without its wrapper.
  * An empty editor gives "<p></p>", which is saved as an empty string.
+ * The editor adds CSS classes for its own styles. The survey does not have these styles, so they are removed.
  */
 export function normalizeRichTextHtml(html: string): string {
     const doc = new DOMParser().parseFromString(html, 'text/html')
+    doc.body.querySelectorAll('[class]').forEach((element) => element.removeAttribute('class'))
     const blocks = doc.body.children
     if (blocks.length === 1 && blocks[0].tagName === 'P') {
         return blocks[0].innerHTML.trim() ? blocks[0].innerHTML : ''
     }
-    return html
+    return doc.body.innerHTML
 }
