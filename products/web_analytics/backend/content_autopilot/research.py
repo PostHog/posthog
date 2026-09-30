@@ -184,12 +184,19 @@ def _page_path(url: str) -> str:
     return urlparse(url).path.rstrip("/") or "/"
 
 
+def _page_key(url: str) -> tuple[str, str]:
+    return site_host(url), _page_path(url)
+
+
 def _clean(text: str) -> str:
     return strip_llm_framing_markers(text, MAX_DOCUMENT_CHARS)
 
 
 def _links_to_page(markdown: str, url: str) -> bool:
-    return re.search(re.escape(url.rstrip("/")) + r"/?(?![\w/.-])", markdown) is not None
+    targets = [re.escape(url.rstrip("/"))]
+    if (path := _page_path(url)) != "/":
+        targets.append(r"(?<![\w.:/-])" + re.escape(path))
+    return re.search(f"(?:{'|'.join(targets)})/?(?![\\w/.-])", markdown) is not None
 
 
 def _without_preamble(markdown: str) -> str:
@@ -250,9 +257,9 @@ def search_site_pages(prompt: str, *, site_origin: str, site_urls: list[str]) ->
         )
     except (FirecrawlNotConfigured, FirecrawlSearchFailed, FirecrawlEgressBudgetExhausted):
         return []
-    by_path = {_page_path(url): url for url in reversed(site_urls)}
+    by_page = {_page_key(url): url for url in reversed(site_urls)}
     pages = [
-        by_path.get(_page_path(result.url), result.url)
+        by_page.get(_page_key(result.url), result.url)
         for result in found.results
         if has_same_public_site(result.url, site_origin)
     ]
@@ -297,17 +304,17 @@ def gather_research(
 def fetch_named_competitor_pages(
     urls: list[str], *, site_origin: str, research: ResearchBundle
 ) -> tuple[list[SourceDocument], list[str]]:
-    known_hosts = {site_host(document.url) for document in research.documents}
+    known_pages = {_page_key(document.url) for document in research.documents}
     documents: list[SourceDocument] = []
     skipped: list[str] = []
     for url in urls[:MAX_NAMED_COMPETITOR_PAGES]:
-        host = site_host(url)
-        if not host or host in known_hosts or has_same_public_site(url, site_origin):
+        page = _page_key(url)
+        if not page[0] or page in known_pages or has_same_public_site(url, site_origin):
             continue
         document = fetch_competitor_page(url)
         if document is None:
             skipped.append(f"Couldn't read the competitor page {url}.")
             continue
         documents.append(document)
-        known_hosts.add(host)
+        known_pages.add(page)
     return documents, skipped

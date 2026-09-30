@@ -17,6 +17,7 @@ from products.web_analytics.backend.content_autopilot.llm import ContentAutopilo
 from products.web_analytics.backend.content_autopilot.research import (
     ResearchBundle,
     SourceDocument,
+    fetch_named_competitor_pages,
     fetch_site_page,
     search_site_pages,
 )
@@ -25,6 +26,8 @@ from products.web_analytics.backend.content_autopilot.validation import (
     check_internal_links,
     check_ledger_sources,
     check_structure,
+    check_structured_data,
+    check_url_available,
 )
 from products.web_analytics.backend.public_url_fetch import FetchedPublicUrl
 
@@ -219,13 +222,18 @@ class TestSearchSitePages(SimpleTestCase):
                 FirecrawlSearchResult(url="https://www.example.com/docs/session-replay/"),
                 FirecrawlSearchResult(url="https://rival.example/replay"),
                 FirecrawlSearchResult(url="https://example.com/compare/best-replay-tools"),
+                FirecrawlSearchResult(url="https://docs.example.com/pricing"),
             ),
         )
         with patch("products.web_analytics.backend.content_autopilot.research.search", return_value=results) as search:
             pages = search_site_pages("best replay tool", site_origin="https://example.com", site_urls=SITE_PAGES)
 
         assert search.call_args.args[0] == "site:example.com best replay tool"
-        assert pages == ["https://example.com/docs/session-replay", "https://example.com/compare/best-replay-tools"]
+        assert pages == [
+            "https://example.com/docs/session-replay",
+            "https://example.com/compare/best-replay-tools",
+            "https://docs.example.com/pricing",
+        ]
 
     def test_finds_nothing_when_search_fails(self) -> None:
         with patch(
@@ -248,6 +256,12 @@ class TestFetchSitePage(SimpleTestCase):
             (
                 "stub_twin_linking_to_its_page",
                 "# Session replay\n\nFull page: https://example.com/docs/session-replay",
+                "Session replay records every click, scroll and console error in the browser.",
+                None,
+            ),
+            (
+                "stub_twin_linking_to_its_page_relatively",
+                "# Session replay\n\nRead the [full page](/docs/session-replay).",
                 "Session replay records every click, scroll and console error in the browser.",
                 None,
             ),
@@ -320,6 +334,7 @@ class TestValidationChecks(SimpleTestCase):
         [
             ("problem_already_on_the_page", "# A\n\n# B\n\n" + GOOD_MARKDOWN.split("\n", 1)[1], True),
             ("problem_added_by_the_edit", "# A\n\n" + "word " * 300, False),
+            ("problem_made_worse_by_the_edit", "# A\n\n# B\n\n# C\n\n## Section\n\n" + "word " * 300, False),
         ]
     )
     def test_structure_of_an_improvement_ignores_what_the_page_already_had(
@@ -342,3 +357,52 @@ class TestValidationChecks(SimpleTestCase):
         copied = "Intro. " + COMPETITOR_SENTENCE.upper().replace(" ", "  ") + " outro."
         assert check_competitor_overlap(copied, research).passed is False
         assert check_competitor_overlap("An original sentence about replays and browsers.", research).passed is True
+
+    @parameterized.expand(
+        [
+            ("free_path", "/docs/new-page", SITE_PAGES, True),
+            ("existing_page", "/pricing/", SITE_PAGES, False),
+            ("parent_segment_hiding_an_existing_page", "/docs/../pricing", SITE_PAGES, False),
+            ("not_root_relative", "docs/new-page", SITE_PAGES, False),
+            ("unread_sitemap", "/docs/new-page", [], True),
+        ]
+    )
+    def test_new_page_url(self, _name: str, url_path: str, site_urls: list[str], passed: bool) -> None:
+        assert check_url_available(url_path, is_new_page=True, site_urls=site_urls).passed is passed
+
+    @parameterized.expand(
+        [
+            (
+                "faq_page_with_questions",
+                '{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question"}]}',
+                True,
+            ),
+            ("article_with_headline", '{"@context": "https://schema.org", "@type": "Article", "headline": "A"}', True),
+            ("unrelated_type", '{"@context": "https://schema.org", "@type": "Recipe", "headline": "A"}', False),
+            ("faq_page_without_questions", '{"@context": "https://schema.org", "@type": "FAQPage"}', False),
+        ]
+    )
+    def test_structured_data(self, _name: str, json_ld: str, passed: bool) -> None:
+        assert check_structured_data(json_ld).passed is passed
+
+    def test_named_competitor_pages_skip_only_pages_already_researched(self) -> None:
+        research = ResearchBundle(
+            prompt="p",
+            target_url="",
+            documents=(SourceDocument(url="https://rival.example/replay", title="", text="t", origin="competitor"),),
+            link_candidates=(),
+            skipped=(),
+        )
+        fetched = SourceDocument(url="https://rival.example/pricing", title="", text="t", origin="competitor")
+
+        with patch(
+            "products.web_analytics.backend.content_autopilot.research.fetch_competitor_page", return_value=fetched
+        ) as fetch:
+            documents, _ = fetch_named_competitor_pages(
+                ["https://rival.example/replay/", "https://rival.example/pricing"],
+                site_origin="https://example.com",
+                research=research,
+            )
+
+        assert [call.args[0] for call in fetch.call_args_list] == ["https://rival.example/pricing"]
+        assert documents == [fetched]

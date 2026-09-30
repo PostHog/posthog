@@ -15,6 +15,7 @@ MAX_REPORTED_ITEMS = 5
 
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 _WORD_RE = re.compile(r"\S+")
+STRUCTURED_DATA_TYPES = frozenset({"Article", "FAQPage"})
 
 
 @frozen
@@ -63,19 +64,31 @@ def word_count(markdown: str) -> int:
     return len(_WORD_RE.findall(markdown))
 
 
-def _structure_problems(markdown: str) -> dict[str, str]:
+@frozen
+class _StructureProblem:
+    severity: int
+    message: str
+
+
+def _structure_problems(markdown: str) -> dict[str, _StructureProblem]:
     lines = markdown.splitlines()
     h1_count = sum(1 for line in lines if line.startswith("# "))
     words = word_count(markdown)
-    problems: dict[str, str] = {}
+    problems: dict[str, _StructureProblem] = {}
     if h1_count != 1:
-        problems["h1"] = f"it has {h1_count} H1 headings instead of one"
+        problems["h1"] = _StructureProblem(
+            severity=abs(h1_count - 1), message=f"it has {h1_count} H1 headings instead of one"
+        )
     if not any(line.startswith("## ") for line in lines):
-        problems["h2"] = "it has no H2 sections"
+        problems["h2"] = _StructureProblem(severity=1, message="it has no H2 sections")
     if words < MIN_WORDS:
-        problems["words"] = f"it has {words} words, fewer than {MIN_WORDS}"
+        problems["words"] = _StructureProblem(
+            severity=MIN_WORDS - words, message=f"it has {words} words, fewer than {MIN_WORDS}"
+        )
     if markdown.lstrip().startswith("---"):
-        problems["frontmatter"] = "it starts with frontmatter, which belongs in the content package"
+        problems["frontmatter"] = _StructureProblem(
+            severity=1, message="it starts with frontmatter, which belongs in the content package"
+        )
     return problems
 
 
@@ -83,14 +96,18 @@ def check_structure(markdown: str, *, baseline: str | None = None) -> Validation
     problems = _structure_problems(markdown)
     if baseline is not None:
         existing = _structure_problems(baseline)
-        problems = {key: message for key, message in problems.items() if key not in existing}
+        problems = {
+            key: problem
+            for key, problem in problems.items()
+            if key not in existing or problem.severity > existing[key].severity
+        }
     return ValidationCheck(
         check_key="structure",
         label="Page structure",
         passed=not problems,
         message="One H1, question-led sections, and enough depth."
         if not problems
-        else f"Fix the page: {'; '.join(problems.values())}.",
+        else f"Fix the page: {'; '.join(problem.message for problem in problems.values())}.",
         blocking=True,
     )
 
@@ -209,12 +226,19 @@ def check_structured_data(json_ld: str) -> ValidationCheck:
             message="The JSON-LD isn't valid JSON.",
             blocking=True,
         )
-    valid = isinstance(parsed, dict) and "@context" in parsed and "@type" in parsed
+    valid = (
+        isinstance(parsed, dict)
+        and bool(parsed.get("@context"))
+        and parsed.get("@type") in STRUCTURED_DATA_TYPES
+        and bool(parsed.get("mainEntity") if parsed.get("@type") == "FAQPage" else parsed.get("headline"))
+    )
     return ValidationCheck(
         check_key="structured_data",
         label=label,
         passed=valid,
-        message="The JSON-LD is valid." if valid else "The JSON-LD needs both @context and @type.",
+        message="The JSON-LD is valid."
+        if valid
+        else "The JSON-LD needs an @context and an @type of FAQPage with questions, or Article with a headline.",
         blocking=True,
     )
 
@@ -224,15 +248,32 @@ def check_url_available(url_path: str, *, is_new_page: bool, site_urls: list[str
         return ValidationCheck(
             check_key="url", label="Page URL", passed=True, message="This updates an existing page.", blocking=True
         )
+    segments = urlparse(url_path).path.split("/")
+    well_formed = (
+        url_path.startswith("/") and not url_path.startswith("//") and "." not in segments and ".." not in segments
+    )
+    if not well_formed:
+        return ValidationCheck(
+            check_key="url",
+            label="Page URL",
+            passed=False,
+            message=f"`{url_path[:200]}` isn't a root-relative path. Use a path like `/docs/new-page`.",
+            blocking=True,
+        )
+    if not site_urls:
+        return ValidationCheck(
+            check_key="url",
+            label="Page URL",
+            passed=True,
+            message=f"The sitemap couldn't be read, so check that `{url_path}` isn't already a page.",
+            blocking=True,
+        )
     taken = _normalize_path(url_path) in {_url_path(url) for url in site_urls}
-    available = url_path.startswith("/") and not taken
     return ValidationCheck(
         check_key="url",
         label="Page URL",
-        passed=available,
-        message=f"`{url_path}` is free to use."
-        if available
-        else f"`{url_path[:200]}` is already a page on the site or isn't a root-relative path.",
+        passed=not taken,
+        message=f"`{url_path[:200]}` is already a page on the site." if taken else f"`{url_path}` is free to use.",
         blocking=True,
     )
 
@@ -250,8 +291,8 @@ def check_ledger_sources(
     site_paths = {_url_path(document.url) for document in research.site_documents}
     site_pages = {_page_key(document.url) for document in research.site_documents}
     researched_pages = {_page_key(document.url) for document in research.documents}
-    site_sources = [entry.get("source_url", "") for entry in source_ledger]
-    competitor_sources = [entry.get("source_url", "") for entry in competitor_ledger]
+    site_sources = [entry["source_url"] for entry in source_ledger]
+    competitor_sources = [entry["source_url"] for entry in competitor_ledger]
     outside = [
         url
         for url in site_sources
