@@ -11,9 +11,20 @@ interface TodaySpacesRowProps {
     action?: JSX.Element | null
     /** Stays visible at the end of the row, after the hover action. */
     badge?: JSX.Element | null
+    /** How many icon buttons `action` holds, so the label truncates before them. */
+    actionCount?: 1 | 2
 }
 
-export function TodaySpacesRow({ label, icon, to, active, dataAttr, action, badge }: TodaySpacesRowProps): JSX.Element {
+export function TodaySpacesRow({
+    label,
+    icon,
+    to,
+    active,
+    dataAttr,
+    action,
+    badge,
+    actionCount = 1,
+}: TodaySpacesRowProps): JSX.Element {
     return (
         <div className="group/row relative flex min-w-0 items-center">
             <Button
@@ -25,7 +36,7 @@ export function TodaySpacesRow({ label, icon, to, active, dataAttr, action, badg
                 className={cn(
                     'min-w-0 text-muted-foreground',
                     active && 'bg-fill-selected text-foreground',
-                    action && !badge && 'pr-8',
+                    action && !badge && (actionCount === 2 ? 'pr-12' : 'pr-8'),
                     badge && 'pr-24'
                 )}
             >

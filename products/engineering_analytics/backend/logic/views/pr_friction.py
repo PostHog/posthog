@@ -112,6 +112,7 @@ def build_query(
     workflow_jobs_table: str,
     issue_events_table: str | None,
     reviews_table: str | None,
+    normalized: bool = False,
 ) -> str:
     if not _SOURCE_ID.fullmatch(source_id):
         raise ValueError(f"not a source id: {source_id!r}")
@@ -124,12 +125,13 @@ def build_query(
 
     prs = f"({pull_requests.build_query(pull_requests_table)})"
     runs = workflow_runs.build_query(
-        workflow_runs_table, pull_requests_table=pull_requests_table, started_floor=True, normalized=True
+        workflow_runs_table, pull_requests_table=pull_requests_table, started_floor=True, normalized=normalized
     ).replace("{run_started_floor}", _raw_floor(run_days))
-    jobs = workflow_jobs.build_query(workflow_jobs_table, created_floor=True, normalized=True).replace(
+    jobs = workflow_jobs.build_query(workflow_jobs_table, created_floor=True, normalized=normalized).replace(
         "{job_created_floor}", _raw_floor(job_floor_days)
     )
     run_from = f"now() - INTERVAL {run_days} DAY"
+    job_engine = "j.ci_engine" if normalized else "'github_actions'"
 
     if issue_events_table:
         events = issue_events.build_query(issue_events_table, created_floor=True).replace(
@@ -211,7 +213,7 @@ master AS (
             {_strip_shard("j.name")} AS job,
             parseDateTimeBestEffort(j.completed_at) AS completed_at
         FROM {workflow_jobs_table} AS j
-        INNER JOIN ({runs}) AS mr ON j.run_id = mr.id AND j.ci_engine = mr.ci_engine
+        INNER JOIN ({runs}) AS mr ON j.run_id = mr.id AND {job_engine} = mr.ci_engine
         WHERE j.created_at >= {_raw_floor(run_days)}
             AND {workflow_jobs.branch("j", "mr")} IN (SELECT default_branch FROM pr WHERE default_branch != '')
             -- The timeline counts failures of default-branch runs that started in its window, gate runs excluded.
@@ -433,7 +435,7 @@ def build_team_view(team: "Team") -> str | None:
         return None
     # Each SELECT carries its own WITH, so each sits in its own subquery to keep the CTE names apart.
     return "\nUNION ALL\n".join(
-        f"SELECT * FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.runs_source, workflow_jobs_table=source.jobs_source, issue_events_table=source.issue_events, reviews_table=source.reviews)})"
+        f"SELECT * FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.runs_source, workflow_jobs_table=source.jobs_source, issue_events_table=source.issue_events, reviews_table=source.reviews, normalized=True)})"
         for source in sources
         if source.pull_requests
     )
