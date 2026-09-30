@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
-    get_leading_index_keys,
+    get_index_keys_by_collection,
     get_schemas as get_mongo_schemas,
     get_server_metadata as get_mongo_server_metadata,
     mongo_client,
@@ -316,38 +316,37 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
         connection_params = _parse_connection_string(config.connection_string, config.database_name)
-        leading_keys_by_collection: dict[str, set[str] | None] = {}
         with mongo_client(config.connection_string, team_id=team_id) as client:
             db = client[connection_params["database"]]
-            filtered_results = [
-                (collection_name, filter_mongo_incremental_fields(columns, db[collection_name]))
-                for collection_name, columns in mongo_schemas.items()
-            ]
-            for collection_name in mongo_schemas:
-                leading_keys_by_collection[collection_name] = get_leading_index_keys(db[collection_name])
+            index_keys_by_collection = get_index_keys_by_collection(db, list(mongo_schemas))
 
-        return [
-            SourceSchema(
-                name=name,
-                supports_incremental=len(incremental_fields) > 0,
-                supports_append=len(incremental_fields) > 0,
-                incremental_fields=[
-                    {
-                        "label": field_name,
-                        "type": field_type,
-                        "field": field_name,
-                        "field_type": field_type,
-                        "is_indexed": (
-                            True
-                            if leading_keys_by_collection.get(name) is None
-                            else field_name in (leading_keys_by_collection.get(name) or set())
-                        ),
-                    }
-                    for field_name, field_type in incremental_fields
-                ],
+        schemas: list[SourceSchema] = []
+        for collection_name, columns in mongo_schemas.items():
+            index_keys = index_keys_by_collection.get(collection_name)
+            incremental_fields = filter_mongo_incremental_fields(
+                columns, index_keys.covered if index_keys else frozenset()
             )
-            for name, incremental_fields in filtered_results
-        ]
+            schemas.append(
+                SourceSchema(
+                    name=collection_name,
+                    supports_incremental=len(incremental_fields) > 0,
+                    supports_append=len(incremental_fields) > 0,
+                    incremental_fields=[
+                        {
+                            "label": field_name,
+                            "type": field_type,
+                            "field": field_name,
+                            "field_type": field_type,
+                            # Index discovery failed, so we can't tell an unindexed field from an
+                            # indexed one. Don't warn on a guess.
+                            "is_indexed": True if index_keys is None else field_name in index_keys.leading,
+                        }
+                        for field_name, field_type in incremental_fields
+                    ],
+                )
+            )
+
+        return schemas
 
     def validate_credentials(
         self,

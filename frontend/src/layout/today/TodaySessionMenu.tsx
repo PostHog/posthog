@@ -3,16 +3,17 @@ import { useActions, useValues } from 'kea'
 import { IconArchive, IconEllipsis, IconFolderMove, IconPencil, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { todaySessionMenuLogic } from './todaySessionMenuLogic'
+import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 
 interface TodaySessionMenuProps {
     sessionId: string
     pinned: boolean
     spaceId: string | null
+    surface: TodaySessionSurface
 }
 
-export function TodaySessionMenu({ sessionId, pinned, spaceId }: TodaySessionMenuProps): JSX.Element {
+export function TodaySessionMenu({ sessionId, pinned, spaceId, surface }: TodaySessionMenuProps): JSX.Element {
     const { sortedSpaces } = useValues(todaySpacesLogic)
     const { pendingSessionIds } = useValues(todaySessionMenuLogic)
     const { setSessionPinned, startRenaming, archiveSession, moveSession } = useActions(todaySessionMenuLogic)
@@ -32,7 +33,7 @@ export function TodaySessionMenu({ sessionId, pinned, spaceId }: TodaySessionMen
                 {
                     label: 'Rename',
                     icon: <IconPencil />,
-                    onClick: () => startRenaming(sessionId),
+                    onClick: () => startRenaming(sessionId, surface),
                     disabledReason,
                     'data-attr': 'today-session-rename',
                 },
