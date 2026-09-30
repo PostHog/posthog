@@ -231,7 +231,10 @@ class GoogleAdSenseSource(ResumableSource[GoogleAdSenseSourceConfig, GoogleAdSen
             return False, _LIST_ACCOUNTS_ERROR
 
         if account.get("state") and account["state"] != "READY":
-            return False, _ACCOUNT_LIST_ACCESS_ERROR
+            return False, (
+                f"The selected AdSense account is in state {account['state']}, not READY. "
+                "Resolve the account status in AdSense, then try again."
+            )
 
         return True, None
 

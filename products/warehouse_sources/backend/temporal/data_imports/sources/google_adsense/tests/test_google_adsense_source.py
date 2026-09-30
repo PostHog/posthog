@@ -209,14 +209,16 @@ def test_validate_credentials_refresh_error_returns_reconnect_message():
 
 
 def test_validate_credentials_rejects_a_non_ready_account():
+    state = "NEEDS_ATTENTION"
+
     with (
         mock.patch(f"{_SRC}.google_adsense_session"),
-        mock.patch(f"{_SRC}.get_account", return_value={"name": "accounts/pub-1", "state": "NEEDS_ATTENTION"}),
+        mock.patch(f"{_SRC}.get_account", return_value={"name": "accounts/pub-1", "state": state}),
     ):
         ok, message = GoogleAdSenseSource().validate_credentials(_config(), team_id=1)
 
     assert ok is False
-    assert "can't read any AdSense account" in (message or "")
+    assert f"The selected AdSense account is in state {state}, not READY" in (message or "")
 
 
 def test_validate_credentials_succeeds_for_ready_account():
