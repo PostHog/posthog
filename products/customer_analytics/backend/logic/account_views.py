@@ -23,7 +23,6 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Opportunities": "Opportunities",
     "Conversations": "Conversations",
     "Meetings": "Meetings",
-    "EventStream": "Event stream",
 }
 ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400

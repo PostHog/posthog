@@ -29,7 +29,6 @@ ACCOUNT_DETAIL_SYSTEM_TAB_IDS = {
     "system:opportunities",
     "system:conversations",
     "system:meetings",
-    "system:event_stream",
 }
 MAX_ACCOUNT_DETAIL_TAB_IDS = 100
 
