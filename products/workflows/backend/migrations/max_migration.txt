@@ -1,1 +1,1 @@
-0026_workflowproposal
+0028_workflowproposal_uuid7
