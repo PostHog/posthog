@@ -202,6 +202,13 @@ const SESSION_ENDED_MESSAGE =
 
 const MAX_TITLE_LENGTH = 256;
 const BUDGET_EXHAUSTED_INTERRUPT_REASON = "budget_exhausted";
+
+function budgetExhaustedResponse(): PromptResponse {
+  return {
+    stopReason: "cancelled",
+    _meta: { interruptReason: BUDGET_EXHAUSTED_INTERRUPT_REASON },
+  };
+}
 const LOCAL_ONLY_COMMANDS = new Set(["/context", "/heapdump", "/extra-usage"]);
 
 /**
@@ -723,7 +730,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   /** Cancel the turn so no model call starts after the budget is spent. */
   private stopForBudget(session: Session, sessionId: string): void {
     const guard = session.budgetGuard;
-    if (!guard?.takeStop() || this.session !== session) return;
+    if (this.session !== session || !guard?.takeStop()) return;
     const message = `[BudgetGuard] stop: $${guard.spentUsd.toFixed(2)} of $${guard.capUsd.toFixed(2)} spent, cancelling the turn before the gateway refuses it`;
     this.logger.warn(message);
     void this.client
@@ -785,10 +792,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     if (this.session.budgetGuard?.exhausted) {
       this.logger.warn("[BudgetGuard] Refusing a prompt: budget exhausted");
-      return {
-        stopReason: "cancelled",
-        _meta: { interruptReason: BUDGET_EXHAUSTED_INTERRUPT_REASON },
-      };
+      return budgetExhaustedResponse();
     }
 
     const budgetSteerMode = (
@@ -942,10 +946,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       turn.settled = true;
       turn.pendingInput = undefined;
       declinePendingSteers(turn, "cancelled");
-      turn.resolve({
-        stopReason: "cancelled",
-        _meta: { interruptReason: BUDGET_EXHAUSTED_INTERRUPT_REASON },
-      });
+      turn.resolve(budgetExhaustedResponse());
     }
     session.turnQueue = session.turnQueue.filter(
       (turn) => !refused.includes(turn),
