@@ -675,24 +675,10 @@ fn are_overrides_useful_for_flag(
 /// again, which pushes the call past the request timeout. A foreign key violation is retried
 /// because it means that a person was deleted during a hash key override write.
 fn should_retry_on_error(error: &FlagError) -> bool {
-    match error {
-        // Errors constructed with context (e.g. "Failed to fetch flags") bypass
-        // From<sqlx::Error> and still carry the raw error, so classify by transience here.
-        // is_transient_error accepts every 57*** code, including the statement timeout 57014.
-        // The timeout check excludes timeouts before is_transient_error sees them.
-        FlagError::DatabaseError(sqlx_error, _) => {
-            common_database::is_foreign_key_constraint_error(sqlx_error)
-                || (!common_database::is_timeout_error(sqlx_error)
-                    && common_database::is_transient_error(sqlx_error))
-        }
-
-        // Transient DB faults propagated via `?` (From<sqlx::Error>) or connection
-        // acquisition failures arrive already classified as DatabaseUnavailable (503).
-        FlagError::DatabaseUnavailable => true,
-
-        // Other error types generally should not be retried
-        _ => false,
-    }
+    matches!(
+        classify_db_error(error),
+        Some(("foreign_key" | "transient", _))
+    )
 }
 
 /// Check if a FlagError contains a foreign key constraint violation
@@ -711,8 +697,7 @@ fn classify_db_error(error: &FlagError) -> Option<(&'static str, Option<&str>)> 
     let labels = match error {
         FlagError::DatabaseError(sqlx_error, _) => {
             // is_transient_error also accepts the statement timeout 57014. The timeout check
-            // therefore runs first. Otherwise a timeout, which should_retry_on_error does not
-            // retry, gets the transient label.
+            // therefore runs first, so should_retry_on_error does not retry a timeout.
             let err_type = if common_database::is_foreign_key_constraint_error(sqlx_error) {
                 "foreign_key"
             } else if common_database::is_timeout_error(sqlx_error) {
@@ -1760,7 +1745,7 @@ mod tests {
 
     use common_database::{get_pool_with_config, PoolConfig};
     use futures::FutureExt;
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+    use metrics_util::debugging::DebuggingRecorder;
     use rstest::rstest;
     use serde_json::json;
 
@@ -1769,7 +1754,7 @@ mod tests {
         flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters},
         mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-        utils::test_utils::{CountingFailingClient, TestContext},
+        utils::test_utils::{counter_total, CountingFailingClient, TestContext},
     };
 
     use super::*;
@@ -2666,24 +2651,6 @@ mod tests {
 
         let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
         assert!(!result);
-    }
-
-    fn counter_total(snapshotter: &Snapshotter, name: &str, labels: &[(&str, &str)]) -> u64 {
-        snapshotter
-            .snapshot()
-            .into_vec()
-            .into_iter()
-            .filter(|(key, ..)| {
-                key.key().name() == name
-                    && labels
-                        .iter()
-                        .all(|(k, v)| key.key().labels().any(|l| l.key() == *k && l.value() == *v))
-            })
-            .map(|(.., value)| match value {
-                DebugValue::Counter(c) => c,
-                _ => 0,
-            })
-            .sum()
     }
 
     #[rstest]

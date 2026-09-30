@@ -78,19 +78,19 @@ impl DatabasePools {
                 config.writer_statement_timeout_ms,
                 writes,
             ),
+            (
+                pool_names::BEHAVIORAL_COHORTS,
+                Self::BEHAVIORAL_COHORTS_STATEMENT_TIMEOUT_MS,
+                config.is_behavioral_cohorts_db_configured(),
+            ),
         ]
         .into_iter()
-        .filter_map(|(pool, statement_timeout_ms, own_pool)| {
-            own_pool.then_some((pool, statement_timeout_ms))
+        .filter(|&(_, statement_timeout_ms, built)| {
+            built
+                && (statement_timeout_ms == 0
+                    || acquire_ms.saturating_add(statement_timeout_ms) >= config.request_timeout_ms)
         })
-        .chain(config.is_behavioral_cohorts_db_configured().then_some((
-            pool_names::BEHAVIORAL_COHORTS,
-            Self::BEHAVIORAL_COHORTS_STATEMENT_TIMEOUT_MS,
-        )))
-        .filter(|&(_, statement_timeout_ms)| {
-            statement_timeout_ms == 0
-                || acquire_ms.saturating_add(statement_timeout_ms) >= config.request_timeout_ms
-        })
+        .map(|(pool, statement_timeout_ms, _)| (pool, statement_timeout_ms))
         .collect()
     }
 

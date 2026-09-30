@@ -274,6 +274,29 @@ impl common_hypercache::S3Client for AlwaysMissS3Client {
     }
 }
 
+#[cfg(test)]
+pub fn counter_total(
+    snapshotter: &metrics_util::debugging::Snapshotter,
+    name: &str,
+    labels: &[(&str, &str)],
+) -> u64 {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .filter(|(key, ..)| {
+            key.key().name() == name
+                && labels
+                    .iter()
+                    .all(|(k, v)| key.key().labels().any(|l| l.key() == *k && l.value() == *v))
+        })
+        .map(|(.., value)| match value {
+            metrics_util::debugging::DebugValue::Counter(c) => c,
+            _ => 0,
+        })
+        .sum()
+}
+
 /// A dummy S3 client (always NotFound) for injecting into the test server.
 pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
     Arc::new(AlwaysMissS3Client)

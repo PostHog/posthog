@@ -385,7 +385,6 @@ fn is_transient_failure(code: &str) -> bool {
             "database_unavailable"
                 | "no_more_connections"
                 | "query_wait_timeout"
-                | "group_mapping_retry"
                 | "hash_key_override_error"
         )
 }
@@ -687,7 +686,7 @@ mod tests {
     use crate::flags::flag_matching::FeatureFlagMatch;
     use crate::mock;
     use crate::utils::graph_utils::DependencyType;
-    use crate::utils::test_utils::TestContext;
+    use crate::utils::test_utils::{counter_total, TestContext};
     use common_database::{get_pool_with_config, PoolConfig};
     use metrics_util::debugging::DebuggingRecorder;
     use std::collections::HashMap;
@@ -727,12 +726,11 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case::error(database_unavailable, evaluated, 1, 2, false, Some("recovered"))]
+    #[case::error(database_unavailable, evaluated, 1, false, Some("recovered"))]
     #[case::transient_failed_flag(
         || failed_target_flag(FlagError::DatabaseUnavailable),
         evaluated,
         1,
-        2,
         false,
         Some("recovered")
     )]
@@ -740,7 +738,6 @@ mod tests {
         || Err(FlagError::TimeoutError(Some("query_canceled".to_string()))),
         evaluated,
         1,
-        2,
         false,
         Some("recovered")
     )]
@@ -748,14 +745,12 @@ mod tests {
         || failed_target_flag(FlagError::TimeoutError(None)),
         evaluated,
         1,
-        2,
         false,
         Some("recovered")
     )]
     #[case::dependency_failed_flag(
         || failed_target_flag(FlagError::DependencyNotFound(DependencyType::Cohort, 1)),
         evaluated,
-        1,
         1,
         true,
         None
@@ -764,19 +759,17 @@ mod tests {
         || Err(FlagError::DatabaseError(sqlx::Error::ColumnNotFound("id".to_string()), None)),
         evaluated,
         1,
-        1,
         true,
         None
     )]
-    #[case::evaluated(evaluated, evaluated, 1, 1, false, None)]
-    #[case::retry_fails(database_unavailable, database_unavailable, 1, 2, true, Some("failed"))]
-    #[case::budget_spent(database_unavailable, evaluated, 0, 1, true, None)]
+    #[case::evaluated(evaluated, evaluated, 1, false, None)]
+    #[case::retry_fails(database_unavailable, database_unavailable, 1, true, Some("failed"))]
+    #[case::budget_spent(database_unavailable, evaluated, 0, true, None)]
     #[tokio::test]
     async fn test_evaluate_with_one_retry(
         #[case] first_attempt: fn() -> Result<FlagsResponse, FlagError>,
         #[case] second_attempt: fn() -> Result<FlagsResponse, FlagError>,
         #[case] retry_budget: u32,
-        #[case] expected_attempts: usize,
         #[case] expected_failed: bool,
         #[case] expected_outcome: Option<&str>,
     ) {
@@ -799,33 +792,24 @@ mod tests {
         .await;
 
         let attempts = attempts.load(Ordering::SeqCst);
-        assert_eq!(attempts, expected_attempts);
+        assert_eq!(attempts, 1 + usize::from(expected_outcome.is_some()));
         assert_eq!(retries_left, retry_budget + 1 - attempts as u32);
         let failed = match result {
             Ok(response) => response.flags["target"].failed,
             Err(_) => true,
         };
         assert_eq!(failed, expected_failed);
-        let outcomes: Vec<String> = snapshotter
-            .snapshot()
-            .into_vec()
-            .into_iter()
-            .filter(|(key, ..)| key.key().name() == FLAG_BATCH_EVAL_PERSON_RETRIES_COUNTER)
-            .flat_map(|(key, ..)| {
-                key.key()
-                    .labels()
-                    .filter(|label| label.key() == "outcome")
-                    .map(|label| label.value().to_string())
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        assert_eq!(
-            outcomes,
-            expected_outcome
-                .map(str::to_string)
-                .into_iter()
-                .collect::<Vec<_>>()
-        );
+        for outcome in ["recovered", "failed"] {
+            assert_eq!(
+                counter_total(
+                    &snapshotter,
+                    FLAG_BATCH_EVAL_PERSON_RETRIES_COUNTER,
+                    &[("outcome", outcome)]
+                ),
+                u64::from(expected_outcome == Some(outcome)),
+                "{outcome}"
+            );
+        }
     }
 
     #[tokio::test]
