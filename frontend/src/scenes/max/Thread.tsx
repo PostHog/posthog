@@ -108,6 +108,7 @@ import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage 
 import { ToolCallWidgetDef, getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import { TraceIdProvider, useTraceId } from './TraceIdContext'
 import { useFeedback } from './useFeedback'
+import { useThreadSkin } from './useThreadSkin'
 import {
     isArtifactMessage,
     isAssistantMessage,
@@ -129,6 +130,7 @@ function isErrorMessage(message: ThreadMessage): boolean {
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversation, sandboxConversationKey, isConvertedConversation } = useValues(maxThreadLogic)
     const { panelId } = useValues(maxLogic)
+    const threadSkin = useThreadSkin()
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const isPiTask = isPiTaskRuntime(conversation?.task?.runtime)
 
@@ -184,7 +186,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
                     {/* The live Max column owns scroll via ThreadAutoScroller — render rows in flow, not virtualized. */}
-                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} />
+                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
                 </BindLogic>
             </div>
         )
@@ -204,7 +206,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={runStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} />
+                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
                 </BindLogic>
             </div>
         )

@@ -13,6 +13,7 @@ import { TurnHoverStore } from '../utils/turnHoverStore'
 import { type TurnTrailer, computeTurnTrailers, mapRowsToTurnSeparator } from '../utils/turnTrailers'
 import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
+import { type ThreadSkin, ThreadSkinContext } from './quill/quillThreadContext'
 import { RunAlertActivity } from './RunAlertActivity'
 import { RunContext } from './RunContext'
 import { ThreadActivityGroup } from './ThreadActivityGroup'
@@ -74,7 +75,16 @@ interface ThreadViewProps {
     className?: string
     listClassName?: string
     rowClassName?: string
+    /**
+     * `quill` lays the thread out like PostHog Desktop's chat: user bubbles, ghost assistant prose, and
+     * each step as a quill chat marker. Every presenter below picks its skin from `ThreadSkinContext`,
+     * so tool renderers need no changes.
+     */
+    skin?: ThreadSkin
 }
+
+/** Quill threads breathe more between rows, matching PostHog Desktop. */
+const QUILL_ROW_GAP = 16
 
 /**
  * Sandbox-runtime thread presenter. Reads `runStreamLogic.values.threadItems` (assistant text,
@@ -96,6 +106,7 @@ export function ThreadView({
     className,
     listClassName,
     rowClassName,
+    skin = 'lemon',
 }: ThreadViewProps): JSX.Element {
     const {
         threadItems,
@@ -269,7 +280,7 @@ export function ThreadView({
         ]
     )
 
-    return (
+    const thread = (
         <VirtualizedThread.Root
             key={scrollRestorationKey}
             scrollRestorationKey={scrollRestorationKey}
@@ -287,11 +298,23 @@ export function ThreadView({
             // thread is already pinned when the first streamed rows land.
             turnActive={streamPhase !== 'idle'}
             virtualized={virtualized}
+            gap={skin === 'quill' ? QUILL_ROW_GAP : undefined}
             className={className}
             listClassName={listClassName}
         >
             {renderItem}
         </VirtualizedThread.Root>
+    )
+    if (skin === 'lemon') {
+        return thread
+    }
+    return (
+        <ThreadSkinContext.Provider value={skin}>
+            {/* Virtualized, the root lays out rows itself; in document flow, this wrapper sets the rhythm. */}
+            <div data-quill className={virtualized ? 'contents' : 'flex flex-col gap-4'}>
+                {thread}
+            </div>
+        </ThreadSkinContext.Provider>
     )
 }
 
