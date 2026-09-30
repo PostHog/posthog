@@ -5,7 +5,7 @@
             "description": "Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs.",
             "properties": {
                 "active": {
-                    "description": "Filter by active state.\n\n* `true` - true\n* `false` - false\n* `STALE` - STALE",
+                    "description": "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.\n\n* `true` - true\n* `false` - false\n* `STALE` - STALE",
                     "enum": ["true", "false", "STALE"],
                     "type": "string"
                 },

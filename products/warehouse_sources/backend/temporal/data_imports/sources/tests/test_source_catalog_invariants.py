@@ -72,7 +72,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Mintlify",
     "Mono",
     "OpenRouter",
-    "Pinecone",
     "PromptingCompany",
     "Qdrant",
     "RetellAI",
