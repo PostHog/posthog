@@ -1,3 +1,4 @@
+import os
 import json
 import uuid
 import hashlib
@@ -11,13 +12,13 @@ from django.db import transaction
 
 import structlog
 import temporalio
+from cachetools.func import ttl_cache
 from structlog.contextvars import bind_contextvars
 from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import CaptureInternalError
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
-from posthog.ph_client import ph_background_capture
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
 from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, hydrate_event_reference
@@ -355,6 +356,11 @@ def _evaluation_event_uuid() -> str | None:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{workflow_id}"))
 
 
+@ttl_cache(maxsize=10_000, ttl=300)
+def _evaluation_organization_id(team_id: int) -> str:
+    return str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
+
+
 def capture_evaluation_run_usage(
     evaluation: Mapping[str, object],
     result: EvaluationActivityResult,
@@ -364,18 +370,24 @@ def capture_evaluation_run_usage(
     properties: dict[str, object] = {
         "evaluation_id": str(evaluation["id"]),
         "team_id": team_id,
-        "model": result.get("model", DEFAULT_JUDGE_MODEL),
-        "provider": result.get("provider", "openai"),
-        "input_tokens": result.get("input_tokens", 0),
-        "output_tokens": result.get("output_tokens", 0),
-        "total_tokens": result.get("total_tokens", 0),
-        **({"verdict": result["verdict"]} if "verdict" in result else {}),
         "result_type": result["result_type"],
         "status": "skipped" if result.get("skipped") else "completed",
     }
+    if evaluation.get("evaluation_type", "llm_judge") == "llm_judge" and result.get("model"):
+        properties.update(
+            {
+                key: value
+                for key, value in result.items()
+                if key in ("model", "provider", "input_tokens", "output_tokens", "total_tokens")
+            }
+        )
+    if "verdict" in result and not result.get("skipped"):
+        properties["verdict"] = result["verdict"]
     try:
-        organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
-        ph_background_capture()(
+        from posthog.tasks.usage_report import get_ph_client  # noqa: PLC0415 - keeps billing imports off worker startup
+
+        organization_id = _evaluation_organization_id(team_id)
+        get_ph_client(disabled=bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False))).capture(
             distinct_id=f"org-{organization_id}",
             event="llm analytics evaluation executed",
             properties=properties,
