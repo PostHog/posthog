@@ -167,7 +167,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
 
         return GroupsQueryResponse(
             kind="GroupsQuery",
-            types=[t for _, t in response.types] if response.types else None,
+            types=[t for _, t in response.types] if response.types else [],
             columns=self.columns,
             results=results,
             hogql=response.hogql,

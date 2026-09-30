@@ -4,11 +4,12 @@ from typing import Any, Optional
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.schema import GroupPropertyFilter, GroupsQuery, PropertyOperator
+from posthog.schema import GroupPropertyFilter, GroupsQuery, HogQLQueryResponse, PropertyOperator
 
 from posthog.hogql_queries.groups.groups_query_runner import GroupsQueryRunner
 from posthog.models.group.util import create_group, raw_create_group_ch
@@ -559,6 +560,17 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
                 for index, expected_value in expected_values.items():
                     self.assertEqual(result.results[0][index], expected_value)
+
+    def test_groups_query_with_empty_hogql_types(self):
+        query = GroupsQuery(group_type_index=0)
+        with patch(
+            "posthog.hogql_queries.paginators.execute_hogql_query",
+            return_value=HogQLQueryResponse(results=[], types=[], hogql=""),
+        ):
+            result = GroupsQueryRunner(query=query, team=self.team).calculate()
+
+        self.assertEqual(result.types, [])
+        self.assertEqual(result.results, [])
 
     def test_groups_query_count_total(self):
         self.create_standard_test_groups()
