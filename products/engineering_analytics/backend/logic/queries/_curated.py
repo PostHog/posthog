@@ -124,7 +124,7 @@ class ReadyToMergeSql:
         return f"quantileIf(0.5)({self.expr}, {scope})" if self.observable else self.expr
 
 
-_READY_TO_MERGE_UNOBSERVABLE = ReadyToMergeSql(cte="", join="", expr="NULL")
+READY_TO_MERGE_UNOBSERVABLE = ReadyToMergeSql(cte="", join="", expr="NULL")
 
 
 def _ready_to_merge_expr(window: _IssueEventsWindow) -> str:
@@ -339,7 +339,7 @@ class CuratedGitHubSource:
         window = self._issue_events_window()
         cte = self.ready_by_pr_cte()
         if window is None or cte is None:
-            return _READY_TO_MERGE_UNOBSERVABLE
+            return READY_TO_MERGE_UNOBSERVABLE
         return ReadyToMergeSql(cte=cte, join=_READY_BY_PR_JOIN, expr=_ready_to_merge_expr(window))
 
     def _issue_events_window(self) -> "_IssueEventsWindow | None":
@@ -525,19 +525,18 @@ class CuratedGitHubSource:
             )
         """
 
-    def pr_list_rollup_query(self, select: str, *, pr_scope_where: str) -> str:
-        """``pr_rollup_query`` plus the per-PR runs rollup and, when it is observable, the
-        ``ready_by_pr`` rollup ``ready_to_merge_sql`` reads. ``pr_scope_where`` scopes both
-        runs rollups via the shared ``pr_scope`` CTE (see ``pr_rollup_query``)."""
+    def pr_list_rollup_query(self, select: str, *, pr_scope_where: str, ready: ReadyToMergeSql) -> str:
+        """``pr_rollup_query`` plus the per-PR runs rollup and the CTE of the ``ready`` measure that
+        ``select`` reads. ``pr_scope_where`` scopes both runs rollups via the shared ``pr_scope`` CTE
+        (see ``pr_rollup_query``)."""
         ctes = [
             self.runs_cte(),
             self._pr_scope_cte(pr_scope_where),
             self.ci_rollup_cte(),
             self.runs_by_pr_cte(),
         ]
-        ready_cte = self.ready_to_merge_sql().cte
-        if ready_cte:
-            ctes.append(ready_cte)
+        if ready.cte:
+            ctes.append(ready.cte)
         return self._compose_pr_query(ctes, select)
 
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:

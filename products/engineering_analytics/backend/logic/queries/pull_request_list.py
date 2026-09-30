@@ -22,7 +22,11 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._curated import (
+    READY_TO_MERGE_UNOBSERVABLE,
+    CuratedGitHubSource,
+    ReadyToMergeSql,
+)
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.queries.ci_cards import FAILING_CI_SQL, OPEN_PR_SQL, stuck_pr_sql
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs
@@ -155,11 +159,11 @@ def _query_rows(
     limit: int,
     query_type: str,
     placeholders: dict[str, ast.Expr],
+    ready: ReadyToMergeSql,
     extra_columns: str = "",
 ) -> list[tuple]:
     """``scope_where`` is over unqualified curated PR columns and must keep every row ``rows_where``
     keeps, because it prunes the runs rollups (see ``pr_list_rollup_query``)."""
-    ready = curated.ready_to_merge_sql()
     select = (
         _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
         .replace("__READY_JOIN__", ready.join)
@@ -169,7 +173,7 @@ def _query_rows(
         .replace("__LIMIT__", str(limit))
     )
     response = curated.run(
-        curated.pr_list_rollup_query(select, pr_scope_where=scope_where),
+        curated.pr_list_rollup_query(select, pr_scope_where=scope_where, ready=ready),
         query_type=query_type,
         placeholders=placeholders,
     )
@@ -199,6 +203,7 @@ def query_pull_request_list(
         limit=_LIMIT + 1,
         query_type="engineering_analytics.pull_request_list",
         placeholders=placeholders,
+        ready=curated.ready_to_merge_sql(),
     )
     return PullRequestList(
         items=_enrich(curated=curated, rows=rows[:_LIMIT]), truncated=len(rows) > _LIMIT, limit=_LIMIT
@@ -214,6 +219,8 @@ def query_attention_pull_requests(*, curated: CuratedGitHubSource) -> AttentionP
         limit=_ATTENTION_LIMIT,
         query_type="engineering_analytics.attention_pull_requests",
         placeholders={},
+        # An open pull request has no ready-to-merge time, so the issue-events scans would add nothing.
+        ready=READY_TO_MERGE_UNOBSERVABLE,
         # Counted before the LIMIT, so the total covers every match rather than the page.
         extra_columns=", count() OVER () AS matching",
     )
