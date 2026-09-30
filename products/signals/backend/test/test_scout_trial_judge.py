@@ -329,7 +329,7 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         )
         assert "The required skill was consulted." not in result.summary
 
-    @parameterized.expand([(str(version),) for version in range(1, 15)])
+    @parameterized.expand([(str(version),) for version in range(1, 16)])
     def test_prompt_keeps_untrusted_text_in_data_and_omits_variant_identity(self, prompt_version: str) -> None:
         snapshot = _snapshot().model_copy(update={"judge_prompt_version": prompt_version})
         attack = (
@@ -345,20 +345,20 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         source = envelope["sources"][0]
         assert (
             "".join(excerpt["text"] for excerpt in source["excerpts"])
-            if prompt_version in {"12", "13", "14"}
+            if prompt_version in {"12", "13", "14", "15"}
             else source["text"]
         ) == attack
-        if prompt_version in {"5", "6", "7", "8", "9", "10", "11", "12", "13", "14"}:
+        if prompt_version in {"5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"}:
             assert envelope["rubric_reference_context"]["instructions"] == "Inspect the checkout result."
         else:
             assert "rubric_reference_context" not in envelope
         system_prompt = str(messages[0]["content"])
-        if prompt_version in {"6", "7", "8", "9", "10", "11", "12", "13", "14"}:
+        if prompt_version in {"6", "7", "8", "9", "10", "11", "12", "13", "14", "15"}:
             assert "A SQL alias such as users or accounts labels a result" in system_prompt
             assert "sentinel identifiers does not establish distinct real" in system_prompt
             assert "Check the observed identifiers and null handling" in system_prompt
             assert "top-level sources array's id field" in system_prompt
-            if prompt_version in {"12", "13", "14"}:
+            if prompt_version in {"12", "13", "14", "15"}:
                 assert "do not copy or rewrite the quotation" in system_prompt
                 assert "excerpt_id" in system_prompt
             else:
@@ -372,7 +372,7 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
                     snapshot.model_copy(update={"judge_prompt_version": "6"}), evidence
                 )
                 assert messages == version_six_messages
-            elif prompt_version != "14":
+            elif prompt_version != "15":
                 expected_digest = {
                     "8": "706c1200ccb36dbb04ceec7c7028f74e8498187e86ddf0ca6ac647562ce20bee",
                     "9": "dfe505fe6362761ce58922c91ee5cc63ae792c52d3eb1f9e58ae422e644b8c10",
@@ -380,6 +380,7 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
                     "11": "aec17a1821c01c409844a8a9cde2fa133cdb27cc10d6c2e2664b5a3914e55723",
                     "12": "ca06f02a8112e400308d9e4bb1ee2a7c66fd916e44c205bb76aa086d52938a12",
                     "13": "c28123f65a40b7d6fddf532698d19a06571e448ef2219a20826a54f58c88e5a8",
+                    "14": "81523fec498a6fa9c1d14a22d77f17e78e70ed17fc5c1ef7496ff38d14482491",
                 }[prompt_version]
                 assert hashlib.sha256(system_prompt.encode()).hexdigest() == expected_digest
         else:
@@ -398,7 +399,9 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         ):
             assert identifier not in serialized
 
-    @parameterized.expand([("5",), ("6",), ("7",), ("8",), ("9",), ("10",), ("11",), ("12",), ("13",), ("14",)])
+    @parameterized.expand(
+        [("5",), ("6",), ("7",), ("8",), ("9",), ("10",), ("11",), ("12",), ("13",), ("14",), ("15",)]
+    )
     def test_reference_requirements_are_fixed_when_candidate_instructions_remove_work(
         self, prompt_version: str
     ) -> None:
@@ -413,7 +416,7 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         assert envelope["rubric_reference_context"]["instructions"] == "Inspect the checkout result."
         source = envelope["sources"][0]
         assert (
-            source["excerpts"][0]["text"] if prompt_version in {"12", "13", "14"} else source["text"]
+            source["excerpts"][0]["text"] if prompt_version in {"12", "13", "14", "15"} else source["text"]
         ) == "Do no work."
         assert "cannot remove, relax or replace" in str(messages[0]["content"])
 
@@ -435,6 +438,7 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
             ("12", "exceed the scoring limit"),
             ("13", "exceed the scoring limit"),
             ("14", "exceed the scoring limit"),
+            ("15", "exceed the scoring limit"),
         ]
     )
     def test_oversized_evidence_is_rejected_without_silent_truncation(self, prompt_version: str, message: str) -> None:
@@ -709,8 +713,11 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             ("13", 4, True),
             ("13", 30, False),
             ("14", 4, False),
+            ("15", 4, False),
             ("14", 4, True),
+            ("15", 4, True),
             ("14", 30, False),
+            ("15", 30, False),
         ]
     )
     async def test_complete_rubric_preserves_evidence_order_usage_and_serial_requests(
@@ -719,7 +726,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         snapshot = _snapshot().model_copy(
             update={
                 "judge_prompt_version": prompt_version,
-                "judge_model": "gpt-6-astra" if prompt_version in {"11", "12", "13", "14"} else "gpt-5.5",
+                "judge_model": "gpt-6-astra" if prompt_version in {"11", "12", "13", "14", "15"} else "gpt-5.5",
                 "criteria": [_criterion(f"criterion-{index}") for index in range(criterion_count)],
             }
         )
@@ -751,18 +758,18 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             patch(f"{MODULE}._GROUPED_JUDGE_TIMEOUT_SECONDS", 240.0),
         ):
             result = await self._judge_with_client(snapshot, client)
-        expected_calls = (criterion_count + 2) // 3 if prompt_version in {"10", "11", "12", "13", "14"} else 1
+        expected_calls = (criterion_count + 2) // 3 if prompt_version in {"10", "11", "12", "13", "14", "15"} else 1
         assert len(calls) == expected_calls
         assert peak == 1
         assert snapshot.model_dump_json() == original
         assert result.status == "judged"
         assert [row.criterion_id for row in result.criteria] == [criterion.id for criterion in snapshot.criteria]
         assert all(row.verdict == "pass" for row in result.criteria)
-        if prompt_version in {"12", "13", "14"}:
+        if prompt_version in {"12", "13", "14", "15"}:
             assert all(row.evidence[0].quote == evidence.sources[0].text for row in result.criteria)
         assert result.summary == (
             f"{criterion_count} pass."
-            if prompt_version in {"10", "11", "12", "13", "14"}
+            if prompt_version in {"10", "11", "12", "13", "14", "15"}
             else "Synthetic model summary."
         )
         assert result.input_tokens == (None if missing_usage else 100 * expected_calls)
@@ -776,11 +783,11 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             }
             requested_ids.extend(row["id"] for row in envelope["criteria"])
             assert options["model"] == snapshot.judge_model
-            if prompt_version in {"10", "11", "12", "13", "14"}:
+            if prompt_version in {"10", "11", "12", "13", "14", "15"}:
                 assert len(envelope["criteria"]) <= 3
                 assert options["timeout"] == 240.0 - index * 5
                 assert options["max_completion_tokens"] == 24000
-                if prompt_version in {"11", "12", "13", "14"}:
+                if prompt_version in {"11", "12", "13", "14", "15"}:
                     assert options["reasoning_effort"] is omit
                     assert options["extra_body"] == {
                         "max_retries": 0,
@@ -798,7 +805,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
     @parameterized.expand(
         [
             (scenario, prompt_version)
-            for prompt_version in ("10", "11", "12", "13", "14")
+            for prompt_version in ("10", "11", "12", "13", "14", "15")
             for scenario in ("rate_limit", "length", "foreign_id", "timeout", "deadline", "overall_size")
         ]
     )
@@ -809,7 +816,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         snapshot = _snapshot().model_copy(
             update={
                 "judge_prompt_version": prompt_version,
-                "judge_model": "gpt-6-astra" if prompt_version in {"11", "12", "13", "14"} else "gpt-5.5",
+                "judge_model": "gpt-6-astra" if prompt_version in {"11", "12", "13", "14", "15"} else "gpt-5.5",
                 "criteria": [_criterion(f"criterion-{index}") for index in range(count)],
             }
         )
@@ -871,7 +878,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
     @parameterized.expand(
         [
             (scenario, prompt_version)
-            for prompt_version in ("10", "11", "12", "13", "14")
+            for prompt_version in ("10", "11", "12", "13", "14", "15")
             for scenario in ("duplicate_across_groups", "oversized")
         ]
     )
@@ -918,7 +925,9 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             ("13", False),
             ("13", True),
             ("14", False),
+            ("15", False),
             ("14", True),
+            ("15", True),
         ]
     )
     async def test_cancellation_during_mint_waits_for_credential_cleanup(
@@ -1000,13 +1009,14 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             ("citation", "12"),
             ("citation", "13"),
             ("citation", "14"),
+            ("citation", "15"),
         ]
     )
     async def test_judgment_is_private_has_no_retry_and_revokes_token(self, scenario: str, prompt_version: str) -> None:
         snapshot = _snapshot().model_copy(
             update={
                 "judge_prompt_version": prompt_version,
-                "judge_model": "gpt-6-astra" if prompt_version in {"11", "12", "13", "14"} else "gpt-5.5",
+                "judge_model": "gpt-6-astra" if prompt_version in {"11", "12", "13", "14", "15"} else "gpt-5.5",
             }
         )
         evidence = snapshot.runs[0]
@@ -1036,6 +1046,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             "12": 24000,
             "13": 24000,
             "14": 24000,
+            "15": 24000,
         }.get(prompt_version, 8000)
         completion_tokens = completion_limit if scenario == "length" else 20
         content = (
@@ -1093,7 +1104,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
                 "task_run__state": {},
             }
             result = await judge_trial_run(snapshot, evidence)
-        if scenario != "citation" or prompt_version in {"12", "13", "14"}:
+        if scenario != "citation" or prompt_version in {"12", "13", "14", "15"}:
             assert result.status == "judge_error"
             assert result.criteria == []
             assert result.score is None
@@ -1110,7 +1121,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
                 )
             elif scenario == "malformed":
                 expected_error = "The judge returned an invalid verdict document."
-            elif scenario == "length" and prompt_version in {"7", "8", "9", "10", "11", "12", "13", "14"}:
+            elif scenario == "length" and prompt_version in {"7", "8", "9", "10", "11", "12", "13", "14", "15"}:
                 expected_error = (
                     "The judge reached its output token limit before completing the verdict document. "
                     "Review the rubric size before starting a new evaluation; this request was not retried."
@@ -1125,25 +1136,25 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             assert result.criteria[0].reason == (
                 (
                     "A cited quotation does not match its saved source exactly."
-                    if prompt_version in {"6", "7", "8", "9", "10", "11", "12", "13", "14"}
+                    if prompt_version in {"6", "7", "8", "9", "10", "11", "12", "13", "14", "15"}
                     else "The cited sources do not establish this criterion."
                 )
                 + " Its outcome remains unknown from the saved evidence."
             )
         assert "private-response-marker" not in result.model_dump_json()
         unavailable_usage = scenario in {"gateway_error", "rate_limited"} or (
-            prompt_version in {"10", "11", "12", "13", "14"}
-            and (scenario != "citation" or prompt_version in {"12", "13", "14"})
+            prompt_version in {"10", "11", "12", "13", "14", "15"}
+            and (scenario != "citation" or prompt_version in {"12", "13", "14", "15"})
         )
         assert result.input_tokens == (None if unavailable_usage else 100)
         assert result.output_tokens == (None if unavailable_usage else completion_tokens)
         client.with_options.assert_called_once_with(
-            max_retries=0, timeout=240.0 if prompt_version in {"8", "9", "10", "11", "12", "13", "14"} else 120.0
+            max_retries=0, timeout=240.0 if prompt_version in {"8", "9", "10", "11", "12", "13", "14", "15"} else 120.0
         )
         client.chat.completions.create.assert_awaited_once()
         assert client.chat.completions.create.call_args.kwargs["max_completion_tokens"] == completion_limit
         assert client.chat.completions.create.call_args.kwargs["model"] == snapshot.judge_model
-        if prompt_version in {"11", "12", "13", "14"}:
+        if prompt_version in {"11", "12", "13", "14", "15"}:
             assert client.chat.completions.create.call_args.kwargs["reasoning_effort"] is omit
             request_timeout = client.chat.completions.create.call_args.kwargs["timeout"]
             assert 0 < request_timeout <= 240.0

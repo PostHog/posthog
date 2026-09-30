@@ -215,12 +215,12 @@ class TestScoutTrialEvaluation(BaseTest):
             raise object_storage.ObjectStorageError("Object already exists")
         self.documents[key] = content
 
-    @parameterized.expand([(str(version),) for version in range(1, 15)])
+    @parameterized.expand([(str(version),) for version in range(1, 16)])
     def test_snapshot_is_frozen_and_reused_only_for_the_same_request(self, prompt_version: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
-        assert snapshot.judge_prompt_version == "14"
+        assert snapshot.judge_prompt_version == "15"
         assert snapshot.judge_model == "gpt-6-astra"
-        if prompt_version not in {"5", "6", "7", "8", "9", "10", "11", "12", "13", "14"}:
+        if prompt_version not in {"5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"}:
             self.request = self.request.model_copy(update={"rubric_source": "mock"})
             snapshot = snapshot.model_copy(
                 update={
@@ -233,7 +233,7 @@ class TestScoutTrialEvaluation(BaseTest):
         snapshot = snapshot.model_copy(
             update={
                 "judge_prompt_version": prompt_version,
-                "judge_model": "gpt-6-astra" if prompt_version in {"11", "12", "13", "14"} else "gpt-5.5",
+                "judge_model": "gpt-6-astra" if prompt_version in {"11", "12", "13", "14", "15"} else "gpt-5.5",
             }
         )
         self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"] = (
@@ -253,7 +253,7 @@ class TestScoutTrialEvaluation(BaseTest):
         )
         assert snapshot.runs[0].input_tokens == 120
         assert snapshot.criteria
-        if prompt_version in {"5", "6", "7", "8", "9", "10", "11", "12", "13", "14"}:
+        if prompt_version in {"5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"}:
             assert snapshot.rubric_reference_context == self.reference
         changed = self.request.model_copy(
             update={"variants": [self.request.variants[0].model_copy(update={"label": "Changed"})]}
@@ -261,7 +261,7 @@ class TestScoutTrialEvaluation(BaseTest):
         with self.assertRaisesMessage(TrialEvaluationError, "different request"):
             prepare_trial_evaluation(config=self.config, user=self.user, request=changed)
 
-    @parameterized.expand([(str(version),) for version in range(1, 15)])
+    @parameterized.expand([(str(version),) for version in range(1, 16)])
     def test_saved_report_remains_readable_when_launches_are_disabled(self, prompt_version: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         snapshot = snapshot.model_copy(update={"judge_prompt_version": prompt_version})

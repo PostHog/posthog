@@ -38,7 +38,7 @@ from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-JUDGE_PROMPT_VERSION = "14"
+JUDGE_PROMPT_VERSION = "15"
 _GROUPED_JUDGE_CRITERIA = 3
 _GROUPED_JUDGE_TIMEOUT_SECONDS = 540.0
 MAX_JUDGE_INPUT_CHARACTERS = 120_000
@@ -290,6 +290,21 @@ requires persistence, format, or readback.
 """
 )
 
+_SAVED_RUBRIC_SYSTEM_PROMPT_V15 = (
+    _SAVED_RUBRIC_SYSTEM_PROMPT_V14
+    + """
+Use the fixed reference to clarify requirements the individual criterion invokes, not to add
+every related procedure to that criterion. A broad check that relevant history was considered
+can pass when an observed relevant history read and an explanation of material changes establish
+its pass condition; it does not automatically require every deduplication step. A criterion
+requiring a particular history lookup, all deduplication steps, or all applicable instructions
+still requires them. An unverified required step remains unknown; an observed violation remains
+fail. This distinction does not relax material claim grounding or faithful saved-measurement
+requirements.
+"""
+)
+
+
 _JUDGE_SYSTEM_PROMPTS = {
     "1": _JUDGE_SYSTEM_PROMPT,
     "2": _JUDGE_SYSTEM_PROMPT,
@@ -305,6 +320,7 @@ _JUDGE_SYSTEM_PROMPTS = {
     "12": _SAVED_RUBRIC_SYSTEM_PROMPT_V12,
     "13": _SAVED_RUBRIC_SYSTEM_PROMPT_V13,
     "14": _SAVED_RUBRIC_SYSTEM_PROMPT_V14,
+    "15": _SAVED_RUBRIC_SYSTEM_PROMPT_V15,
 }
 
 
@@ -523,7 +539,19 @@ def build_trial_judge_messages(
     system_prompt = _JUDGE_SYSTEM_PROMPTS.get(snapshot.judge_prompt_version)
     if system_prompt is None:
         raise TrialJudgeValidationError("The saved judge prompt version is unsupported.")
-    uses_saved_reference = snapshot.judge_prompt_version in {"5", "6", "7", "8", "9", "10", "11", "12", "13", "14"}
+    uses_saved_reference = snapshot.judge_prompt_version in {
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+    }
     criterion_ids = [criterion.id for criterion in snapshot.criteria]
     source_ids = [source.id for source in evidence.sources]
     if not 1 <= len(criterion_ids) <= 30 or len(set(criterion_ids)) != len(criterion_ids):
@@ -534,7 +562,7 @@ def build_trial_judge_messages(
         "criteria": [criterion.model_dump(mode="json") for criterion in snapshot.criteria],
         "sources": (
             build_citation_sources(evidence.sources)
-            if snapshot.judge_prompt_version in {"12", "13", "14"}
+            if snapshot.judge_prompt_version in {"12", "13", "14", "15"}
             else [source.model_dump(mode="json") for source in evidence.sources]
         ),
         "limitations": [*evidence.limitations],
@@ -611,7 +639,7 @@ def parse_trial_judgment(
                     normalization_reasons.append("No citation to observed evidence was supplied.")
             reason = (
                 " ".join(dict.fromkeys(normalization_reasons))
-                if judge_prompt_version in {"6", "7", "8", "9", "10", "11", "12", "13", "14"}
+                if judge_prompt_version in {"6", "7", "8", "9", "10", "11", "12", "13", "14", "15"}
                 else "The cited sources do not establish this criterion."
             )
             criterion = criterion.model_copy(
@@ -718,11 +746,11 @@ async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: 
                                 response_format={"type": "json_object"},
                                 max_completion_tokens=24000,
                                 reasoning_effort=omit
-                                if snapshot.judge_prompt_version in {"11", "12", "13", "14"}
+                                if snapshot.judge_prompt_version in {"11", "12", "13", "14", "15"}
                                 else "high",
                                 extra_body=(
                                     {"max_retries": 0, "timeout": min(remaining, 240.0), "drop_params": False}
-                                    if snapshot.judge_prompt_version in {"11", "12", "13", "14"}
+                                    if snapshot.judge_prompt_version in {"11", "12", "13", "14", "15"}
                                     else {"max_retries": 0}
                                 ),
                                 timeout=min(remaining, 240.0),
@@ -742,7 +770,7 @@ async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: 
                             content = response.choices[0].message.content
                             if content is None:
                                 raise TrialJudgeValidationError("The judge did not return a verdict document.")
-                            if snapshot.judge_prompt_version in {"12", "13", "14"}:
+                            if snapshot.judge_prompt_version in {"12", "13", "14", "15"}:
                                 if len(content) > MAX_JUDGE_OUTPUT_CHARACTERS:
                                     raise TrialJudgeValidationError("The judge response exceeds the output limit.")
                                 try:
@@ -827,7 +855,7 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
             status="excluded",
             summary=evidence.exclusion_reason or "The scout run did not complete and cannot be judged for quality.",
         )
-    if snapshot.judge_prompt_version in {"10", "11", "12", "13", "14"}:
+    if snapshot.judge_prompt_version in {"10", "11", "12", "13", "14", "15"}:
         return await _judge_trial_run_grouped(snapshot, evidence)
     token: str | None = None
     input_tokens: int | None = None

@@ -533,7 +533,7 @@ describe('scoutTrialsLogic', () => {
             variants: comparison.groups.map((group, index) => ({
                 id: group.variantId,
                 launch_ids: group.launchIds,
-                label: `Variant ${index + 1}`,
+                label: `Version ${index + 1}`,
             })),
         })
         expect(request.variants.flatMap((variant) => variant.launch_ids)).not.toContain(unrelatedLaunchId)
