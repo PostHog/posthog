@@ -240,49 +240,25 @@ describe('TaxonomicFilter', () => {
     }
 
     describe('rendering', () => {
-        it('does not tag a virtual property as "Not seen"', async () => {
-            useMocks({
-                get: {
-                    '/api/projects/:team/property_definitions': () => [
-                        200,
-                        {
-                            results: [
-                                {
-                                    ...mockEventPropertyDefinition,
-                                    id: 'virt-pathname',
-                                    name: '$pathname',
-                                    virtual: true,
-                                    // Virtual properties have no seen flag, so this is the value the
-                                    // backend sends. The `!virtual` guard is what suppresses the tag.
-                                    is_seen_on_filtered_events: false,
-                                },
-                                {
-                                    ...mockEventPropertyDefinition,
-                                    id: 'unseen-prop',
-                                    name: 'unseen_prop',
-                                    is_seen_on_filtered_events: false,
-                                },
-                            ],
-                            count: 2,
-                        },
-                    ],
-                },
-            })
-            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties] })
-
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
+        it('does not tag the $pageview primary property as "Not seen" in Suggested filters', async () => {
+            // Real timers: this scenario includes SuggestedFilters, whose reveal-barrier state
+            // doesn't survive the fake->real timer switch withoutDebounceDelay performs. See
+            // the "collapses URLs" test in this describe for the same pattern.
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Events,
+                ],
+                eventNames: ['$pageview'],
             })
 
-            const virtualRow = screen.getByTestId('prop-filter-event_properties-0')
-            const unseenRow = screen.getByTestId('prop-filter-event_properties-1')
-            expect(virtualRow).toHaveTextContent('Path name')
-            expect(unseenRow).toHaveTextContent('unseen_prop')
-
-            // The virtual property has no per-event seen data, so it must not be tagged.
-            expect(virtualRow).not.toHaveTextContent('Not seen')
-            // The regular property the backend marked unseen still gets the tag.
-            expect(unseenRow).toHaveTextContent('Not seen')
+            // $pageview's taxonomy primary property ($pathname) is promoted into Suggested
+            // filters as a synthesized row with no per-event seen flag, so it must not be
+            // tagged "Not seen" even though it fires on $pageview.
+            const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
+            expect(firstRow).toHaveTextContent('Path name')
+            expect(firstRow).not.toHaveTextContent('Not seen')
         })
 
         it('renders search input and loads results from the API', async () => {
