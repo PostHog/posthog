@@ -414,6 +414,11 @@ class TestContentAutopilotGeneration(BaseTest):
         assert run.run_status == ContentAutopilotRun.RunStatus.READY_FOR_REVIEW
         assert [entry["error_code"] for entry in run.errors] == ["timed_out"]
         assert statuses == ["failed", "ready_for_review"]
+        assert set(
+            ContentAutopilotOpportunity.objects.for_team(self.team.id)
+            .filter(id__in=[first.id, second.id])
+            .values_list("status", flat=True)
+        ) == {ContentAutopilotOpportunity.Status.DRAFTED}
 
     def test_canceling_a_run_stops_before_the_next_opportunity(self) -> None:
         first = self._opportunity("first")

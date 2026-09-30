@@ -886,9 +886,10 @@ def _draft_opportunity(
         errors.append({"error_code": "generation_failed", "message": f"{title}: something went wrong while drafting."})
         opportunity.refresh_from_db(fields=["proposal"])
         _fail_proposal(opportunity.proposal, "Something went wrong while drafting. Regenerate to try again.")
-    if opportunity.proposal_id:
-        opportunity.status = ContentAutopilotOpportunity.Status.DRAFTED
-        opportunity.save(update_fields=["status", "updated_at"])
+    finally:
+        if opportunity.proposal_id:
+            opportunity.status = ContentAutopilotOpportunity.Status.DRAFTED
+            opportunity.save(update_fields=["status", "updated_at"])
     return ready
 
 
