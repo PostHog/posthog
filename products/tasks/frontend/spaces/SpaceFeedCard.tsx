@@ -10,6 +10,7 @@ import {
     Popover,
     PopoverContent,
     PopoverTrigger,
+    Spinner,
     Text,
     Tooltip,
     TooltipContent,
@@ -24,13 +25,13 @@ import { userLogic } from 'scenes/userLogic'
 import { TodaySessionMenu } from '~/layout/today/TodaySessionMenu'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
-import { TodaySessionStatusIcon } from '~/layout/today/TodaySessionStatusIcon'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { activeCloudRunId, analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
 import { spaceFeedPreview } from './spaceFeedPreview'
 import { spaceFeedStatus } from './spaceFeedStatus'
+import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
 import { TaskPullRequestChip } from './TaskPullRequestChip'
 import { pullRequestLabel, splitPullRequests } from './taskPullRequests'
 
@@ -38,9 +39,11 @@ interface SpaceFeedCardProps {
     task: TaskListItemApi
     pinned: boolean
     unread: boolean
+    /** The repository to name on the card, or `null` when it is the space's usual one. */
+    repository: string | null
 }
 
-export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX.Element {
+export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCardProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
     const { user } = useValues(userLogic)
     const { pullRequestStates } = useValues(todaySpacesLogic)
@@ -60,9 +63,12 @@ export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX
         : ''
 
     return (
-        <Card size="sm" className="group/card relative gap-2 px-3 py-3">
+        <Card
+            size="sm"
+            className="group/card relative gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-muted"
+        >
             <div className="flex min-w-0 items-center gap-2">
-                <TodaySessionStatusIcon item={item} pinned={false} />
+                <SpaceFeedStatusIcon item={item} />
                 {renaming?.sessionId === task.id && renaming.surface === 'feed' ? (
                     <div className="min-w-0 flex-1">
                         <TodaySessionRenameInput sessionId={task.id} title={task.title} />
@@ -72,7 +78,7 @@ export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX
                         <LinkPrimitive
                             to={urls.aiTask(task.id)}
                             className={cn(
-                                'min-w-0 truncate text-foreground after:absolute after:inset-0 hover:underline',
+                                'min-w-0 truncate text-sm text-foreground after:absolute after:inset-0 hover:underline',
                                 unread ? 'font-semibold' : 'font-medium'
                             )}
                             data-attr="today-space-feed-card"
@@ -95,7 +101,12 @@ export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX
                     </div>
                 )}
                 <div className="relative flex shrink-0 items-center gap-1">
-                    {status && <Badge variant={status.variant}>{status.label}</Badge>}
+                    {status && (
+                        <Badge variant={status.variant}>
+                            {status.running && <Spinner aria-hidden data-icon="inline-start" />}
+                            {status.label}
+                        </Badge>
+                    )}
                     <TodaySessionMenu
                         sessionId={task.id}
                         title={item.title}
@@ -109,13 +120,13 @@ export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX
                 </div>
             </div>
             {preview && (
-                <Text size="sm" variant="muted" className="line-clamp-2 break-words">
+                <Text size="xs" variant="muted" className="mt-1.5 line-clamp-2 break-words">
                     {preview}
                 </Text>
             )}
-            {(task.repository || author || item.pullRequests.length > 0) && (
-                <div className="flex min-w-0 items-center gap-2 pt-1">
-                    {task.repository && (
+            {(repository || author || item.pullRequests.length > 0) && (
+                <div className="mt-3 flex min-w-0 items-center gap-1.5">
+                    {repository && (
                         <Text
                             render={<span />}
                             size="xs"
@@ -123,7 +134,7 @@ export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX
                             className="inline-flex min-w-0 items-center gap-1"
                         >
                             <IconGitBranch className="shrink-0" />
-                            <span className="truncate">{task.repository}</span>
+                            <span className="truncate">{repository}</span>
                         </Text>
                     )}
                     {pullRequests.visible.map((pullRequest) => (
