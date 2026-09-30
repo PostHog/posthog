@@ -62,6 +62,17 @@ describe('webmcpLogic', () => {
         expect(postedCommands).toEqual(['search insights', 'call broken-tool {}'])
     })
 
+    it('retries registration on the next team load after a failed attempt', async () => {
+        registerTool.mockRejectedValueOnce(new Error('Registration failed'))
+        initKeaTests()
+        webmcpLogic.mount()
+        await waitFor(() => expect(registerTool).toHaveBeenCalledTimes(1))
+
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+
+        await waitFor(() => expect(registerTool).toHaveBeenCalledTimes(2))
+    })
+
     it('registers the tool once the team loads after mount', async () => {
         initKeaTests(true, null as unknown as TeamType)
         webmcpLogic.mount()

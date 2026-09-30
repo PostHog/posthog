@@ -126,7 +126,12 @@ export const webmcpLogic = kea<webmcpLogicType>([
                 () => {
                     const controller = new AbortController()
                     // A failed registration only means no tool, so it must not surface as an app error.
-                    register(controller.signal).catch(() => {})
+                    // Clearing the flag lets the next team load try again.
+                    register(controller.signal).catch(() => {
+                        if (!controller.signal.aborted) {
+                            cache.toolRegistered = false
+                        }
+                    })
                     return () => controller.abort()
                 },
                 'webmcpTool',
