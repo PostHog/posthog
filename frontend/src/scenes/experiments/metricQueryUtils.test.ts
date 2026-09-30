@@ -5,6 +5,7 @@ import type {
     ActionsNode,
     EventsNode,
     ExperimentDataWarehouseNode,
+    ExperimentFunnelMetric,
     ExperimentMetric,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
@@ -245,6 +246,31 @@ describe('filterToMetricConfig', () => {
                 { kind: NodeKind.ActionsNode, id: 123, name: 'action1', properties: [] },
             ],
         })
+    })
+
+    it('keeps a renamed step in a FUNNEL metric config for every source kind', () => {
+        const events = [{ id: 'step1', custom_name: 'Signed up', properties: [], order: 0 }]
+        const actions = [{ id: 123, name: 'action1', custom_name: 'Activated', properties: [], order: 1 }]
+        const dataWarehouse = [
+            {
+                id: 'stripe_charges',
+                name: 'Stripe charges',
+                custom_name: 'Paid',
+                timestamp_field: 'created_at',
+                events_join_key: 'distinct_id',
+                data_warehouse_join_key: 'customer_id',
+                properties: [],
+                order: 2,
+            },
+        ]
+
+        const result = filterToMetricConfig(ExperimentMetricType.FUNNEL, actions, events, dataWarehouse)
+
+        expect((result as ExperimentFunnelMetric).series.map((step) => step.custom_name)).toEqual([
+            'Signed up',
+            'Activated',
+            'Paid',
+        ])
     })
 
     it('keeps a data warehouse step in a FUNNEL metric config', () => {
