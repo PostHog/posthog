@@ -16,7 +16,7 @@ PROMPT_REFRESH_SECONDS = 60
 
 logger = structlog.get_logger(__name__)
 
-# PostHog's own prompts live in this project on US cloud; outside US, callers keep their bundled copy.
+# Only US cloud has PostHog's own prompts here; on EU and self-hosted, team 2 belongs to someone else.
 POSTHOG_PROMPTS_TEAM_ID = 2
 
 
@@ -28,7 +28,7 @@ def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptRes
     from posthog.models import Team
     from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-    # Unsaved instance avoids a query per lookup.
+    # The cache helper only reads team.id, so an unsaved instance saves a query per lookup.
     team = Team(id=POSTHOG_PROMPTS_TEAM_ID)
     label = PROMPT_LABEL if version is None else None
     serialized = get_prompt_by_name_from_cache(team, prompt_name, version=version, label=label)
@@ -70,7 +70,7 @@ class BackgroundRefresher[T]:
         except Exception:
             logger.exception("managed_prompt_refresh_failed", prompt_name=self._prompt_name)
         finally:
-            # Release connections manually — this thread never sees request_finished.
+            # This thread never sees request_finished, so release its connections the way a request would.
             for conn in connections.all(initialized_only=True):
                 if not conn.in_atomic_block:
                     try:
