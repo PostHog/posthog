@@ -156,6 +156,21 @@ describe('billingLogic', () => {
         expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(false)
     })
 
+    it.each([
+        { name: 'eligible for credits', eligible: true },
+        { name: 'not eligible for credits', eligible: false },
+    ])('hides the upgrade and credits heroes when a partner manages billing ($name)', async ({ eligible }) => {
+        billingState = { ...billingJson, billing_managed_by_partner: { partner_name: 'Example Partner' } }
+        useMocks({ get: { '/api/billing/credits/overview': [200, { ...creditOverviewResponse, eligible }] } })
+        billingLogic.mount()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values).toMatchObject({ showCreditCTAHero: false, showBillingHero: false })
+    })
+
     it('clears a stale usage limit alert when refreshed billing data no longer qualifies', async () => {
         billingState = billingWithProducts([productWithUsage(1)])
         billingLogic.mount()

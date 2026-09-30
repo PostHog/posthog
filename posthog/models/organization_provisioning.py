@@ -1,5 +1,12 @@
+from typing import TYPE_CHECKING
+
 from django.db import models
 from django.db.models import Q
+
+from posthog.models.oauth import OAuthApplication
+
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
 
 
 class OrganizationProvisioning(models.Model):
@@ -36,3 +43,10 @@ class OrganizationProvisioning(models.Model):
                 name="org_provisioning_application_matches_partner",
             )
         ]
+
+
+def get_paying_partner(organization: "Organization") -> OAuthApplication | None:
+    return OAuthApplication.objects.filter(
+        provisioned_organizations__organization=organization,
+        _provisioning_config__pays_for_customers=True,
+    ).first()

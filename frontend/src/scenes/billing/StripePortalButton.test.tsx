@@ -63,8 +63,14 @@ describe('StripePortalButton', () => {
         expect(screen.getByText(expectedLabel).closest('a')).toHaveAttribute('href', expectedHref)
     })
 
-    it('renders nothing when an external provider has no invoices page', async () => {
-        const container = await renderForBilling({ billing_provider: BillingProvider.Vercel })
+    it.each([
+        { name: 'an external provider has no invoices page', billing: { billing_provider: BillingProvider.Vercel } },
+        {
+            name: 'a partner manages billing',
+            billing: { billing_managed_by_partner: { partner_name: 'Example Partner' } },
+        },
+    ])('renders nothing when $name', async ({ billing }) => {
+        const container = await renderForBilling(billing)
 
         expect(container).toBeEmptyDOMElement()
     })

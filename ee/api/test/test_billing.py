@@ -26,6 +26,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_in
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -50,6 +51,7 @@ from ee.api.billing import (
     _stream_chunks,
 )
 from ee.api.test.base import APILicensedTest
+from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, CustomerInfo, CustomerProduct, UsageType
 from ee.billing.grants import (
     BILLING_LIMIT_TODAYS_USAGE_FLAG,
@@ -301,6 +303,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         assert res.json() == {
             "available_product_features": [],
             "products": create_default_products_response()["products"],
+            "billing_managed_by_partner": None,
         }
 
     def test_license_patch_denied_for_members(self):
@@ -482,6 +485,7 @@ class TestBillingAPI(APILicensedTest):
             },
             "usage_summary": create_usage_summary(),
             "free_trial_until": None,
+            "billing_managed_by_partner": None,
         }
 
     @patch("ee.billing.billing_manager.http_session.get")
@@ -609,6 +613,7 @@ class TestBillingAPI(APILicensedTest):
             "discount_amount_usd": None,
             "deactivated": False,
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
+            "billing_managed_by_partner": None,
         }
 
     @patch("ee.billing.billing_manager.http_session.get")
@@ -1190,6 +1195,90 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_json = response.json()
         self.assertEqual(response_json["detail"], "Customer has already claimed a coupon from this campaign.")
+
+
+class TestPartnerManagedBillingAPI(APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _provision(self, pays_for_customers: bool | None) -> OAuthApplication | None:
+        if pays_for_customers is None:
+            OrganizationProvisioning.objects.create(
+                organization=self.organization, partner=OrganizationProvisioning.Partner.VERCEL
+            )
+            return None
+        application = OAuthApplication.objects.create(
+            client_id="example-partner",
+            name="Example Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+        )
+        application.update_provisioning(pays_for_customers=pays_for_customers)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=application,
+        )
+        return application
+
+    @parameterized.expand(
+        [
+            ("activate", "post", "/api/billing/activate", "activate_subscription", status.HTTP_200_OK),
+            ("switch_plan", "post", "/api/billing/subscription/switch-plan", "switch_plan", status.HTTP_200_OK),
+            ("portal", "get", "/api/billing/portal", "_get_stripe_portal_url", status.HTTP_302_FOUND),
+            ("purchase_credits", "post", "/api/billing/credits/purchase", "purchase_credits", status.HTTP_200_OK),
+            ("activate_trial", "post", "/api/billing/trials/activate", "activate_trial", status.HTTP_200_OK),
+            ("authorize", "post", "/api/billing/activate/authorize", "authorize", status.HTTP_200_OK),
+        ]
+    )
+    def test_self_serve_billing_action_is_refused_once_the_partner_pays(
+        self, _name: str, method: str, url: str, manager_method: str, allowed_status: int
+    ) -> None:
+        application = self._provision(pays_for_customers=False)
+        assert application is not None
+        manager_result = "https://billing.stripe.com/p/session/test_1234" if method == "get" else {"success": True}
+
+        with patch.object(BillingManager, manager_method, return_value=manager_result) as mock_manager_method:
+            allowed = getattr(self.client, method)(url)
+            application.update_provisioning(pays_for_customers=True)
+            refused = getattr(self.client, method)(url)
+
+        assert allowed.status_code == allowed_status
+        assert refused.status_code == status.HTTP_403_FORBIDDEN
+        assert refused.json()["detail"] == (
+            "Billing for this organization is managed by Example Partner. "
+            "Contact Example Partner to change your plan or payment details."
+        )
+        mock_manager_method.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("paying_partner", True, {"partner_name": "Example Partner"}),
+            ("non_paying_partner", False, None),
+            ("partner_without_application", None, None),
+        ]
+    )
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_billing_overview_names_the_paying_partner(
+        self,
+        _name: str,
+        pays_for_customers: bool | None,
+        expected: dict[str, str] | None,
+        mock_get_billing: MagicMock,
+    ) -> None:
+        mock_get_billing.return_value = {"available_product_features": [], "products": []}
+        self._provision(pays_for_customers)
+
+        response = self.client.get("/api/billing")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["billing_managed_by_partner"] == expected
 
 
 class TestBillingUsageRequestSerializer(TestCase):

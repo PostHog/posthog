@@ -215,6 +215,8 @@ export interface billingLogicValues {
     billingEntryUrl: string | null
     billingError: BillingError | null
     billingLoading: boolean
+    billingManagedByPartner: string | null
+    billingManagedByPartnerDisabledReason: string | null
     billingPeriodUTC: BillingPeriod
     billingPlan: BillingPlan | null
     canAccessBilling: boolean
@@ -643,20 +645,26 @@ export interface billingLogicMeta {
         isProductAtOrOverUsageLimit: (billing: BillingType | null) => (productKey: ProductKey) => boolean
         billingPeriodUTC: (billing: BillingType | null) => BillingPeriod
         showBillingSummary: (billing: BillingType | null, isOnboarding: boolean) => boolean
-        showCreditCTAHero: (creditOverview: {
-            cc_last_four: null
-            collection_method: null
-            credit_brackets: never[]
-            eligible: false
-            email: null
-            estimated_monthly_credit_amount_usd: null
-            invoice_url: null
-            status: string
-        }) => boolean
+        billingManagedByPartner: (billing: BillingType | null) => string | null
+        billingManagedByPartnerDisabledReason: (billingManagedByPartner: string | null) => string | null
+        showCreditCTAHero: (
+            creditOverview: {
+                cc_last_four: null
+                collection_method: null
+                credit_brackets: never[]
+                eligible: false
+                email: null
+                estimated_monthly_credit_amount_usd: null
+                invoice_url: null
+                status: string
+            },
+            billingManagedByPartner: string | null
+        ) => boolean
         showBillingHero: (
             billing: BillingType | null,
             billingPlan: BillingPlan | null,
-            showCreditCTAHero: boolean
+            showCreditCTAHero: boolean,
+            billingManagedByPartner: string | null
         ) => boolean
         isManagedAccount: (billing: BillingType | null) => boolean
         isExternallyBilled: (billing: BillingType | null) => boolean
@@ -1211,29 +1219,48 @@ export const billingLogic = kea<billingLogicType>([
                 return !isOnboarding && !!billing?.billing_period
             },
         ],
+        billingManagedByPartner: [
+            (s) => [s.billing],
+            (billing: BillingType | null): string | null => billing?.billing_managed_by_partner?.partner_name ?? null,
+        ],
+        billingManagedByPartnerDisabledReason: [
+            (s) => [s.billingManagedByPartner],
+            (billingManagedByPartner: string | null): string | null =>
+                billingManagedByPartner
+                    ? `Billing for this organization is managed by ${billingManagedByPartner}.`
+                    : null,
+        ],
         showCreditCTAHero: [
-            (s) => [s.creditOverview],
-            (creditOverview: {
-                cc_last_four: null
-                collection_method: null
-                credit_brackets: never[]
-                eligible: false
-                email: null
-                estimated_monthly_credit_amount_usd: null
-                invoice_url: null
-                status: string
-            }): boolean => {
+            (s) => [s.creditOverview, s.billingManagedByPartner],
+            (
+                creditOverview: {
+                    cc_last_four: null
+                    collection_method: null
+                    credit_brackets: never[]
+                    eligible: false
+                    email: null
+                    estimated_monthly_credit_amount_usd: null
+                    invoice_url: null
+                    status: string
+                },
+                billingManagedByPartner: string | null
+            ): boolean => {
                 const isEligible = creditOverview.eligible
-                return isEligible && creditOverview.status !== 'paid'
+                return !billingManagedByPartner && isEligible && creditOverview.status !== 'paid'
             },
         ],
         showBillingHero: [
-            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero],
-            (billing: BillingType | null, billingPlan: BillingPlan | null, showCreditCTAHero: boolean): boolean => {
+            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero, s.billingManagedByPartner],
+            (
+                billing: BillingType | null,
+                billingPlan: BillingPlan | null,
+                showCreditCTAHero: boolean,
+                billingManagedByPartner: string | null
+            ): boolean => {
                 const platformAndSupportProduct = billing?.products?.find(
                     (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
                 )
-                return !!billingPlan && !!platformAndSupportProduct && !showCreditCTAHero
+                return !!billingPlan && !!platformAndSupportProduct && !showCreditCTAHero && !billingManagedByPartner
             },
         ],
         isManagedAccount: [

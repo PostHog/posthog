@@ -16371,6 +16371,11 @@ export namespace Schemas {
       results: ProductLimit[];
     }
 
+    export interface BillingManagedByPartner {
+      /** Name of the partner that pays for this organization. */
+      partner_name: string;
+    }
+
     export type BillingOverviewResponseProductsItem = {[key: string]: unknown};
 
     export interface BillingOverviewResponse {
@@ -16421,6 +16426,8 @@ export namespace Schemas {
       account_owner?: unknown;
       customer_trust_scores?: unknown;
       never_drop_data?: boolean;
+      /** Set when a provisioning partner pays for this organization. Self-serve subscription and payment changes are refused while it is set. Null otherwise. */
+      billing_managed_by_partner: BillingManagedByPartner | null;
     }
 
     export interface BillingPeriodResponse {

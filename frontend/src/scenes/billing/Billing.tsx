@@ -58,6 +58,7 @@ export function Billing(): JSX.Element {
         minimumBillingAccessLevel,
         canOnlyViewUsageAndSpend,
         hasSupportAddonPlan,
+        billingManagedByPartner,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -158,6 +159,13 @@ export function Billing(): JSX.Element {
             {billingError && (
                 <LemonBanner type={billingError.status} className="mb-2" action={billingError.action}>
                     {billingError.message}
+                </LemonBanner>
+            )}
+
+            {billingManagedByPartner && (
+                <LemonBanner type="info" className="max-w-300 mb-2">
+                    Billing for this organization is managed by <strong>{billingManagedByPartner}</strong>. Contact them
+                    to change your plan or payment details.
                 </LemonBanner>
             )}
 

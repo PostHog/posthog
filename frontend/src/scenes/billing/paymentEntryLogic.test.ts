@@ -119,4 +119,26 @@ describe('paymentEntryLogic', () => {
             expect(toastErrorSpy).not.toHaveBeenCalled()
         })
     })
+
+    describe('startPaymentEntryFlow — billing managed by a partner', () => {
+        it.each([
+            { name: 'returning customer', customer: { customer_id: 'cus_test' } },
+            { name: 'new customer', customer: {} },
+        ])('neither activates nor opens the payment modal for a $name', async ({ customer }) => {
+            await seedBilling({
+                ...customer,
+                subscription_level: 'free',
+                billing_managed_by_partner: { partner_name: 'Example Partner' },
+            })
+            const activate = jest.fn(() => [200, { success: true }] as [number, Record<string, unknown>])
+            useMocks({ post: { '/api/billing/activate': activate } })
+            logic = paymentEntryLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow(null, '/foo')).toFinishAllListeners()
+
+            expect(activate).not.toHaveBeenCalled()
+            expect(logic.values.paymentEntryModalOpen).toBe(false)
+        })
+    })
 })
