@@ -76,6 +76,28 @@ describe("resolvePosthogPiModelCatalog", () => {
     expect(fable51.thinkingLevels).not.toContain("off");
   });
 
+  it("uses the GPT-6.1 Sol thinking levels before Pi adds the model", () => {
+    const [model] = resolvePosthogPiModelCatalog(
+      [
+        {
+          id: "gpt-6.1-sol",
+          context_window: 1_050_000,
+          supports_vision: true,
+          allowed: true,
+        },
+      ],
+      "us",
+    );
+
+    expect(model.thinkingLevels).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+
   it("marks the default model without changing catalog order", () => {
     const models = resolvePosthogPiModelCatalog(
       [
@@ -112,6 +134,7 @@ describe("resolvePosthogPiModelCatalog", () => {
     ["gpt-5.6-terra", "GPT-5.6 Terra"],
     ["gpt-5.6-luna", "GPT-5.6 Luna"],
     ["gpt-6-astra", "GPT-6 Astra"],
+    ["gpt-6.1-sol", "GPT-6.1 Sol"],
     ["zai-org/glm-5.3", "GLM-5.3"],
     ["moonshotai/kimi-k3", "Kimi K3"],
     ["deepseek-ai/deepseek-v4-flash-0731", "DeepSeek V4 Flash"],
@@ -187,6 +210,38 @@ describe("resolvePosthogPiModelCatalog", () => {
       expect(models).toEqual([expect.objectContaining({ id })]);
     },
   );
+
+  it("reads Go-shaped entries through the proxy and honours its marks", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          object: "list",
+          data: [
+            { id: "claude-opus-5", owned_by: "anthropic" },
+            {
+              id: "gpt-6-sol",
+              owned_by: "openai",
+              allowed: false,
+              restriction_reason: "paid_plan_required",
+            },
+          ],
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const models = await fetchPosthogPiModelCatalog(
+      "http://127.0.0.1:4100/session-token",
+      "us",
+      "posthog-code-auth-proxy",
+      42,
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://127.0.0.1:4100/session-token/v1/models",
+    );
+    expect(models.map((model) => model.id)).toEqual(["claude-opus-5"]);
+  });
 
   it("uses fallback models without fetching while offline", async () => {
     process.env.PI_OFFLINE = "1";

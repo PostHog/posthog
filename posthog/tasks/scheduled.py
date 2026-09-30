@@ -68,7 +68,9 @@ from posthog.tasks.tasks import (
     update_survey_adaptive_sampling,
     update_survey_iteration,
 )
+from posthog.tasks.team_event_volume import update_team_event_volumes
 from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
+from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_projection
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
@@ -115,6 +117,7 @@ from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
+    refresh_signal_scout_background_bands,
     sweep_implementation_dispatches,
     sync_pending_signals_refund_credits,
 )
@@ -148,10 +151,12 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     report_stuck_heatmap_screenshots,
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
-from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
-from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
-from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
-from products.workflows.backend.tasks.workflow_email_health import sweep_workflow_email_deliverability
+from products.workflows.backend.facade.tasks import (
+    poll_ses_account_reputation,
+    recompute_workflows_email_sending_tiers,
+    reconcile_ses_tenant_states,
+    sweep_workflow_email_deliverability,
+)
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -318,6 +323,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="team metadata expiry tracking cleanup",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="0"),
+        update_team_event_volumes.s(),
+        name="team event volume update",
+        expires_seconds=12 * 3600,
+    )
+
     # SES tenant reputation reconciliation - daily at 6:30 AM UTC. EventBridge events are the
     # real-time path; this sweep catches missed deliveries. Sequential SES API calls per team
     # with an SES email integration, so kept daily to stay well inside SES API rate limits.
@@ -348,6 +361,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="10"),
         refresh_gateway_credentials.s(),
         name="gateway credential cache sync",
+    )
+
+    # Gateway quota projection reconcile - every 15 min, offset from the quota-limiting run and
+    # the :05/:10 gateway cache refreshes, so a missed signal or an expiring blob heals within a tick
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="7,22,37,52"),
+        reconcile_llm_gateway_quota_projection.s(),
+        name="llm-gateway quota projection reconcile",
     )
 
     # Gateway credential last-used drain - every 5 min; the only writer of last_used_at for gateway keys.
@@ -415,6 +437,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="25"),
         sync_pending_signals_refund_credits.s(),
         name="sync pending signals refund credits",
+    )
+
+    # Recompute the activity bands the background scout lane samples from - daily at 5:50 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="5", minute="50"),
+        refresh_signal_scout_background_bands.s(),
+        name="refresh signals scout background bands",
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
@@ -639,7 +669,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="*/6", minute="20"),
+        crontab(minute="*/5"),
         sweep_web_analytics_achievement_team_tracks.s(),
         name="web analytics achievements team-track sweep",
     )

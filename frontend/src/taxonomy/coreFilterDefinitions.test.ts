@@ -14,7 +14,7 @@ describe('core filter definitions JSON', () => {
             : `${GENERATED_JSON} is missing from ignorePatterns in .oxfmtrc.json. lint-staged pipes staged JSON ` +
               'through `bin/hogli format:yaml` (oxfmt), and that entry is the only thing keeping oxfmt off ' +
               'this file. Without it the committed bytes stop matching the json.dump output of ' +
-              'bin/build-taxonomy-json.py, so the taxonomy drift check in ci-python.yml fails for whoever ' +
+              'posthog/taxonomy/projection.py, so the projections drift check in ci-python.yml fails for whoever ' +
               'next edits posthog/taxonomy/taxonomy.py. Restore the entry rather than reformatting the JSON.'
 
         expect(missingEntryHint).toBeUndefined()

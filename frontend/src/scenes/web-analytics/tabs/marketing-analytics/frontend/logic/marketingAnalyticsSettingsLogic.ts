@@ -146,6 +146,7 @@ export interface marketingAnalyticsSettingsLogicActions {
         initialTab: IntegrationSettingsTab
         initialUtmValue: string
         integration:
+            | 'AmazonAds'
             | 'AppleSearchAds'
             | 'BingAds'
             | 'GoogleAds'
@@ -154,6 +155,7 @@ export interface marketingAnalyticsSettingsLogicActions {
             | 'OpenAIAds'
             | 'PinterestAds'
             | 'RedditAds'
+            | 'RoktAds'
             | 'SnapchatAds'
             | 'TikTokAds'
     }

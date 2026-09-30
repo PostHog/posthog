@@ -636,6 +636,7 @@ class TestSCIMAuditLogging(APILicensedTest):
         assert log is not None, f"Expected activity log with activity='{expected_activity}'"
         assert log.is_system is True
         assert log.user is None
+        assert (log.credential_type, log.credential_id) == ("scim", str(self.config.id))
         assert log.organization_id == self.organization.id
         assert log.detail is not None
         assert log.detail.get("context", {}).get("identity_provider_config_id") == str(self.config.id)

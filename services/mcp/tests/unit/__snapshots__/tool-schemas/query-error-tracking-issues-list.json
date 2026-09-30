@@ -218,8 +218,8 @@
             "description": "Filter by SDK/library value from event $lib, for example posthog-js."
         },
         "limit": {
-            "default": 25,
-            "description": "Page size.",
+            "default": 10,
+            "description": "Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.",
             "maximum": 100,
             "minimum": 1,
             "type": "number"
@@ -274,7 +274,7 @@
         },
         "volumeResolution": {
             "default": 0,
-            "description": "Number of volume buckets. Defaults to 0 for compact aggregate counts.",
+            "description": "Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.",
             "maximum": 200,
             "minimum": 0,
             "type": "number"

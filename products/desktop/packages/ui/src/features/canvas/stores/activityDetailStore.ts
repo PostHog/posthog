@@ -110,7 +110,7 @@ export function selectActivityItem(item: TaskActivityItem): void {
     to: "/activity",
     search: {
       item: item.id,
-      session: item.taskId,
+      session: item.taskId ?? undefined,
       ...(item.channelId ? { space: item.channelId } : {}),
     },
   });
