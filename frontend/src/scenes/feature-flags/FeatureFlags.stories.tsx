@@ -274,6 +274,25 @@ export const NewMultivariateFlagVariantKeyError: Story = {
     },
 }
 
+export const NewFeatureFlagKeyTaken: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag('new'),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => {
+        const logic = await waitForMountedFeatureFlagLogic()
+        logic.actions.setFeatureFlagValue('key', 'session-recording-console')
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-attr="feature-flag-key-conflict-link"]')) {
+                    throw new Error('key conflict message not yet visible')
+                }
+            },
+            { timeout: 5000 }
+        )
+    },
+}
+
 export const NewRemoteConfigFlagPayloadError: Story = {
     parameters: {
         pageUrl: urls.featureFlag('new'),

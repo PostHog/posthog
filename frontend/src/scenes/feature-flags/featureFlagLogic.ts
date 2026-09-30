@@ -3605,8 +3605,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     listeners(({ actions, values, props, sharedListeners }) => ({
         setFeatureFlagValue: ({ name, value }) => {
-            if (name === 'key' || (Array.isArray(name) && name.length === 1 && name[0] === 'key')) {
-                actions.checkKeyConflict(typeof value === 'string' ? value : '')
+            if (name === 'key') {
+                actions.checkKeyConflict(value)
             }
         },
         loadCopyDependencyRequirements: async (_, breakpoint): Promise<void> => {
