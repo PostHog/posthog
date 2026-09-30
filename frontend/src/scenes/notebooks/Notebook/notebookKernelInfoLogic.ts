@@ -349,6 +349,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         }),
         startKernel: true,
         stopKernel: true,
+        stopKernelFailure: true,
         restartKernel: true,
         saveKernelConfig: (
             config: { cpu_cores?: number; memory_gb?: number; idle_timeout_seconds?: number },
@@ -446,6 +447,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                 executeKernelSuccess: (state) => ({ ...state, execute: false }),
                 executeKernelFailure: (state) => ({ ...state, execute: false }),
                 saveKernelConfigFailure: (state) => ({ ...state, save: false }),
+                stopKernelFailure: (state) => ({ ...state, stop: false }),
             },
         ],
     }),
@@ -677,6 +679,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                 await api.notebooks.kernelStop(props.shortId)
             } catch (error) {
                 lemonToast.error((error as { detail?: string }).detail || 'Could not stop the kernel. Try again.')
+                actions.stopKernelFailure()
             } finally {
                 actions.loadKernelInfo()
             }

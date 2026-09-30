@@ -211,6 +211,8 @@ describe('notebookKernelInfoLogic', () => {
     ])(
         '$action shows the server error and refreshes the status when the request fails',
         async ({ action, endpoint }) => {
+            // The kernel still runs after a failed stop, and the refresh must not leave the stop flag set.
+            kernelStatusSpy.mockResolvedValue({ backend: 'modal', status: 'running' })
             jest.spyOn(api.notebooks, endpoint).mockRejectedValue({ status: 409, detail: 'The kernel is busy.' })
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
             logic = notebookKernelInfoLogic({ shortId: `${action}-fails-01890abc`, mode: 'notebook' })
