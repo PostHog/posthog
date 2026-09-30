@@ -92,8 +92,12 @@ def reference_oversized_event(event_data: dict[str, Any]) -> dict[str, Any]:
         return event_data
     properties = event_data["properties"]
     if isinstance(properties, str):
-        properties = json.loads(properties)
-    trace_id = properties.get("$ai_trace_id")
+        # This runs in workflow code, where an exception retries the task forever.
+        try:
+            properties = json.loads(properties)
+        except ValueError:
+            properties = {}
+    trace_id = properties.get("$ai_trace_id") if isinstance(properties, dict) else None
     return {
         "uuid": event_data["uuid"],
         "team_id": event_data["team_id"],
