@@ -26,17 +26,7 @@ class AccountAuditOutput(BaseModel):
     notebook_short_id: str = Field(min_length=1)
 
 
-def create_audit_task(*, team_id: int, user_id: int, skill: SkillPrompt) -> UUID:
-    notebook = notebooks_facade.create_notebook(
-        team_id,
-        title="Account audit",
-        content={"type": "doc", "content": []},
-        text_content="",
-        created_by_id=user_id,
-        last_modified_by_id=user_id,
-        creation_source="server",
-    )
-    notebook_short_id = notebook.short_id
+def create_audit_task(*, team_id: int, user_id: int, skill: SkillPrompt, notebook_short_id: str) -> UUID:
     created = tasks_facade.create_and_run_task(
         team=Team.objects.get(id=team_id),
         title="Account audit",
@@ -55,7 +45,7 @@ def create_audit_task(*, team_id: int, user_id: int, skill: SkillPrompt) -> UUID
         model="claude-sonnet-5",
         output_schema=AccountAuditOutput,
         sandbox_timeout_seconds=3 * 60 * 60,
-        extra_run_state={"audit_notebook_short_id": notebook_short_id, "audit_skill_version": skill.version},
+        extra_run_state={"audit_skill_version": skill.version},
     )
     if created.latest_run is None:
         raise RuntimeError("Account audit task was created without a run")
@@ -79,10 +69,15 @@ def finish_account_audit(*, team_id: int, task_run_id: UUID) -> None:
     if run.status == tasks_facade.TaskRunStatus.COMPLETED:
         now = timezone.now()
         settling = now < (run.completed_at or run.updated_at or admission.created_at) + COMPLETION_GRACE
-        if settling and run.state.get("unprocessed_request_ids") and not run.state.get("token_cost_incomplete"):
+        # Gateway callbacks can arrive after completion, even when the pending list is empty.
+        if (
+            settling
+            and isinstance(run.state.get("unprocessed_request_ids"), list)
+            and not run.state.get("token_cost_incomplete")
+        ):
             return
-        notebook_id = run.state.get("audit_notebook_short_id")
-        notebook = notebooks_facade.get_notebook(team_id, notebook_id) if isinstance(notebook_id, str) else None
+        notebook_id = admission.notebook_short_id
+        notebook = notebooks_facade.get_notebook(team_id, notebook_id)
         valid = (
             run.task_origin_product == tasks_facade.TaskOriginProduct.ONBOARDING_AUDIT
             and (run.output or {}).get("notebook_short_id") == notebook_id

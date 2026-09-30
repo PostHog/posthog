@@ -34,6 +34,7 @@ class TestAuditExecution(BaseTest):
             organization_id=self.organization.id,
             team_id=self.team.id,
             task_run_id=self.run_id,
+            notebook_short_id="audit123",
             reason="testing",
             skill_name="custom-audit",
         )
@@ -46,7 +47,7 @@ class TestAuditExecution(BaseTest):
             created_by_distinct_id=self.user.distinct_id,
             completed_at=timezone.now(),
             updated_at=timezone.now(),
-            state={"audit_notebook_short_id": "audit123"},
+            state={},
             output={"notebook_short_id": "audit123"},
         )
         self.notebook = SimpleNamespace(
@@ -113,6 +114,7 @@ class TestAuditExecution(BaseTest):
             ("malformed",),
             ("missing",),
             ("wrong_output",),
+            ("replaced_notebook",),
             ("wrong_creator",),
             ("wrong_origin",),
             ("no_consent",),
@@ -130,6 +132,9 @@ class TestAuditExecution(BaseTest):
             self.read_notebook.return_value = None
         elif problem == "wrong_output":
             self.task_run.output = {"notebook_short_id": "another"}
+        elif problem == "replaced_notebook":
+            self.task_run.state["audit_notebook_short_id"] = "another"
+            self.task_run.output = {"notebook_short_id": "another"}
         elif problem == "wrong_creator":
             self.notebook.created_by_id = self.user.id + 1
         elif problem == "wrong_origin":
@@ -143,15 +148,23 @@ class TestAuditExecution(BaseTest):
 
     @parameterized.expand([(False,), (True,)])
     def test_waits_for_accounting_then_emits_settled_or_unavailable_cost(self, expires: bool) -> None:
+        self.task_run.state["unprocessed_request_ids"] = []
+        self.cost.return_value.token_cost = 0
+        self.finish()
+        self.assertIsNone(self.admission.finalized_at)
+        self.capture.assert_not_called()
         self.task_run.state["unprocessed_request_ids"] = ["request-1"]
         self.finish()
         self.assertIsNone(self.admission.finalized_at)
         self.capture.assert_not_called()
         if expires:
-            self.task_run.completed_at -= timedelta(minutes=3)
             self.cost.return_value.token_cost = None
         else:
             self.task_run.state["unprocessed_request_ids"] = []
+            self.cost.return_value.token_cost = 27
+            self.finish()
+            self.capture.assert_not_called()
+        self.task_run.completed_at -= timedelta(minutes=3)
         self.finish()
         self.assertEqual(self.capture.call_args.kwargs["properties"]["token_cost_cents"], None if expires else 27)
 
@@ -175,7 +188,10 @@ class TestAuditExecution(BaseTest):
         ):
             create.return_value = SimpleNamespace(latest_run=SimpleNamespace(id=uuid4()))
             run_id = create_audit_task(
-                team_id=self.team.id, user_id=self.user.id, skill=SkillPrompt(body="Audit.", version=1)
+                team_id=self.team.id,
+                user_id=self.user.id,
+                skill=SkillPrompt(body="Audit.", version=1),
+                notebook_short_id="audit123",
             )
             kwargs = create.call_args.kwargs
             self.assertEqual(run_id, create.return_value.latest_run.id)
@@ -188,7 +204,7 @@ class TestAuditExecution(BaseTest):
                 ["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
             )
             self.assertEqual(kwargs["extra_run_state"]["audit_skill_version"], 1)
-            self.assertIn(kwargs["extra_run_state"]["audit_notebook_short_id"], kwargs["description"])
+            self.assertIn("audit123", kwargs["description"])
         with patch("products.growth.backend.tasks.finalize_account_audit.delay") as enqueue:
             created = tasks_facade.create_and_run_task(
                 team=self.team,
@@ -199,9 +215,10 @@ class TestAuditExecution(BaseTest):
                 internal=True,
                 create_pr=False,
                 start_workflow=False,
-                extra_run_state={"audit_notebook_short_id": "audit123"},
             )
             assert created.latest_run is not None
+            self.admission.task_run_id = created.latest_run.id
+            self.admission.save(update_fields=["task_run_id"])
             from products.tasks.backend.models import TaskRun
 
             run = TaskRun.objects.get(id=created.latest_run.id)

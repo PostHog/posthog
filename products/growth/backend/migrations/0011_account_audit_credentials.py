@@ -44,6 +44,7 @@ class Migration(migrations.Migration):
                 ("organization_id", models.UUIDField()),
                 ("team_id", models.BigIntegerField()),
                 ("task_run_id", models.UUIDField(unique=True)),
+                ("notebook_short_id", models.CharField(max_length=12)),
                 ("reason", models.CharField(db_default="", default="", max_length=500)),
                 (
                     "skill_name",

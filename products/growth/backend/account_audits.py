@@ -14,6 +14,7 @@ from posthog.utils import get_instance_region
 
 from products.growth.backend.audit_execution import create_audit_task
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
+from products.notebooks.backend.facade import api as notebooks_facade
 from products.signals.backend.facade.api import resolve_audit_actor_for_team
 from products.skills.backend.facade.api import get_skill_prompt
 
@@ -105,7 +106,19 @@ class AccountAuditService:
             skill = get_skill_prompt(team_id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID, skill_name=payload.skill_name)
             if skill is None or not skill.body.strip():
                 return AccountAuditResult(status="invalid")
-            run_id = create_audit_task(team_id=team_id, user_id=actor_id, skill=skill)
+            notebook = notebooks_facade.create_notebook(
+                team_id,
+                title="Account audit",
+                content={"type": "doc", "content": []},
+                text_content="",
+                created_by_id=actor_id,
+                last_modified_by_id=actor_id,
+                visibility="internal",
+                creation_source="server",
+            )
+            run_id = create_audit_task(
+                team_id=team_id, user_id=actor_id, skill=skill, notebook_short_id=notebook.short_id
+            )
             AccountAuditAdmission.objects.for_team(team_id).create(
                 credential=credential,
                 webhook_id=webhook_id,
@@ -114,6 +127,7 @@ class AccountAuditService:
                 reason=payload.reason,
                 skill_name=payload.skill_name,
                 task_run_id=run_id,
+                notebook_short_id=notebook.short_id,
             )
         return AccountAuditResult(status="accepted", task_run_id=run_id, team_id=team_id)
 

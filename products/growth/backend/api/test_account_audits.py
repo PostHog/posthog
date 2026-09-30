@@ -110,6 +110,12 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(second.json(), {"task_run_id": str(admission.task_run_id), "team_id": self.team.id})
         self.assertEqual(dispatch.call_count, 1)
         self.assertEqual(dispatch.call_args.kwargs["team_id"], self.team.id)
+        self.assertEqual(dispatch.call_args.kwargs["notebook_short_id"], admission.notebook_short_id)
+        notebook_url = f"/api/projects/{self.team.id}/notebooks/{admission.notebook_short_id}/"
+        notebook = self.client.get(notebook_url)
+        self.assertEqual(notebook.status_code, 200)
+        listed = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
+        self.assertNotIn(admission.notebook_short_id, [item["short_id"] for item in listed.json()["results"]])
         skill.assert_called_once_with(team_id=growth_team_id, skill_name="onboarding-account-audit")
 
     @parameterized.expand([(False, False, False), (False, False, True), (True, False, True), (False, True, True)])
@@ -215,7 +221,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 self.assertEqual(self._post(payload).status_code, 503)
             self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
-            notebook_id = native_create.call_args.kwargs["extra_run_state"]["audit_notebook_short_id"]
+            notebook_id = create.call_args.kwargs["notebook_short_id"]
             self.assertIsNone(get_notebook(self.team.id, notebook_id))
             queued.assert_not_called()
             notebook_capture.assert_not_called()

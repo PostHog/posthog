@@ -35,6 +35,7 @@ class AccountAuditAdmission(models.Model):
         max_length=64, default="onboarding-account-audit", db_default="onboarding-account-audit"
     )
     task_run_id = models.UUIDField(unique=True)
+    notebook_short_id = models.CharField(max_length=12)
     finalized_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
