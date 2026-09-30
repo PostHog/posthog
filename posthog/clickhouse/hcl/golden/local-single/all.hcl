@@ -4139,25 +4139,6 @@ database "posthog" {
     }
   }
 
-  table "kafka_person_property_mutation_log" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "uuid" {
-      type = "UUID"
-    }
-    column "properties" {
-      type = "String"
-    }
-    engine "kafka" {
-      collection           = "warpstream_ingestion"
-      topic_list           = "clickhouse_events_json"
-      group_name           = "clickhouse_person_property_mutation_log"
-      format               = "JSONEachRow"
-      skip_broken_messages = 100
-    }
-  }
-
   table "kafka_plugin_log_entries" {
     column "id" {
       type = "UUID"
@@ -8564,53 +8545,6 @@ SQL
     }
   }
 
-  table "person_property_mutation_log" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "event_uuid" {
-      type = "UUID"
-    }
-    column "properties" {
-      type = "String"
-    }
-    column "ingested_at" {
-      type = "DateTime('UTC')"
-    }
-    engine "distributed" {
-      cluster_name    = "aux"
-      remote_database = "posthog"
-      remote_table    = "person_property_mutation_log_data"
-    }
-  }
-
-  table "person_property_mutation_log_data" {
-    order_by     = ["team_id", "event_uuid"]
-    partition_by = "toDate(ingested_at)"
-    ttl          = "ingested_at + toIntervalDay(30)"
-    settings = {
-      index_granularity   = "1024"
-      ttl_only_drop_parts = "1"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "event_uuid" {
-      type = "UUID"
-    }
-    column "properties" {
-      type = "String"
-    }
-    column "ingested_at" {
-      type = "DateTime('UTC')"
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/noshard/posthog.person_property_mutation_log_data"
-      replica_name   = "{replica}-{shard}"
-      version_column = "ingested_at"
-    }
-  }
-
   table "person_static_cohort" {
     order_by = ["team_id", "cohort_id", "person_id", "id"]
     settings = {
@@ -8677,6 +8611,76 @@ SQL
       replica_name      = "{replica}-{shard}"
       version_column    = "timestamp"
       is_deleted_column = "is_deleted"
+    }
+  }
+
+  table "platform_alert_events" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "configuration_id" {
+      type = "UUID"
+    }
+    column "alert_id" {
+      type = "UUID"
+    }
+    column "grouping_key" {
+      type = "String"
+    }
+    column "evaluation_key" {
+      type = "String"
+    }
+    column "kind" {
+      type = "LowCardinality(String)"
+    }
+    column "alert_name" {
+      type = "String"
+    }
+    column "previous_state" {
+      type = "LowCardinality(String)"
+    }
+    column "state" {
+      type = "LowCardinality(String)"
+    }
+    column "episode_started_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "value" {
+      type = "Nullable(Float64)"
+    }
+    column "labels" {
+      type = "Map(String, String)"
+    }
+    column "condition_snapshot" {
+      type = "String"
+    }
+    column "source_config_snapshot" {
+      type = "String"
+    }
+    column "query_duration_ms" {
+      type = "Nullable(UInt32)"
+    }
+    column "error_message" {
+      type = "String"
+    }
+    column "consecutive_failures" {
+      type = "UInt32"
+    }
+    column "muted_notification" {
+      type = "LowCardinality(String)"
+    }
+    column "occurred_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(90)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_platform_alert_events"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 
@@ -12437,6 +12441,82 @@ SQL
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.performance_events"
       replica_name = "{replica}"
+    }
+  }
+
+  table "sharded_platform_alert_events" {
+    primary_key  = ["team_id", "configuration_id", "alert_id", "occurred_at"]
+    order_by     = ["team_id", "configuration_id", "alert_id", "occurred_at", "evaluation_key"]
+    partition_by = "toYYYYMM(occurred_at)"
+    ttl          = "expires_at"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "configuration_id" {
+      type = "UUID"
+    }
+    column "alert_id" {
+      type = "UUID"
+    }
+    column "grouping_key" {
+      type = "String"
+    }
+    column "evaluation_key" {
+      type = "String"
+    }
+    column "kind" {
+      type = "LowCardinality(String)"
+    }
+    column "alert_name" {
+      type = "String"
+    }
+    column "previous_state" {
+      type = "LowCardinality(String)"
+    }
+    column "state" {
+      type = "LowCardinality(String)"
+    }
+    column "episode_started_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "value" {
+      type = "Nullable(Float64)"
+    }
+    column "labels" {
+      type = "Map(String, String)"
+    }
+    column "condition_snapshot" {
+      type = "String"
+    }
+    column "source_config_snapshot" {
+      type = "String"
+    }
+    column "query_duration_ms" {
+      type = "Nullable(UInt32)"
+    }
+    column "error_message" {
+      type = "String"
+    }
+    column "consecutive_failures" {
+      type = "UInt32"
+    }
+    column "muted_notification" {
+      type = "LowCardinality(String)"
+    }
+    column "occurred_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(90)"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.platform_alert_events"
+      replica_name = "{replica}-{shard}"
     }
   }
 
@@ -23597,50 +23677,6 @@ SQL
     }
     column "version" {
       type = "Int32"
-    }
-  }
-
-  materialized_view "person_property_mutation_log_mv" {
-    to_table = "posthog.person_property_mutation_log"
-    query    = <<SQL
-SELECT
-  team_id,
-  uuid AS event_uuid,
-  concat(
-    '{',
-    arrayStringConcat(
-      arrayMap(
-        property -> concat(toJSONString(property.1), ':', property.2),
-        arrayFilter(
-          property -> property.1 IN ('$set', '$set_once', '$unset'),
-          JSONExtractKeysAndValuesRaw(source.properties)
-        )
-      ),
-      ','
-    ),
-    '}'
-  ) AS properties,
-  toDateTime(_timestamp, 'UTC') AS ingested_at
-FROM kafka_person_property_mutation_log AS source
-WHERE
-  JSONHas(source.properties, '$set')
-OR
-  JSONHas(source.properties, '$set_once')
-OR
-  JSONHas(source.properties, '$unset')
-SQL
-
-    column "team_id" {
-      type = "Int64"
-    }
-    column "event_uuid" {
-      type = "UUID"
-    }
-    column "properties" {
-      type = "String"
-    }
-    column "ingested_at" {
-      type = "DateTime('UTC')"
     }
   }
 
