@@ -1,81 +1,57 @@
-import { createRef, useEffect, useRef } from 'react'
+import { FocusEventHandler, KeyboardEvent, KeyboardEventHandler, createRef, useRef } from 'react'
 
-export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I extends HTMLElement = HTMLElement>(
+export function useKeyboardNavigation<I extends HTMLElement = HTMLElement>(
     itemCount: number,
     activeItemIndex: number = -1,
     { enabled = true } = {}
 ): {
-    referenceRef: React.RefObject<R>
     itemsRef: React.RefObject<React.RefObject<I>[]>
-    options?: { enabled: boolean }
+    onTriggerFocus: FocusEventHandler<HTMLElement>
+    onTriggerKeyDown: KeyboardEventHandler<HTMLElement>
+    onItemsKeyDown: KeyboardEventHandler<HTMLElement>
 } {
-    const referenceRef = useRef<R>(null)
+    const focusedTriggerRef = useRef<HTMLElement | null>(null)
     const itemsRef = useRef(Array.from({ length: itemCount }, () => createRef<I>()))
     // A menu can gain items after its first render, for example when its data loads.
     while (itemsRef.current.length < itemCount) {
         itemsRef.current.push(createRef<I>())
     }
 
-    function focus(itemIndex: number): void {
-        if (itemIndex > -1) {
-            itemsRef.current[itemIndex].current?.focus()
+    function moveFocus(e: KeyboardEvent<HTMLElement>, fromIndex: number): void {
+        if (!enabled || e.defaultPrevented) {
             return
         }
-        const trigger = referenceRef.current
-        trigger?.focus()
-        // A wrapper trigger cannot take focus, so focus the element inside it that can.
-        if (trigger && (trigger.getRootNode() as Document | ShadowRoot).activeElement !== trigger) {
-            trigger.querySelector<HTMLElement>('button, [href], input, [tabindex]')?.focus()
+        let target: HTMLElement | null = null
+        if (e.key === 'ArrowDown') {
+            target = itemsRef.current.find((item, i) => i > fromIndex && item.current)?.current ?? null
+        } else if (e.key === 'ArrowUp' && fromIndex >= 0) {
+            target =
+                itemsRef.current.findLast((item, i) => i < fromIndex && item.current)?.current ??
+                focusedTriggerRef.current
+        }
+        if (target) {
+            target.focus()
+            e.preventDefault()
         }
     }
 
-    useEffect(() => {
-        if (!enabled) {
-            return
-        }
-
-        const handleKeyDown = (e: KeyboardEvent): void => {
-            // The document listener sees a shadow host as the target, for example in the toolbar.
-            const target = e.composedPath()[0]
-            const targetItemIndex = itemsRef.current.findIndex((item) => item.current === target)
-            // A trigger component can put its ref on a wrapper around the focused button, for example ToolbarButton.
-            const fromTrigger = target instanceof Node && !!referenceRef.current?.contains(target)
-            if (e.defaultPrevented || (!fromTrigger && targetItemIndex === -1)) {
-                return
+    return {
+        itemsRef,
+        onTriggerFocus: (e) => {
+            // The positioning ref can point at a wrapper, so remember the element that actually took focus.
+            focusedTriggerRef.current = e.target
+        },
+        onTriggerKeyDown: (e) => {
+            // A closed submenu leaves arrow keys to its parent menu.
+            if (itemsRef.current.some((item) => item.current)) {
+                moveFocus(e, activeItemIndex)
             }
-            let fromIndex = targetItemIndex
-            if (fromTrigger) {
-                // A closed menu has no mounted items, so leave the key to the parent menu or the page.
-                if (!itemsRef.current.some((item) => item.current)) {
-                    return
-                }
-                fromIndex = activeItemIndex
+        },
+        onItemsKeyDown: (e) => {
+            const itemIndex = itemsRef.current.findIndex((item) => item.current === e.target)
+            if (itemIndex >= 0) {
+                moveFocus(e, itemIndex)
             }
-            // Refs without a mounted button, such as a custom item, cannot take focus.
-            if (e.key === 'ArrowDown') {
-                const nextIndex = itemsRef.current.findIndex((item, i) => i > fromIndex && item.current)
-                if (nextIndex > -1) {
-                    focus(nextIndex)
-                    e.preventDefault()
-                }
-            } else if (e.key === 'ArrowUp') {
-                if (fromIndex >= 0) {
-                    focus(itemsRef.current.findLastIndex((item, i) => i < fromIndex && item.current))
-                    e.preventDefault()
-                }
-            }
-        }
-
-        const controller = new AbortController()
-
-        // A submenu trigger handles keys before its parent menu sees the bubbled event.
-        referenceRef.current?.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
-        // Portal items mount after this effect, so resolve their refs when a key is pressed.
-        referenceRef.current?.ownerDocument.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
-        return () => {
-            controller.abort()
-        }
-    }, [enabled, activeItemIndex])
-
-    return { referenceRef, itemsRef }
+        },
+    }
 }

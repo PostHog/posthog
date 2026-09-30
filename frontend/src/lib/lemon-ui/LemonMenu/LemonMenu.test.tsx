@@ -141,6 +141,9 @@ describe('LemonMenu', () => {
             function WrappedButton(props, ref) {
                 return (
                     <div ref={ref}>
+                        <button type="button" disabled>
+                            Unavailable
+                        </button>
                         <button type="button" {...props} />
                     </div>
                 )
