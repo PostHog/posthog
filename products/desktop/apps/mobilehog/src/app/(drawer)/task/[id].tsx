@@ -178,6 +178,7 @@ export default function TaskScreen() {
               onStop={isPending ? undefined : () => cancelTurn(id)}
               busy={session?.turnActive}
               sending={isPending}
+              draftKey={isPending ? undefined : id}
             />
           </View>
         </View>
