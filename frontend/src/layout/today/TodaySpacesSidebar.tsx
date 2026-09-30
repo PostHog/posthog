@@ -39,6 +39,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                 item={item}
                 pinned={pinnedIds.has(item.id)}
                 dataAttr={dataAttr}
+                surface="sidebar"
             />
         ) : (
             <TodayPaneRow
@@ -168,16 +169,29 @@ export function TodaySpacesSidebar(): JSX.Element {
                             Spaces group the sessions you and your agents work on. Create one from PostHog Desktop.
                         </div>
                     ) : (
-                        visibleSpaces.map((space) => (
-                            <TodayPaneRow
-                                key={space.id}
-                                label={spaceLabel(space)}
-                                icon={<span className="TodayPane__hash">#</span>}
-                                to={urls.taskSpace(space.id)}
-                                active={location.pathname.endsWith(urls.taskSpace(space.id))}
-                                dataAttr="today-space-row"
-                            />
-                        ))
+                        <>
+                            {visibleSpaces.map((space) => (
+                                <TodayPaneRow
+                                    key={space.id}
+                                    label={spaceLabel(space)}
+                                    icon={<span className="TodayPane__hash">#</span>}
+                                    to={urls.taskSpace(space.id)}
+                                    active={location.pathname.includes(urls.taskSpace(space.id))}
+                                    dataAttr="today-space-row"
+                                />
+                            ))}
+                            {!browsingSpaces && visibleSpaces.length <= 1 && (
+                                <button
+                                    type="button"
+                                    className="TodayPane__add"
+                                    data-attr="today-spaces-add"
+                                    onClick={() => setBrowsingSpaces(true)}
+                                >
+                                    <IconPlus />
+                                    Add the spaces you work in
+                                </button>
+                            )}
+                        </>
                     )}
                 </TodayPaneSection>
             </div>
