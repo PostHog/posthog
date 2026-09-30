@@ -112,6 +112,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -240,6 +241,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -374,6 +376,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                                     transpiled: zod.unknown().optional(),
                                     filter_test_accounts: zod.boolean().optional(),
                                     bytecode_error: zod.string().optional(),
+                                    bytecode_contract: zod.string().optional(),
                                 }),
                                 zod.null(),
                             ])
@@ -503,6 +506,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        bytecode_contract: zod.string().optional(),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -519,13 +523,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .regex(hogFlowsCreateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
-                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
-                        ),
-                    window_minutes: zod
-                        .number()
-                        .nullish()
-                        .describe(
-                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days."
                         ),
                     bytecode: zod
                         .unknown()
@@ -536,7 +534,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
+                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
             ),
         exit_condition: zod
             .enum([
@@ -642,6 +640,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -711,6 +710,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        bytecode_contract: zod.string().optional(),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -760,6 +760,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -901,6 +902,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        bytecode_contract: zod.string().optional(),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -917,13 +919,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                         .regex(hogFlowsUpdateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
-                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
-                        ),
-                    window_minutes: zod
-                        .number()
-                        .nullish()
-                        .describe(
-                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days."
                         ),
                     bytecode: zod
                         .unknown()
@@ -934,7 +930,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
+                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
             ),
         exit_condition: zod
             .enum([
@@ -1040,6 +1036,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -1109,6 +1106,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        bytecode_contract: zod.string().optional(),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -1158,6 +1156,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -1306,6 +1305,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        bytecode_contract: zod.string().optional(),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -1322,13 +1322,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         .regex(hogFlowsPartialUpdateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
-                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
-                        ),
-                    window_minutes: zod
-                        .number()
-                        .nullish()
-                        .describe(
-                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days."
                         ),
                     bytecode: zod
                         .unknown()
@@ -1339,7 +1333,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
+                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
             ),
         exit_condition: zod
             .enum([
@@ -1445,6 +1439,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -1514,6 +1509,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        bytecode_contract: zod.string().optional(),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -1563,6 +1559,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -1964,6 +1961,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                             transpiled: zod.unknown().optional(),
                                             filter_test_accounts: zod.boolean().optional(),
                                             bytecode_error: zod.string().optional(),
+                                            bytecode_contract: zod.string().optional(),
                                         })
                                         .describe(
                                             "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -1980,13 +1978,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .regex(hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowRegExp)
                             .nullish()
                             .describe(
-                                "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
-                            ),
-                        window_minutes: zod
-                            .number()
-                            .nullish()
-                            .describe(
-                                "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
+                                "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days."
                             ),
                         bytecode: zod
                             .unknown()
@@ -1997,7 +1989,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
+                    "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
                 ),
             exit_condition: zod
                 .enum([
@@ -2110,6 +2102,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     transpiled: zod.unknown().optional(),
                                     filter_test_accounts: zod.boolean().optional(),
                                     bytecode_error: zod.string().optional(),
+                                    bytecode_contract: zod.string().optional(),
                                 }),
                                 zod.null(),
                             ])
@@ -2179,6 +2172,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -2228,6 +2222,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                                                 transpiled: zod.unknown().optional(),
                                                                 filter_test_accounts: zod.boolean().optional(),
                                                                 bytecode_error: zod.string().optional(),
+                                                                bytecode_contract: zod.string().optional(),
                                                             }),
                                                             zod.null(),
                                                         ])
@@ -2360,6 +2355,24 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.'
                 ),
+            last_run: zod
+                .union([
+                    zod.object({
+                        task_id: zod.uuid().describe('The task this run belongs to.'),
+                        status: zod
+                            .string()
+                            .describe(
+                                "Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled."
+                            ),
+                        ran_at: zod.iso
+                            .datetime({ offset: true })
+                            .describe('When the run started, or when the task was created if it has no run yet.'),
+                    }),
+                    zod.null(),
+                ])
+                .describe(
+                    'Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.'
+                ),
         })
         .describe('Mixin for serializers to add user access control fields')
         .optional()
@@ -2416,6 +2429,79 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
             .describe('Cancel every in-flight invocation of this workflow, including parked delays and waits.'),
     })
     .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
+
+/**
+ * Whether PostHog may look at this workflow and suggest changes to it.
+ *
+ * Turning it off stops a producer reading the workflow. Suggestions already made are left
+ * alone: someone still has them to resolve.
+ */
+export const HogFlowsOptimizationCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe("Whether PostHog may read this workflow's metrics and suggest changes to it."),
+})
+
+/**
+ * Agent-authored changes to this workflow, awaiting a human's decision.
+ *
+ * Creating one stages nothing: a proposal only reaches the workflow's draft once a human
+ * approves it, and only reaches the live config once someone publishes that draft.
+ */
+export const hogFlowsProposalsCreateBodyTitleMax = 200
+
+export const hogFlowsProposalsCreateBodyStepIdMax = 200
+
+export const hogFlowsProposalsCreateBodySourceIdMax = 200
+
+export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(hogFlowsProposalsCreateBodyTitleMax).describe('Short summary of the proposed change.'),
+    rationale: zod.string().describe('Why this change is worth making, in prose a human reads.'),
+    content: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it.'
+        ),
+    evidence: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
+    base_version: zod
+        .number()
+        .optional()
+        .describe(
+            'Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise.'
+        ),
+    step_id: zod
+        .string()
+        .max(hogFlowsProposalsCreateBodyStepIdMax)
+        .nullish()
+        .describe(
+            "The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers."
+        ),
+    source_id: zod
+        .string()
+        .max(hogFlowsProposalsCreateBodySourceIdMax)
+        .nullish()
+        .describe(
+            'Stable id of the producing agent run or finding. Posting the same one twice returns the existing proposal instead of creating a duplicate.'
+        ),
+})
+
+export const hogFlowsProposalsApproveCreateBodyOverwriteDefault = false
+
+export const HogFlowsProposalsApproveCreateBody = /* @__PURE__ */ zod.object({
+    overwrite: zod
+        .boolean()
+        .default(hogFlowsProposalsApproveCreateBodyOverwriteDefault)
+        .describe(
+            "Replace the open staged draft with this proposal's content. Without it, approving while a draft is open returns 409."
+        ),
+    expected_draft_updated_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'The draft_updated_at of the staged draft this overwrite was confirmed against. A draft with a different stamp returns 409 instead of being overwritten. Omit to overwrite unconditionally.'
+        ),
+})
 
 export const hogFlowsPublishCreateBodyConfirmDefault = false
 
@@ -2700,6 +2786,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        bytecode_contract: zod.string().optional(),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -2716,13 +2803,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                         .regex(hogFlowsBulkDeleteCreateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
-                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
-                        ),
-                    window_minutes: zod
-                        .number()
-                        .nullish()
-                        .describe(
-                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days."
                         ),
                     bytecode: zod
                         .unknown()
@@ -2733,7 +2814,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
+                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
             ),
         exit_condition: zod
             .enum([
@@ -2839,6 +2920,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -2908,6 +2990,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        bytecode_contract: zod.string().optional(),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -2957,6 +3040,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])

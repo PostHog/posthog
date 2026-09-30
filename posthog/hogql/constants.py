@@ -20,6 +20,11 @@ KEYWORDS = ["true", "false", "null"]
 # Keywords you can't alias to
 RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
+# The ingest cleaner stores a feature flag variant named "false" under this sentinel in the `$feature_flags` map, because
+# the map holds strings and a flag that was evaluated and switched off is already stored as 'false'. Reads map the
+# sentinel back to "false", and the flag API refuses it as a variant key.
+FEATURE_FLAG_FALSE_VARIANT_SENTINEL = "$false"
+
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports
@@ -171,6 +176,10 @@ class HogQLQuerySettings(BaseModel):
     optimize_skip_unused_shards: Optional[bool] = None
     read_overflow_mode: Optional[str] = None
     max_bytes_to_read: Optional[int] = None
+    # The native events table stores a dotted JSON key under an escaped path name (EVENTS_JSON_INSERT_SETTINGS);
+    # ClickHouse formats it back as `a.b` only when the reading query sets this too. The ClickHouse printer sets it
+    # on every query that reads that table, and a raw SQL reader of the JSON columns must carry it itself.
+    json_type_escape_dots_in_keys: Optional[bool] = None
 
 
 # Settings applied on top of all HogQL queries.

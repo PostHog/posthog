@@ -1,22 +1,113 @@
 """Tests for batch trace summarization coordinator workflow."""
 
+import uuid
+from datetime import datetime, timedelta
+from typing import Any
+
 import pytest
 
-from posthog.temporal.ai_observability.shared_activities import JobConfig, resolve_level_jobs_for_team
+from temporalio import activity, workflow
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.temporal.ai_observability.shared_activities import (
+    FetchAllClusteringFiltersInput,
+    FetchAllClusteringJobsInput,
+    JobConfig,
+    resolve_level_jobs_for_team,
+)
+from posthog.temporal.ai_observability.team_discovery import TeamDiscoveryInput
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
     DEFAULT_WINDOW_MINUTES,
+    WORKFLOW_NAME,
 )
 from posthog.temporal.ai_observability.trace_summarization.coordinator import (
     BatchTraceSummarizationCoordinatorInputs,
     BatchTraceSummarizationCoordinatorWorkflow,
     _empty_summarization_results,
 )
+from posthog.temporal.ai_observability.trace_summarization.models import (
+    BatchSummarizationInputs,
+    BatchSummarizationMetrics,
+    BatchSummarizationResult,
+    CoordinatorResult,
+)
 
 from products.ai_observability.backend.summarization.models import SummarizationMode
+
+SLOW_TEAM_ID = 1
+DISCOVERED_TEAM_IDS = [SLOW_TEAM_ID, 2, 3, 4, 5]
+
+child_runs: list[dict[str, Any]] = []
+
+
+@workflow.defn(name=WORKFLOW_NAME)
+class FakeTeamSummarizationWorkflow:
+    @workflow.run
+    async def run(self, inputs: BatchSummarizationInputs) -> BatchSummarizationResult:
+        started = workflow.now()
+        await workflow.sleep(timedelta(minutes=10 if inputs.team_id == SLOW_TEAM_ID else 1))
+        if not workflow.unsafe.is_replaying():
+            child_runs.append(
+                {
+                    "team_id": inputs.team_id,
+                    "window": (inputs.window_start, inputs.window_end),
+                    "started": started,
+                    "finished": workflow.now(),
+                }
+            )
+        return BatchSummarizationResult(
+            batch_run_id=str(inputs.team_id), metrics=BatchSummarizationMetrics(items_queried=1, summaries_generated=1)
+        )
+
+
+@activity.defn(name="get_team_ids_for_llm_analytics")
+async def fake_team_discovery(inputs: TeamDiscoveryInput | None = None) -> list[int]:
+    return DISCOVERED_TEAM_IDS
+
+
+@activity.defn(name="fetch_all_clustering_jobs_activity")
+async def fake_fetch_jobs(inputs: FetchAllClusteringJobsInput) -> dict[int, list[JobConfig]]:
+    return {}
+
+
+@activity.defn(name="fetch_all_clustering_filters_activity")
+async def fake_fetch_filters(inputs: FetchAllClusteringFiltersInput) -> dict[int, list[dict[str, Any]]]:
+    return {}
+
+
+async def _run_coordinator(inputs: BatchTraceSummarizationCoordinatorInputs) -> CoordinatorResult:
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[BatchTraceSummarizationCoordinatorWorkflow, FakeTeamSummarizationWorkflow],
+            activities=[fake_team_discovery, fake_fetch_jobs, fake_fetch_filters],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            return await env.client.execute_workflow(
+                BatchTraceSummarizationCoordinatorWorkflow.run,
+                inputs,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                execution_timeout=timedelta(minutes=55),
+            )
+
+
+def _max_overlap(runs: list[dict[str, Any]]) -> int:
+    edges: list[tuple[datetime, int]] = [(r["started"], 1) for r in runs] + [(r["finished"], -1) for r in runs]
+    running = peak = 0
+    for _, delta in sorted(edges, key=lambda edge: (edge[0], edge[1])):
+        running += delta
+        peak = max(peak, running)
+    return peak
 
 
 class TestBatchTraceSummarizationCoordinatorWorkflow:
@@ -176,3 +267,29 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         )
 
         assert [job.job_id for job in result] == expected_job_ids
+
+    @pytest.mark.asyncio
+    async def test_sliding_window_does_not_hold_teams_behind_a_slow_team(self):
+        child_runs.clear()
+        result = await _run_coordinator(BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2))
+
+        runs_by_team = {run["team_id"]: run for run in child_runs}
+        assert result.teams_processed == len(DISCOVERED_TEAM_IDS)
+        assert result.teams_failed == 0
+        assert sorted(runs_by_team) == sorted(DISCOVERED_TEAM_IDS)
+        assert _max_overlap(child_runs) == 2
+        assert all(run["finished"] <= runs_by_team[SLOW_TEAM_ID]["finished"] for run in child_runs)
+        windows = {run["window"] for run in child_runs}
+        assert len(windows) == 1
+        assert None not in next(iter(windows))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("max_concurrent_teams", [0, -1])
+    async def test_non_positive_concurrency_fails_instead_of_hanging(self, max_concurrent_teams):
+        child_runs.clear()
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await _run_coordinator(BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=max_concurrent_teams))
+
+        assert isinstance(exc_info.value.cause, ApplicationError)
+        assert "max_concurrent_teams" in str(exc_info.value.cause)
+        assert child_runs == []

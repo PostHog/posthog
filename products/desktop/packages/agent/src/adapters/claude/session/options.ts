@@ -5,6 +5,7 @@ import * as path from "node:path";
 import type { Readable, Writable } from "node:stream";
 import type {
   CanUseTool,
+  HookCallback,
   McpServerConfig,
   Options,
   OutputFormat,
@@ -53,6 +54,7 @@ import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
 import type { RunBudgetGuard } from "./budget-guard";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
+import { createMemoryKillNoticeHook } from "./memory-kill-hook";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
 import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
@@ -412,6 +414,13 @@ function buildHooks(
     preToolUseHooks.push(createRtkRewriteHook(rtkPrefix, logger));
   }
 
+  const postToolUseFailureHooks: HookCallback[] = [];
+  if (cloudMode) {
+    const memoryKillNoticeHook = createMemoryKillNoticeHook(logger);
+    postToolUseHooks.push(memoryKillNoticeHook);
+    postToolUseFailureHooks.push(memoryKillNoticeHook);
+  }
+
   const taskHook = createTaskHook(taskState, onTaskStateChange);
 
   return {
@@ -419,6 +428,10 @@ function buildHooks(
     PostToolUse: [
       ...(userHooks?.PostToolUse || []),
       { hooks: postToolUseHooks },
+    ],
+    PostToolUseFailure: [
+      ...(userHooks?.PostToolUseFailure || []),
+      { hooks: postToolUseFailureHooks },
     ],
     PreToolUse: [...(userHooks?.PreToolUse || []), { hooks: preToolUseHooks }],
     TaskCreated: [...(userHooks?.TaskCreated || []), { hooks: [taskHook] }],

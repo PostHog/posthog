@@ -5,6 +5,8 @@ export const BUDGET_CAP_ENV = "AI_GATEWAY_TOKEN_CAP_USD";
 export const BUDGET_PRICES_ENV = "AI_GATEWAY_MODEL_PRICES_JSON";
 export const BUDGET_WARN_RATIO = 0.5;
 export const BUDGET_CRITICAL_RATIO = 0.7;
+// The local estimate trails the gateway's billed spend, so stop before the cap.
+export const BUDGET_STOP_RATIO = 0.9;
 export const FAST_MODE_PRICE_MULTIPLIER = 2;
 export const ONE_HOUR_CACHE_WRITE_INPUT_MULTIPLIER = 2;
 
@@ -204,6 +206,7 @@ export class RunBudgetGuard {
   private pendingSteer: BudgetSteerStage | null = null;
   private steerMode: BudgetSteerMode;
   private readonly steers: BudgetSteerRecord[] = [];
+  private stopTaken = false;
 
   constructor(
     readonly capUsd: number,
@@ -212,6 +215,7 @@ export class RunBudgetGuard {
     mode: BudgetSteerMode = "wrap_up",
     private readonly warnRatio: number = BUDGET_WARN_RATIO,
     private readonly criticalRatio: number = BUDGET_CRITICAL_RATIO,
+    private readonly stopRatio: number = BUDGET_STOP_RATIO,
   ) {
     this.steerMode = mode;
   }
@@ -258,6 +262,17 @@ export class RunBudgetGuard {
 
   get currentStage(): BudgetStage {
     return this.stage;
+  }
+
+  get exhausted(): boolean {
+    return this.ratio >= this.stopRatio;
+  }
+
+  /** True once, on the first check after spend reaches the stop ratio. */
+  takeStop(): boolean {
+    if (this.stopTaken || !this.exhausted) return false;
+    this.stopTaken = true;
+    return true;
   }
 
   recordAssistantMessage(
@@ -398,6 +413,21 @@ export class RunBudgetGuard {
   preToolUseHook(): HookCallback {
     return async (input: HookInput) => {
       if (input.hook_event_name !== "PreToolUse") return { continue: true };
+      if (this.exhausted) {
+        this.logger.warn(
+          `[BudgetGuard] Blocking ${input.tool_name}: budget exhausted at ${formatUsd(this.spentUsd)} of ${formatUsd(this.capUsd)}`,
+        );
+        return {
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse" as const,
+            permissionDecision: "deny" as const,
+            permissionDecisionReason:
+              `This run has used about ${formatUsd(this.spentUsd)} of its ${formatUsd(this.capUsd)} model budget, ` +
+              "so no more tools can run. End your turn now with a short summary of your result.",
+          },
+        };
+      }
       if (!CRITICAL_BLOCKED_TOOL_NAMES.has(input.tool_name)) {
         return { continue: true };
       }

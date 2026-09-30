@@ -127,7 +127,10 @@ import {
   RunBudgetGuard,
 } from "./session/budget-guard";
 import { getAvailableSlashCommands } from "./session/commands";
-import { SessionInitialization } from "./session/initialization";
+import {
+  type CliOutputSummary,
+  SessionInitialization,
+} from "./session/initialization";
 import { getSessionJsonlPath } from "./session/jsonl-hydration";
 import { parseMcpServers } from "./session/mcp-config";
 import {
@@ -198,6 +201,14 @@ const SESSION_ENDED_MESSAGE =
   "The Claude Agent session has ended. Please start a new session.";
 
 const MAX_TITLE_LENGTH = 256;
+const BUDGET_EXHAUSTED_INTERRUPT_REASON = "budget_exhausted";
+
+function budgetExhaustedResponse(): PromptResponse {
+  return {
+    stopReason: "cancelled",
+    _meta: { interruptReason: BUDGET_EXHAUSTED_INTERRUPT_REASON },
+  };
+}
 const LOCAL_ONLY_COMMANDS = new Set(["/context", "/heapdump", "/extra-usage"]);
 
 /**
@@ -716,6 +727,28 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     await this.reportBudgetSteer(guard, sessionId, stage, delivered, summary);
   }
 
+  /** Cancel the turn so no model call starts after the budget is spent. */
+  private stopForBudget(session: Session, sessionId: string): void {
+    const guard = session.budgetGuard;
+    if (this.session !== session || !guard?.takeStop()) return;
+    const message = `[BudgetGuard] stop: $${guard.spentUsd.toFixed(2)} of $${guard.capUsd.toFixed(2)} spent, cancelling the turn before the gateway refuses it`;
+    this.logger.warn(message);
+    void this.client
+      .extNotification(POSTHOG_NOTIFICATIONS.CONSOLE, {
+        sessionId,
+        level: "warn",
+        message,
+      })
+      .catch((error) =>
+        this.logger.warn("[BudgetGuard] Failed to report the stop", { error }),
+      );
+    if (!session.activeTurn || session.activeTurn.settled) return;
+    session.interruptReason = BUDGET_EXHAUSTED_INTERRUPT_REASON;
+    this.interrupt().catch((error) =>
+      this.logger.warn("[BudgetGuard] Stop failed", { error }),
+    );
+  }
+
   private async reportBudgetSteer(
     guard: RunBudgetGuard,
     sessionId: string,
@@ -755,6 +788,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // is unreliable in this embedding — see UPSTREAM.md "Hide /clear").
       // Ahead of the SDK conversion below, which this path never reads.
       return this.clearConversation(params);
+    }
+
+    if (this.session.budgetGuard?.exhausted) {
+      this.logger.warn("[BudgetGuard] Refusing a prompt: budget exhausted");
+      return budgetExhaustedResponse();
     }
 
     const budgetSteerMode = (
@@ -892,11 +930,38 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     return response;
   }
 
+  /** Settle prompts queued before the budget ran out, without sending them. */
+  private refuseQueuedTurnsForBudget(session: Session): void {
+    const refused = session.turnQueue.filter(
+      (turn) => !turn.settled && turn.pendingInput,
+    );
+    if (refused.length === 0) return;
+    this.logger.warn(
+      "[BudgetGuard] Refusing queued prompts: budget exhausted",
+      {
+        count: refused.length,
+      },
+    );
+    for (const turn of refused) {
+      turn.settled = true;
+      turn.pendingInput = undefined;
+      declinePendingSteers(turn, "cancelled");
+      turn.resolve(budgetExhaustedResponse());
+    }
+    session.turnQueue = session.turnQueue.filter(
+      (turn) => !refused.includes(turn),
+    );
+  }
+
   private dispatchQueuedInput(session: Session): void {
     if (session.queryClosed) {
       return;
     }
     if (session.activeTurn && !session.activeTurn.settled) {
+      return;
+    }
+    if (session.budgetGuard?.exhausted) {
+      this.refuseQueuedTurnsForBudget(session);
       return;
     }
     const head = session.turnQueue.find((turn) => !turn.settled);
@@ -1820,6 +1885,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               if (budgetEvent) {
                 void this.deliverBudgetSteer(session, sessionId, budgetEvent);
               }
+              this.stopForBudget(session, sessionId);
               if (message.parent_tool_use_id === null) {
                 confirmConsumedBackgroundSteers(session);
               }
@@ -2491,6 +2557,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           if (event) {
             void this.deliverBudgetSteer(session, sessionId, event);
           }
+          this.stopForBudget(session, sessionId);
         }),
         SIDE_QUESTION_TIMEOUT_MS,
       );
@@ -2928,6 +2995,47 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
   }
 
+  private startupFailure(
+    step:
+      | "initialization"
+      | "resumption"
+      | "fork"
+      | "setup hooks"
+      | "model switch"
+      | "effort update"
+      | "fast mode update",
+    error: unknown,
+    errorData: Record<string, unknown>,
+  ): RequestError {
+    if (error instanceof RequestError) {
+      if (!error.message.startsWith("Session ")) {
+        error.message = `Session ${step} failed: ${error.message}`;
+      }
+      return error;
+    }
+    return new RequestError(-32603, `Session ${step} failed`, errorData);
+  }
+
+  private async awaitStartupControl(
+    step: "model switch" | "effort update" | "fast mode update",
+    control: Promise<void>,
+    errorData: Record<string, unknown>,
+  ): Promise<void> {
+    const result = await withTimeout(
+      control,
+      SESSION_VALIDATION_TIMEOUT_MS,
+    ).catch((error: unknown) => {
+      throw this.startupFailure(step, error, errorData);
+    });
+    if (result.result === "timeout") {
+      throw new RequestError(
+        -32603,
+        `Session ${step} timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+        errorData,
+      );
+    }
+  }
+
   // Backs the `finish` local tool: marks the task run terminal so the Temporal
   // workflow tears the sandbox down. Only wired when we have both the run
   // identifiers and a PostHog API config, i.e. a real cloud run.
@@ -3238,16 +3346,22 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.session = session;
     this.sessionId = sessionId;
 
+    const requestedModel =
+      meta?.model || settingsManager.getSettings().model || undefined;
+
     if (isResume) {
+      const resumeStartedAt = Date.now();
+      let cliOutput: CliOutputSummary | undefined;
       // Resume must block on initialization to validate the session is still alive.
       // For stale sessions this throws (e.g. "No conversation found").
       try {
         const result = await initialization.wait(q.initializationResult());
         if (result.result === "timeout") {
+          cliOutput = result.cliOutput;
           throw new RequestError(
             -32603,
             `Session ${result.phase === "setup_hooks" ? "setup hooks" : forkSession ? "fork" : "resumption"} timed out after ${result.timeoutMs}ms`,
-            { sessionId, taskId, taskRunId: meta?.taskRunId },
+            { sessionId, taskId, taskRunId: meta?.taskRunId, cliOutput },
           );
         }
         session.knownSlashCommands = collectKnownSlashCommands(
@@ -3265,16 +3379,35 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ) {
           throw RequestError.resourceNotFound(sessionId);
         }
+        const transcriptBytes = await fs.promises
+          .stat(getSessionJsonlPath(resume ?? sessionId, cwd))
+          .then(
+            (stats) => stats.size,
+            () => null,
+          );
         startupLogger.error(
           forkSession ? "Session fork failed" : "Session resumption failed",
           {
             sessionId,
             taskId,
             taskRunId: meta?.taskRunId,
+            initializationPhase: initialization.phase,
+            timeoutMs: initialization.timeoutMs,
+            cliOutput: cliOutput ?? null,
+            initMs: Date.now() - resumeStartedAt,
+            transcriptBytes,
+            requestedModel: requestedModel ?? null,
+            gatewayConfigured: Boolean(
+              this.options?.gatewayEnv?.anthropicBaseUrl,
+            ),
             errorDetail: serializeError(err),
           },
         );
-        throw err;
+        throw this.startupFailure(forkSession ? "fork" : "resumption", err, {
+          sessionId,
+          taskId,
+          taskRunId: meta?.taskRunId,
+        });
       }
     }
 
@@ -3284,8 +3417,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const initPromise = !isResume
       ? initialization.wait(q.initializationResult())
       : undefined;
-    const requestedModel =
-      meta?.model || settingsManager.getSettings().model || undefined;
 
     const [rawModelOptions] = await Promise.all([
       this.getModelConfigOptions(
@@ -3319,15 +3450,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (initPromise) {
       let initializationPhase = initialization.phase;
       let timeoutMs = SESSION_VALIDATION_TIMEOUT_MS;
+      let cliOutput: CliOutputSummary | undefined;
       try {
         const initResult = await initPromise;
         if (initResult.result === "timeout") {
           initializationPhase = initResult.phase;
           timeoutMs = initResult.timeoutMs;
+          cliOutput = initResult.cliOutput;
           throw new RequestError(
             -32603,
             `Session ${initializationPhase === "setup_hooks" ? "setup hooks" : "initialization"} timed out after ${timeoutMs}ms`,
-            { sessionId, taskId, taskRunId: meta?.taskRunId },
+            { sessionId, taskId, taskRunId: meta?.taskRunId, cliOutput },
           );
         }
         session.knownSlashCommands = collectKnownSlashCommands(
@@ -3353,6 +3486,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           taskRunId: meta?.taskRunId,
           initializationPhase,
           timeoutMs,
+          cliOutput: cliOutput ?? null,
           modelConfigMs,
           initMs,
           requestedModel: requestedModel ?? null,
@@ -3361,7 +3495,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           ),
           errorDetail: serializeError(err),
         });
-        throw err;
+        throw this.startupFailure(
+          initializationPhase === "setup_hooks"
+            ? "setup hooks"
+            : "initialization",
+          err,
+          { sessionId, taskId, taskRunId: meta?.taskRunId },
+        );
       }
     }
 
@@ -3376,33 +3516,70 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ? CONTEXT_WINDOW_200K_TOKENS
         : this.getContextWindowForModel(resolvedModelId);
 
-    if (isResume || resolvedModelId !== options.model) {
-      await this.session.query.setModel(resolvedModelId);
-    }
+    const startupErrorData = { sessionId, taskId, taskRunId: meta?.taskRunId };
+    let startupStep:
+      | "model switch"
+      | "effort update"
+      | "fast mode update"
+      | undefined;
+    try {
+      if (isResume || resolvedModelId !== options.model) {
+        startupStep = "model switch";
+        await this.awaitStartupControl(
+          startupStep,
+          this.session.query.setModel(resolvedModelId),
+          startupErrorData,
+        );
+      }
 
-    // Keep thinking enabled by default for effort-capable models (see
-    // DEFAULT_EFFORT).
-    const resolvedEffort = resolveEffortForModel(resolvedModelId, effort);
-    // Ultracode re-applies even when the requested effort stands: the flag
-    // only reaches the session through applyFlagSettings.
-    if (
-      resolvedEffort &&
-      (resolvedEffort !== effort || resolvedEffort === "ultracode")
-    ) {
-      this.session.effort = resolvedEffort;
-      this.session.queryOptions.effort = toSdkEffort(resolvedEffort);
-      await this.session.query.applyFlagSettings(
-        toEffortFlagSettings(resolvedEffort),
-      );
-    }
+      // Keep thinking enabled by default for effort-capable models (see
+      // DEFAULT_EFFORT).
+      const resolvedEffort = resolveEffortForModel(resolvedModelId, effort);
+      // Ultracode re-applies even when the requested effort stands: the flag
+      // only reaches the session through applyFlagSettings.
+      if (
+        resolvedEffort &&
+        (resolvedEffort !== effort || resolvedEffort === "ultracode")
+      ) {
+        this.session.effort = resolvedEffort;
+        this.session.queryOptions.effort = toSdkEffort(resolvedEffort);
+        startupStep = "effort update";
+        await this.awaitStartupControl(
+          startupStep,
+          this.session.query.applyFlagSettings(
+            toEffortFlagSettings(resolvedEffort),
+          ),
+          startupErrorData,
+        );
+      }
 
-    if (supports1MContext(resolvedModelId) && meta?.contextWindow !== "200k") {
-      options.betas = [CONTEXT_WINDOW_1M_BETA];
-    }
+      if (
+        supports1MContext(resolvedModelId) &&
+        meta?.contextWindow !== "200k"
+      ) {
+        options.betas = [CONTEXT_WINDOW_1M_BETA];
+      }
 
-    if (meta?.fastMode && supportsFastMode(resolvedModelId)) {
-      this.session.fastModeEnabled = true;
-      await this.session.query.applyFlagSettings({ fastMode: true });
+      if (meta?.fastMode && supportsFastMode(resolvedModelId)) {
+        this.session.fastModeEnabled = true;
+        startupStep = "fast mode update";
+        await this.awaitStartupControl(
+          startupStep,
+          this.session.query.applyFlagSettings({ fastMode: true }),
+          startupErrorData,
+        );
+      }
+    } catch (err) {
+      settingsManager.dispose();
+      this.terminateQuery(q, abortController);
+      session.queryClosed = true;
+      startupLogger.error("Session configuration failed", {
+        ...startupErrorData,
+        modelId: resolvedModelId,
+        startupStep,
+        errorDetail: serializeError(err),
+      });
+      throw err;
     }
 
     const availableModes = getAvailableModes();
@@ -3500,10 +3677,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
    *  persistent list shows each chip once across all turns. */
   private recordSessionResources(products: PostHogProductId[]): void {
     if (!this.session) return;
-    const added = products.filter((p) => !this.session.sessionResources.has(p));
+    const sessionResources = this.session.sessionResources;
+    const added = products.filter((p) => !sessionResources.has(p));
     if (added.length === 0) return;
-    for (const product of added) this.session.sessionResources.add(product);
-    void this.emitResourcesUsed(added);
+    for (const product of added) sessionResources.add(product);
+    void this.emitResourcesUsed(added).catch((error) => {
+      for (const product of added) sessionResources.delete(product);
+      this.logger.warn("Failed to report used PostHog products", { error });
+    });
   }
 
   /** Emits newly-seen PostHog products as soon as they're used, so the client
@@ -3527,7 +3708,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private getExistingSessionState(
     sessionId: string,
   ): NewSessionResponse | null {
-    if (!this.hasSession(sessionId) || !this.session) return null;
+    if (
+      !this.hasSession(sessionId) ||
+      !this.session ||
+      this.session.queryClosed
+    ) {
+      return null;
+    }
 
     const availableModes = getAvailableModes();
     const modes: SessionModeState = {
@@ -3736,6 +3923,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     });
   }
 
+  private applyFlagSettingsInBackground(
+    settings: Parameters<Query["applyFlagSettings"]>[0],
+  ): void {
+    this.session.query.applyFlagSettings(settings).catch((error) => {
+      this.logger.warn("Failed to apply flag settings", { error });
+    });
+  }
+
   private rebuildEffortConfigOption(modelId: string): void {
     const effortOptions = getEffortOptions(modelId);
     const existingEffort = this.session.configOptions.find(
@@ -3749,7 +3944,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       if (this.session.effort) {
         this.session.effort = undefined;
         this.session.queryOptions.effort = undefined;
-        void this.session.query.applyFlagSettings({
+        this.applyFlagSettingsInBackground({
           effortLevel: undefined,
           ultracode: false,
         });
@@ -3769,9 +3964,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       const resolvedEffort = resolvedValue as EffortLevel;
       this.session.effort = resolvedEffort;
       this.session.queryOptions.effort = toSdkEffort(resolvedEffort);
-      void this.session.query.applyFlagSettings(
-        toEffortFlagSettings(resolvedEffort),
-      );
+      this.applyFlagSettingsInBackground(toEffortFlagSettings(resolvedEffort));
     }
 
     const effortConfig: SessionConfigOption = {

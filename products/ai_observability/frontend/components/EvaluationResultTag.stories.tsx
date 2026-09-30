@@ -63,3 +63,27 @@ export const Numeric: Story = {
         </div>
     ),
 }
+
+export const Categorical: Story = {
+    render: () => (
+        <div className="flex flex-wrap gap-4">
+            {([['resolved'], ['resolved', 'incorrect'], [], null] as const).map((categories, index) => (
+                <EvaluationResultTag
+                    key={index}
+                    run={{
+                        status: 'completed',
+                        result: null,
+                        result_type: 'categorical',
+                        categories: categories ? [...categories] : null,
+                        applicable: categories !== null,
+                    }}
+                    passingRule={{ categories: ['resolved'] }}
+                    categoryOptions={[
+                        { key: 'resolved', label: 'Resolved' },
+                        { key: 'incorrect', label: 'Incorrect information' },
+                    ]}
+                />
+            ))}
+        </div>
+    ),
+}

@@ -95,6 +95,7 @@ import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
 import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
+import { TraceScene } from './redesign/trace/TraceScene'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
@@ -421,8 +422,13 @@ function TraceNavigation(): JSX.Element {
     )
 }
 
+function TraceSceneForFlag(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN] ? <TraceScene /> : <AIObservabilityTraceScene />
+}
+
 export const scene: SceneExport = {
-    component: AIObservabilityTraceScene,
+    component: TraceSceneForFlag,
     logic: aiObservabilityTraceLogic,
 }
 

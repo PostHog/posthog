@@ -7,7 +7,13 @@ should not import from `products.batch_exports.backend.temporal` or any DRF code
 import typing
 import datetime as dt
 
+import structlog
+from pydantic import ValidationError
+
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
+from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, QueryError
@@ -16,7 +22,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 
@@ -34,6 +40,8 @@ _VALIDATION_DATA_INTERVAL_START = dt.datetime(2000, 1, 1, tzinfo=dt.UTC)
 _VALIDATION_DATA_INTERVAL_END = dt.datetime(2000, 1, 2, tzinfo=dt.UTC)
 
 _SUPPORTED_PLACEHOLDERS = f"{{{DATA_INTERVAL_START_PLACEHOLDER}}} and {{{DATA_INTERVAL_END_PLACEHOLDER}}}"
+
+LOGGER = structlog.get_logger(__name__)
 
 
 class UnsupportedHogQLQueryError(Exception):
@@ -131,7 +139,10 @@ def validate_hogql_batch_export_user(team: "Team", user: "User | None") -> None:
 
 
 def create_hogql_context_for_batch_export(
-    team: "Team", values: dict[str, typing.Any] | None = None, user: "User | None" = None
+    team: "Team",
+    values: dict[str, typing.Any] | None = None,
+    user: "User | None" = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> HogQLContext:
     """Build the HogQLContext batch exports use to resolve and print a query.
 
@@ -142,6 +153,9 @@ def create_hogql_context_for_batch_export(
     (`Database.create_for` team-defaults a copy, not this context's instance), and no
     top-level LIMIT is applied. It reads from Postgres, so worker code must call it off
     the event loop.
+
+    `modifiers` are the export's own modifiers. Like query-level modifiers, they
+    override the team modifiers key by key.
     """
     context = HogQLContext(
         team=team,
@@ -150,7 +164,7 @@ def create_hogql_context_for_batch_export(
         enable_select_queries=True,
         limit_top_select=False,
         values=values if values is not None else {},
-        modifiers=create_default_modifiers_for_team(team),
+        modifiers=create_default_modifiers_for_team(team, modifiers),
     )
     context.database = Database.create_for(team=team, user=user, modifiers=context.modifiers)
     return context
@@ -176,7 +190,9 @@ def _validate_select_columns_are_named(parsed: ast.SelectQuery | ast.SelectSetQu
             )
 
 
-def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team", *, user: "User") -> None:
+def validate_hogql_query_for_batch_export(
+    hogql_query: str, team: "Team", *, user: "User", modifiers: HogQLQueryModifiers | None = None
+) -> None:
     """Validate a HogQL query can power a batch export for the given team.
 
     Parses the query, checks output columns are named, and compiles it with the user's
@@ -196,13 +212,67 @@ def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team", *, use
 
     parsed = replace_interval_placeholders(parsed, _VALIDATION_DATA_INTERVAL_START, _VALIDATION_DATA_INTERVAL_END)
 
-    context = create_hogql_context_for_batch_export(team, user=user)
+    context = create_hogql_context_for_batch_export(team, user=user, modifiers=modifiers)
     try:
         prepared = prepare_ast_for_printing(parsed, context=context, dialect="clickhouse", stack=[])
         assert prepared is not None
         print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[])
     except ExposedHogQLError as e:
         raise UnsupportedHogQLQueryError(f"Invalid HogQL query: {e}") from e
+
+
+def load_hogql_modifiers(stored: dict[str, typing.Any] | None) -> HogQLQueryModifiers | None:
+    """Load the HogQL modifiers a batch export stored, dropping keys that no longer exist.
+
+    `HogQLQueryModifiers` forbids unknown keys, so a modifier removed from the schema after
+    an export stored it would fail every run. No code reads a removed modifier anymore, so
+    dropping it keeps the output the same.
+
+    Raises:
+        UnsupportedHogQLQueryError: If a stored modifier has a value that is not valid.
+    """
+    if stored is None:
+        return None
+
+    known = {key: value for key, value in stored.items() if key in HogQLQueryModifiers.model_fields}
+    if unknown := sorted(stored.keys() - known.keys()):
+        LOGGER.warning("Dropping unknown HogQL modifiers", modifiers=unknown)
+
+    try:
+        return HogQLQueryModifiers.model_validate(known)
+    except ValidationError as e:
+        raise UnsupportedHogQLQueryError(f"Invalid HogQL modifiers: {e}") from e
+
+
+def native_event_property_chain(property_chain: list[str | int]) -> list[str | int]:
+    """The path an event property has in the native source's JSON.
+
+    The native table keeps `$feature/<key>` flags in the `$feature_flags` map, so a `$feature/<key>` read must
+    become `$feature_flags.<key>` there. Every other property keeps its path.
+    """
+    key = property_chain[0] if property_chain else None
+    if isinstance(key, str) and key.startswith("$feature/"):
+        return ["$feature_flags", key.removeprefix("$feature/"), *property_chain[1:]]
+    return list(property_chain)
+
+
+def native_feature_flag_read(field: ast.Field, property_chain: list[str | int]) -> ast.Expr:
+    """A native `$feature_flags.<key>` read with the `$false` sentinel mapped back to the variant name "false".
+
+    The hidden alias carries the column name the resolver would give the bare field, so an un-aliased select column
+    still serializes to a stable name instead of the parameterized expression.
+    """
+    if len(property_chain) != 2 or property_chain[0] != "$feature_flags":
+        return field
+    mapped = ast.Call(
+        name="if",
+        args=[
+            ast.Call(name="equals", args=[clone_expr(field), ast.Constant(value=FEATURE_FLAG_FALSE_VARIANT_SENTINEL)]),
+            ast.Constant(value="false"),
+            field,
+        ],
+    )
+    return ast.Alias(alias="__".join(str(part) for part in property_chain), expr=mapped, hidden=True)
 
 
 class SerializedExportProperties(CloningVisitor):
@@ -216,6 +286,7 @@ class SerializedExportProperties(CloningVisitor):
             split_restricted_property_names,
         )
 
+        self.use_native_schema = context.uses_new_events_schema()
         restrictions = context.restricted_properties or set()
         restricted_names = split_restricted_property_names(restrictions)
         self.event_restrictions = set(restricted_names.event)
@@ -234,21 +305,36 @@ class SerializedExportProperties(CloningVisitor):
         if node.chain[index : index + 2] == ["person", "properties"]:
             # `poe.properties` is the events table's own copy of the person properties.
             node.chain[index : index + 2] = ["poe", "properties"]
+        is_event_property = False
         if node.chain[index : index + 2] == ["poe", "properties"]:
             restrictions, property_chain = self.person_restrictions, node.chain[index + 2 :]
         elif str(node.chain[index]) == "properties":
             restrictions, property_chain = self.event_restrictions, node.chain[index + 1 :]
+            is_event_property = True
         else:
             return node
         if restrictions:
             property_path = ".".join(str(part) for part in property_chain)
             if not property_path:
                 raise QueryError("Batch export queries cannot select a restricted properties object")
+            checked_paths = [property_path]
+            if self.use_native_schema and is_event_property and property_chain[0] == "$feature_flags":
+                if len(property_chain) == 1:
+                    # The serialized map cannot drop single entries, so any restricted flag hides the whole map.
+                    if any(key.startswith("$feature/") for key in restrictions):
+                        return ast.Constant(value=None)
+                else:
+                    # A restriction names the flag as `$feature/<key>`, the spelling the native map entry replaces.
+                    checked_paths.append("$feature/" + ".".join(str(part) for part in property_chain[1:]))
             if any(
-                property_path == key or property_path.startswith(key + ".") or key.startswith(property_path + ".")
+                path == key or path.startswith(key + ".") or key.startswith(path + ".")
+                for path in checked_paths
                 for key in restrictions
             ):
                 return ast.Constant(value=None)
+        if self.use_native_schema and is_event_property:
+            node.chain[index + 1 :] = native_event_property_chain(property_chain)
+            return native_feature_flag_read(node, node.chain[index + 1 :])
         return node
 
 

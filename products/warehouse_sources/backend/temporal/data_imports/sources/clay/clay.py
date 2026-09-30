@@ -118,6 +118,30 @@ def clay_source(
     return SourceResponse(name=table_id, items=lambda: resource, primary_keys=None)
 
 
+_CLAY_REJECTED_KEY_MESSAGE = (
+    "Clay rejected PostHog's request while checking your API key. Create a new key under "
+    "Settings > Account > API keys in Clay, then reconnect."
+)
+
+_CLAY_REJECTED_TABLE_MESSAGE = (
+    "Clay rejected PostHog's request for one of your tables. Check that each value is a Clay table "
+    "ID or table URL, and that Enable for API is on in the table's settings."
+)
+
+_CLAY_UNAVAILABLE_MESSAGE = (
+    "Clay couldn't complete the request. Try again in a few minutes, and contact Clay support if it keeps failing."
+)
+
+
+def _unexpected_status_message(status_code: int, rejected_message: str) -> str:
+    """Copy for a status the checks above don't recognise.
+
+    A 429 or a 5xx clears on its own, so waiting is a real next step for both. Every other 4xx
+    fails the same way on every attempt, so it has to point at what the customer can change.
+    """
+    return _CLAY_UNAVAILABLE_MESSAGE if status_code == 429 or status_code >= 500 else rejected_message
+
+
 def validate_credentials(api_key: str, table_ids: list[str]) -> tuple[bool, str | None]:
     if not table_ids:
         return False, "Enter at least one Clay table ID or table URL."
@@ -128,10 +152,7 @@ def validate_credentials(api_key: str, table_ids: list[str]) -> tuple[bool, str 
     if me.status_code == 401:
         return False, "Clay rejected the API key. Create a new key under Settings > Account > API keys in Clay."
     if me.status_code != 200:
-        return (
-            False,
-            f"Clay returned an unexpected status ({me.status_code}) while checking the API key. Try again in a few minutes.",
-        )
+        return False, _unexpected_status_message(me.status_code, _CLAY_REJECTED_KEY_MESSAGE)
 
     for table_id in table_ids:
         res = session.post(
@@ -147,9 +168,6 @@ def validate_credentials(api_key: str, table_ids: list[str]) -> tuple[bool, str 
             )
         if res.status_code == 404:
             return False, f"Clay could not find table {table_id}. Check the table ID or URL."
-        return (
-            False,
-            f"Clay returned an unexpected status ({res.status_code}) for table {table_id}. Try again in a few minutes.",
-        )
+        return False, _unexpected_status_message(res.status_code, _CLAY_REJECTED_TABLE_MESSAGE)
 
     return True, None

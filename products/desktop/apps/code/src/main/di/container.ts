@@ -121,16 +121,12 @@ import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
+import { SCREEN_CAPTURE_SERVICE } from "@posthog/platform/screen-capture";
 import { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
 import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
 import { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
-import {
-  QUICK_ASK_FETCH,
-  QUICK_ASK_RUN_DEFAULTS,
-} from "@posthog/quick-ask/service/quick-ask";
-import { quickAskCoreModule } from "@posthog/quick-ask/service/quick-ask.module";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import { databaseModule } from "@posthog/workspace-server/db/db.module";
 import {
@@ -257,9 +253,9 @@ import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
 import { MissionControlService } from "../platform-adapters/electron-mission-control";
-import { electronNetFetch } from "../platform-adapters/electron-net-fetch";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
+import { ElectronScreenCapture } from "../platform-adapters/electron-screen-capture";
 import { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
 import { ElectronStoragePaths } from "../platform-adapters/electron-storage-paths";
 import { ElectronUpdater } from "../platform-adapters/electron-updater";
@@ -289,7 +285,7 @@ import { ElevenLabsSpeechService } from "../services/speech/service";
 import { WorkspaceServerService } from "../services/workspace-server/service";
 import { getUserDataDir, isDevBuild } from "../utils/env";
 import { logger } from "../utils/logger";
-import { quickAskStore, rendererStore } from "../utils/store";
+import { rendererStore } from "../utils/store";
 import type { MainBindings } from "./bindings";
 import {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
@@ -358,6 +354,7 @@ export const container = new TypedContainer<MainBindings>({
 });
 
 container.bind(URL_LAUNCHER_SERVICE).to(ElectronUrlLauncher);
+container.bind(SCREEN_CAPTURE_SERVICE).to(ElectronScreenCapture);
 container.bind(STORAGE_PATHS_SERVICE).to(ElectronStoragePaths);
 container.bind(APP_META_SERVICE).to(ElectronAppMeta);
 container.bind(DIALOG_SERVICE).to(ElectronDialog);
@@ -828,23 +825,6 @@ container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 // live in @posthog/core (bound via canvasCoreModule) and resolve through
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
-container.load(quickAskCoreModule);
-// Chromium's network stack, not Node's undici: it honors system proxies and
-// VPN routing, which undici intermittently fails against ("fetch failed").
-container.bind(QUICK_ASK_FETCH).toConstantValue(electronNetFetch);
-container.bind(QUICK_ASK_RUN_DEFAULTS).toConstantValue(() => {
-  const repositories = quickAskStore.get("defaultRepositories");
-  const integrationId = quickAskStore.get("defaultGithubIntegrationId");
-  return {
-    channelId: quickAskStore.get("defaultChannelId") || null,
-    repositories,
-    githubIntegrationId:
-      repositories.length > 0 && integrationId ? integrationId : null,
-    adapter: quickAskStore.get("defaultAdapter") || null,
-    model: quickAskStore.get("defaultModel") || null,
-    reasoningEffort: quickAskStore.get("defaultEffort") || null,
-  };
-});
 
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.

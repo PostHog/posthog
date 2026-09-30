@@ -1,7 +1,10 @@
 """Find failed CI jobs and jobs recovered by pytest retries, then fetch their diagnostic logs.
 
 Per-job workflow id (``gh-logs-{team}-{job}``, reuse ``ALLOW_DUPLICATE_FAILED_ONLY``) means each
-job's log is fetched and emitted at most once, re-running only after a failed attempt.
+job's log is fetched and emitted at most once, re-running only after a failed attempt. Failed Depot
+CI job attempts come from each Depot source's ``job_attempts`` table and run as
+``depot-logs-{team}-{attempt}``. Only failed Depot attempts are fetched: the retry-recovered path
+reads GitHub runner names.
 
 Discovery queries the raw ``{prefix}github_workflow_jobs`` table (the curated read layer doesn't
 expose jobs yet). The coordinator is registered on the schedule but no-ops until
@@ -12,6 +15,7 @@ once the Logs endpoint is deployed, regardless of deploy order.
 import re
 import json
 import dataclasses
+from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
 
@@ -28,13 +32,21 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.models.integration.github import _is_safe_github_repo_path
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.engineering_analytics.backend.logic.job_logs.activity import FetchGithubJobLogWorkflow, FetchJobLogInputs
+from products.engineering_analytics.backend.logic.job_logs.activity import (
+    FetchDepotJobLogInputs,
+    FetchDepotJobLogWorkflow,
+    FetchGithubJobLogWorkflow,
+    FetchJobLogInputs,
+)
 from products.engineering_analytics.backend.logic.queries._test_spans import rerun_recovered_job_attempts
+from products.engineering_analytics.backend.logic.sources import depot_source_job_attempts_table
+from products.engineering_analytics.backend.logic.views.depot_ci import depot_github_run_id, depot_id_to_int
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -103,6 +115,12 @@ def _query_jobs_with_diagnostics(team: Team, prefix: str, cutoff_iso: str, repo:
     return [dict(zip(response.columns or [], row)) for row in response.results]
 
 
+def _live_sources(source_type: ExternalDataSourceType) -> Iterator[ExternalDataSource]:
+    """Every team's non-deleted sources of ``source_type``, with the team, for the cross-team sweep."""
+    sources = ExternalDataSource.objects.filter(source_type=source_type).exclude(deleted=True).select_related("team")
+    return sources.iterator()
+
+
 def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] | None:
     """``(integration_id, repo)`` from a GitHub source's ``job_inputs``, or None if unusable.
 
@@ -140,12 +158,7 @@ def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     eligible_sources = 0
     skipped_sources = 0
-    sources = (
-        ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.GITHUB)
-        .exclude(deleted=True)
-        .select_related("team")
-    )
-    for source in sources.iterator():
+    for source in _live_sources(ExternalDataSourceType.GITHUB):
         params = _github_source_params(source.job_inputs)
         prefix = source.prefix or ""
         if params is None or not _PREFIX.match(prefix):
@@ -203,10 +216,134 @@ def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
     return found
 
 
+@frozen
+class DepotAttemptCursor:
+    """The last failed attempt of a full discovery page, in ``(finished_at, attempt_id)`` order."""
+
+    finished_at: str
+    attempt_id: str
+
+
+@frozen
+class DepotDiscoveryInputs:
+    cutoff_iso: str
+    cursors: dict[str, DepotAttemptCursor]
+
+
+@frozen
+class DepotDiscovery:
+    attempts: list[FetchDepotJobLogInputs]
+    cursors: dict[str, DepotAttemptCursor]
+
+
+def _query_failed_depot_attempts(
+    team: Team, table: str, cutoff_iso: str, after: DepotAttemptCursor | None, limit: int
+) -> list[dict[str, Any]]:
+    # attempt_finished_at is an ISO-8601 string like completed_at above, so the lexical comparison
+    # against the cutoff is chronological. The table name comes from the source's synced schema.
+    after = after or DepotAttemptCursor(finished_at=cutoff_iso, attempt_id="")
+    sql = f"""
+        SELECT run_id, run_workflow_count, workflow_id, attempt_id, attempt, repo, head_sha, workflow_name,
+               job_display_name, job_key, attempt_finished_at
+        FROM {table}
+        WHERE attempt_status = 'failed' AND attempt_finished_at > {{cutoff}} AND (
+            attempt_finished_at > {{after_finished_at}}
+            OR (attempt_finished_at = {{after_finished_at}} AND attempt_id > {{after_attempt_id}})
+        )
+        ORDER BY attempt_finished_at, attempt_id
+        LIMIT {limit}
+    """
+    placeholders: dict[str, ast.Expr] = {
+        "cutoff": ast.Constant(value=cutoff_iso),
+        "after_finished_at": ast.Constant(value=after.finished_at),
+        "after_attempt_id": ast.Constant(value=after.attempt_id),
+    }
+    with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=team.pk):
+        response = execute_hogql_query(
+            query=parse_select(sql, placeholders=placeholders),
+            team=team,
+            query_type="DepotJobLogsDiscovery",
+            bypass_warehouse_access_control=True,
+        )
+    return [dict(zip(response.columns or [], row)) for row in response.results]
+
+
+def _depot_attempt_inputs(source: ExternalDataSource, row: dict[str, Any]) -> FetchDepotJobLogInputs | None:
+    # The same run id the runs view gives this workflow, so the logs join it. A push run's id carries
+    # a prefix outside the Depot id alphabet, so it has no integer run id for its logs to join on.
+    run_id = depot_github_run_id(row["run_id"] or "", row["workflow_id"] or "", row["run_workflow_count"] or 0)
+    job_id = depot_id_to_int(row["attempt_id"] or "")
+    if run_id is None or job_id is None:
+        return None
+    return FetchDepotJobLogInputs(
+        team_id=source.team_id,
+        source_id=str(source.id),
+        attempt_id=row["attempt_id"],
+        run_id=run_id,
+        job_id=job_id,
+        repo=row["repo"] or "",
+        workflow_name=row["workflow_name"] or "",
+        job_name=row["job_display_name"] or row["job_key"] or "",
+        run_attempt=row["attempt"] or 0,
+        head_sha=row["head_sha"] or "",
+    )
+
+
+def _discover_failed_depot_attempts(inputs: DepotDiscoveryInputs) -> DepotDiscovery:
+    """Failed attempts oldest first, at most ``MAX_DISCOVERED_JOBS`` across all sources.
+
+    A source whose page fills the remaining cap gets a cursor, and the next tick reads on from it.
+    A source whose page does not fill it gets none, so the next tick reads its window from the start
+    again and finds rows that landed late.
+    """
+    if not settings.OTLP_LOGS_INGEST_ENDPOINT:
+        return DepotDiscovery(attempts=[], cursors={})
+    attempts: list[FetchDepotJobLogInputs] = []
+    cursors: dict[str, DepotAttemptCursor] = {}
+    for source in _live_sources(ExternalDataSourceType.DEPOT):
+        source_id = str(source.id)
+        cursor = inputs.cursors.get(source_id)
+        limit = MAX_DISCOVERED_JOBS - len(attempts)
+        table = depot_source_job_attempts_table(source.team, source)
+        if table is None:
+            continue
+        if limit <= 0:
+            if cursor is not None:
+                cursors[source_id] = cursor
+            continue
+        try:
+            rows = _query_failed_depot_attempts(source.team, table, inputs.cutoff_iso, cursor, limit)
+        except Exception:
+            logger.warning("depot_job_logs_discovery_skipped_source", source_id=source_id, exc_info=True)
+            if cursor is not None:
+                cursors[source_id] = cursor
+            continue
+        attempts.extend(found for row in rows if (found := _depot_attempt_inputs(source, row)) is not None)
+        if len(rows) == limit:
+            cursors[source_id] = DepotAttemptCursor(
+                finished_at=rows[-1]["attempt_finished_at"], attempt_id=rows[-1]["attempt_id"]
+            )
+    return DepotDiscovery(attempts=attempts, cursors=cursors)
+
+
 @activity.defn
 async def discover_failed_jobs_activity(cutoff_iso: str) -> list[dict[str, Any]]:
     """Failed or retry-recovered CI jobs with a connected GitHub source, as FetchJobLogInputs dicts."""
     return await database_sync_to_async(_discover_jobs_with_diagnostics, thread_sensitive=False)(cutoff_iso)
+
+
+@activity.defn
+async def discover_failed_depot_attempts_activity(inputs: DepotDiscoveryInputs) -> DepotDiscovery:
+    return await database_sync_to_async(_discover_failed_depot_attempts, thread_sensitive=False)(inputs)
+
+
+def _previous_depot_cursors() -> dict[str, DepotAttemptCursor]:
+    # A schedule gives each run the result of the last run that completed. The cursors in it let a
+    # backlog larger than one tick's cap page forward across ticks, instead of each tick reading the
+    # same first page again while older attempts leave the lookback window without a fetch.
+    previous = workflow.get_last_completion_result()
+    cursors = previous.get("depot_cursors") if isinstance(previous, dict) else None
+    return {source_id: DepotAttemptCursor(**cursor) for source_id, cursor in (cursors or {}).items()}
 
 
 @workflow.defn(name="github-job-logs-coordinator")
@@ -240,4 +377,30 @@ class GithubJobLogsCoordinatorWorkflow(PostHogWorkflow):
             except WorkflowAlreadyStartedError:
                 # Already started by a prior tick — reuse policy coalesces it.
                 continue
-        return {"jobs_discovered": len(jobs), "workflows_started": started}
+        depot = DepotDiscovery(attempts=[], cursors={})
+        if workflow.patched("depot-job-logs-2026-09"):
+            depot = await workflow.execute_activity(
+                discover_failed_depot_attempts_activity,
+                DepotDiscoveryInputs(cutoff_iso=cutoff_iso, cursors=_previous_depot_cursors()),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        for attempt in depot.attempts:
+            try:
+                # No execution timeout, because the retry policy bounds the child. While the child
+                # waits out Depot's Retry-After, its id stays taken, so a later tick cannot fetch early.
+                await workflow.start_child_workflow(
+                    FetchDepotJobLogWorkflow.run,
+                    attempt,
+                    id=f"depot-logs-{attempt.team_id}-{attempt.attempt_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                )
+                started += 1
+            except WorkflowAlreadyStartedError:
+                continue
+        return {
+            "jobs_discovered": len(jobs) + len(depot.attempts),
+            "workflows_started": started,
+            "depot_cursors": depot.cursors,
+        }

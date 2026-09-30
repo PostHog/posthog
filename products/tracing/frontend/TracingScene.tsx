@@ -140,7 +140,7 @@ function TracingSceneContents(): JSX.Element {
         selectSceneTab,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
-    const { facetRailCollapsed } = useValues(tracingConfigLogic)
+    const { facetRailCollapsed, spanColumns } = useValues(tracingConfigLogic)
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
@@ -300,6 +300,7 @@ function TracingSceneContents(): JSX.Element {
                         ) : (
                             <VirtualizedSpanList
                                 dataSource={listRows}
+                                spanColumns={spanColumns}
                                 loading={spansLoading}
                                 hasMoreToLoad={hasMoreToLoad}
                                 onLoadMore={fetchNextPage}

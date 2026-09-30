@@ -159,7 +159,7 @@ def gate_attempts_sql(
             {gate_attempt_expr("r.head_branch")} AS attempt,
             min(r.run_started_at) AS started_at,
             max(r.updated_at) AS completed_at,
-            countIf(r.status != 'completed' OR r.updated_at IS NULL) AS unfinished,
+            countIf((r.status != 'completed' AND NOT r.stopped_reporting) OR r.updated_at IS NULL) AS unfinished,
             max(r.status = 'completed' AND r.conclusion IN ({decisive_failure_conclusions_sql})) AS failed,
             any(pr.merged_at) AS merged_at
         FROM {runs_source} AS r
