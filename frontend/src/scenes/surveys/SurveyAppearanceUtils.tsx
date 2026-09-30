@@ -12,7 +12,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionDescriptionContentType } from '~/types'
 
-import { isRichTextCompatibleHtml, plainTextToHtml } from './surveyRichText'
+import { htmlToPlainText, isRichTextCompatibleHtml, plainTextToHtml } from './surveyRichText'
 import { SurveyRichTextEditor } from './SurveyRichTextEditor'
 
 type HTMLEditorTab = SurveyQuestionDescriptionContentType | 'rich'
@@ -175,7 +175,7 @@ export function HTMLEditor({
 }): JSX.Element {
     const richTextEnabled = useFeatureFlag('SURVEYS_RICH_TEXT_DESCRIPTIONS')
     const [htmlTab, setHtmlTab] = useState<'rich' | 'html' | null>(null)
-    const [convertTextOnSwitch, setConvertTextOnSwitch] = useState(false)
+    const [pendingConversion, setPendingConversion] = useState<'toHtml' | 'toText' | null>(null)
     const richTextCompatible = useMemo(() => isRichTextCompatibleHtml(value ?? ''), [value])
     const defaultHtmlTab = richTextCompatible ? 'rich' : 'html'
     const shownTab: HTMLEditorTab =
@@ -188,15 +188,17 @@ export function HTMLEditor({
         }
     }, [activeTab, htmlTab, defaultHtmlTab])
 
-    // Convert plain text once the parent has stored the new content type, so the two updates do not race
+    // Convert the value once the parent has stored the new content type, so the two updates do not race
     useEffect(() => {
-        if (convertTextOnSwitch && activeTab === 'html') {
-            setConvertTextOnSwitch(false)
-            if (value) {
-                onChange(plainTextToHtml(value))
-            }
+        const targetTab = pendingConversion === 'toHtml' ? 'html' : 'text'
+        if (!pendingConversion || activeTab !== targetTab) {
+            return
         }
-    }, [convertTextOnSwitch, activeTab, value, onChange])
+        setPendingConversion(null)
+        if (value) {
+            onChange(pendingConversion === 'toHtml' ? plainTextToHtml(value) : htmlToPlainText(value))
+        }
+    }, [pendingConversion, activeTab, value, onChange])
 
     const handleTabChange = (key: HTMLEditorTab): void => {
         if (key !== 'text') {
@@ -204,7 +206,7 @@ export function HTMLEditor({
         }
         const nextContentType = key === 'text' ? 'text' : 'html'
         if (nextContentType !== activeTab) {
-            setConvertTextOnSwitch(key === 'rich')
+            setPendingConversion(key === 'rich' ? 'toHtml' : shownTab === 'rich' ? 'toText' : null)
             onTabChange(nextContentType)
         }
     }
@@ -221,7 +223,7 @@ export function HTMLEditor({
                         content: (
                             <LemonTextArea
                                 minRows={textMinRows}
-                                value={value}
+                                value={pendingConversion === 'toText' ? htmlToPlainText(value ?? '') : value}
                                 onChange={(v) => onChange(v)}
                                 placeholder={textPlaceholder}
                                 className={className}
@@ -241,7 +243,11 @@ export function HTMLEditor({
                                           </LemonBanner>
                                       )}
                                       <SurveyRichTextEditor
-                                          value={convertTextOnSwitch ? plainTextToHtml(value ?? '') : (value ?? '')}
+                                          value={
+                                              pendingConversion === 'toHtml'
+                                                  ? plainTextToHtml(value ?? '')
+                                                  : (value ?? '')
+                                          }
                                           onChange={onChange}
                                       />
                                       <div className="text-xs text-secondary">

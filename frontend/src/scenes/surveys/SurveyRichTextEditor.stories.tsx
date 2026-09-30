@@ -15,7 +15,7 @@ const meta: Meta<StoryArgs> = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.SURVEYS_RICH_TEXT_DESCRIPTIONS],
     },
-    render: (args) => {
+    render: (args): JSX.Element => {
         const [value, setValue] = useState(args.value)
         const [contentType, setContentType] = useState(args.contentType)
         return (

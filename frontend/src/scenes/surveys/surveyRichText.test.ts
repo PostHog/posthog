@@ -2,6 +2,7 @@ import { Editor } from '@tiptap/core'
 
 import {
     SURVEY_RICH_TEXT_EXTENSIONS,
+    htmlToPlainText,
     isRichTextCompatibleHtml,
     normalizeRichTextHtml,
     plainTextToHtml,
@@ -15,6 +16,20 @@ describe('surveyRichText', () => {
         ['First line\nSecond line', '<p>First line</p><p>Second line</p>'],
     ])('plainTextToHtml(%j)', (text, expected) => {
         expect(plainTextToHtml(text)).toEqual(expected)
+    })
+
+    test.each(['', 'Tell us more', 'a < b & "c"', 'First line\nSecond line', 'a\n\nb'])(
+        'htmlToPlainText reverses plainTextToHtml for %j',
+        (text) => {
+            expect(htmlToPlainText(plainTextToHtml(text))).toEqual(text)
+        }
+    )
+
+    test.each([
+        ['<strong>Bold</strong> and <em>italic</em>', 'Bold and italic'],
+        ['<p>One</p><p>Two<br>Three</p>', 'One\nTwo\nThree'],
+    ])('htmlToPlainText(%j)', (html, expected) => {
+        expect(htmlToPlainText(html)).toEqual(expected)
     })
 
     test.each([

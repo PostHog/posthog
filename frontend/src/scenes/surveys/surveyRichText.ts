@@ -37,6 +37,16 @@ export function plainTextToHtml(text: string): string {
     return lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')
 }
 
+export function htmlToPlainText(html: string): string {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    doc.body.querySelectorAll('br').forEach((br) => br.replaceWith('\n'))
+    const paragraphs = Array.from(doc.body.children).filter((child) => child.tagName === 'P')
+    if (paragraphs.length > 0 && paragraphs.length === doc.body.children.length) {
+        return paragraphs.map((p) => p.textContent ?? '').join('\n')
+    }
+    return doc.body.textContent ?? ''
+}
+
 export function isRichTextCompatibleHtml(html: string): boolean {
     const doc = new DOMParser().parseFromString(html, 'text/html')
     return Array.from(doc.body.querySelectorAll('*')).every((element) => {
