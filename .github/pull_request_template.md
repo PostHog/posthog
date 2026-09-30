@@ -22,7 +22,10 @@
 <!-- Describe steps to reproduce and verify the changes, and what the expected behavior is. -->
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
 <!-- Agents: do NOT claim manual testing you haven't done. State what the agent wasn't able to do and list only the automated tests you (the agent) actually ran. -->
-<!-- Added or changed tests? Name the regression each group catches that no existing test did — if you can't name it, it probably shouldn't be in this PR. https://posthog.com/handbook/engineering/conventions/backend-coding#testing -->
+<!-- For each group of added or changed tests, name the distinct regression, the closest existing test checked, and why this test level is needed. If no new test is needed, name the existing coverage or explain why a test would not help. Do not add tests solely to raise patch coverage. https://posthog.com/handbook/engineering/conventions/backend-coding#testing -->
+
+**Test rationale:** [Name the regression and closest existing test, or explain why no new test is needed.]
+
 <!-- Don't recite pass counts for suites CI runs; the checks report those with more authority. Link the evidence instead (run, permalink, error tracking issue), and say what you did not check. Long transcripts go in a <details> block. -->
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._

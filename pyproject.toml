@@ -57,6 +57,7 @@ dependencies = [
     "drf-exceptions-hog==0.4.0",
     "drf-extensions~=0.8.0",
     "drf-spectacular~=0.30.0",
+    "drf-spectacular-sidecar~=2026.9.1",
     "geoip2==4.6.0",
     "google-ads==31.2.0",
     "google-cloud-bigquery==3.26",
@@ -590,6 +591,7 @@ ignore_imports = [
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.insight_alert_state_machine",
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.models.alert",
     "products.alerts.backend.presentation.views.insight_alerts -> products.alerts.backend.models.alert",
+    "products.alerts.backend.presentation.views.platform_alert -> products.alerts.backend.models.platform_alert",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
@@ -716,7 +718,6 @@ ignore_imports = [
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_context",
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_event_deltas",
     "products.experiments.backend.presentation.views -> products.experiments.backend.setup_context",
-    "products.experiments.backend.presentation.views -> products.experiments.backend.temporal.models",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.evaluation_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.feature_flag",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
@@ -742,6 +743,7 @@ ignore_imports = [
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.metrics",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow.hog_flow",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_batch_job",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_optimization",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_revision",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_schedule",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.team_workflows_config",
@@ -759,14 +761,9 @@ ignore_imports = [
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.durations",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.email_sending_tiers",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.rrule_utils",
-    "products.workflows.backend.presentation.views.hog_flow_batch_job -> products.workflows.backend.models.hog_flow_batch_job",
     "products.workflows.backend.presentation.views.hog_flow_template -> products.cdp.backend.models.hog_function_template",
     "products.workflows.backend.presentation.views.hog_flow_template -> products.workflows.backend.models.hog_flow.hog_flow_template",
     "products.workflows.backend.presentation.views.hog_flow_template -> products.workflows.backend.templates",
-    "products.workflows.backend.presentation.views.workflow_scout_runs -> products.workflows.backend.models",
-    "products.workflows.backend.presentation.views.workflow_scout_runs -> products.workflows.backend.service_jwt",
-    "products.workflows.backend.presentation.views.workflow_tasks -> products.workflows.backend.models",
-    "products.workflows.backend.presentation.views.workflow_tasks -> products.workflows.backend.service_jwt",
     # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
     # access with them. Thin them to parse -> facade -> serialize and delete each entry.
     "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",
@@ -896,6 +893,22 @@ ignore_imports = [
     "products.tasks.backend.facade.api -> rest_framework",
     "products.tasks.backend.facade.client_provenance -> rest_framework",
 ]
+
+# Contract files hold the data types other products read, so they stay free of Django, directly
+# and through other product modules. Define a choices enum with posthog.enums.LabeledStrEnum or
+# LabeledIntEnum instead of models.TextChoices. import-linter treats posthog as an external
+# package, so Django reached through posthog.* is not visible here. See products/architecture.md
+# § Contracts.
+[[tool.importlinter.contracts]]
+name = "facade contracts and enums must not import Django (use posthog.enums for choices)"
+type = "forbidden"
+source_modules = [
+    "products.*.backend.facade.contracts",
+    "products.*.backend.facade.enums",
+    "products.*.backend.facade.types",
+]
+forbidden_modules = ["django"]
+allow_indirect_imports = false
 
 [tool.ty.rules]
 # Import resolution - ty can't always find all modules/stubs

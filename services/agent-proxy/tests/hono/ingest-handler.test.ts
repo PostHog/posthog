@@ -651,6 +651,58 @@ describe('ingest-handler', () => {
         }
     })
 
+    it('forwards a process kill once, without the command line', async () => {
+        const callback = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+        try {
+            const config = makeConfig({ djangoCallbackBaseUrl: 'http://django.example.com' })
+            const event = {
+                type: 'notification',
+                notification: {
+                    method: '_posthog/process_killed',
+                    params: {
+                        pid: 443,
+                        comm: 'bash',
+                        signal: 'SIGTERM',
+                        treeRssBytes: 12_884_901_888,
+                        memoryCurrentBytes: 14_698_577_920,
+                        memoryLimitBytes: 17_179_869_184,
+                        cmdline: ['bash', '-c', 'deploy --token not-for-analytics'],
+                    },
+                },
+            }
+            const line = JSON.stringify({ seq: 1, event }) + '\n'
+            for (let attempt = 0; attempt < 2; attempt++) {
+                const response = await handleIngest(
+                    makeContext({ body: makeStringBody(line) }),
+                    fakeRedis as unknown as Redis,
+                    config,
+                    [] as CryptoKey[]
+                )
+                expect(response.status).toBe(200)
+            }
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(1))
+            const request = callback.mock.calls[0]![1]
+            expect(JSON.parse(String(request?.body))).toMatchObject({
+                kind: 'process_killed',
+                task_id: TASK_ID,
+                team_id: TEAM_ID,
+                sequence: 1,
+                process_killed: {
+                    comm: 'bash',
+                    signal: 'SIGTERM',
+                    tree_rss_bytes: 12_884_901_888,
+                    memory_current_bytes: 14_698_577_920,
+                    memory_limit_bytes: 17_179_869_184,
+                },
+            })
+            expect(String(request?.body)).not.toContain('not-for-analytics')
+        } finally {
+            callback.mockRestore()
+        }
+    })
+
     it('retries a budget steer callback after a temporary capture failure', async () => {
         const callback = vi
             .spyOn(globalThis, 'fetch')

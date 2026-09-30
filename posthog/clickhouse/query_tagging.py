@@ -129,6 +129,7 @@ class Feature(StrEnum):
     EVENTS_VALUES_API = "events_values_api"
     SESSIONS_VALUES_API = "sessions_values_api"
     USAGE_REPORT = "usage_report"
+    API_QUERIES_BUDGET = "api_queries_budget"
     DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
@@ -540,6 +541,14 @@ class QueryTags(BaseModel):
     contains_user_hogql: Optional[bool] = None
 
     hogql_features: Optional[HogQLFeatures] = None
+
+    # Structural hash of the HogQL AST with literals stripped (posthog/hogql/cost/fingerprint.py), so
+    # query_log can group actual cost by plan shape and join it to the estimate recorded below.
+    plan_fingerprint: Optional[str] = None
+    # Set by the HogQL cost planner before execution and compared against read_rows / read_bytes in
+    # query_log to calibrate it. None until the estimator runs.
+    estimated_rows: Optional[int] = None
+    estimated_bytes: Optional[int] = None
 
     modifiers: Optional[object] = None
     number_of_entities: Optional[int] = None
