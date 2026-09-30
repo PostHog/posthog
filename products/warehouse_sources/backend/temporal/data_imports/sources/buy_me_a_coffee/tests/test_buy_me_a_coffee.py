@@ -81,7 +81,8 @@ class TestBuyMeACoffee(SimpleTestCase):
                 503: "Service Unavailable",
             }.get(status, "Error")
             response._content = json.dumps(body).encode()
-            response.headers = {"Content-Type": "application/json", "Retry-After": "7"}
+            response.headers.update({"Content-Type": "application/json", "Retry-After": "7"})
+            assert request.url is not None
             response.url = request.url
             response.request = request
             return response
