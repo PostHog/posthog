@@ -70,9 +70,11 @@ export function Composer({
   const router = useRouter();
   const [text, setText] = useState("");
   const [photos, setPhotos] = useState<Photo[]>([]);
-  const dictation = useDictation();
   const withSpeech = (base: string, heard: string): string =>
     [base.trim(), heard.trim()].filter(Boolean).join(" ");
+  const dictation = useDictation((heard) =>
+    setText((current) => withSpeech(current, heard)),
+  );
   const { model, adapter, reasoning } = useComposer();
   const effort = getReasoningEffortOptions(adapter, model)?.find(
     (option) => option.value === reasoning,
