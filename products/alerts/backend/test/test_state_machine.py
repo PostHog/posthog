@@ -303,6 +303,21 @@ class TestPolicyDecisionTable:
                 NotificationAction.NONE,
             ),
             (
+                # Without the mute guard, this re-enters NOT_FIRING and reports a held FIRE on
+                # every check for the length of the mute.
+                "a_steady_muted_fire_is_not_held_again",
+                snapshot(
+                    state=AlertState.FIRING,
+                    firing_started_at=NOW,
+                    last_notified_at=None,
+                    snooze_until=SNOOZING,
+                ),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
                 "an_unmuted_check_still_announces",
                 snapshot(),
                 BREACH,
@@ -335,8 +350,7 @@ class TestPolicyDecisionTable:
             ("announced_after_the_start", NOW, NOW + timedelta(minutes=1), False),
             ("a_mute_held_the_first_fire_ever", NOW, None, True),
             # A firing that began after the last notification was never announced, whatever
-            # suppressed it. A mute is one gate; a cooldown inside its window is another, and the
-            # stored flag reported only the first.
+            # suppressed it: a mute is one gate, a cooldown inside its window is another.
             ("a_gate_suppressed_the_fire", NOW, NOW - timedelta(minutes=20), True),
             # No start to compare. Reading this as unannounced re-fires it on every later check.
             ("a_firing_older_than_recorded_starts", None, NOW - timedelta(hours=1), False),

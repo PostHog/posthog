@@ -12,7 +12,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import SourceBatchEvaluation, SourceKind
+from products.alerts.backend.facade.contracts import AlertEventKind, GroupTransition, SourceBatchEvaluation, SourceKind
 from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes
 from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
@@ -82,7 +82,16 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [t.notification for preview in evaluation.previews for t in preview.transitions] == ["fire"]
+        assert [t for preview in evaluation.previews for t in preview.transitions] == [
+            GroupTransition(
+                grouping_key="",
+                notification="fire",
+                kind=AlertEventKind.FIRING,
+                previous_state="not_firing",
+                state="firing",
+                value=500.0,
+            )
+        ]
         with team_scope(self.team.id):
             alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
             configuration.refresh_from_db()
@@ -173,9 +182,26 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # An incident wholly inside the window must still leave a trace, and must not move the cooldown.
         assert alert.state == PlatformAlert.State.FIRING
         assert alert.last_notified_at is None
+        assert alert.firing_started_at == self.cutoff
         # Parked at the end of the window would leave the alert unevaluated until noon.
         assert configuration.next_check_at is not None
         assert self.cutoff < configuration.next_check_at < datetime(2026, 9, 16, 11, tzinfo=UTC)
+
+        # A firing alert does not fire again on its own, so an alert reaching the first check
+        # after the window without its held firing stays FIRING and silent.
+        after = datetime(2026, 9, 16, 12, 30, tzinfo=UTC)
+        with (
+            patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
+            patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
+        ):
+            query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
+                per_alert={str(configuration.id): [BucketedCount(timestamp=after, count=500)]},
+                query_duration_ms=1,
+            )
+            slot = configuration.next_check_at.replace(second=0, microsecond=0).isoformat()
+            unmuted = evaluate_logs_batch(self.team.id, slot, after)
+
+        assert [t.notification for preview in unmuted.previews for t in preview.transitions] == ["fire"]
 
     def test_a_broken_filter_config_stops_being_discovered(self) -> None:
         configuration = self._configuration(source_config={"filterGroup": {"type": "nonsense"}})

@@ -298,8 +298,7 @@ def _delivery(
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
 
-    kind = _NOTIFICATION_OUTCOME_KINDS[outcome.notification]
-    spec = EVENT_KIND_CONFIG[cast(EventKind, kind.value)]
+    spec = EVENT_KIND_CONFIG[cast(EventKind, recorded.kind.value)]
     destinations = list_active_alert_destinations(
         team_id=check.team_id,
         alert_id=str(check.legacy_configuration_id or check.id),
@@ -321,10 +320,10 @@ def _delivery(
             GroupTransition(
                 grouping_key="",
                 notification=outcome.notification.value,
-                kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
+                kind=recorded.kind,
                 previous_state=check.state,
-                state=outcome.new_state.value,
-                value=value,
+                state=recorded.new_state,
+                value=recorded.value,
             ),
         ),
     )

@@ -44,8 +44,8 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             "new_state": "firing",
             "notified": True,
             "consecutive_failures": 0,
+            "evaluation_key": f"window:{at.isoformat()}",
         }
-        fields["evaluation_key"] = f"window:{at.isoformat()}"
         fields.update(overrides)
         # History rides `transaction.on_commit`, which a `TestCase` transaction never reaches.
         with self.captureOnCommitCallbacks(execute=True):

@@ -163,7 +163,6 @@ class AlertCheckOutcome:
     disable: bool = False
     # What a mute held back, so a muted fire is distinguishable from a check that said nothing.
     muted_notification: NotificationAction = NotificationAction.NONE
-    # The alert is firing and nobody was told, so the next unmuted check has to announce it.
 
 
 @dataclass(frozen=True)
@@ -262,22 +261,6 @@ def decide_firing_episode(
 
 
 def evaluate_alert_check(
-    snapshot: AlertSnapshot,
-    check: CheckInput,
-    now: datetime,
-    *,
-    policy: AlertPolicy,
-) -> AlertCheckOutcome:
-    """Decide the transition for one scheduled/manual check, and whether a fire is still owed.
-
-    The held fire is resolved here rather than inside `_decide`, so every early return carries it.
-    A check that reaches no verdict leaves the alert firing, and clearing the flag there would
-    lose the announcement the mute was holding.
-    """
-    return _decide(snapshot, check, now, policy=policy)
-
-
-def _decide(
     snapshot: AlertSnapshot,
     check: CheckInput,
     now: datetime,
