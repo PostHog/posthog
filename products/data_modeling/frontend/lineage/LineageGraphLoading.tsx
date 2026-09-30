@@ -1,4 +1,4 @@
-import { Background, BackgroundVariant, FitViewOptions, ReactFlow, useReactFlow } from '@xyflow/react'
+import { Background, BackgroundVariant, FitViewOptions, ReactFlow, useReactFlow, useStore } from '@xyflow/react'
 import { useValues } from 'kea'
 import { useEffect, useId, useMemo } from 'react'
 
@@ -76,6 +76,13 @@ export function LineageGraphLoading({
     variant,
 }: LineageGraphLoadingProps): JSX.Element {
     const { fitView, viewportInitialized } = useReactFlow()
+    // react-flow resolves a queued fit as soon as the first node reports its size, which centers
+    // the viewport on that one node and never corrects itself.
+    const nodesMeasured = useStore(
+        (state) =>
+            state.nodeLookup.size > 0 &&
+            [...state.nodeLookup.values()].every((node) => node.measured.width && node.measured.height)
+    )
     const { isDarkModeOn } = useValues(themeLogic)
     const reactId = useId()
     const idPrefix = useMemo(() => `lineage-loading-${reactId.replaceAll(':', '')}`, [reactId])
@@ -102,7 +109,7 @@ export function LineageGraphLoading({
     )
 
     useEffect(() => {
-        if (viewportInitialized) {
+        if (viewportInitialized && nodesMeasured) {
             void fitView({
                 ...loadingFitViewOptions,
                 nodes: displayedLayout.nodes,
@@ -110,22 +117,28 @@ export function LineageGraphLoading({
                 duration: 0,
             })
         }
-    }, [displayedLayout, fitView, loadingFitViewOptions, viewportInitialized])
+    }, [displayedLayout, fitView, loadingFitViewOptions, nodesMeasured, viewportInitialized])
 
-    const nodes = displayedLayout.nodes.map((node) => ({
-        ...node,
-        data: {
-            ...node.data,
-            state: {
-                loading: node.id === graph.centerNodeId && center ? ('focus' as const) : ('placeholder' as const),
-            },
-            callbacks: {},
-        },
-    }))
-    const edges = displayedLayout.edges.map((edge) => ({
-        ...edge,
-        className: 'opacity-50',
-    }))
+    // Rebuilding these arrays on every render hands react-flow new node objects, which drops the
+    // sizes it measured and makes it lay the skeleton out again.
+    const nodes = useMemo(
+        () =>
+            displayedLayout.nodes.map((node) => ({
+                ...node,
+                data: {
+                    ...node.data,
+                    state: {
+                        loading: node.id === graph.centerNodeId ? ('focus' as const) : ('placeholder' as const),
+                    },
+                    callbacks: {},
+                },
+            })),
+        [displayedLayout.nodes, graph.centerNodeId]
+    )
+    const edges = useMemo(
+        () => displayedLayout.edges.map((edge) => ({ ...edge, className: 'opacity-50' })),
+        [displayedLayout.edges]
+    )
 
     return (
         <>
