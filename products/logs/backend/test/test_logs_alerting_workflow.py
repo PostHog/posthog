@@ -6,6 +6,7 @@ the sandbox doesn't trip on Django imports inside `activities.py`.
 """
 
 import uuid
+from collections import Counter
 
 import pytest
 
@@ -73,6 +74,74 @@ async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
 
     assert result.alerts_checked == 7
     assert result.alerts_errored == 0
+
+
+@pytest.mark.parametrize(
+    "attempts, busy_rounds, expected_rounds",
+    [
+        (3, 1, 2),
+        (3, 8, 3),
+        (1, 8, 1),
+    ],
+)
+@pytest.mark.asyncio
+async def test_workflow_retries_busy_cohorts_and_saves_them_on_the_last_round(
+    attempts, busy_rounds, expected_rounds
+) -> None:
+    manifests = [
+        CohortManifest(
+            team_id=1,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:05:00+00:00",
+            alert_ids=[f"alert-{i}"],
+        )
+        for i in range(3)
+    ]
+    busy = manifests[1]
+    busy_calls: Counter[str] = Counter()
+    rounds: list[tuple[list[str], bool]] = []
+
+    @activity.defn(name="discover_cohorts_activity")
+    async def fake_discover(_input: DiscoverCohortsInput) -> DiscoverCohortsOutput:
+        return DiscoverCohortsOutput(manifests=manifests, batch_size=10, busy_cohort_attempts=attempts)
+
+    @activity.defn(name="evaluate_cohort_batch_activity")
+    async def fake_evaluate(input: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+        rounds.append(([m.alert_ids[0] for m in input.manifests], input.defer_busy_cohorts))
+        deferred = []
+        for manifest in input.manifests:
+            if manifest == busy and busy_calls["busy"] < busy_rounds and input.defer_busy_cohorts:
+                busy_calls["busy"] += 1
+                deferred.append(manifest)
+        return EvaluateCohortBatchOutput(
+            alerts_checked=len(input.manifests) - len(deferred),
+            alerts_fired=0,
+            alerts_resolved=0,
+            alerts_errored=0,
+            busy_cohorts=deferred,
+        )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=TASK_QUEUE,
+            workflows=[LogsAlertCheckWorkflow],
+            activities=[fake_discover, fake_evaluate],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            result: CheckAlertsOutput = await env.client.execute_workflow(
+                LogsAlertCheckWorkflow.run,
+                CheckAlertsInput(),
+                id=f"test-workflow-busy-retry-{uuid.uuid4()}",
+                task_queue=TASK_QUEUE,
+            )
+
+    assert len(rounds) == expected_rounds
+    assert rounds[0][0] == ["alert-0", "alert-1", "alert-2"]
+    assert all(alert_ids == ["alert-1"] for alert_ids, _ in rounds[1:])
+    # Only a round that can still be followed by another defers; the last one saves.
+    assert [defer for _, defer in rounds] == [i < attempts - 1 for i in range(expected_rounds)]
+    assert result.alerts_checked == 3
 
 
 @pytest.mark.asyncio

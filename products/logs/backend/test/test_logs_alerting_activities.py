@@ -20,6 +20,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import QueryErrorCategory
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.slo.types import SloOperation, SloOutcome
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBucketedResult, BucketedCount
@@ -2309,6 +2310,56 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         # First cohort errored → counts as 1 errored. Second succeeded → 1 checked.
         assert result.alerts_errored == 1
         assert result.alerts_checked == 1
+
+    @parameterized.expand([("deferred", True), ("saved_as_skipped_check", False)])
+    @time_machine.travel("2026-05-05T10:05:00Z", tick=False)
+    @patch("products.logs.backend.temporal.activities._run_cohort_query")
+    def test_busy_cohort_is_deferred_only_when_asked(self, _name, defer_busy_cohorts, mock_run_cohort_query):
+        from products.logs.backend.temporal.activities import (
+            CohortManifest,
+            EvaluateCohortBatchInput,
+            _CohortQueryResult,
+            _PrefetchedQuery,
+            evaluate_cohort_batch_activity,
+        )
+
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="a",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["s"]},
+            enabled=True,
+            next_check_at=None,
+        )
+        mock_run_cohort_query.return_value = _CohortQueryResult(
+            per_alert={str(alert.id): _PrefetchedQuery(error=ClickHouseAtCapacity())}
+        )
+        manifest = CohortManifest(
+            team_id=self.team.id,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:05:00+00:00",
+            alert_ids=[str(alert.id)],
+        )
+
+        result = asyncio.run(
+            evaluate_cohort_batch_activity(
+                EvaluateCohortBatchInput(manifests=[manifest], defer_busy_cohorts=defer_busy_cohorts)
+            )
+        )
+
+        alert.refresh_from_db()
+        if defer_busy_cohorts:
+            assert result.busy_cohorts == [manifest]
+            assert result.alerts_checked == 0
+            assert alert.next_check_at is None
+            assert not LogsAlertEvent.objects.filter(alert=alert).exists()
+        else:
+            assert result.busy_cohorts == []
+            assert alert.next_check_at is not None
+            assert LogsAlertEvent.objects.get(alert=alert).error_message.startswith("PostHog is temporarily busy")
 
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US")

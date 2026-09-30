@@ -34,6 +34,10 @@ MAX_ALERT_COHORT_SIZE = int(os.environ.get("LOGS_ALERTING_MAX_ALERT_COHORT_SIZE"
 # (well under the 5-min activity timeout). Tune the cost/latency dial here.
 MAX_COHORTS_PER_BATCH = int(os.environ.get("LOGS_ALERTING_MAX_COHORTS_PER_BATCH", "20"))
 
+# Rounds a cohort ClickHouse rejects as busy gets in one cycle, counting the first.
+# Set to 1 to turn the retry off: a busy cohort then skips its window, as before.
+BUSY_COHORT_ATTEMPTS = max(1, int(os.environ.get("LOGS_ALERTING_BUSY_COHORT_ATTEMPTS", "3")))
+
 # How many cohorts within one batch activity run in parallel via asyncio.Semaphore +
 # asyncio.gather. Pure asyncio (NOT a thread pool — the previous nested
 # ThreadPoolExecutor inside asgiref's pool deadlocked under Temporal cancellation).
