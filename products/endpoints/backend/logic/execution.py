@@ -25,7 +25,7 @@ from dateutil.parser import isoparse
 from pydantic import BaseModel
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
-from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -62,6 +62,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
+    QueryConcurrencyThrottled,
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -632,7 +633,7 @@ class EndpointExecutionService(PydanticModelMixin):
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
         except ConcurrencyLimitExceeded:
             ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
-            raise Throttled(detail="Too many concurrent requests. Please try again later.")
+            raise QueryConcurrencyThrottled(detail="Too many concurrent requests. Please try again later.")
         except APIQueriesBudgetExceeded:
             # The platform refused this query on purpose, so it is not an endpoint fault. Leave the
             # execution counter alone: the budget path counts its own refusals.

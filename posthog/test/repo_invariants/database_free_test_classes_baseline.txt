@@ -93,7 +93,6 @@ posthog/cdp/templates/posthog/test_template_posthog.py::TestTemplateMigration
 posthog/cdp/templates/rudderstack/test_template_rudderstack.py::TestTemplateMigration
 posthog/cdp/templates/salesforce/test_template_salesforce.py::TestTemplateMigration
 posthog/cdp/templates/sendgrid/test_template_sendgrid.py::TestTemplateMigration
-posthog/clickhouse/client/test/test_limit.py::TestRateLimit
 posthog/clickhouse/test/test_deletion_coverage.py::TestDeletionCoverage
 posthog/clickhouse/test/test_query_tagging.py::TestAddFallbackQueryTags
 posthog/helpers/test_markdown_safety.py::TestStripExternalLinks

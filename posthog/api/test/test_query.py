@@ -39,7 +39,6 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.query import (
-    CONCURRENCY_LIMIT_USER_MESSAGE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
     set_query_id_on_span,
@@ -50,7 +49,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
-from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut, QueryConcurrencyThrottled
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
@@ -97,8 +96,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {"query": HogQLQuery(query="select 1").model_dump()},
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response["Retry-After"], "2")
         detail = response.json()["detail"]
-        self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertEqual(detail, QueryConcurrencyThrottled.default_detail)
         self.assertNotIn("app:query:per-org", detail)
 
     @parameterized.expand(

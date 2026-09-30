@@ -34,9 +34,11 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions import QueryConcurrencyThrottled
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Person, PropertyDefinition, User
 from posthog.models.event.legacy_events_query import LegacyEventsListQuery, get_one_event
@@ -331,6 +333,8 @@ class EventViewSet(
                 }
             return response.Response({"next": next_url, "results": result}, headers=headers)
 
+        except ConcurrencyLimitExceeded:
+            raise QueryConcurrencyThrottled()
         except Exception as ex:
             capture_exception(ex)
             raise

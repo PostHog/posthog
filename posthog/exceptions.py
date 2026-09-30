@@ -42,6 +42,23 @@ class APIQueriesBudgetExceeded(Throttled):
     )
 
 
+class QueryConcurrencyThrottled(Throttled):
+    """429 for a query whose concurrency limiter found no free slot before its wait ran out."""
+
+    # A slot usually frees within seconds, so the client can retry soon.
+    RETRY_AFTER_SECONDS = 2
+
+    wait: Optional[float]
+
+    # The limiter's own message embeds an internal Redis key and task id, so users get this text instead.
+    default_detail = "Too many queries are running right now — please try again in a moment."
+
+    def __init__(self, detail: Optional[str] = None) -> None:
+        super().__init__(detail=detail)
+        # Set after __init__ because Throttled(wait=...) also appends "Expected available in N seconds." to detail.
+        self.wait = self.RETRY_AFTER_SECONDS
+
+
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "payment_required"
