@@ -325,53 +325,6 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert stored_draft is not None
         assert "token" not in stored_draft["inputs"]
 
-    @parameterized.expand(
-        [
-            ("live_secret_last", False, [False, True]),
-            ("live_secret_first", False, [True, False]),
-            ("draft_secret_last", True, [False, True]),
-            ("draft_secret_first", True, [True, False]),
-            ("enabled_raw_api_secret_last", True, [False, True], False),
-            ("enabled_raw_api_secret_first", True, [True, False], False),
-        ]
-    )
-    def test_duplicate_input_keys_are_rejected(
-        self, _name: str, enabled: bool, secret_flags: list[bool], from_agent: bool = True
-    ) -> None:
-        function_id = self._create(enabled=enabled)
-        function = HogFunction.objects.get(id=function_id)
-        saved_inputs = function.inputs
-        saved_secrets = function.encrypted_inputs
-        revision_count = self._revisions(function_id).count()
-        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="HogFunction", item_id=function_id)
-        log_count = logs.count()
-
-        payload = {
-            "inputs_schema": [
-                BASE_FUNCTION["inputs_schema"][0],
-                *[{"key": "token", "type": "string", "secret": secret} for secret in secret_flags],
-            ]
-        }
-        response = (
-            self._agent_patch(function_id, payload)
-            if from_agent
-            else self.client.patch(self._url(function_id), payload)
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "inputs_schema"
-        function.refresh_from_db()
-        assert function.inputs == saved_inputs
-        assert function.encrypted_inputs == saved_secrets
-        assert function.draft is None
-        assert self._revisions(function_id).count() == revision_count
-        assert logs.count() == log_count
-        assert all("live-token" not in str(log.detail) for log in logs)
-        response = self.client.get(self._url(function_id))
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["inputs"]["token"] == {"secret": True}
-        assert "live-token" not in response.content.decode()
-
     @parameterized.expand([("inputs",), ("mappings",)])
     def test_input_values_are_masked_in_activity_logs(self, field: str) -> None:
         function_id = self._create(enabled=False)
@@ -421,6 +374,53 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert "hog" in changed_fields
         assert "transpiled" not in changed_fields
         assert all("private-input" not in str(log.detail) for log in logs)
+
+    @parameterized.expand(
+        [
+            ("live_secret_last", False, [False, True]),
+            ("live_secret_first", False, [True, False]),
+            ("draft_secret_last", True, [False, True]),
+            ("draft_secret_first", True, [True, False]),
+            ("enabled_raw_api_secret_last", True, [False, True], False),
+            ("enabled_raw_api_secret_first", True, [True, False], False),
+        ]
+    )
+    def test_duplicate_input_keys_are_rejected(
+        self, _name: str, enabled: bool, secret_flags: list[bool], from_agent: bool = True
+    ) -> None:
+        function_id = self._create(enabled=enabled)
+        function = HogFunction.objects.get(id=function_id)
+        saved_inputs = function.inputs
+        saved_secrets = function.encrypted_inputs
+        revision_count = self._revisions(function_id).count()
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="HogFunction", item_id=function_id)
+        log_count = logs.count()
+
+        payload = {
+            "inputs_schema": [
+                BASE_FUNCTION["inputs_schema"][0],
+                *[{"key": "token", "type": "string", "secret": secret} for secret in secret_flags],
+            ]
+        }
+        response = (
+            self._agent_patch(function_id, payload)
+            if from_agent
+            else self.client.patch(self._url(function_id), payload)
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "inputs_schema"
+        function.refresh_from_db()
+        assert function.inputs == saved_inputs
+        assert function.encrypted_inputs == saved_secrets
+        assert function.draft is None
+        assert self._revisions(function_id).count() == revision_count
+        assert logs.count() == log_count
+        assert all("live-token" not in str(log.detail) for log in logs)
+        response = self.client.get(self._url(function_id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["inputs"]["token"] == {"secret": True}
+        assert "live-token" not in response.content.decode()
 
     @parameterized.expand(
         [

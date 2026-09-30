@@ -125,6 +125,22 @@ def refresh_action_names_in_metric(
         return query
 
 
+def without_action_names(obj: Any) -> Any:
+    """Copy of a metric query without the ActionsNode names.
+
+    The name is a label that `refresh_action_names_in_metric` rewrites on read, so two queries that
+    differ only in these names define the same metric.
+    """
+    if isinstance(obj, dict):
+        is_actions_node = obj.get("kind") == "ActionsNode"
+        return {
+            key: without_action_names(value) for key, value in obj.items() if not (is_actions_node and key == "name")
+        }
+    if isinstance(obj, list):
+        return [without_action_names(item) for item in obj]
+    return obj
+
+
 def _collect_action_ids(obj: Any, action_ids: set[int]) -> None:
     """Recursively collect all action IDs from ActionsNode objects in the query."""
     if isinstance(obj, dict):

@@ -230,6 +230,7 @@ class TestCheckProductAccess:
             "gpt-5.2",
             "gpt-5-mini",
             "gpt-6-astra",
+            "gpt-6.1-sol",
             "deepseek-ai/deepseek-v4-flash-0731",
         ],
     )
@@ -388,6 +389,7 @@ class TestCheckProductAccess:
             "gpt-5.6-luna",
             "gpt-5.6-sol",
             "gpt-6-astra",
+            "gpt-6.1-sol",
         ],
     )
     def test_background_agents_allows_configured_models(self, model: str):

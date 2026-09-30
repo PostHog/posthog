@@ -54,6 +54,11 @@ from products.tasks.backend.logic.services.agent_server_launcher import (
 )
 from products.tasks.backend.logic.services.local_packages import LocalPackage
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
+from products.tasks.backend.logic.services.memory_watchdog import (
+    MEMORY_WATCHDOG_MISSING_MARKER,
+    MEMORY_WATCHDOG_PATH,
+    build_memory_watchdog_start_command,
+)
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     MAX_PROVISION_LOG_EXCERPT_LINES,
     summarize_modal_output,
@@ -789,6 +794,56 @@ class TestModalSandboxAgentServer:
         # Modal sandboxes reach the proxy by its real URL, no Docker-host rewrite.
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=https://agent-proxy.example.com" in command
         assert "POSTHOG_RTK=1" in command
+
+    @pytest.mark.parametrize(
+        "vm_runtime, sandbox_runtime, expected_env",
+        [
+            (True, None, "POSTHOG_SANDBOX_RUNTIME=vm"),
+            (False, None, "POSTHOG_SANDBOX_RUNTIME=gvisor"),
+            (False, "vm", "POSTHOG_SANDBOX_RUNTIME=vm"),
+        ],
+        ids=["vm_config", "gvisor_config", "explicit_runtime_wins_over_config"],
+    )
+    def test_start_agent_server_sandbox_runtime_env(
+        self, mock_sandbox: Any, vm_runtime: bool, sandbox_runtime: str | None, expected_env: str
+    ):
+        mock_sandbox.config = SandboxConfig(name="test-sandbox", vm_runtime=vm_runtime)
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository=None, task_id="task-123", run_id="run-456", sandbox_runtime=sandbox_runtime
+        )
+
+        assert expected_env in _agent_server_launch_command(mock_sandbox.execute)
+
+    @pytest.mark.parametrize(
+        "enabled, preflight_extra, expect_install, expect_start",
+        [
+            (True, "", False, True),
+            (True, MEMORY_WATCHDOG_MISSING_MARKER, True, True),
+            (False, MEMORY_WATCHDOG_MISSING_MARKER, False, False),
+        ],
+    )
+    def test_start_agent_server_memory_watchdog(
+        self, mock_sandbox: Any, enabled: bool, preflight_extra: str, expect_install: bool, expect_start: bool
+    ):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(
+                stdout=f"{_preflight_stdout()}\n{preflight_extra}", stderr="", exit_code=0, error=None
+            ),
+        )
+        mock_sandbox.write_file = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+
+        with override_settings(TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED=enabled):
+            mock_sandbox.start_agent_server(repository=None, task_id="task-123", run_id="run-456")
+
+        written_paths = [call.args[0] for call in mock_sandbox.write_file.call_args_list]
+        assert (MEMORY_WATCHDOG_PATH in written_paths) is expect_install
+        assert (
+            build_memory_watchdog_start_command() in _agent_server_launch_command(mock_sandbox.execute)
+        ) is expect_start
 
     @pytest.mark.parametrize(
         "fast_mode, expected_env",
