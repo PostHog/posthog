@@ -191,6 +191,14 @@ class TestLinkHeaderPagination:
         with pytest.raises(ValueError, match="cross-origin"):
             _run_get_rows(monkeypatch, "secret_incidents", responses)
 
+    def test_status_filtered_endpoint_walks_every_status(self, monkeypatch: Any) -> None:
+        # The API returns only open honeytoken events unless `status` is set, so archived and
+        # allowed events would silently never reach the warehouse.
+        responses = [_page([{"id": "a"}]), _page([{"id": "b"}]), _page([{"id": "c"}])]
+        rows, fetched, _ = _run_get_rows(monkeypatch, "honeytoken_events", responses)
+        assert [r["id"] for r in rows] == ["a", "b", "c"]
+        assert [_query(url)["status"] for url in fetched] == [["open"], ["archived"], ["allowed"]]
+
     def test_non_list_response_raises_instead_of_yielding_garbage(self, monkeypatch: Any) -> None:
         responses = [_page({"detail": "Not found."})]
         with pytest.raises(ValueError, match="non-list response"):
