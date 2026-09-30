@@ -14,7 +14,6 @@ from django.utils import timezone
 import requests
 from celery import shared_task
 from clickhouse_driver.errors import UnknownPacketFromServerError
-from django_redis.exceptions import ConnectionInterrupted
 from prometheus_client import Counter, Gauge
 from redis import Redis
 from redis.exceptions import RedisError
@@ -36,6 +35,7 @@ from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
+from posthog.utils import safe_cache_delete
 
 logger = get_logger(__name__)
 
@@ -65,16 +65,6 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER = Counter(
 # query, so a write caller retrying it would land the write twice. This task only reads from
 # ClickHouse - it writes to Postgres from the merged results - so repeating the query is safe.
 FEATURE_FLAG_SYNC_TRANSIENT_ERRORS = (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError)
-
-# The Redis transport failures the last_called_at sync can hit on its lock and checkpoint calls.
-# django-redis wraps the underlying error in ConnectionInterrupted, and the raw redis errors cover
-# the paths that use the redis client directly.
-FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS = (
-    ConnectionInterrupted,
-    RedisError,
-    ConnectionError,
-    TimeoutError,
-)
 
 
 STALE_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
@@ -1267,7 +1257,11 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
     # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
-    autoretry_for=(*FEATURE_FLAG_SYNC_TRANSIENT_ERRORS, *FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS),
+    # The lock and the checkpoint live in Redis. A Redis error leaves the checkpoint unmoved. The next
+    # scheduled run then resumes from it. The retry makes the run catch up within minutes instead of
+    # at that next run. django-redis re-raises the redis-py error that ConnectionInterrupted wraps.
+    # RedisError therefore also covers the cache calls on the lock.
+    autoretry_for=(*FEATURE_FLAG_SYNC_TRANSIENT_ERRORS, RedisError),
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
@@ -1346,15 +1340,10 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     try:
         redis_client = get_client()
 
-        # Get last sync timestamp from Redis or use lookback
-        try:
-            last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
-        except FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS:
-            # The fallback below caps the window at the max lookback, and the end of the run then
-            # advances the checkpoint past everything older than that cap. So a read that failed on
-            # the transport has to reach Celery and retry, rather than take the fallback. The outer
-            # exception handler below already logs and reports it.
-            raise
+        # Get last sync timestamp from Redis or use lookback. A Redis error on this read fails the
+        # run. Celery then retries the run. The lookback fallback would rescan up to
+        # FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS of chunks that the checkpoint already covers.
+        last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
 
         last_sync_timestamp = None
         if last_sync_str:
@@ -1655,12 +1644,9 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         if not run_failed and (self.request.retries or 0) > 0:
             FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER.inc()
 
-        # Always release the lock. A failing delete must not replace the error that is already on
-        # its way out, and the lock expires on its own after LOCK_TIMEOUT.
-        try:
-            cache.delete(LOCK_KEY)
-        except Exception:
-            logger.warning("Failed to release feature flag sync lock", exc_info=True)
+        # Always release the lock. A failed delete must not replace the exception that the try block
+        # raised. The lock expires on its own after LOCK_TIMEOUT.
+        safe_cache_delete(LOCK_KEY)
 
 
 @shared_task(ignore_result=True, time_limit=7200)
