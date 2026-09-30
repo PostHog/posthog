@@ -186,5 +186,4 @@ that roots from other tasks, and roots without a task, can be missing.
   task. Ask the task creator for confirmation when feedback would cross one of those boundaries.
 - Do not expose raw anchor metadata or infer private content beyond the normalized response.
 - If access is unavailable by the checks above, say so directly. Do not substitute filesystem
-  searches, GitHub comments, or comments from another task. Do not use a canvas thread to read
-  comments on a different target.
+  searches, GitHub comments, or comments from another task.
