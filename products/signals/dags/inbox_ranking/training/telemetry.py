@@ -67,6 +67,10 @@ class HeadExampleCounts:
     # Of the positives, how many sit on their report's birth day: most outcomes land there, so a
     # drop in this share is the first sign the birth-day rule stopped keeping them.
     birth_day_positives: int
+    # The earliest report-creation day the head kept, and whether the row budget dropped older days,
+    # so a chart shows when the budget starts to cut history.
+    example_window_start: datetime.date | None
+    example_cap_bound: bool
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
@@ -124,6 +128,10 @@ def examples_events(
                 "rows": counts.rows,
                 "positives": counts.positives,
                 "birth_day_positives": counts.birth_day_positives,
+                "example_window_start": counts.example_window_start.isoformat()
+                if counts.example_window_start
+                else None,
+                "example_cap_bound": counts.example_cap_bound,
             },
         )
         for head, counts in per_head.items()
@@ -140,8 +148,9 @@ def promotion_event(
     champion_version: str,
     incumbent_champion_version: str,
     champion_aucs: Mapping[str, float],
+    champion_eces: Mapping[str, float],
 ) -> TrainingEvent:
-    """`champion_aucs` were scored by the incumbent on this candidate's holdout; after a promotion
+    """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout; after a promotion
     `champion_version` is the candidate, so the incumbent is carried separately. Every version here
     belongs to `model_name`: promotion compares a candidate to the champion of its own family."""
     return TrainingEvent(
@@ -156,6 +165,7 @@ def promotion_event(
             "champion_version": champion_version,
             "incumbent_champion_version": incumbent_champion_version,
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},
+            **{f"champion_{head}_ece_on_this_holdout": ece for head, ece in champion_eces.items()},
         },
     )
 
