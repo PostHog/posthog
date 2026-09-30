@@ -1428,6 +1428,36 @@ class TestTaskInputTypeValidation(SimpleTestCase):
                 validate_inputs(schema, inputs)
 
 
+class TestChoiceInputTemplating(SimpleTestCase):
+    # A sub-template can prefill a choice input with a Hog expression that no user could pick from
+    # the dropdown, for example the PagerDuty `event_action` that has to send `resolve` on the
+    # issue-resolved event. Uncompiled, the expression reaches the destination as literal text and
+    # the template rejects it, so every delivery of that alert fails.
+    CHOICE_SCHEMA = [
+        {
+            "key": "event_action",
+            "type": "choice",
+            "label": "Event action",
+            "choices": [
+                {"label": "Trigger", "value": "trigger"},
+                {"label": "Resolve", "value": "resolve"},
+            ],
+            "required": True,
+        }
+    ]
+
+    @parameterized.expand(
+        [
+            ("declared_choice", "trigger", False),
+            ("templated_choice", "{event.event == 'x' ? 'resolve' : 'trigger'}", True),
+        ]
+    )
+    def test_only_a_value_outside_the_declared_choices_is_compiled(self, _name, value, expect_bytecode):
+        validated = validate_inputs(self.CHOICE_SCHEMA, {"event_action": {"value": value}})
+
+        assert ("bytecode" in validated["event_action"]) is expect_bytecode
+
+
 class TestReservedFunctionsUsed(SimpleTestCase):
     # The worker's async function registry is global, so the save-time check is the only thing
     # that stops user-authored hog from reaching a handler only PostHog's machinery should call.
