@@ -1021,10 +1021,9 @@ def get_rows(
                     if batcher.should_yield(include_incomplete_chunk=True):
                         yield from _flush_staging_state(batcher, resumable_source_manager, _fixed_state(position))
                     else:
-                        with resumable_source_manager.committing():
-                            resumable_source_manager.save_state(position)
-                        # Nothing is buffered, so this is also where a sparse sweep can hand off at
-                        # shutdown. With rows buffered, the flush above yields and the pipeline checks.
+                        resumable_source_manager.save_state(position)
+                        # Nothing is buffered in the source, so this is where a sparse sweep can hand
+                        # off. The pipeline still guards the commit until no queue row is held.
                         resumable_source_manager.safe_point()
                     parents_since_checkpoint = 0
                     last_checkpoint_at = time.monotonic()

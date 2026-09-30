@@ -704,7 +704,7 @@ class TestStripeNestedResourceGetRows:
 
         assert rows == []
         assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == expected_positions
-        assert manager.committing.call_count == len(expected_positions)
+        manager.committing.assert_not_called()
         assert manager.safe_point.call_count == len(expected_positions)
         # The pipeline kills this loop mid-sweep on a worker shutdown, so every checkpoint carries
         # the running fan-out size instead of leaving the attempt's only line until after the loop.
