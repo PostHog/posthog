@@ -1515,7 +1515,16 @@ class TestPrinter(BaseTest):
         # must pick up a runtime flip.
         with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", True):
             sql = self._select("SELECT event FROM events")
+            legacy_sql = self._select(
+                "SELECT event FROM events",
+                HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+                ),
+            )
         self.assertIn("FROM events_json", sql)
+        self.assertNotIn("events_json", legacy_sql)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_instance_setting_team_allowlist_enables_new_events_schema(self) -> None:
@@ -1524,10 +1533,19 @@ class TestPrinter(BaseTest):
                 sql = self._select("SELECT event FROM events")
             self.assertIn("FROM events_json", sql)
 
-            # A list naming only other teams must not flip this team.
+            # A list naming only other teams must not flip this team, unless the query's modifier asks for it.
             with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "999999"):
                 sql = self._select("SELECT event FROM events")
+                native_sql = self._select(
+                    "SELECT event FROM events",
+                    HogQLContext(
+                        team_id=self.team.pk,
+                        enable_select_queries=True,
+                        modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
+                    ),
+                )
             self.assertNotIn("FROM events_json", sql)
+            self.assertIn("FROM events_json", native_sql)
 
             with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "invalid"):
                 with pytest.raises(ValueError):
@@ -4244,7 +4262,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -4257,7 +4275,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,

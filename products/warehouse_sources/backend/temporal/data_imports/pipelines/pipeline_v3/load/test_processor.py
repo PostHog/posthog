@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
@@ -24,9 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     make_local_table_ref,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_covers_batch
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-    CoalescingDeclined,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
     _enrich_cdc_rows,
@@ -41,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     process_messages,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
+from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined
 
 
 @pytest.fixture(autouse=True)
@@ -178,7 +176,7 @@ class TestPromoteStagedCursor:
         _promote_staged_cursor(signal)
 
         mock_objects.get.assert_called_once_with(id="schema-1", team_id=1)
-        schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1")
+        schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1", merge_source_cursors=ANY)
 
     @parameterized.expand(
         [
@@ -377,9 +375,7 @@ class TestProcessMessageOwnershipGate:
         mock_analytics: MagicMock,
     ) -> None:
         # Fencing abandons are benign; counting them as load failures pollutes the metric.
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-            OwnershipLostError,
-        )
+        from products.warehouse_sources_queue.backend.core.batch_consumer import OwnershipLostError
 
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
@@ -452,7 +448,7 @@ class TestMarkJobCompleted:
         _mark_job_completed(self._make_signal())
 
         if expect_promotion:
-            schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1")
+            schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1", merge_source_cursors=ANY)
         else:
             schema.promote_staged_incremental_values.assert_not_called()
             mock_finish_row_tracking.assert_not_awaited()

@@ -35,7 +35,18 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
     COLUMN_TYPE_WIDENED_KEY,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
+    CoalesceCaps,
+    CoalesceMember,
+    extends_set,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    release_v3_pipeline_lock,
+)
+from products.warehouse_sources.backend.temporal.data_imports.util import is_transient_internal_db_error
+from products.warehouse_sources.backend.types import ExternalDataJobStatus
+from products.warehouse_sources_queue.backend.core.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
     RECONCILE_GRACE_SECONDS,
@@ -50,13 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
     _is_transient_queue_db_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
-    CoalesceCaps,
-    CoalesceMember,
-    extends_set,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources_queue.backend.core.jobs_db import (
     _UNSET,
     FRESHNESS_WINDOW_SECONDS,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
@@ -65,7 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PendingBatch,
     _Unset,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+from products.warehouse_sources_queue.backend.core.metrics import (
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
@@ -80,11 +85,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     TOP_GROUPS_CLAIMABLE_SHARE,
     observe_queue_query,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
-    release_v3_pipeline_lock,
-)
-from products.warehouse_sources.backend.temporal.data_imports.util import is_transient_internal_db_error
-from products.warehouse_sources.backend.types import ExternalDataJobStatus
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 logger = structlog.get_logger(__name__)

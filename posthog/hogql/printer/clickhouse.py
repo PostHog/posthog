@@ -43,6 +43,7 @@ from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, 
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -364,7 +365,9 @@ class ClickHousePrinter(BasePrinter):
             db = django_settings.CLICKHOUSE_DATABASE
             scale = EXCHANGE_RATE_DECIMAL_PRECISION
             # Build rate lookup expressions
-            from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, {scale}))"
+            # A NULL currency makes the lookup return NULL, not the default. NULL = 0 is not true, so the guard
+            # below would keep a NULL divisor, and divideDecimal fails on the zero under a NULL row.
+            from_rate = f"ifNull(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, {scale})), toDecimal64(0, {scale}))"
             to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, {scale}))"
             # Use if() around divisor to avoid division by zero — with enable_analyzer=0, the old analyzer evaluates all branches regardless of condition.
             safe_from_rate = f"if({from_rate} = 0, toDecimal128(1, {scale}), {from_rate})"
@@ -567,7 +570,7 @@ class ClickHousePrinter(BasePrinter):
         resolved_field = type.resolve_database_field(self.context)
         if not isinstance(resolved_field, StringJSONDatabaseField):
             return None
-        if resolved_field.name not in ("properties", "person_properties"):
+        if resolved_field.name not in ("properties", "person_properties", TEMPORARY_PROPERTIES_COLUMN):
             return None
         if not isinstance(type.table_type, ast.BaseTableType):
             return None
