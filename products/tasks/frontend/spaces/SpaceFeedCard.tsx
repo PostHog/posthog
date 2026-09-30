@@ -5,12 +5,13 @@ import { Avatar, AvatarFallback, Badge, Card, Text, Tooltip, TooltipContent, Too
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { TodaySessionMenu } from '~/layout/today/TodaySessionMenu'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { TodaySessionStatusIcon } from '~/layout/today/TodaySessionStatusIcon'
-import { sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
+import { analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
 import { spaceFeedStatus } from './spaceFeedStatus'
@@ -22,6 +23,7 @@ interface SpaceFeedCardProps {
 
 export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
+    const { user } = useValues(userLogic)
     const item = sessionItem(task)
     const status = spaceFeedStatus(task.latest_run)
     const preview = 'description_preview' in task ? task.description_preview : task.description
@@ -61,7 +63,14 @@ export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element
                 )}
                 <div className="relative flex shrink-0 items-center gap-1">
                     {status && <Badge variant={status.variant}>{status.label}</Badge>}
-                    <TodaySessionMenu sessionId={task.id} pinned={pinned} spaceId={item.channel} surface="feed" />
+                    <TodaySessionMenu
+                        sessionId={task.id}
+                        pinned={pinned}
+                        spaceId={item.channel}
+                        surface="feed"
+                        canHandOff={canHandOff(item, user?.id)}
+                        analysisRunId={analysisRunId(item)}
+                    />
                 </div>
             </div>
             {preview && (
