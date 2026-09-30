@@ -81,7 +81,9 @@ export function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JS
                     <div className="space-y-0.5">
                         <div className="text-sm font-semibold flex items-center gap-1">
                             <Tooltip title={dayjs(startedAt).format('MMM D, YYYY HH:mm')}>
-                                <span>Training run · {dayjs(startedAt).fromNow()}</span>
+                                <span>
+                                    Training run · <span translate="no">{dayjs(startedAt).fromNow()}</span>
+                                </span>
                             </Tooltip>
                             {run.task_url && (
                                 <Link

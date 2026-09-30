@@ -106,15 +106,28 @@ describe('autoresearchPipelineLogic', () => {
             expect(trainingRunProgress(run)).toEqual({ iterationCount: 1, bestHoldoutScore: null })
         })
 
-        it.each(['completed', 'failed'] as const)('uses the persisted fields once the run is %s', (status) => {
+        it('uses the persisted fields once the run completes', () => {
             const run = makeRun({
-                status,
+                status: 'completed',
                 iteration_count: 5,
                 best_holdout_score: 0.81,
                 // Persisted fields win at terminal state even if the serialized trail differs.
                 iterations: [makeIteration({ iteration_number: 0, holdout_score: 0.5 })],
             })
             expect(trainingRunProgress(run)).toEqual({ iterationCount: 5, bestHoldoutScore: 0.81 })
+        })
+
+        it('reads the recorded iterations of a failed run, whose counters were never written', () => {
+            const run = makeRun({
+                status: 'failed',
+                iteration_count: 0,
+                best_holdout_score: null,
+                iterations: [
+                    makeIteration({ iteration_number: 0, holdout_score: 0.64 }),
+                    makeIteration({ iteration_number: 1, holdout_score: 0.7 }),
+                ],
+            })
+            expect(trainingRunProgress(run)).toEqual({ iterationCount: 2, bestHoldoutScore: 0.7 })
         })
     })
 })

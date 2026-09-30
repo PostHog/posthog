@@ -81,7 +81,7 @@ export function OnlinePerformanceTab(): JSX.Element {
             </div>
             <LemonTable
                 dataSource={onlinePerformanceRows}
-                rowKey={(row) => `${row.run_id}-${row.model_role}`}
+                rowKey={(row) => `${row.run_id}-${row.model_id}`}
                 columns={[
                     {
                         title: 'Prediction date',
@@ -89,9 +89,10 @@ export function OnlinePerformanceTab(): JSX.Element {
                     },
                     {
                         title: 'Model',
+                        tooltip: 'The role the model held when it made these predictions.',
                         render: (_, row) => (
-                            <LemonTag type={MODEL_ROLE[row.model_role]?.type ?? 'default'}>
-                                {MODEL_ROLE[row.model_role]?.label ?? row.model_role}
+                            <LemonTag type={MODEL_ROLE[row.emitted_role]?.type ?? 'default'}>
+                                {MODEL_ROLE[row.emitted_role]?.label ?? row.emitted_role}
                             </LemonTag>
                         ),
                     },

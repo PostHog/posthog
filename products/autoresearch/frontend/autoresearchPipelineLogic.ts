@@ -139,7 +139,8 @@ interface TrainingRunProgress {
  * so while a run is in flight we derive progress from the iteration rows, which land live.
  */
 export function trainingRunProgress(run: AutoresearchTrainingRunApi): TrainingRunProgress {
-    if (run.status === 'completed' || run.status === 'failed') {
+    // Only completion writes the counters; a failed run keeps them at zero, so read its recorded iterations.
+    if (run.status === 'completed') {
         return { iterationCount: run.iteration_count, bestHoldoutScore: run.best_holdout_score }
     }
     const scores = run.iterations.map((it) => it.holdout_score).filter((score): score is number => score != null)
@@ -159,6 +160,7 @@ export interface DailyVolumePoint {
 /** Flattened row for the online performance table. */
 export interface OnlinePerformanceRow {
     run_id: string
+    model_id: string
     prediction_date: string
     /** The role the model held when it emitted these predictions; `model_role` is its role now. */
     emitted_role: string
@@ -211,6 +213,7 @@ export interface autoresearchPipelineLogicValues {
     suggestionsError: boolean
     suggestionsLoading: boolean
     trainingRuns: AutoresearchTrainingRunApi[]
+    trainingRunsError: boolean
     trainingRunsLoading: boolean
     validationRuns: AutoresearchRunApi[]
     viewedArtifact: ViewedArtifact | null
@@ -615,6 +618,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 loadPipelineFailure: () => true,
             },
         ],
+        trainingRunsError: [
+            false,
+            {
+                loadTrainingRuns: () => false,
+                loadTrainingRunsFailure: () => true,
+            },
+        ],
         runsError: [
             false,
             {
@@ -908,9 +918,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     if (!m.per_model || Object.keys(m.per_model).length === 0) {
                         continue
                     }
-                    for (const [, model] of Object.entries(m.per_model)) {
+                    for (const [modelId, model] of Object.entries(m.per_model)) {
                         rows.push({
                             run_id: run.id,
+                            model_id: modelId,
                             prediction_date: m.prediction_date,
                             emitted_role: model.emitted_role ?? model.model_role,
                             model_role: model.model_role,
@@ -928,7 +939,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     if (b.prediction_date !== a.prediction_date) {
                         return b.prediction_date.localeCompare(a.prediction_date)
                     }
-                    return a.model_role === 'champion' ? -1 : 1
+                    return a.emitted_role === 'champion' ? -1 : 1
                 })
                 return rows
             },

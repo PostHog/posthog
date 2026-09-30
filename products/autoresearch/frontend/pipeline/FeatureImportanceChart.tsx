@@ -61,10 +61,13 @@ export function FeatureImportanceChart({ explanation }: { explanation: unknown }
             <div className="space-y-1">
                 {features.map((f) => {
                     const isNegative = f.direction === 'negative'
+                    const isPositive = f.direction === 'positive'
+                    const color = isNegative ? 'var(--danger)' : isPositive ? 'var(--success)' : 'var(--muted)'
+                    const effect = isNegative ? 'Lowers' : isPositive ? 'Raises' : 'Unknown effect on'
                     return (
                         <div key={f.name} className="flex items-center gap-2 text-sm">
                             <div className="w-48 shrink-0 truncate font-mono text-xs" title={f.name}>
-                                <span style={{ color: isNegative ? 'var(--danger)' : 'var(--success)' }}>● </span>
+                                <span style={{ color }}>● </span>
                                 {f.name}
                             </div>
                             {hasImportances ? (
@@ -73,13 +76,13 @@ export function FeatureImportanceChart({ explanation }: { explanation: unknown }
                                     style={{ backgroundColor: 'var(--border)' }}
                                 >
                                     <Tooltip
-                                        title={`${isNegative ? 'Lowers' : 'Raises'} the prediction · importance ${(f.importance ?? 0).toFixed(3)}`}
+                                        title={`${effect} the prediction · importance ${(f.importance ?? 0).toFixed(3)}`}
                                     >
                                         <div
                                             className="h-full rounded"
                                             style={{
                                                 width: `${maxImportance > 0 ? Math.max(2, ((f.importance ?? 0) / maxImportance) * 100) : 2}%`,
-                                                backgroundColor: isNegative ? 'var(--danger)' : 'var(--success)',
+                                                backgroundColor: color,
                                             }}
                                         />
                                     </Tooltip>
