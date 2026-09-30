@@ -84,8 +84,8 @@ class AcculynxOffsetPaginator(OffsetPaginator):
             raise ValueError("AccuLynx returned an unexpected page offset. Check the API pagination parameters.")
         if self.jobs and count > MAX_JOB_RECORDS:
             raise JobWindowTooLarge()
-        # The response page size can be lower than requested; advancing by the request size skips rows.
-        self.limit = size
+        # Advance by returned rows so a short non-empty page does not skip records.
+        self.limit = len(data) if data else size
         super().update_state(response, data)
 
 

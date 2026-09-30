@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 
 
 @pytest.mark.parametrize("name, offset_param", [("contacts", "pageStartIndex"), ("lead_sources", "recordStartIndex")])
-def test_pagination_uses_returned_size_and_stops_at_count(
+def test_pagination_advances_by_returned_rows_and_stops_at_count(
     name: str,
     offset_param: str,
     pipeline: Callable[..., SourceResponse],
@@ -35,7 +35,9 @@ def test_pagination_uses_returned_size_and_stops_at_count(
         offset = int(params[offset_param][0])
         assert "startDate" not in params
         assert "since" not in params
-        return response(request, {"count": 2, "pageSize": 1, "pageStartIndex": offset, "items": [{"id": str(offset)}]})
+        return response(
+            request, {"count": 2, "pageSize": 25, "pageStartIndex": offset, "items": [{"id": str(offset)}]}
+        )
 
     http_send.side_effect = send
     assert list(pipeline(name).items()) == [[{"id": "0"}], [{"id": "1"}]]

@@ -60,7 +60,7 @@ def response() -> Callable[..., Response]:
         result = Response()
         result.status_code = status
         result.reason = HTTPStatus(status).phrase
-        result.url = request.url
+        result.url = request.url or ""
         result.request = request
         result._content = json.dumps(body).encode()
         result.headers["Content-Type"] = "application/json"
