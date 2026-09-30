@@ -9,7 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.experiments.backend.facade.timeseries import metric_calculation_keys
-from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -121,8 +121,8 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         assert results == {"m1": {"m": 1}, "m2": {"m": 2}}
         copies = ExperimentMetricResult.objects.filter(experiment=exp, query_to=recalc.query_to)
         assert {row.fingerprint for row in copies} == {
-            compute_recalc_fingerprint(self._config_fp(exp, "m1")),
-            compute_recalc_fingerprint(self._config_fp(exp, "m2")),
+            _recalc_fingerprint(self._config_fp(exp, "m1")),
+            _recalc_fingerprint(self._config_fp(exp, "m2")),
         }
         # The timeseries rows keep their config fingerprint.
         assert ExperimentMetricResult.objects.filter(experiment=exp, fingerprint=self._config_fp(exp, "m1")).exists()

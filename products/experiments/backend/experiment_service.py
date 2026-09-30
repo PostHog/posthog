@@ -75,7 +75,6 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
-    ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
@@ -4449,11 +4448,7 @@ class ExperimentService:
 
         metric_uuid = metric.get("uuid")
         if metric_uuid:
-            ExperimentMetricResult.objects.filter(
-                experiment_id=experiment.id,
-                metric_uuid=metric_uuid,
-                fingerprint=fingerprint,
-            ).delete()
+            MetricResultStore(experiment_id=experiment.id).delete_daily_points(metric_uuid, fingerprint)
 
         recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
             team=experiment.team,

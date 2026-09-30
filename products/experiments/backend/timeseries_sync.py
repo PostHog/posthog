@@ -21,8 +21,8 @@ import structlog
 
 from posthog.models.scoping import team_scope
 
-from products.experiments.backend.metric_calculation.results import MetricResultStore, compute_recalc_fingerprint
-from products.experiments.backend.metric_calculation.spec import plan
+from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan
 from products.experiments.backend.metric_resolution import is_daily_timeseries_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -63,14 +63,14 @@ def sync_timeseries_recalculation(
 
         store = MetricResultStore(experiment_id=experiment.id)
         metric_uuids: list[str] = []
-        points: dict[str, tuple[str, ExperimentMetricResult]] = {}
+        points: dict[str, tuple[CalculationSpec, ExperimentMetricResult]] = {}
         for spec in plan(experiment):
             if not is_daily_timeseries_metric(spec.definition):
                 continue
             metric_uuids.append(spec.metric_id)
             row = store.latest_daily_point(spec, since=run_started_at, until=now)
             if row is not None:
-                points[spec.metric_id] = (compute_recalc_fingerprint(spec.calculation_key()), row)
+                points[spec.metric_id] = (spec, row)
 
         if not points:
             return None
@@ -92,7 +92,9 @@ def sync_timeseries_recalculation(
             missing = {uuid: point for uuid, point in points.items() if uuid not in already_copied}
             if not missing:
                 return None
-            _copy_points(experiment, recalculation.query_to, missing, now)
+            store.copy_into_sync_run(
+                recalculation.query_to, missing.values(), query_from=experiment.start_date, completed_at=now
+            )
             copied = len(missing)
         else:
             # A run that already reaches the oldest point covers this data. Trigger-failure tombstones never got
@@ -118,7 +120,7 @@ def sync_timeseries_recalculation(
                 total_metrics=len(metric_uuids),
                 metric_uuids=metric_uuids,
             )
-            _copy_points(experiment, window, points, now)
+            store.copy_into_sync_run(window, points.values(), query_from=experiment.start_date, completed_at=now)
             copied = len(points)
 
     logger.info(
@@ -129,26 +131,3 @@ def sync_timeseries_recalculation(
         total_metrics=len(metric_uuids),
     )
     return str(recalculation.id)
-
-
-def _copy_points(
-    experiment: Experiment,
-    window: datetime,
-    points: dict[str, tuple[str, ExperimentMetricResult]],
-    now: datetime,
-) -> None:
-    for metric_uuid, (recalc_fp, row) in points.items():
-        ExperimentMetricResult.objects.update_or_create(
-            experiment=experiment,
-            metric_uuid=metric_uuid,
-            query_to=window,
-            defaults={
-                "fingerprint": recalc_fp,
-                "query_from": experiment.start_date,
-                "status": ExperimentMetricResult.Status.COMPLETED,
-                "result": row.result,
-                "query_id": None,
-                "completed_at": now,
-                "error_message": None,
-            },
-        )
