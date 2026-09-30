@@ -293,6 +293,7 @@ class TestValidationChecks(SimpleTestCase):
             ("protocol_relative_external_is_ignored", "[a](//rival.example/x)", True),
             ("protocol_relative_same_site_unknown", "[a](//example.com/nope)", False),
             ("relative_unknown", "[a](/nope)", False),
+            ("malformed_authority", "[a](//[)", False),
         ]
     )
     def test_internal_links(self, _name: str, markdown: str, passed: bool) -> None:
@@ -306,6 +307,7 @@ class TestValidationChecks(SimpleTestCase):
             ("researched_site_page", "site", "https://www.example.com/pricing/", True),
             ("relative_site_page", "site", "/pricing", True),
             ("same_path_on_another_site", "site", "https://rival.example/pricing", False),
+            ("malformed_url", "site", "https://[", False),
         ]
     )
     def test_claims_must_cite_a_researched_page(self, _name: str, ledger: str, source_url: str, passed: bool) -> None:
@@ -364,6 +366,7 @@ class TestValidationChecks(SimpleTestCase):
             ("existing_page", "/pricing/", SITE_PAGES, False),
             ("parent_segment_hiding_an_existing_page", "/docs/../pricing", SITE_PAGES, False),
             ("not_root_relative", "docs/new-page", SITE_PAGES, False),
+            ("malformed_authority", "//[", SITE_PAGES, False),
             ("unread_sitemap", "/docs/new-page", [], True),
         ]
     )
@@ -378,6 +381,11 @@ class TestValidationChecks(SimpleTestCase):
                 True,
             ),
             ("article_with_headline", '{"@context": "https://schema.org", "@type": "Article", "headline": "A"}', True),
+            (
+                "article_listed_in_a_type_array",
+                '{"@context": "https://schema.org", "@type": ["Article"], "headline": "A"}',
+                True,
+            ),
             ("unrelated_type", '{"@context": "https://schema.org", "@type": "Recipe", "headline": "A"}', False),
             ("faq_page_without_questions", '{"@context": "https://schema.org", "@type": "FAQPage"}', False),
         ]

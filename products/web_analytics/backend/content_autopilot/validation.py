@@ -1,7 +1,7 @@
 import re
 import json
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 from posthog.dataclasses import frozen
 
@@ -50,8 +50,21 @@ def _normalize_path(path: str) -> str:
     return stripped or "/"
 
 
+def _parse(url: str) -> ParseResult | None:
+    try:
+        return urlparse(url)
+    except ValueError:
+        return None
+
+
 def _url_path(url: str) -> str:
-    return _normalize_path(urlparse(url).path)
+    parsed = _parse(url)
+    return _normalize_path(parsed.path if parsed else url)
+
+
+def _has_host(url: str) -> bool:
+    parsed = _parse(url)
+    return bool(parsed and parsed.netloc)
 
 
 def _summarize(items: list[str]) -> str:
@@ -154,7 +167,10 @@ def check_internal_links(markdown: str, *, site_origin: str, site_urls: list[str
     known_paths = {_url_path(url) for url in site_urls}
     broken: list[str] = []
     for target in LINK_RE.findall(markdown):
-        parsed = urlparse(target)
+        parsed = _parse(target)
+        if parsed is None:
+            broken.append(target)
+            continue
         if parsed.netloc:
             absolute = target if parsed.scheme else f"https:{target}"
             if parsed.scheme not in {"", "http", "https"} or site_host(absolute) != host:
@@ -206,6 +222,16 @@ def check_competitor_overlap(markdown: str, research: ResearchBundle) -> Validat
     )
 
 
+def _has_expected_json_ld(document: dict[str, Any]) -> bool:
+    declared = document.get("@type")
+    types = (
+        {declared} if isinstance(declared, str) else set(map(str, declared)) if isinstance(declared, list) else set()
+    )
+    if not document.get("@context") or not types & STRUCTURED_DATA_TYPES:
+        return False
+    return bool(document.get("mainEntity") if "FAQPage" in types else document.get("headline"))
+
+
 def check_structured_data(json_ld: str) -> ValidationCheck:
     label = "Structured data"
     if not json_ld.strip():
@@ -226,12 +252,7 @@ def check_structured_data(json_ld: str) -> ValidationCheck:
             message="The JSON-LD isn't valid JSON.",
             blocking=True,
         )
-    valid = (
-        isinstance(parsed, dict)
-        and bool(parsed.get("@context"))
-        and parsed.get("@type") in STRUCTURED_DATA_TYPES
-        and bool(parsed.get("mainEntity") if parsed.get("@type") == "FAQPage" else parsed.get("headline"))
-    )
+    valid = isinstance(parsed, dict) and _has_expected_json_ld(parsed)
     return ValidationCheck(
         check_key="structured_data",
         label=label,
@@ -248,7 +269,7 @@ def check_url_available(url_path: str, *, is_new_page: bool, site_urls: list[str
         return ValidationCheck(
             check_key="url", label="Page URL", passed=True, message="This updates an existing page.", blocking=True
         )
-    segments = urlparse(url_path).path.split("/")
+    segments = url_path.split("?", 1)[0].split("#", 1)[0].split("/")
     well_formed = (
         url_path.startswith("/") and not url_path.startswith("//") and "." not in segments and ".." not in segments
     )
@@ -296,7 +317,7 @@ def check_ledger_sources(
     outside = [
         url
         for url in site_sources
-        if (_page_key(url) not in site_pages if urlparse(url).netloc else _url_path(url) not in site_paths)
+        if (_page_key(url) not in site_pages if _has_host(url) else _url_path(url) not in site_paths)
     ]
     outside += [url for url in competitor_sources if _page_key(url) not in researched_pages]
     return ValidationCheck(
