@@ -1105,6 +1105,11 @@
             "examples": ["Apple", "Samsung"],
             "label": "Device manufacturer"
         },
+        "$device_marketing_name": {
+            "description": "The marketing name of the device model, such as iPhone 14 Pro. Set by the Device marketing names transformation.",
+            "examples": ["iPhone 14 Pro", "iPad (10th generation)"],
+            "label": "Device marketing name"
+        },
         "$device_model": {
             "description": "The model of the device that was used.",
             "examples": ["iPhone9,3", "SM-G965W"],
@@ -4965,6 +4970,11 @@
             "description": "The manufacturer of the device",
             "examples": ["Apple", "Samsung"],
             "label": "Device manufacturer"
+        },
+        "$device_marketing_name": {
+            "description": "The marketing name of the device model, such as iPhone 14 Pro. Set by the Device marketing names transformation.",
+            "examples": ["iPhone 14 Pro", "iPad (10th generation)"],
+            "label": "Device marketing name"
         },
         "$device_model": {
             "description": "The model of the device that was used.",

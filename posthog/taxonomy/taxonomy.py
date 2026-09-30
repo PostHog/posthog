@@ -1969,6 +1969,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The model of the device that was used.",
             "examples": ["iPhone9,3", "SM-G965W"],
         },
+        "$device_marketing_name": {
+            "label": "Device marketing name",
+            "description": "The marketing name of the device model, such as iPhone 14 Pro. Set by the Device marketing names transformation.",
+            "examples": ["iPhone 14 Pro", "iPad (10th generation)"],
+        },
         "$network_wifi": {
             "label": "Network WiFi",
             "description": "Whether the user was on WiFi when the event was sent.",
