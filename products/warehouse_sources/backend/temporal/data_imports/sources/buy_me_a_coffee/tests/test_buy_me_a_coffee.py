@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 from unittest.mock import MagicMock, patch
@@ -124,7 +125,7 @@ class TestBuyMeACoffee(SimpleTestCase):
         manager = self.source.get_resumable_source_manager(self.inputs)
         response = self.source.source_for_pipeline(self.config, manager, self.inputs)
 
-        assert list(response.items()) == [[rows[0]], [rows[1]]]
+        assert list(cast(Iterable[Any], response.items())) == [[rows[0]], [rows[1]]]
         assert response.primary_keys == [primary_key]
         assert response.partition_keys == [created_field]
         assert self.send.call_count == 2
@@ -142,7 +143,7 @@ class TestBuyMeACoffee(SimpleTestCase):
         response = self.source.source_for_pipeline(
             self.config, self.source.get_resumable_source_manager(self.inputs), self.inputs
         )
-        assert list(response.items()) == ([rows] if rows else [])
+        assert list(cast(Iterable[Any], response.items())) == ([rows] if rows else [])
         assert self.send.call_count == 1
 
     def test_unexpected_envelope_fails_instead_of_erasing_data(self) -> None:
@@ -151,7 +152,7 @@ class TestBuyMeACoffee(SimpleTestCase):
             self.config, self.source.get_resumable_source_manager(self.inputs), self.inputs
         )
         with self.assertRaisesRegex(ValueError, "matched nothing"):
-            list(response.items())
+            list(cast(Iterable[Any], response.items()))
 
     def test_unknown_table_fails_before_http(self) -> None:
         self.inputs.schema_name = "unknown"
@@ -211,7 +212,7 @@ class TestBuyMeACoffee(SimpleTestCase):
         manager.commit()
         self.respond([{"data": [{"subscription_id": 100}], "current_page": 3, "last_page": 3}])
         response = self.source.source_for_pipeline(self.config, manager, self.inputs)
-        assert list(response.items()) == [[{"subscription_id": 100}]]
+        assert list(cast(Iterable[Any], response.items())) == [[{"subscription_id": 100}]]
         assert parse_qs(urlsplit(self.requests[0].url or "").query) == {"page": ["3"], "status": ["all"]}
 
     def test_checkpoint_is_staged_after_yield_and_committed_after_writes(self) -> None:
@@ -223,7 +224,7 @@ class TestBuyMeACoffee(SimpleTestCase):
         )
         manager = self.source.get_resumable_source_manager(self.inputs)
         response = self.source.source_for_pipeline(self.config, manager, self.inputs)
-        pages = iter(response.items())
+        pages = iter(cast(Iterable[Any], response.items()))
         assert next(pages) == [{"support_id": 2}]
         assert not manager.has_staged_state()
         assert next(pages) == [{"support_id": 1}]
