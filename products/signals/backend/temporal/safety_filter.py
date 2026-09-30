@@ -1,23 +1,28 @@
 import re
 import json
 import uuid
+import hashlib
 import datetime
 from dataclasses import dataclass, field
 from typing import Optional
 
+from django.core.exceptions import ImproperlyConfigured
+
 import structlog
 import posthoganalytics
 from pydantic import BaseModel, Field, model_validator
+from redis.exceptions import RedisError
 from temporalio import activity
 
 from posthog.event_usage import groups
 from posthog.models import Team
+from posthog.redis import get_async_client
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import _telemetry_props_from_extra
-from products.signals.backend.system_one_decision import run_model_decision
-from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
+from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
+from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.llm import SAFETY_MODEL, EmptyLLMResponseError, call_llm
 
@@ -113,7 +118,7 @@ SCOUT_SOURCE_PRODUCT = "signals_scout"
 
 # The safety-filter judge scout selects blocked-signal spans by this name.
 BLOCKED_SIGNAL_SPAN_NAME = "safety_filter_block"
-
+SAFETY_CACHE_TTL_SECONDS = 24 * 60 * 60
 _SIGNAL_TAG = re.compile(r"<(/?)signal\b", re.IGNORECASE)
 
 
@@ -130,6 +135,26 @@ def _build_safety_user_prompt(description: str, source_product: str | None, sour
     # A closing tag inside the content would end the block early and let a forged Source line follow.
     body = _SIGNAL_TAG.sub(r"&lt;\1signal", description)
     return f"Current date: {today}\nSource: {source}\n\n<signal>\n{body}\n</signal>"
+
+
+def _safe_verdict_cache_key(team_id: int, mode: ModelMode, signal_prompt: str, prompt: SystemOnePrompt) -> str:
+    # Only the generated date header changes daily; signal dates remain part of the key.
+    prompt_without_date = signal_prompt.partition("\n")[2]
+    payload = json.dumps(
+        (
+            mode,
+            SAFETY_MODEL,
+            prompt.model,
+            SAFETY_CATEGORIES,
+            prompt.threshold,
+            prompt.policy,
+            prompt.question,
+            prompt.version,
+            prompt_without_date,
+        ),
+        separators=(",", ":"),
+    )
+    return f"signals:safety:safe:v1:{team_id}:{hashlib.sha256(payload.encode()).hexdigest()}"
 
 
 @dataclass
@@ -168,6 +193,24 @@ async def safety_filter(
 
     signal_prompt = _build_safety_user_prompt(description, source_product, source_type)
     system_one_prompt = current_prompt(SIGNAL_SAFETY_SYSTEM_ONE_PROMPT)
+    if team_id is not None:
+        mode = await model_mode(team_id)
+        cache_key = _safe_verdict_cache_key(team_id, mode, signal_prompt, system_one_prompt)
+    else:
+        mode = None
+        cache_key = None
+
+    if cache_key is not None:
+        try:
+            cached_safe = await get_async_client().get(cache_key)
+        except (RedisError, ImproperlyConfigured) as error:
+            metrics.increment_safety_cache_lookup("error")
+            logger.warning("Safety verdict cache read failed", error_type=type(error).__name__)
+        else:
+            if cached_safe == b"1":
+                metrics.increment_safety_cache_lookup("hit")
+                return SafetyFilterJudgeResponse(safe=True)
+            metrics.increment_safety_cache_lookup("miss")
 
     async def sonnet_verdict(trace_id: str | None) -> SafetyFilterJudgeResponse:
         try:
@@ -201,7 +244,13 @@ async def safety_filter(
                 explanation="LLM returned empty response, potentially due to triggering a safety filter.",
             )
 
-    return await run_model_decision(
+    deciding_provider = None
+
+    def record_deciding_provider(provider: str) -> None:
+        nonlocal deciding_provider
+        deciding_provider = provider
+
+    result = await run_model_decision(
         team_id=team_id,
         stage="signal_safety",
         primary_model=SAFETY_MODEL,
@@ -217,7 +266,18 @@ async def safety_filter(
             explanation="" if safe else "System One classified the signal as unsafe.",
         ),
         traditional_category=lambda result: result.threat_type if not result.safe else "none",
+        mode_override=mode,
+        on_deciding_provider=record_deciding_provider,
     )
+
+    if cache_key is not None and result.safe and deciding_provider != "traditional_fallback":
+        try:
+            await get_async_client().setex(cache_key, SAFETY_CACHE_TTL_SECONDS, b"1")
+        except (RedisError, ImproperlyConfigured) as error:
+            metrics.increment_safety_cache_write_error()
+            logger.warning("Safety verdict cache write failed", error_type=type(error).__name__)
+
+    return result
 
 
 async def _capture_signal_blocked_event(input: SafetyFilterInput, result: SafetyFilterJudgeResponse) -> None:

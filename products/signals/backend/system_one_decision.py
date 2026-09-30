@@ -256,6 +256,7 @@ async def run_model_decision(
     system_one_result: Callable[[bool, str | None], T],
     traditional_category: Callable[[T], str | None] | None = None,
     mode_override: ModelMode | None = None,
+    on_deciding_provider: Callable[[str], None] | None = None,
 ) -> T:
     if team_id is None:
         return await traditional(None)
@@ -432,4 +433,6 @@ async def run_model_decision(
         if mode == "system-one-only":
             raise SignalsDecisionError("Signals decision returned no result")
         raise RuntimeError("Model decision returned no result")
+    if on_deciding_provider is not None:
+        on_deciding_provider(deciding_provider)
     return decision
