@@ -32,6 +32,7 @@ import {
     defaultAggregationForField,
     getBIChartFit,
     getBIDataPaneFields,
+    getBIDataSourceKey,
     getBIShelfEditorKey,
     getBISortOptions,
     isBIFieldCompatible,
@@ -236,6 +237,7 @@ export interface biEditorLogicValues {
     editorView: BIEditorView
     filteredDataPaneFields: BIDataPaneFields
     generatedQuery: BIQueryBuildResult | null
+    selectableDataSources: BIDataSource[]
     showMeOpen: boolean
     sortOptions: BISortOption[]
 }
@@ -400,6 +402,7 @@ export interface biEditorLogicMeta {
             posthogTables: DatabaseSchemaTable[],
             databaseConnectionId: string | null
         ) => BIDataSource[]
+        selectableDataSources: (availableDataSources: BIDataSource[], config: BIConfig) => BIDataSource[]
         generatedQuery: (config: BIConfig) => BIQueryBuildResult | null
         sortOptions: (config: BIConfig) => BISortOption[]
         chartFits: (config: BIConfig) => Partial<Record<ChartDisplayType, BIChartFit>>
@@ -592,6 +595,19 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 return availableTables
                     .map((table) => ({ table: table.name, connectionId: databaseConnectionId ?? undefined }))
                     .sort((first, second) => first.table.localeCompare(second.table))
+            },
+        ],
+        selectableDataSources: [
+            (selectors) => [selectors.availableDataSources, selectors.config],
+            (availableDataSources: BIDataSource[], config: BIConfig): BIDataSource[] => {
+                const source = config.source
+                // Keeps the chosen table selectable while tables load, or after it leaves the list
+                return !source ||
+                    availableDataSources.some(
+                        (candidate) => getBIDataSourceKey(candidate) === getBIDataSourceKey(source)
+                    )
+                    ? availableDataSources
+                    : [source, ...availableDataSources]
             },
         ],
         generatedQuery: [

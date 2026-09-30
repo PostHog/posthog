@@ -276,25 +276,15 @@ export const BIModeWorksheet: Story = {
         },
         msw: {
             mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                },
                 post: {
-                    '/api/environments/:team_id/query/:kind': async ({ request }: { request: Request }) => {
-                        const body = (await request.json()) as Record<string, any>
-                        if (body?.query?.kind === 'DatabaseSchemaQuery') {
-                            return [
-                                200,
-                                {
-                                    tables: {
-                                        events: {
-                                            id: 'events',
-                                            name: 'events',
-                                            type: 'posthog',
-                                            fields: BI_EVENTS_FIELDS,
-                                        },
-                                    },
-                                },
-                            ]
-                        }
-                        return [200, { errors: [], warnings: [], notices: [], isValid: true }]
+                    // The specific path wins over the catch-all query mock on the meta
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
+                        },
                     },
                 },
             },

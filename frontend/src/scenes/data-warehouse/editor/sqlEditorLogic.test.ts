@@ -2172,6 +2172,10 @@ describe('sqlEditorLogic', () => {
                 { table: 'system_metrics', connectionId: undefined },
             ])
 
+            biLogic.actions.setDataSource({ table: 'hidden_table' })
+            expect(biLogic.values.selectableDataSources[0]).toEqual({ table: 'hidden_table' })
+            expect(biLogic.values.selectableDataSources).toHaveLength(biLogic.values.availableDataSources.length + 1)
+
             biLogic.unmount()
         })
 

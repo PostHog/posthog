@@ -103,6 +103,7 @@ export function BIDataPane(): JSX.Element {
         dataPaneFieldsLoading,
         dataPaneSearch,
         filteredDataPaneFields,
+        selectableDataSources,
     } = useValues(biEditorLogic)
     const { setDataPaneSearch, setDataSource } = useActions(biEditorLogic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
@@ -133,12 +134,12 @@ export function BIDataPane(): JSX.Element {
             <div className="flex flex-col gap-1.5 p-2">
                 <LemonSearchableSelect
                     value={config.source ? getBIDataSourceKey(config.source) : undefined}
-                    options={availableDataSources.map((source) => ({
+                    options={selectableDataSources.map((source) => ({
                         value: getBIDataSourceKey(source),
                         label: source.table,
                     }))}
                     onSelect={(sourceKey) => {
-                        const source = availableDataSources.find(
+                        const source = selectableDataSources.find(
                             (candidate) => getBIDataSourceKey(candidate) === sourceKey
                         )
                         if (source) {
