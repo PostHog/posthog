@@ -166,13 +166,19 @@ def webhook_table(table: "pa.Table", client: "PaymongoClient") -> "pa.Table":
             event["data"] = json.loads(event["data"])
         attributes = event["data"]["attributes"]
         item = attributes["data"]
-        if item["type"] == "refund":
-            payment_id = item["attributes"]["payment_id"]
-            refunded.add(payment_id)
+        is_refund = item["type"] == "refund"
+        if is_refund:
+            refund_attributes = item.get("attributes")
+            payment_id = refund_attributes.get("payment_id") if isinstance(refund_attributes, dict) else None
         else:
-            payment_id = item["id"]
+            payment_id = item.get("id")
+        created_at = attributes.get("created_at")
+        if not payment_id or created_at is None:
+            continue
+        if is_refund:
+            refunded.add(payment_id)
         previous = latest.get(payment_id)
-        if previous is None or attributes["created_at"] >= previous["data"]["attributes"]["created_at"]:
+        if previous is None or created_at >= previous["data"]["attributes"]["created_at"]:
             latest[payment_id] = event
     rows = []
     for payment_id, event in latest.items():

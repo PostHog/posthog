@@ -70,7 +70,7 @@ def respond(http: MagicMock, bodies: list[dict[str, Any]], statuses: list[int] |
         response = Response()
         response.status_code = status
         response.reason = HTTPStatus(status).phrase
-        response.url = request.url
+        response.url = request.url or ""
         response.request = request
         response.headers["Content-Type"] = "application/json"
         response.headers["Retry-After"] = "0"
@@ -257,6 +257,22 @@ def test_webhook_batch_deduplicates_and_matches_poll_shape() -> None:
             "type": "payment",
         }
     ]
+
+
+def test_webhook_batch_skips_events_without_required_identifiers_or_timestamp() -> None:
+    def event(item: dict[str, Any], created_at: int | None = 1700000100) -> dict[str, Any]:
+        attributes: dict[str, Any] = {"data": item}
+        if created_at is not None:
+            attributes["created_at"] = created_at
+        return {"data": {"attributes": attributes}}
+
+    malformed = [
+        event({"type": "payment"}),
+        event({"id": "pay_one", "type": "payment"}, created_at=None),
+        event({"id": "ref_one", "type": "refund", "attributes": {}}),
+    ]
+
+    assert webhook_table(table_from_py_list(malformed), PaymongoClient("fake")).num_rows == 0
 
 
 def test_webhook_sync_does_not_poll(http: MagicMock, manager: MagicMock) -> None:
