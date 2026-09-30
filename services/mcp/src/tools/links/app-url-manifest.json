@@ -1659,6 +1659,11 @@
         "params": [],
         "scope": "project"
     },
+    "taskSpace": {
+        "template": "/spaces/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "taskTracker": {
         "template": "/tasks",
         "params": [],
