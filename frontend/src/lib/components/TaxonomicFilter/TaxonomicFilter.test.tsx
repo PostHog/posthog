@@ -240,6 +240,48 @@ describe('TaxonomicFilter', () => {
     }
 
     describe('rendering', () => {
+        it('does not tag a virtual property as "Not seen"', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': () => [
+                        200,
+                        {
+                            results: [
+                                {
+                                    ...mockEventPropertyDefinition,
+                                    id: 'virt-pathname',
+                                    name: '$pathname',
+                                    virtual: true,
+                                },
+                                {
+                                    ...mockEventPropertyDefinition,
+                                    id: 'unseen-prop',
+                                    name: 'unseen_prop',
+                                    is_seen_on_filtered_events: false,
+                                },
+                            ],
+                            count: 2,
+                        },
+                    ],
+                },
+            })
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties] })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
+            })
+
+            const virtualRow = screen.getByTestId('prop-filter-event_properties-0')
+            const unseenRow = screen.getByTestId('prop-filter-event_properties-1')
+            expect(virtualRow).toHaveTextContent('Path name')
+            expect(unseenRow).toHaveTextContent('unseen_prop')
+
+            // The virtual property has no per-event seen data, so it must not be tagged.
+            expect(virtualRow).not.toHaveTextContent('Not seen')
+            // The regular property the backend marked unseen still gets the tag.
+            expect(unseenRow).toHaveTextContent('Not seen')
+        })
+
         it('renders search input and loads results from the API', async () => {
             renderFilter()
 

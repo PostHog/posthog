@@ -106,7 +106,7 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
                 </>
             }
         >
-            <LemonTag>Stale</LemonTag>
+            <LemonTag className="ml-auto shrink-0">Stale</LemonTag>
         </Tooltip>
     )
 }
@@ -156,7 +156,9 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                 </>
             }
         >
-            <LemonTag>Not seen</LemonTag>
+            <LemonTag className="ml-auto shrink-0" data-attr="taxonomic-not-seen-tag">
+                Not seen
+            </LemonTag>
         </Tooltip>
     )
 }
@@ -268,6 +270,9 @@ const renderItemContents = ({
         (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventFeatureFlags) &&
+        // Virtual properties (e.g. $pathname) have no posthog_eventproperty row, so the
+        // backend can never mark them seen — tagging them "Not seen" would always be wrong
+        !(item as PropertyDefinition).virtual &&
         (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
         !(item as PropertyDefinition).is_seen_on_filtered_events
 
