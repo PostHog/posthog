@@ -752,6 +752,16 @@ def get_replay_listing_throttle_error(request, view) -> str | None:
     return None
 
 
+class SessionRecordingAtCapacity(Throttled):
+    wait: int
+    default_detail = "ClickHouse is at capacity. Try again later."
+
+    def __init__(self, *, wait: int) -> None:
+        # Passing wait to Throttled's constructor also changes the response body.
+        super().__init__()
+        self.wait = wait
+
+
 class SharingTokenReplayThrottle(SimpleRateThrottle):
     """Per-token cap for replay endpoints reached via a sharing-token authenticator."""
 
@@ -929,10 +939,7 @@ class SessionRecordingViewSet(
                     return response
         except ClickHouseAtCapacity as e:
             _count_session_recording_throttled(location="clickhouse_at_capacity", auth_type=auth_type)
-            error = Throttled(detail="ClickHouse is at capacity. Try again later.")
-            # Passing wait to Throttled's constructor also changes the response body.
-            error.wait = e.wait
-            raise error from e
+            raise SessionRecordingAtCapacity(wait=e.wait) from e
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             # A bad filter or query (e.g. a property referencing a field that doesn't exist on the
             # event) is the caller's problem, not a server error. Surface the actual reason as a 400

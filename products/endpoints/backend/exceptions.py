@@ -13,6 +13,7 @@ class EndpointQueryTooExpensive(APIException):
 class EndpointAtCapacity(APIException):
     """Shared ClickHouse pool momentarily at capacity — transient; materializing gives isolated compute."""
 
+    wait: int
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "query_capacity"
     default_detail = (
