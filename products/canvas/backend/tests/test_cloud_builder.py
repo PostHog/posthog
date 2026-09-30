@@ -306,6 +306,8 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         # late host side effects. The runtime timer is only a backstop: it must
         # outlast the host's 90s guard, which gives a cold query time to compute,
         # and must not run while the host waits on a viewer's connector consent.
+        # Before connect every call has a timer, and connect restarts it, so a
+        # slow iframe load cannot use up a request's budget.
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 
         runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
@@ -329,7 +331,13 @@ class TestCanvasCloudBuilder(SimpleTestCase):
                 'window.ph.query("SELECT expired").catch(() => {});',
                 "timers.get(timerId)();",
                 'window.ph.query("SELECT 1");',
+                "const queuedQueryTimer = timerId;",
+                'window.ph.connectors.call("github", "list_issues").catch(() => {});',
+                "const queuedConnectorTimer = timerId;",
+                'if (queuedConnectorTimer === queuedQueryTimer) { console.error("pre-connect connector call has no backstop"); process.exit(1); }',
                 'for (const fn of listeners.message) fn({ source: parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [port] });',
+                'if (timers.has(queuedQueryTimer) || timers.has(queuedConnectorTimer)) { console.error("connect kept the pre-connect timers"); process.exit(1); }',
+                'if (timerId !== queuedConnectorTimer + 1 || !(delays.get(timerId) > 90000)) { console.error("connect did not re-arm the queued query"); process.exit(1); }',
                 'const requests = received.filter((m) => m.type === "data-request" && m.method === "query");',
                 'if (!requests.some((m) => m.payload.hogql === "SELECT 1")) { console.error("pre-connect request was dropped"); process.exit(1); }',
                 'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
