@@ -1,12 +1,19 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.api.app_metrics2 import fetch_app_metric_totals
+from parameterized import parameterized
+from rest_framework import serializers
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
+
+from posthog.api.app_metrics2 import AppMetricsMixin, AppMetricsRequestSerializer, MetricSeries, fetch_app_metric_totals
 from posthog.test.fixtures import create_app_metric2
 
 
@@ -65,3 +72,44 @@ class TestAppMetrics2Timezone(ClickhouseTestMixin, BaseTest):
         # for negative offsets it pulls in the earlier row, for positive ones it drops both.
         # `fetch_app_metrics_trends` shares the identical conversion, so this guards it too.
         assert result.totals == {"success": 1}, tz_name
+
+
+class _PlainViewSet(AppMetricsMixin):
+    app_source = "hog_function"
+
+
+class _VersionedRequestSerializer(AppMetricsRequestSerializer):
+    version = serializers.IntegerField(required=False)
+
+
+class _VersionedViewSet(AppMetricsMixin):
+    app_source = "hog_flow_ish"
+    metrics_request_serializer_class = _VersionedRequestSerializer
+
+
+class TestAppMetricsMixinSeries(SimpleTestCase):
+    def _request(self, **params: str) -> Request:
+        return Request(APIRequestFactory().get("/", params))  # ty: ignore[invalid-return-type]
+
+    @parameterized.expand(
+        [
+            ("declared", _VersionedViewSet, True),
+            ("undeclared", _PlainViewSet, False),
+        ]
+    )
+    def test_a_narrowing_parameter_is_refused_unless_the_endpoint_declares_it(
+        self, _name: str, viewset_class: type[AppMetricsMixin], accepted: bool
+    ) -> None:
+        if accepted:
+            assert viewset_class()._metrics_params(self._request(version="2")).is_valid()
+            return
+        with pytest.raises(serializers.ValidationError) as err:
+            viewset_class()._metrics_params(self._request(version="2"))
+        assert "version" in err.value.detail
+
+    def test_an_undeclared_parameter_that_narrows_nothing_is_still_ignored(self) -> None:
+        assert _PlainViewSet()._metrics_params(self._request(nonsense="1")).is_valid()
+
+    def test_the_default_series_is_the_object_s_own_whole_history(self) -> None:
+        series = _PlainViewSet()._metric_series_for(SimpleNamespace(id="fn-1"), {"version": 2})
+        assert series == MetricSeries(app_source="hog_function", app_source_id="fn-1")
