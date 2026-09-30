@@ -42,7 +42,7 @@ A run dispatched for a check says so at the end of your prompt, in a `# The chec
 
 Three rules specific to that mode:
 
-- **Record what you established, not what tidies up.** `passed` means the expectation still holds, `failed` means it does not and retires the check, and `errored` means you could not settle it either way. An `errored` verdict that says what blocked you is more useful than a guess, because the check retries after one.
+- **Record what you established, not what tidies up.** Record `passed` or `failed` when the evidence meets the bar the check states, and do not ask for more certainty than the check asks for. `failed` retires the check. Record `inconclusive` with a `reason` when your tools worked but the evidence cannot settle the question. Record `errored` only when a tool, a query, or a model call failed. An honest `inconclusive` that says what is missing is more useful than a guess.
 - **The explanation is read by a person on the report.** Write the numbers or entities you actually looked at, the way you would write a report's evidence line, not "validated, looks fine".
 - **A failed check is not automatically a report.** The verdict lands on the report by itself. Author a fresh report on top only when the failure is a live problem worth someone's attention now, by the same bar the rest of this skill applies. Say in your close-out what you recorded and whether you also filed anything.
 
@@ -113,7 +113,7 @@ One more sweep: a fix can fail before the check you just attached ever runs. A r
 
 The checks are the main layer. This is the second, independent one, and it is cheap because several fit in one run. A check tests the expectation its author wrote down when the report was fresh; a spot check re-derives the probes today, with the sibling reports and fresh signals in view, so the two fail differently. It is also the only thing that measures the checks: a spot check that fails on a report whose check passed is a false pass, and nothing else can find one.
 
-**Cap 2 per run**, after the checks are attached, and only when budget remains. Pick from resolved reports whose merge is past its soak and that carry **no active check**: either every check on the report has finished (`scout-report-check-list` shows `passed`, `failed`, `errored`, or `expired`), or it never got one. Prefer a report whose check `passed`, since agreement there is what you are testing, and vary the pick across runs rather than taking the newest each time. Never spot-check a report with a check still `active` or `pending`: that verdict is on its way. Never spot-check one with a fresh `failed` verdict either, or one covered by a `dedupe:` / `report:` / `noise:` / `spotcheck:` entry: the failure is already on the report, or you already looked.
+**Cap 2 per run**, after the checks are attached, and only when budget remains. Pick from resolved reports whose merge is past its soak and that carry **no active check**: either every check on the report has finished (`scout-report-check-list` shows `passed`, `failed`, `errored`, `inconclusive`, or `expired`), or it never got one. Prefer a report whose check `passed`, since agreement there is what you are testing, and vary the pick across runs rather than taking the newest each time. Never spot-check a report with a check still `active` or `pending`: that verdict is on its way. Never spot-check one with a fresh `failed` verdict either, or one covered by a `dedupe:` / `report:` / `noise:` / `spotcheck:` entry: the failure is already on the report, or you already looked.
 
 Re-derive the probes from the report's signals and metrics as the attach steps describe, measure the baseline and the post-soak window yourself, and do not read the check's own numbers first. Then run the probe ladder below and land on a row of the verdict table. A spot check records nothing on the check: it writes a `spotcheck:` entry, authors a report only for a failed verdict by the rules in Decide, and writes `spotcheck-disagree:` when its verdict contradicts a passed check, saying what the check measured and what you measured. Run the sibling-report and `related_to` sweep before authoring, the same as for a dispatched check.
 
@@ -134,20 +134,24 @@ The dispatch section at the top of this file says when you are in this mode. Run
 
 ### Verdict table
 
-| Post-soak observation                                                         | Verdict            | Action                                                                    |
-| ----------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------- |
-| Entities quiet / rate at or near zero vs baseline                             | **Held**           | `passed`; close-out sentence                                              |
-| Rate down materially but nonzero, with a declining tail                       | Deploy lag         | `errored`, saying the fix is still landing — the check looks again itself |
-| Same entity firing at a comparable-to-baseline rate, flat or rising           | **Failed**         | `failed`; author a report when it is worth attention now                  |
-| Entities quiet but fresh signals / a sibling report describe the same problem | **Failed (moved)** | `failed`; author on the weaker basis, citing both reports                 |
-| Surface has no fresh traffic at all (quiet ≠ fixed — check a denominator)     | Inconclusive       | `errored`, naming the missing denominator                                 |
-| Baseline too small to measure (a handful of occurrences ever)                 | Held (weak)        | `passed`, saying the basis is weak                                        |
+| Post-soak observation                                                         | Verdict            | Action                                                                               |
+| ----------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------ |
+| Entities quiet / rate at or near zero vs baseline                             | **Held**           | `passed`; close-out sentence                                                         |
+| Rate down materially but nonzero, with a declining tail                       | Deploy lag         | `inconclusive`, reason `awaiting_data`, saying the fix is still landing              |
+| Same entity firing at a comparable-to-baseline rate, flat or rising           | **Failed**         | `failed`; author a report when it is worth attention now                             |
+| Entities quiet but fresh signals / a sibling report describe the same problem | **Failed (moved)** | `failed`; author on the weaker basis, citing both reports                            |
+| Surface has no fresh traffic at all (quiet ≠ fixed — check a denominator)     | Inconclusive       | `inconclusive`, reason `awaiting_data`, naming the missing denominator               |
+| The data the check needs is not captured anywhere you can query               | Unmeasurable       | `inconclusive`, reason `unmeasurable`, naming what is missing                        |
+| Only a person, a device, or another environment can verify the claim          | Manual             | `inconclusive`, reason `needs_manual_verification`, naming who or what can verify it |
+| Nothing was changed to fix the claim, so no window after a fix exists         | No fix             | `inconclusive`, reason `no_fix_to_measure`                                           |
+| A tool, a query, or a model call failed and stopped the probe                 | Errored            | `errored`, naming the failure                                                        |
+| Baseline too small to measure (a handful of occurrences ever)                 | Held (weak)        | `passed`, saying the basis is weak                                                   |
 
 Tiny baselines are common on auto-generated fix reports — a single transient error becomes a report, a PR, and a resolution. Post-fix silence can't strongly confirm those; record them as passed with the weak basis stated rather than claiming validation you don't have. The one strong signal a tiny baseline _can_ give: the exact fingerprint recurring post-soak after a fix that specifically targeted it — that's report-worthy, P3.
 
-An `errored` verdict re-arms the same check about six hours out and costs it one of its three retries, so use it for a look that could settle later (deploy lag, no denominator yet) and not for one that never will. Attaching a second check to buy more soak only doubles the runs, because the original is still active.
+An `awaiting_data` verdict looks again after 24 hours, then 72 hours, then 7 days, and then ends the check as `inconclusive`. It does not spend the error budget. Every other `inconclusive` reason ends the check at once, so use `awaiting_data` only for a look that could settle later (deploy lag, no denominator yet). An `errored` verdict re-arms the check about six hours out and costs it one of its three retries, so keep it for a real failure. Attaching a second check to buy more soak only doubles the runs, because the original is still active.
 
-On a spot check the same rows map to memory instead of a check verdict: **Held** and **Held (weak)** are a `spotcheck:` entry; **Failed** and **Failed (moved)** are a `spotcheck:` entry plus a report by the rules in Decide; **Deploy lag** and **Inconclusive** are a `spotcheck:` entry saying why, with no second pass, because the report's own check is the one that looks again.
+On a spot check the same rows map to memory instead of a check verdict: **Held** and **Held (weak)** are a `spotcheck:` entry; **Failed** and **Failed (moved)** are a `spotcheck:` entry plus a report by the rules in Decide; the rows with reason `awaiting_data` (**Deploy lag**, and **Inconclusive** with no denominator yet) attach an `agent` check by step 5 of the attach phase, with `next_run_at` = now + 24h and the baseline you measured in its instructions. A spot-checked report carries no active check, so this new check is the only thing that looks again later. Then write a `spotcheck:` entry that names the check. The other inconclusive rows are a `spotcheck:` entry saying why, with no second pass, because waiting does not help.
 
 ### Save memory as you go
 

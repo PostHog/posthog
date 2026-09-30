@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -6,14 +8,21 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.feature_flags.backend import flag_evaluations_mode
 from products.feature_flags.backend.api.staff_team_config import (
+    MAX_IDS_PER_MODE_WRITE,
     MAX_TEAM_IDS_PER_QUERY,
+    StaffFlagEvaluationsModeMutationSerializer,
     StaffTeamConfigMutationSerializer,
 )
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.team_feature_flags_config import (
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
     PropertyMatchingVersion,
@@ -22,6 +31,7 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
 
 LIST_URL = "/api/feature_flags_staff_team_config/"
 SET_URL = "/api/feature_flags_staff_team_config/set/"
+SET_FLAG_EVALUATIONS_MODE_URL = "/api/feature_flags_staff_team_config/set_flag_evaluations_mode/"
 
 
 def _list_url(team_ids: list[int]) -> str:
@@ -35,7 +45,20 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-    def test_non_staff_user_gets_403_on_list_and_set(self):
+    def _stored_modes(self, *organizations: Organization) -> list[int | None]:
+        stored: dict[UUID, int] = dict(
+            OrganizationFeatureFlagsConfig.objects.filter(organization__in=organizations).values_list(
+                "organization_id", "flag_evaluations_mode"
+            )
+        )
+        return [stored.get(organization.id) for organization in organizations]
+
+    def _store_mode(self, organization: Organization, mode: FlagEvaluationsMode) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=organization, defaults={"flag_evaluations_mode": mode}
+        )
+
+    def test_non_staff_user_gets_403_on_every_endpoint(self):
         self.user.is_staff = False
         self.user.save()
 
@@ -46,6 +69,14 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
             SET_URL, {"team_id": self.team.id, "minimal_flag_called_events": True}, format="json"
         )
         self.assertEqual(set_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        mode_response = self.client.post(
+            SET_FLAG_EVALUATIONS_MODE_URL,
+            {"flag_evaluations_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS, "team_ids": [self.team.id]},
+            format="json",
+        )
+        self.assertEqual(mode_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(get_organization_flag_evaluations_mode(self.organization.id), FlagEvaluationsMode.EVENTS)
 
     def test_list_returns_config_for_existing_teams_and_skips_unknown_ids(self):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -58,6 +89,9 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         )
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-1", filters={"groups": []})
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-2", filters={"groups": []})
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
 
         missing_id = other_team.id + 9999
         response = self.client.get(_list_url([self.team.id, other_team.id, missing_id]))
@@ -69,6 +103,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 row["property_matching_version"],
                 row["max_feature_flags_override"],
                 row["effective_max_feature_flags"],
+                row["flag_evaluations_mode"],
                 row["feature_flag_count"],
             )
             for row in response.json()["results"]
@@ -80,15 +115,16 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(
             results,
             {
-                self.team.id: (False, 1, None, 2000, 0),
-                other_team.id: (True, 2, 5000, 5000, 2),
+                self.team.id: (False, 1, None, 2000, 1, 0),
+                other_team.id: (True, 2, 5000, 5000, 1, 2),
             },
         )
 
     def test_list_defaults_to_false_when_config_row_is_missing(self):
-        # Models a legacy team that predates this extension (no auto-created row). list() must
-        # fall back to defaults rather than 500ing on the missing row.
+        # Models a legacy team and organization that predate these extensions (no auto-created rows).
+        # list() must fall back to defaults rather than 500ing on the missing rows.
         TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).delete()
 
         response = self.client.get(_list_url([self.team.id]))
 
@@ -102,6 +138,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                     "property_matching_version": 1,
                     "max_feature_flags_override": None,
                     "effective_max_feature_flags": 2000,
+                    "flag_evaluations_mode": 0,
                     "feature_flag_count": 0,
                 }
             ],
@@ -120,6 +157,10 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
 
     @parameterized.expand([(True,), (False,)])
     def test_set_updates_db_value_and_enqueues_cache_refresh_tasks(self, new_value):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
+
         with (
             patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_metadata_task,
             patch("products.feature_flags.backend.tasks.update_team_flags_cache") as mock_flags_task,
@@ -137,6 +178,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 "property_matching_version": 1,
                 "max_feature_flags_override": None,
                 "effective_max_feature_flags": 2000,
+                "flag_evaluations_mode": 1,
                 "feature_flag_count": 0,
             },
         )
@@ -352,6 +394,130 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["max_feature_flags_override"], 5000)
         self.assertEqual(response.json()["effective_max_feature_flags"], 5000)
+
+    @parameterized.expand(
+        [
+            ("raises_the_organization_below_the_mode", False, False, [1, 2], (True, False), (False, True)),
+            ("dry_run_writes_nothing", True, False, [None, 2], (True, False), (False, True)),
+            ("allow_downgrade_lowers_the_organization_above", False, True, [1, 1], (True, True), (False, False)),
+        ]
+    )
+    def test_set_flag_evaluations_mode_moves_the_organizations_of_the_teams(
+        self, _name, dry_run, allow_downgrade, expected_modes, expected_changed, expected_left_above_mode
+    ):
+        # The staff UI previews every change with dry_run, so a view that dropped dry_run on the way to
+        # the helper would write on every preview. A view that dropped allow_downgrade would never
+        # lower the organization on mode 2.
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).delete()
+        sibling = Team.objects.create(organization=self.organization, name="Sibling")
+        Team.objects.create(organization=self.organization, name="Not requested")
+        above_organization = Organization.objects.create(name="Above")
+        above_team = Team.objects.create(organization=above_organization, name="Above team")
+        self._store_mode(above_organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+
+        response = self.client.post(
+            SET_FLAG_EVALUATIONS_MODE_URL,
+            {
+                "flag_evaluations_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                "team_ids": [above_team.id, self.team.id, sibling.id],
+                "dry_run": dry_run,
+                "allow_downgrade": allow_downgrade,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._stored_modes(self.organization, above_organization), expected_modes)
+        self.assertEqual(
+            response.json(),
+            {
+                "flag_evaluations_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                "dry_run": dry_run,
+                "organizations": [
+                    {
+                        "organization_id": str(self.organization.id),
+                        "organization_name": self.organization.name,
+                        "team_count": 3,
+                        "current_mode": FlagEvaluationsMode.EVENTS,
+                        "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                        "changed": expected_changed[0],
+                        "left_above_mode": expected_left_above_mode[0],
+                    },
+                    {
+                        "organization_id": str(above_organization.id),
+                        "organization_name": above_organization.name,
+                        "team_count": 1,
+                        "current_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                        "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                        "changed": expected_changed[1],
+                        "left_above_mode": expected_left_above_mode[1],
+                    },
+                ],
+            },
+        )
+
+    def test_set_flag_evaluations_mode_writes_no_organization_when_a_later_one_fails(self):
+        # The helper opens no transaction, so only the view's transaction keeps an earlier
+        # organization from staying written after a later one fails.
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).delete()
+        newer_organization = Organization.objects.create(name="Newer organization")
+        newer_team = Team.objects.create(organization=newer_organization, name="Newer team")
+        OrganizationFeatureFlagsConfig.objects.filter(organization=newer_organization).delete()
+        original_upsert = flag_evaluations_mode._upsert_mode
+        upserts = 0
+
+        # Organizations are written oldest first, so the second upsert belongs to the newer one.
+        def fail_on_second_upsert(*args, **kwargs) -> bool:
+            nonlocal upserts
+            upserts += 1
+            if upserts == 2:
+                raise RuntimeError("write failed")
+            return original_upsert(*args, **kwargs)
+
+        with patch.object(flag_evaluations_mode, "_upsert_mode", side_effect=fail_on_second_upsert):
+            response = self.client.post(
+                SET_FLAG_EVALUATIONS_MODE_URL,
+                {
+                    "flag_evaluations_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                    "team_ids": [self.team.id, newer_team.id],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(upserts, 2)
+        self.assertEqual(self._stored_modes(self.organization, newer_organization), [None, None])
+
+    def test_set_flag_evaluations_mode_rejects_an_unknown_id_before_writing(self):
+        missing_team_id = self.team.id + 9999
+
+        response = self.client.post(
+            SET_FLAG_EVALUATIONS_MODE_URL,
+            {
+                "flag_evaluations_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                "team_ids": [self.team.id, missing_team_id],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn(str(missing_team_id), response.json()["detail"])
+        self.assertEqual(get_organization_flag_evaluations_mode(self.organization.id), FlagEvaluationsMode.EVENTS)
+
+
+class TestStaffFlagEvaluationsModeMutationSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("too_many", {"team_ids": list(range(1, MAX_IDS_PER_MODE_WRITE + 2))}),
+        ]
+    )
+    def test_rejects_invalid_team_ids(self, _name, body):
+        serializer = StaffFlagEvaluationsModeMutationSerializer(
+            data={"flag_evaluations_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS, **body}
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("team_ids", serializer.errors)
 
 
 class TestStaffTeamConfigMutationSerializerBounds(SimpleTestCase):

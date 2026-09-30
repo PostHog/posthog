@@ -205,14 +205,16 @@ class TestGetTeamIdsForAIObservability:
     async def test_guaranteed_teams_ordered_before_sampled(self, mock_get_teams, mock_ff):
         # High guaranteed id placed ahead of a lower sampled id proves ordering is by
         # guaranteed-first, not global sort — the coordinator must reach allowlisted
-        # teams before it exhausts its run budget on the sampled tail.
+        # teams before it exhausts its run budget on the sampled tail. The sampled tail
+        # keeps the order random.sample returned, so the tail is not always the newest teams.
         mock_ff.return_value = {"guaranteed_team_ids": [9000], "sample_percentage": 1.0}
         mock_get_teams.return_value = [5555, 3333, 7777]
         inputs = TeamDiscoveryInput()
 
-        result = await get_team_ids_for_ai_observability(inputs)
+        with patch("posthog.temporal.ai_observability.team_discovery.random.sample", return_value=[7777, 3333, 5555]):
+            result = await get_team_ids_for_ai_observability(inputs)
 
-        assert result == [9000, 3333, 5555, 7777]
+        assert result == [9000, 7777, 3333, 5555]
 
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_zero_sample_returns_only_guaranteed(self, mock_get_teams, mock_ff):

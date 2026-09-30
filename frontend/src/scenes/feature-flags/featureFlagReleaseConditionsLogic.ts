@@ -741,15 +741,29 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.calculateBlastRadius()
             }
         },
-        duplicateConditionSet: async ({ index }, breakpoint) => {
+        duplicateConditionSet: ({ index }) => {
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
-            if (newGroup?.sort_key) {
-                actions.openCondition(newGroup.sort_key)
+            if (!newGroup?.sort_key) {
+                return
             }
-            await breakpoint(1000) // in ms
+            actions.openCondition(newGroup.sort_key)
             const sourceSortKey = values.filters.groups[index]?.sort_key
-            const valueForSourceCondition = sourceSortKey ? values.affectedCounts[sourceSortKey] : undefined
-            actions.setAffectedCount(newGroup.sort_key, valueForSourceCondition)
+            const affected = sourceSortKey ? values.affectedCounts[sourceSortKey] : undefined
+            const total = sourceSortKey ? values.totalCounts[sourceSortKey] : undefined
+            if (affected !== undefined && total !== undefined) {
+                actions.setAffectedCount(newGroup.sort_key, affected)
+                actions.setTotalCount(newGroup.sort_key, total)
+                return
+            }
+            // The source is still loading or its estimate failed, so the copy needs its own estimate
+            actions.calculateBlastRadiusForCondition(
+                newGroup.sort_key,
+                newGroup.properties,
+                resolveAggregationGroupTypeIndex(
+                    newGroup.aggregation_group_type_index,
+                    values.filters?.aggregation_group_type_index
+                )
+            )
         },
         updateConditionSet: async ({ index, newProperties }, breakpoint) => {
             const group: FeatureFlagGroupTypeWithSortKey | undefined = values.filters.groups[index]
