@@ -72,6 +72,11 @@ def _normalize_timestamps(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _normalize_call(row: dict[str, Any]) -> dict[str, Any]:
+    row.pop("access_token", None)
+    return _normalize_timestamps(row)
+
+
 def get_resource(
     name: str,
     api_version: str,
@@ -92,7 +97,7 @@ def get_resource(
                 cursor_path="pagination_key", cursor_param="pagination_key", param_location=settings.pagination_location
             )
         )
-        pagination = {"limit": 1 if probe else PAGE_SIZE, "sort_order": "ascending"}
+        pagination: dict[str, Any] = {"limit": 1 if probe else PAGE_SIZE, "sort_order": "ascending"}
         if settings.pagination_location == "json":
             endpoint["json"] = pagination
             if should_use_incremental_field and name in INCREMENTAL_FIELDS and watermark is not None:
@@ -108,7 +113,9 @@ def get_resource(
         endpoint["paginator"] = "single_page"
 
     resource: EndpointResource = {"name": name, "endpoint": endpoint, "primary_key": settings.primary_key}
-    if name in INCREMENTAL_FIELDS:
+    if name == "calls":
+        resource["data_map"] = _normalize_call
+    elif name in INCREMENTAL_FIELDS:
         resource["data_map"] = _normalize_timestamps
     return resource
 

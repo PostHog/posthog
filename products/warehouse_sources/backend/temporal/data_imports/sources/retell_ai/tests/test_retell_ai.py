@@ -86,7 +86,7 @@ def test_incremental_filters_and_timestamp_units(
     http.side_effect = [
         response(
             {
-                "items": [{"start_timestamp": 1767225600123, "end_timestamp": None}],
+                "items": [{"start_timestamp": 1767225600123, "end_timestamp": None, "access_token": "web-call-token"}],
                 "has_more": True,
                 "pagination_key": "next",
             }
@@ -103,6 +103,10 @@ def test_incremental_filters_and_timestamp_units(
     rows = list(result.items())
     assert rows[0][0]["start_timestamp"] == datetime(2026, 1, 1, 0, 0, 0, 123000, tzinfo=UTC)
     assert rows[0][0]["end_timestamp"] is None
+    if name == "calls":
+        assert "access_token" not in rows[0][0]
+    else:
+        assert rows[0][0]["access_token"] == "web-call-token"
     assert result.partition_keys == ["start_timestamp"]
     assert result.partition_mode == "datetime"
     bodies = [json.loads(call.args[1].body) for call in http.call_args_list]
