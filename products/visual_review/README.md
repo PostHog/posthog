@@ -111,8 +111,9 @@ A repository that owes nothing posts nothing.
 
 ### Quarantine notice
 
-The quarantine dialog has a "Notify the owning team in Slack" switch, off by default.
+The quarantine dialog has a "Notify the owning team in Slack" switch, on by default.
 When it is on, the first identifier of the request carries `notify_owners: true`, so the theme variants of one story send one notice.
+The API field `notify_owners` defaults to false, so scripts and agents that quarantine in bulk post nothing unless they ask.
 A Celery task, `notify quarantine owners`, runs after the row commits.
 It finds the owner with the same lookup as the flakiness page, and posts to the channel the digest uses, so a team that opted out of the digest gets no notice either.
 The message names the person who quarantined and shows the story, the reason, the expiry, and a button to the snapshot.

@@ -115,7 +115,7 @@ export function QuarantineModal({
 
     const [reason, setReason] = useState(initialReason ?? '')
     const [includeSibling, setIncludeSibling] = useState(true)
-    const [notifyOwners, setNotifyOwners] = useState(false)
+    const [notifyOwners, setNotifyOwners] = useState(true)
     const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(() => computeDefaultExpiry(initialExpiresAt))
 
     // Re-prefill if the parent swaps which entry we're acting on mid-session.
@@ -127,7 +127,7 @@ export function QuarantineModal({
         }
         setReason(initialReason ?? '')
         setIncludeSibling(true)
-        setNotifyOwners(false)
+        setNotifyOwners(true)
         setExpiresAt(computeDefaultExpiry(initialExpiresAt))
     }, [initialReason, initialExpiresAt, isOpen])
 
