@@ -19,6 +19,12 @@ class FinnhubEndpointConfig:
     # The response is parallel arrays keyed by field name (Finnhub's candle shape) that are
     # zipped back into one row per index.
     columnar: bool = False
+    # The rows are a bare array of strings rather than objects. Each string becomes one row
+    # under this field name.
+    string_list_field: Optional[str] = None
+    # Key holding a bare array of strings, read when `data_key` is absent from the response,
+    # because Finnhub only returns the richer breakdown list on plans that include it.
+    fallback_string_list_key: Optional[str] = None
     primary_keys: list[str] = field(default_factory=lambda: ["symbol"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable field used to partition the Delta table. Either a date string or epoch seconds,
@@ -27,6 +33,11 @@ class FinnhubEndpointConfig:
     # Per-symbol fan-out: the endpoint needs a `symbol` query param and is queried once per
     # configured ticker, with the requested symbol injected into each emitted row.
     requires_symbol: bool = False
+    # Same fan-out, driven by the source-level `indices` field instead of `symbols`.
+    requires_index: bool = False
+    # Row key the fanned-out value is injected into. Index constituents carry their own
+    # `symbol`, so the index they belong to needs a column of its own.
+    symbol_field: str = "symbol"
     # Static query params merged into every request for this endpoint (e.g. `metric=all`,
     # `category=general`). Keeps an endpoint's full request shape in this one config.
     fixed_params: dict[str, str] = field(default_factory=dict)
@@ -92,6 +103,23 @@ FINNHUB_ENDPOINTS: dict[str, FinnhubEndpointConfig] = {
         forward_days=180,
         # Same future-dating caveat as the IPO calendar — full refresh over a rolling window.
         description="Recent and upcoming company earnings over a rolling window. Full refresh.",
+    ),
+    "economic_calendar": FinnhubEndpointConfig(
+        name="economic_calendar",
+        path="/calendar/economic",
+        data_key="economicCalendar",
+        # Macro releases carry no id, and one country can publish several figures at the same
+        # release time, so the event name is part of the key.
+        primary_keys=["country", "event", "time"],
+        partition_key="time",
+        windowed=True,
+        forward_days=180,
+        # Unlike the other market-wide endpoints, this one is premium, so a free-tier key gets
+        # a 403 the source treats as a permanent failure. Keep it opt-in.
+        should_sync_default=False,
+        # Same future-dating caveat as the IPO and earnings calendars, and `actual` is only
+        # filled in once a release lands, so this is a full refresh over a rolling window.
+        description="Recent and upcoming macroeconomic releases over a rolling window. Full refresh.",
     ),
     "country": FinnhubEndpointConfig(
         name="country",
@@ -276,6 +304,56 @@ FINNHUB_ENDPOINTS: dict[str, FinnhubEndpointConfig] = {
             },
         ],
         description="Insider buy and sell transactions reported on Form 3/4/5, for each configured symbol. Supports incremental sync on the transaction date.",
+    ),
+    "dividends": FinnhubEndpointConfig(
+        name="dividends",
+        path="/stock/dividend",
+        requires_symbol=True,
+        # Payouts carry no id, and a company can pay a regular and a special dividend on the
+        # same ex-date, so the amount is part of what identifies the row.
+        primary_keys=["symbol", "date", "amount"],
+        partition_key="date",
+        windowed=True,
+        # `from`/`to` are required here, and a dividend series is only useful with several
+        # years behind it.
+        lookback_days=1825,
+        should_sync_default=False,
+        incremental_fields=[
+            # Finnhub documents `from`/`to` without naming the date they filter. `date` is the
+            # ex-dividend date the row is built around, and it is the only date present on
+            # every payout, so it is what the watermark tracks.
+            {
+                "label": "date",
+                "type": IncrementalFieldType.DateTime,
+                "field": "date",
+                "field_type": IncrementalFieldType.Date,
+            },
+        ],
+        description="Dividend payouts with ex-date, amount, record and pay dates, for each configured symbol. Supports incremental sync on the ex-dividend date.",
+    ),
+    "peers": FinnhubEndpointConfig(
+        name="peers",
+        path="/stock/peers",
+        requires_symbol=True,
+        string_list_field="peer",
+        primary_keys=["symbol", "peer"],
+        should_sync_default=False,
+        description="Comparable companies for each configured symbol, one row per peer. Full refresh.",
+    ),
+    # --- Per-index fan-out (requires configured indices) ---
+    "index_constituents": FinnhubEndpointConfig(
+        name="index_constituents",
+        path="/index/constituents",
+        requires_index=True,
+        symbol_field="index_symbol",
+        # The breakdown list carries names and weights; plans without it still return the plain
+        # symbol array, which lands in the same `symbol` column.
+        data_key="constituentsBreakdown",
+        fallback_string_list_key="constituents",
+        string_list_field="symbol",
+        primary_keys=["index_symbol", "symbol"],
+        should_sync_default=False,
+        description="Member symbols of each configured index, with company name and index weight where the plan provides them. Full refresh.",
     ),
 }
 

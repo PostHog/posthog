@@ -123,7 +123,7 @@ from products.cdp.backend.services.integration_usage import get_enabled_hog_func
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+from products.workflows.backend.facade.api import get_active_workflows_using_integration
 
 logger = structlog.get_logger(__name__)
 
@@ -1395,7 +1395,7 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
-        flows_using_integration = get_active_hog_flows_using_integration(
+        flows_using_integration = get_active_workflows_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
         functions_using_integration = get_enabled_hog_functions_using_integration(

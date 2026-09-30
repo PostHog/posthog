@@ -651,6 +651,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
                         .union([zod.boolean(), zod.null()])
@@ -1590,6 +1596,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
                         .union([zod.boolean(), zod.null()])
@@ -2288,6 +2300,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
                         .union([zod.boolean(), zod.null()])
@@ -2978,6 +2996,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
                         .union([zod.boolean(), zod.null()])
@@ -3687,6 +3711,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
                         .union([zod.boolean(), zod.null()])
@@ -4106,6 +4136,12 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
                         .union([zod.boolean(), zod.null()])
@@ -4346,6 +4382,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                         'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                     ),
                 useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                useNewEventsSchema: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                    ),
                 usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                 usePreaggregatedTableTransforms: zod
                     .union([zod.boolean(), zod.null()])

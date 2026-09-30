@@ -31,6 +31,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             "stamphog_review_inbox_prs": False,  # opt-in: a real approval must never be a default
             "review_labeled_prs": True,
             "resolve_comments": True,
+            "celebrate_clean_reviews": True,
             "review_authored_prs": False,
             "flash_reasoning_effort": "medium",
             "urgency_threshold": "consider",
@@ -50,6 +51,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
                 "resolve_comments": False,
                 "review_authored_prs": True,
                 "flash_reasoning_effort": "xhigh",
+                "celebrate_clean_reviews": False,
             },
             format="json",
         )
@@ -62,6 +64,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert row.resolve_comments is False
         assert row.review_authored_prs is True
         assert row.flash_reasoning_effort == "xhigh"
+        assert row.celebrate_clean_reviews is False
         assert row.review_labeled_prs is True  # untouched field keeps its default
 
         disabled = self.client.patch(self.url, {"review_authored_prs": False}, format="json")

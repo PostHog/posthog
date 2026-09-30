@@ -19,7 +19,8 @@ import {
     experimentsMetricsRecalculationRetrieve,
 } from 'products/experiments/frontend/generated/api'
 import type {
-    ExperimentMetricsRecalculationApi,
+    ExperimentMetricsRecalculationJobApi,
+    ExperimentMetricsRecalculationRunApi,
     ExperimentMetricsRecalculationTriggerEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -41,6 +42,15 @@ function reportExperimentMetricRecalculation(
 ): void {
     posthog.capture('experiment metric recalculation', { status, ...properties })
 }
+
+/**
+ * The shape every recalculation endpoint returns. POST answers with the queued job plus is_existing; the by-id
+ * poll and latest add results, retry state and live progress, so those fields are optional here.
+ */
+export type RecalculationPayload = Omit<ExperimentMetricsRecalculationJobApi, 'is_existing'> &
+    Partial<
+        Pick<ExperimentMetricsRecalculationRunApi, 'metric_retries' | 'results' | 'rows_read' | 'estimated_rows_total'>
+    >
 
 /**
  * This logic can only handle state when an experiment is present.
@@ -95,7 +105,7 @@ const currentMetricUuids = (experiment: Experiment): string[] =>
     ].filter((uuid): uuid is string => !!uuid)
 
 /** Metric uuids a run resolved: a computed result or a recorded failure. */
-const coveredMetricUuids = (recalculation: ExperimentMetricsRecalculationApi): string[] => [
+const coveredMetricUuids = (recalculation: RecalculationPayload): string[] => [
     ...(recalculation.results ?? []).map(({ metric_uuid }) => metric_uuid),
     ...Object.keys((recalculation.metric_errors as Record<string, unknown> | null) ?? {}),
 ]
@@ -147,7 +157,7 @@ const resolveResultByUuid = (
  * wins (it covers FAILED rows AND discovery-step failures absent from `results`), falling back to a
  * failed row's error_message.
  */
-const resolveErrorByUuid = (recalculation: ExperimentMetricsRecalculationApi): ResolveByUuid<MetricErrorState> => {
+const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<MetricErrorState> => {
     const metricErrors = (recalculation.metric_errors as Record<string, { message?: string }> | null) ?? {}
     const failedResultMessageByUuid = new Map(
         (recalculation.results ?? [])
@@ -165,7 +175,7 @@ export interface experimentMetricsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
     currentProjectId: number | null // projectLogic
-    currentRecalculation: ExperimentMetricsRecalculationApi | null
+    currentRecalculation: RecalculationPayload | null
     isMetricRecalculating: (metricUuid: string | undefined) => boolean
     isRecalculating: boolean
     lastRefresh: string | null
@@ -206,8 +216,8 @@ export interface experimentMetricsLogicActions {
     pollRecalculation: (recalculationId: string) => {
         recalculationId: string
     }
-    setCurrentRecalculation: (recalculation: ExperimentMetricsRecalculationApi | null) => {
-        recalculation: ExperimentMetricsRecalculationApi | null
+    setCurrentRecalculation: (recalculation: RecalculationPayload | null) => {
+        recalculation: RecalculationPayload | null
     }
     setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => {
         results: CachedNewExperimentQueryResponse[]
@@ -239,23 +249,18 @@ export interface experimentMetricsLogicActions {
 export interface experimentMetricsLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
-        isRecalculating: (
-            recalculationLoading: boolean,
-            currentRecalculation: ExperimentMetricsRecalculationApi | null
-        ) => boolean
-        recalculationProgress: (currentRecalculation: ExperimentMetricsRecalculationApi | null) => {
+        isRecalculating: (recalculationLoading: boolean, currentRecalculation: RecalculationPayload | null) => boolean
+        recalculationProgress: (currentRecalculation: RecalculationPayload | null) => {
             completed: number
             total: number
         }
         totalMetricsCount: (arg: any) => number
-        lastRefresh: (currentRecalculation: ExperimentMetricsRecalculationApi | null) => string | null
-        metricRetries: (
-            currentRecalculation: ExperimentMetricsRecalculationApi | null
-        ) => Record<string, MetricRetryInfo>
+        lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
+        metricRetries: (currentRecalculation: RecalculationPayload | null) => Record<string, MetricRetryInfo>
         nextRetryAt: (metricRetries: Record<string, MetricRetryInfo>) => string | null
         recalculationDisplayState: (
             recalculationLoading: boolean,
-            currentRecalculation: ExperimentMetricsRecalculationApi | null
+            currentRecalculation: RecalculationPayload | null
         ) => 'cold' | 'initial' | 'partial' | 'refreshing' | 'resting'
         isMetricRecalculating: (recalculatingMetricUuids: string[]) => (metricUuid: string | undefined) => boolean
     }
@@ -277,7 +282,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         actions: [featureFlagLogic, ['setFeatureFlags']],
     })),
     actions({
-        setCurrentRecalculation: (recalculation: ExperimentMetricsRecalculationApi | null) => ({ recalculation }),
+        setCurrentRecalculation: (recalculation: RecalculationPayload | null) => ({ recalculation }),
         loadLatestRecalculation: true,
         triggerRecalculation: (trigger: ExperimentMetricsRecalculationTriggerEnumApi = 'manual') => ({ trigger }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
@@ -292,7 +297,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     }),
     reducers({
         currentRecalculation: [
-            null as ExperimentMetricsRecalculationApi | null,
+            null as RecalculationPayload | null,
             {
                 setCurrentRecalculation: (_, { recalculation }) => recalculation,
             },
@@ -369,7 +374,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         // True while a recalculation is being fetched or is still running.
         isRecalculating: [
             (s) => [s.recalculationLoading, s.currentRecalculation],
-            (recalculationLoading: boolean, recalculation: ExperimentMetricsRecalculationApi | null): boolean =>
+            (recalculationLoading: boolean, recalculation: RecalculationPayload | null): boolean =>
                 recalculationLoading ||
                 recalculation?.status === RECALCULATION_STATUSES.pending ||
                 recalculation?.status === RECALCULATION_STATUSES.in_progress,
@@ -378,7 +383,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             (s) => [s.currentRecalculation],
             // "completed" here means resolved: a failed metric is done too, so it counts toward progress.
             // Without this, a run where every metric fails sits at 0/N forever and looks stuck.
-            (recalc: ExperimentMetricsRecalculationApi | null): { completed: number; total: number } => ({
+            (recalc: RecalculationPayload | null): { completed: number; total: number } => ({
                 completed: (recalc?.completed_metrics ?? 0) + (recalc?.failed_metrics ?? 0),
                 total: recalc?.total_metrics ?? 0,
             }),
@@ -392,11 +397,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         ],
         lastRefresh: [
             (s) => [s.currentRecalculation],
-            (recalc: ExperimentMetricsRecalculationApi | null): string | null => recalc?.query_to ?? null,
+            (recalc: RecalculationPayload | null): string | null => recalc?.query_to ?? null,
         ],
         metricRetries: [
             (s) => [s.currentRecalculation],
-            (recalc: ExperimentMetricsRecalculationApi | null): Record<string, MetricRetryInfo> => {
+            (recalc: RecalculationPayload | null): Record<string, MetricRetryInfo> => {
                 const raw = (recalc?.metric_retries ?? {}) as Record<string, MetricRetryInfo>
                 const landed = new Set([
                     ...(recalc?.results ?? []).map(({ metric_uuid }) => metric_uuid),
@@ -419,7 +424,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             (s) => [s.recalculationLoading, s.currentRecalculation],
             (
                 recalculationLoading: boolean,
-                recalculation: ExperimentMetricsRecalculationApi | null
+                recalculation: RecalculationPayload | null
             ): 'initial' | 'cold' | 'refreshing' | 'partial' | 'resting' => {
                 if (!recalculation) {
                     return recalculationLoading ? 'initial' : 'resting'
@@ -474,7 +479,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
          * Emit the terminal analytics event for a recalc run. Reads duration_ms / poll_count off the cache
          * fields set on trigger; both are 0 on a terminal-on-create run because no poll ever happened.
          */
-        const emitTerminalEvent = (recalculation: ExperimentMetricsRecalculationApi): void => {
+        const emitTerminalEvent = (recalculation: RecalculationPayload): void => {
             const startMs = cache.recalcStartMs ?? Date.now()
             reportExperimentMetricRecalculation(
                 recalculation.status === RECALCULATION_STATUSES.completed ? 'completed' : 'failed',
@@ -494,7 +499,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
          * apply per-metric results and errors by setting primary and secondary metric results and errors.
          * Partial failures will load the metrics that succeeded, and failed metrics get a nice error view.
          */
-        const applyResults = (recalculation: ExperimentMetricsRecalculationApi): void => {
+        const applyResults = (recalculation: RecalculationPayload): void => {
             const resultFor = resolveResultByUuid(recalculation.results)
             const errorFor = resolveErrorByUuid(recalculation)
 
@@ -890,7 +895,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 // Pace this tick; aborts here if a newer poll superseded us or the logic unmounted.
                 await breakpoint(RECALCULATION_POLL_INTERVAL_MS)
 
-                let recalculation: ExperimentMetricsRecalculationApi
+                let recalculation: ExperimentMetricsRecalculationRunApi
                 try {
                     recalculation = await experimentsMetricsRecalculationRetrieve(
                         String(projectId),
