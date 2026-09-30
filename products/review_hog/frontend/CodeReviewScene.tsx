@@ -1158,80 +1158,84 @@ function TriggersSection(): JSX.Element {
                     : 'Choose whether reviews also resolve comment threads and how clean reviews appear on your pull requests.'}
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
+                {/* Inbox reviews start in any project with a saved opt-in, so a switch that is on stays visible
+                and the user can turn it off. */}
+                {(settings?.show_internal_features || settings?.review_inbox_prs) && (
+                    <div className="flex items-center gap-4 p-4">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary *:h-auto *:w-5">
+                            <Logomark />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold">Review all your Inbox PRs</div>
+                            <div className="text-xs text-secondary">
+                                When a self-driving implementation from your Inbox opens a pull request, PostHog Review
+                                reviews it and posts the review to the pull request automatically.
+                            </div>
+                        </div>
+                        <LemonSwitch
+                            aria-label="Review all your Inbox PRs"
+                            checked={settings?.review_inbox_prs ?? false}
+                            onChange={(checked) => updateSettings({ review_inbox_prs: checked })}
+                            disabledReason={switchDisabledReason}
+                        />
+                    </div>
+                )}
+                {(settings?.show_internal_features || settings?.stamphog_review_inbox_prs) && (
+                    <div className="flex items-center gap-4 p-4">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                            <IconStamphog className="size-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold">Let Stamphog review your Inbox PRs</div>
+                            <div className="text-xs text-secondary">
+                                When a self-driving implementation from your Inbox opens a pull request, Stamphog
+                                reviews it and approves it if it passes.
+                            </div>
+                        </div>
+                        <LemonSwitch
+                            aria-label="Let Stamphog review your Inbox PRs"
+                            checked={settings?.stamphog_review_inbox_prs ?? false}
+                            onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
+                            disabledReason={
+                                // A switch that is already on stays usable while disconnected, so
+                                // turning it off never requires connecting Stamphog first.
+                                settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
+                                    ? 'Connect a repository to Stamphog first. Stamphog is not set up for this project yet.'
+                                    : switchDisabledReason
+                            }
+                        />
+                    </div>
+                )}
                 {settings?.show_internal_features && (
-                    <>
-                        <div className="flex items-center gap-4 p-4">
-                            <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary *:h-auto *:w-5">
-                                <Logomark />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <div className="text-sm font-semibold">Review all your Inbox PRs</div>
-                                <div className="text-xs text-secondary">
-                                    When a self-driving implementation from your Inbox opens a pull request, PostHog
-                                    Review reviews it and posts the review to the pull request automatically.
-                                </div>
-                            </div>
-                            <LemonSwitch
-                                aria-label="Review all your Inbox PRs"
-                                checked={settings?.review_inbox_prs ?? false}
-                                onChange={(checked) => updateSettings({ review_inbox_prs: checked })}
-                                disabledReason={switchDisabledReason}
-                            />
+                    <div className="flex items-center gap-4 p-4">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                            <IconGithub className="size-5" />
                         </div>
-                        <div className="flex items-center gap-4 p-4">
-                            <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                                <IconStamphog className="size-5" />
+                        <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold">
+                                Review all your PRs with the{' '}
+                                <CopyToClipboardInline
+                                    explicitValue="reviewhog"
+                                    description="label"
+                                    iconSize="xsmall"
+                                    className="rounded border border-warning bg-warning-highlight px-1.5 py-0.5 font-mono text-xs text-warning"
+                                >
+                                    reviewhog
+                                </CopyToClipboardInline>{' '}
+                                label
                             </div>
-                            <div className="min-w-0 flex-1">
-                                <div className="text-sm font-semibold">Let Stamphog review your Inbox PRs</div>
-                                <div className="text-xs text-secondary">
-                                    When a self-driving implementation from your Inbox opens a pull request, Stamphog
-                                    reviews it and approves it if it passes.
-                                </div>
+                            <div className="text-xs text-secondary">
+                                Add the reviewhog label to a pull request you author in a connected repository and
+                                PostHog Review reviews it.
                             </div>
-                            <LemonSwitch
-                                aria-label="Let Stamphog review your Inbox PRs"
-                                checked={settings?.stamphog_review_inbox_prs ?? false}
-                                onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
-                                disabledReason={
-                                    // A switch that is already on stays usable while disconnected, so
-                                    // turning it off never requires connecting Stamphog first.
-                                    settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
-                                        ? 'Connect a repository to Stamphog first. Stamphog is not set up for this project yet.'
-                                        : switchDisabledReason
-                                }
-                            />
                         </div>
-                        <div className="flex items-center gap-4 p-4">
-                            <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                                <IconGithub className="size-5" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <div className="text-sm font-semibold">
-                                    Review all your PRs with the{' '}
-                                    <CopyToClipboardInline
-                                        explicitValue="reviewhog"
-                                        description="label"
-                                        iconSize="xsmall"
-                                        className="rounded border border-warning bg-warning-highlight px-1.5 py-0.5 font-mono text-xs text-warning"
-                                    >
-                                        reviewhog
-                                    </CopyToClipboardInline>{' '}
-                                    label
-                                </div>
-                                <div className="text-xs text-secondary">
-                                    Add the reviewhog label to a pull request you author in a connected repository and
-                                    PostHog Review reviews it.
-                                </div>
-                            </div>
-                            <LemonSwitch
-                                aria-label="Review all your PRs with the reviewhog label"
-                                checked={settings?.review_labeled_prs ?? true}
-                                onChange={(checked) => updateSettings({ review_labeled_prs: checked })}
-                                disabledReason={switchDisabledReason}
-                            />
-                        </div>
-                    </>
+                        <LemonSwitch
+                            aria-label="Review all your PRs with the reviewhog label"
+                            checked={settings?.review_labeled_prs ?? true}
+                            onChange={(checked) => updateSettings({ review_labeled_prs: checked })}
+                            disabledReason={switchDisabledReason}
+                        />
+                    </div>
                 )}
                 <div className="flex items-center gap-4 p-4">
                     <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">

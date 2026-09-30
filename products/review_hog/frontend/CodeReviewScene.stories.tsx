@@ -48,6 +48,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                 ...defaultSettings,
                 show_internal_features: context.parameters.showInternalFeatures ?? false,
                 stamphog_connected: context.parameters.showInternalFeatures ?? false,
+                ...context.parameters.savedSettings,
             }
             return mswDecorator({
                 get: {
@@ -106,6 +107,21 @@ export const InternalFeatures: Story = {
         await expect(canvas.getByLabelText('Review all your PRs with the reviewhog label')).toBeVisible()
         await expect(canvas.getByLabelText('Review all your PRs in Flash mode')).toBeVisible()
         await expect(canvas.getByText('Flash strength')).toBeVisible()
+    },
+}
+
+export const SavedInboxOptIns: Story = {
+    parameters: { savedSettings: { review_inbox_prs: true, stamphog_review_inbox_prs: true } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const inboxSwitch = await canvas.findByLabelText('Review all your Inbox PRs')
+        const stamphogSwitch = canvas.getByLabelText('Let Stamphog review your Inbox PRs')
+        await expect(inboxSwitch).toBeChecked()
+        await expect(inboxSwitch).toBeEnabled()
+        await expect(stamphogSwitch).toBeChecked()
+        await expect(stamphogSwitch).toBeEnabled()
+        await expect(canvas.queryByLabelText('Review all your PRs with the reviewhog label')).not.toBeInTheDocument()
+        await expect(canvas.queryByLabelText('Review all your PRs in Flash mode')).not.toBeInTheDocument()
     },
 }
 
