@@ -14,8 +14,16 @@ into these fragments.
 """
 
 import math
+import threading
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING
+
+from django.conf import settings
+from django.db import connection
 
 from posthog.schema import HogQLQueryResponse
 
@@ -29,6 +37,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import QueryWorkLimitExceededError
@@ -176,6 +185,7 @@ class CuratedGitHubSource:
         self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
         self._depot_job_attempts_resolved = False
         self._database: Database | None = None
+        self._lock = threading.Lock()
 
     @property
     def team(self) -> Team:
@@ -543,6 +553,14 @@ class CuratedGitHubSource:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
 
+    @contextmanager
+    def concurrent_reads(self) -> Iterator["ConcurrentReads"]:
+        """Run the reads submitted inside the block together when it exits, so a request waits for
+        its slowest read instead of the sum of all of them. Read each result after the block."""
+        reads = ConcurrentReads()
+        yield reads
+        reads.run()
+
     def run_paged(
         self,
         sql: str,
@@ -607,22 +625,23 @@ class CuratedGitHubSource:
         ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
         for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
         """
-        if self._queries_remaining is not None:
-            if self._queries_remaining <= 0:
-                raise QueryWorkLimitExceededError
-            self._queries_remaining -= 1
         uac = self._user_access_control
         user = uac.user if uac is not None else None
         bypass_warehouse_access_control = uac is None
-        if self._database is None:
-            self._database = Database.create_for(
-                team=self._team,
-                user=user,
-                user_access_control=uac,
-                modifiers=create_default_modifiers_for_team(self._team),
-                bypass_warehouse_access_control=bypass_warehouse_access_control,
-                trigger="engineering_analytics",
-            )
+        with self._lock:
+            if self._queries_remaining is not None:
+                if self._queries_remaining <= 0:
+                    raise QueryWorkLimitExceededError
+                self._queries_remaining -= 1
+            if self._database is None:
+                self._database = Database.create_for(
+                    team=self._team,
+                    user=user,
+                    user_access_control=uac,
+                    modifiers=create_default_modifiers_for_team(self._team),
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    trigger="engineering_analytics",
+                )
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(
                 query=parse_select(sql, placeholders=placeholders),
@@ -642,6 +661,44 @@ class CuratedGitHubSource:
                     database=self._database,
                 ),
             )
+
+
+class ConcurrentReads:
+    """Reads collected by ``CuratedGitHubSource.concurrent_reads``.
+
+    The shared helper copies the caller's context and query tags into each worker and re-raises a
+    failed read in the caller. A worker thread opens its own Postgres connection, so the read closes
+    it; under TEST the reads run inline, because that connection cannot see the test transaction.
+    """
+
+    def __init__(self) -> None:
+        self._work: list[Callable[[], None]] = []
+
+    def submit[T](self, read: Callable[[], T]) -> "Future[T]":
+        future: Future[T] = Future()
+
+        def run_read() -> None:
+            future.set_result(read())
+
+        self._work.append(run_read)
+        return future
+
+    def run(self) -> None:
+        if settings.TEST:
+            for work in self._work:
+                work()
+            return
+        run_in_parallel_threads(
+            [partial(_closing_connection, work) for work in self._work],
+            thread_name_prefix="engineering_analytics",
+        )
+
+
+def _closing_connection(work: Callable[[], None]) -> None:
+    try:
+        work()
+    finally:
+        connection.close()
 
 
 def opt_float(value: float | None) -> float | None:

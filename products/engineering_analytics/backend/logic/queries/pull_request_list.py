@@ -184,8 +184,10 @@ def _enrich(*, curated: CuratedGitHubSource, rows: list[tuple]) -> list[PullRequ
     # Scope the cost and push-history rollups to exactly the PRs we're about to show (row[0] is
     # pr.number), so the scans track the page instead of the team's whole CI history.
     pr_numbers = sorted({int(row[0]) for row in rows})
-    cost_by_pr = query_pr_costs(curated=curated, pr_numbers=pr_numbers)
-    pushes_by_pr = query_pr_push_history(curated=curated, pr_numbers=pr_numbers)
+    with curated.concurrent_reads() as reads:
+        costs_read = reads.submit(lambda: query_pr_costs(curated=curated, pr_numbers=pr_numbers))
+        pushes_read = reads.submit(lambda: query_pr_push_history(curated=curated, pr_numbers=pr_numbers))
+    cost_by_pr, pushes_by_pr = costs_read.result(), pushes_read.result()
     return [_map_row(row, cost_by_pr, pushes_by_pr) for row in rows]
 
 
