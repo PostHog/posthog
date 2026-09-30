@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from django.db import OperationalError as DjangoOperationalError
+from django.test import override_settings
 
 import psycopg
 import structlog
@@ -16,22 +17,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SYNC_DISABLED_JOB_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
-    batch_consumer as batch_consumer_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-    QUEUE_RETRY_MAX_ATTEMPTS,
-    CoalescingDeclined,
-    OwnershipLostError,
-    _is_admin_shutdown_error,
-    _is_connect_timeout_error,
-    _is_dns_resolution_transient_error,
-    _is_retryable_queue_db_error,
-    _is_schema_lag_error,
-    _is_server_not_ready_error,
-    _is_transient_queue_db_error,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -43,7 +28,21 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
     _update_job_status_to_failed,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources_queue.backend.core import batch_consumer as batch_consumer_module
+from products.warehouse_sources_queue.backend.core.batch_consumer import (
+    QUEUE_RETRY_MAX_ATTEMPTS,
+    CoalescingDeclined,
+    OwnershipLostError,
+    _is_admin_shutdown_error,
+    _is_connect_timeout_error,
+    _is_dns_resolution_transient_error,
+    _is_retryable_queue_db_error,
+    _is_schema_lag_error,
+    _is_server_not_ready_error,
+    _is_transient_queue_db_error,
+)
+from products.warehouse_sources_queue.backend.core.health import HealthState
+from products.warehouse_sources_queue.backend.core.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
     FailedRunRef,
     OrphanedRunRef,
@@ -52,7 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     QueueFreshness,
     StrandedRunRef,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+from products.warehouse_sources_queue.backend.core.metrics import (
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
@@ -1497,7 +1496,7 @@ class TestPollBackoff:
         # unbounded delays.
         consumer = _make_consumer(poll_interval_seconds=2.0)
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
+            "products.warehouse_sources_queue.backend.core.batch_consumer.random.uniform",
             return_value=0.0,
         ):
             consumer._consecutive_poll_failures = 1
@@ -1517,7 +1516,7 @@ class TestPollBackoff:
         consumer = _make_consumer(poll_interval_seconds=2.0)
         consumer._consecutive_poll_failures = 1
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
+            "products.warehouse_sources_queue.backend.core.batch_consumer.random.uniform",
             return_value=1.5,
         ):
             assert consumer._poll_retry_delay() == 3.5  # 2.0 backoff + 1.5 jitter
@@ -3692,11 +3691,14 @@ class TestIsRetryableError:
 def _run_batches(count: int, *, run_uuid: str = "run-1", start: int = 0, **overrides: Any) -> list[PendingBatch]:
     return [
         _make_batch(
-            id=f"00000000-0000-0000-0000-{run_uuid[-1]}{start + offset:011d}",
-            run_uuid=run_uuid,
-            batch_index=start + offset,
-            sync_type="incremental",
-            **overrides,
+            **{
+                "id": f"00000000-0000-0000-0000-{run_uuid[-1]}{start + offset:011d}",
+                "job_id": f"job-{run_uuid[-1]}",
+                "run_uuid": run_uuid,
+                "batch_index": start + offset,
+                "sync_type": "incremental",
+                **overrides,
+            }
         )
         for offset in range(count)
     ]
@@ -3716,9 +3718,63 @@ class TestCoalesceGroup:
         batches = _run_batches(2) + _run_batches(1, start=3)
         assert self._sets(batches) == [[0, 1], [3]]
 
-    def test_a_set_never_crosses_a_run(self):
-        batches = _run_batches(2, run_uuid="run-1") + _run_batches(2, run_uuid="run-2")
-        assert self._sets(batches) == [[0, 1], [0, 1]]
+    @pytest.mark.parametrize(
+        "second_run,expected",
+        [
+            # A resume attempt continues the same load, so its rows follow the first run's in one write.
+            ({"is_resume": True}, [[0, 1, 0, 1]]),
+            ({"is_resume": True, "start": 7}, [[0, 1, 7, 8]]),
+            ({"is_resume": True, "sync_type": "append"}, [[0, 1, 0, 1]]),
+            # Batch 0 of a fresh run may overwrite the table, so it heads its own write.
+            ({}, [[0, 1], [0, 1]]),
+            # A full refresh replaces the table run by run.
+            ({"is_resume": True, "sync_type": "full_refresh"}, [[0, 1], [0, 1]]),
+            # Rows merged under the head's keys or partitioning would land wrong for a run configured differently.
+            ({"is_resume": True, "metadata": {"primary_keys": ["other"]}}, [[0, 1], [0, 1]]),
+            ({"is_resume": True, "metadata": {"partition_keys": ["id"], "partition_count": 4}}, [[0, 1], [0, 1]]),
+            # The writer takes the head's first-sync flag, which decides between an append and a merge.
+            ({"is_resume": True, "is_first_ever_sync": True}, [[0, 1], [0, 1]]),
+        ],
+        ids=[
+            "resume_joins",
+            "resume_from_later_index_joins",
+            "append_joins",
+            "fresh_batch_zero_splits",
+            "full_refresh_splits",
+            "other_primary_keys_split",
+            "other_partitioning_splits",
+            "first_sync_flag_splits",
+        ],
+    )
+    @override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=True)
+    def test_consecutive_runs(self, second_run: dict[str, Any], expected: list[list[int]]):
+        first_sync_type = second_run.get("sync_type", "incremental")
+        batches = _run_batches(2, run_uuid="run-1", sync_type=first_sync_type) + _run_batches(
+            2, run_uuid="run-2", **second_run
+        )
+        assert self._sets(batches) == expected
+
+    def test_cross_run_sets_can_be_switched_off(self):
+        batches = _run_batches(2, run_uuid="run-1") + _run_batches(2, run_uuid="run-2", is_resume=True)
+        with override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=False):
+            assert self._sets(batches) == [[0, 1], [0, 1]]
+
+    @override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=True)
+    def test_members_keep_the_claim_order_and_a_run_never_reappears_in_a_set(self):
+        # The claim query orders a group by (created_at, batch_index) and the loader takes that order
+        # one batch at a time; a set that reordered members, or folded a run back in after another
+        # run, would merge rows in an order the serial loader never produced.
+        batches = (
+            _run_batches(2, run_uuid="run-1", start=5)
+            + _run_batches(1, run_uuid="run-2", is_resume=True)
+            + _run_batches(1, run_uuid="run-1", start=7)
+        )
+        sets = DeltaBatchConsumerAdapter().coalesce_group(batches)
+        assert [batch.id for batch_set in sets for batch in batch_set] == [batch.id for batch in batches]
+        assert [[(b.run_uuid, b.batch_index) for b in s] for s in sets] == [
+            [("run-1", 5), ("run-1", 6), ("run-2", 0)],
+            [("run-1", 7)],
+        ]
 
     def test_a_final_only_marker_row_stays_alone(self):
         # An older producer repeats the last batch's index as a final-only row; it is not a new batch.
@@ -3755,16 +3811,23 @@ class TestCoalesceGroup:
         assert self._sets(batches) == [[0], [1], [2]]
 
     @pytest.mark.parametrize(
-        "count,overrides,expected",
+        "count,overrides,settings_overrides,expected",
         [
-            (3, {"row_count": 300_000, "byte_size": 1}, [[0], [1], [2]]),
-            (3, {"row_count": 1, "byte_size": 40 * 1024 * 1024}, [[0], [1], [2]]),
-            (9, {"row_count": 1, "byte_size": 1}, [list(range(8)), [8]]),
+            (3, {"row_count": 300_000, "byte_size": 1}, {}, [[0], [1], [2]]),
+            (3, {"row_count": 1, "byte_size": 40 * 1024 * 1024}, {}, [[0], [1], [2]]),
+            # The row cap binds long before the count backstop for batches of ordinary size.
+            (60, {"row_count": 10_000, "byte_size": 1}, {}, [list(range(50)), list(range(50, 60))]),
+            (9, {"row_count": 1, "byte_size": 1}, {"DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES": 8}, [list(range(8)), [8]]),
+            (3, {"row_count": 10, "byte_size": 1}, {"DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS": 20}, [[0, 1], [2]]),
+            (3, {"row_count": 1, "byte_size": 10}, {"DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES": 20}, [[0, 1], [2]]),
         ],
-        ids=["rows", "bytes", "count"],
+        ids=["rows", "bytes", "rows_bind_before_count", "count_setting", "rows_setting", "bytes_setting"],
     )
-    def test_sets_are_capped(self, count: int, overrides: dict[str, Any], expected: list[list[int]]):
-        assert self._sets(_run_batches(count, **overrides)) == expected
+    def test_sets_are_capped(
+        self, count: int, overrides: dict[str, Any], settings_overrides: dict[str, Any], expected: list[list[int]]
+    ):
+        with override_settings(**settings_overrides):
+            assert self._sets(_run_batches(count, **overrides)) == expected
 
 
 class _BatchStatus(NamedTuple):
@@ -3831,21 +3894,23 @@ class TestProcessGroupCoalescing:
         ids=["declined", "failed"],
     )
     @pytest.mark.asyncio
+    @override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=True)
     async def test_a_set_that_cannot_load_falls_back_to_its_members(
         self, error: Exception, expected_latest_attempt: int, expected_status_attempt: int
     ):
         process_batches = AsyncMock(side_effect=error)
-        seen: list[tuple[int, int]] = []
+        seen: list[tuple[str, int, int]] = []
 
         async def process_batch(batch, verify_ownership=None):
-            seen.append((batch.batch_index, batch.latest_attempt))
+            seen.append((batch.run_uuid, batch.batch_index, batch.latest_attempt))
 
         consumer = self._consumer(process_batches, process_batch)
-        batches = _run_batches(2)
+        # A set that spans runs falls back run by run, each member under its own identity.
+        batches = _run_batches(1, run_uuid="run-1", start=4) + _run_batches(1, run_uuid="run-2", is_resume=True)
 
         statuses = await self._run_group(consumer, batches)
 
-        assert seen == [(0, expected_latest_attempt), (1, expected_latest_attempt)]
+        assert seen == [("run-1", 4, expected_latest_attempt), ("run-2", 0, expected_latest_attempt)]
         # The set's own executing rows come first; each member then goes through the single-batch
         # transitions, at the same attempt when nothing was written and at the next one otherwise.
         assert statuses == [
@@ -3869,11 +3934,11 @@ class TestProcessGroupCoalescing:
 
 class TestBatchPhaseTracking:
     def test_phase_gauges_follow_the_batch_bound_to_the_processing_context(self) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.batch_phase import (
+        from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
+        from products.warehouse_sources_queue.backend.core.batch_phase import (
             BATCH_PHASE_AGE_SECONDS_MAX,
             BATCHES_IN_PHASE,
         )
-        from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
 
         consumer = _make_consumer()
         consumer._health_reporter = lambda: None
@@ -3895,9 +3960,6 @@ class TestBatchPhaseTracking:
         assert BATCHES_IN_PHASE.labels(phase="write")._value.get() == 0
 
     def test_watchdog_trip_names_the_phase_the_batch_stopped_in(self) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
-            batch_consumer as batch_consumer_module,
-        )
         from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
 
         consumer = _make_consumer(stuck_batch_timeout_seconds=0.0)

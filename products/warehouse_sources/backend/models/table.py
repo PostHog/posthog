@@ -410,12 +410,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     # Use if it's certain externaldataschemas aren't needed
     raw_objects = DataWarehouseTableQuerySet.as_manager()
 
-    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    # Kept on the model so the nested names stay unchanged.
     TableFormat = DataWarehouseTableFormat
     CreatedVia = DataWarehouseTableCreatedVia
 
     name = models.CharField(max_length=128)
-    format = models.CharField(max_length=128, choices=TableFormat)
+    format = models.CharField(max_length=128, choices=TableFormat.choices)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     url_pattern = models.CharField(max_length=500)
@@ -427,7 +427,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     # Where this table came from — the request surface for user-created tables, or the internal
     # path that built it. Derived server-side (never taken from the request body) so a client can't
     # self-label. NULL on rows created before this field existed.
-    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
+    created_via = models.CharField(max_length=20, choices=CreatedVia.choices, null=True, blank=True)
 
     columns = models.JSONField(
         default=dict,
