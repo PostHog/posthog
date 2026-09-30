@@ -45,7 +45,8 @@ export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX
     const { user } = useValues(userLogic)
     const { pullRequestStates } = useValues(todaySpacesLogic)
     const item = sessionItem(task)
-    const status = spaceFeedStatus(task.latest_run)
+    const [mainPullRequest] = item.pullRequests
+    const status = spaceFeedStatus(task.latest_run, mainPullRequest && pullRequestStates[mainPullRequest.url])
     const pullRequests = splitPullRequests(item.pullRequests)
     const preview = spaceFeedPreview('description_preview' in task ? task.description_preview : task.description)
     const author = task.created_by
