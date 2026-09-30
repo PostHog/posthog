@@ -32,7 +32,7 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     if (path === '/' || isUnder(path, urls.projectHomepage())) {
         return 'home'
     }
-    if (isUnder(path, '/ai')) {
+    if (isUnder(path, '/ai') || isUnder(path, '/spaces')) {
         return 'spaces'
     }
     if (isUnder(path, urls.library())) {

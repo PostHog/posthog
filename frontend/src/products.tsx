@@ -270,6 +270,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
     '/subscriptions/:subscriptionId': ['Subscription', 'subscription'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
+    '/spaces/:id': ['TaskSpace', 'taskSpace'],
+    '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
@@ -1056,6 +1058,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'View subscription details and delivery history for this project.',
     },
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
+    TaskSpace: { name: 'Space', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
         projectBased: true,
@@ -1687,6 +1690,8 @@ export const productUrls = {
     surveyWizard: (id: string = 'new', template?: string): string =>
         `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
     slackTaskContext: (): string => '/slack-task-context',
+    taskSpace: (id: string): string => `/spaces/${id}`,
+    taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
     tracingOperation: (

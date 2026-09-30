@@ -1918,6 +1918,8 @@ export namespace Schemas {
       /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
       typeAwareCastSimplification?: boolean | null;
       useMaterializedViews?: boolean | null;
+      /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+      useNewEventsSchema?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
       usePreaggregatedTableTransforms?: boolean | null;
@@ -39185,6 +39187,7 @@ export namespace Schemas {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
+     * * `system_one` - System One
      * * `openai_compatible` - OpenAI-compatible
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
@@ -39200,6 +39203,7 @@ export namespace Schemas {
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
       Zeabur: 'zeabur',
+      SystemOne: 'system_one',
       OpenaiCompatible: 'openai_compatible',
     } as const;
 
@@ -39414,6 +39418,23 @@ export namespace Schemas {
       readonly error_message: string | null;
       api_key?: string;
       readonly api_key_masked: string;
+      /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+      base_url?: string;
+      /**
+         * Model ID served by the System One endpoint.
+         * @maxLength 100
+         */
+      system_one_model?: string;
+      /**
+         * Configured provider base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display: string | null;
+      /**
+         * Configured System One model ID.
+         * @nullable
+         */
+      readonly system_one_model_display: string | null;
       /** Azure OpenAI endpoint URL */
       azure_endpoint?: string;
       /**
@@ -39431,13 +39452,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display: string | null;
-      /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
-      base_url?: string;
-      /**
-         * OpenAI-compatible base URL (read-only, for display)
-         * @nullable
-         */
-      readonly base_url_display: string | null;
       set_as_active?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -51003,6 +51017,11 @@ export namespace Schemas {
       readonly last_run: HogFlowLastRun | null;
     }
 
+    export interface HogFlowOptimization {
+      /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
+      enabled: boolean;
+    }
+
     export interface HogFlowPublishImpactMoveTarget {
       /** Id of the surviving step runs will continue at. */
       action_id: string;
@@ -56221,6 +56240,34 @@ export namespace Schemas {
       tags: unknown[];
       createdAt: string | null;
     }
+
+    /**
+     * * `openai` - Openai
+     * * `anthropic` - Anthropic
+     * * `gemini` - Gemini
+     * * `openrouter` - Openrouter
+     * * `fireworks` - Fireworks
+     * * `azure_openai` - Azure OpenAI
+     * * `together_ai` - Together AI
+     * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub
+     * * `openai_compatible` - OpenAI-compatible
+     */
+    export type LLMCompletionProviderEnum = typeof LLMCompletionProviderEnum[keyof typeof LLMCompletionProviderEnum];
+
+
+    export const LLMCompletionProviderEnum = {
+      Openai: 'openai',
+      Anthropic: 'anthropic',
+      Gemini: 'gemini',
+      Openrouter: 'openrouter',
+      Fireworks: 'fireworks',
+      AzureOpenai: 'azure_openai',
+      TogetherAi: 'together_ai',
+      Minimax: 'minimax',
+      Zeabur: 'zeabur',
+      OpenaiCompatible: 'openai_compatible',
+    } as const;
 
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
@@ -69562,7 +69609,7 @@ export namespace Schemas {
        * * `minimax` - MiniMax
        * * `zeabur` - Zeabur AI Hub
        * * `openai_compatible` - OpenAI-compatible */
-      provider: LLMProviderEnum;
+      provider: LLMCompletionProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
          * @maxLength 100
@@ -76033,6 +76080,23 @@ export namespace Schemas {
       readonly error_message?: string | null;
       api_key?: string;
       readonly api_key_masked?: string;
+      /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+      base_url?: string;
+      /**
+         * Model ID served by the System One endpoint.
+         * @maxLength 100
+         */
+      system_one_model?: string;
+      /**
+         * Configured provider base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display?: string | null;
+      /**
+         * Configured System One model ID.
+         * @nullable
+         */
+      readonly system_one_model_display?: string | null;
       /** Azure OpenAI endpoint URL */
       azure_endpoint?: string;
       /**
@@ -76050,13 +76114,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display?: string | null;
-      /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
-      base_url?: string;
-      /**
-         * OpenAI-compatible base URL (read-only, for display)
-         * @nullable
-         */
-      readonly base_url_display?: string | null;
       set_as_active?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -78886,8 +78943,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 8
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 9
          */
       write_scopes?: string[];
     }
@@ -79826,7 +79883,7 @@ export namespace Schemas {
        * * `minimax` - MiniMax
        * * `zeabur` - Zeabur AI Hub
        * * `openai_compatible` - OpenAI-compatible */
-      provider: LLMProviderEnum;
+      provider: LLMCompletionProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
          * @maxLength 100
@@ -90580,8 +90637,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 8
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 9
          */
       write_scopes?: string[];
       /** Whether this scout runs on its schedule. Defaults to true. */
@@ -90813,8 +90870,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 8
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 9
          */
       readonly write_scopes: readonly string[];
       /**
@@ -92863,8 +92920,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 8
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 9
          */
       write_scopes?: string[];
       /** Whether this scout runs on its schedule. Defaults to true. */
@@ -114892,6 +114949,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Only workflows someone turned suggestions on for.
+     */
+    optimization_enabled?: boolean;
+    /**
      * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
      */
     origin_product?: HogFlowsListOriginProduct;
@@ -116371,6 +116432,7 @@ export namespace Schemas {
       Openai: 'openai',
       OpenaiCompatible: 'openai_compatible',
       Openrouter: 'openrouter',
+      SystemOne: 'system_one',
       TogetherAi: 'together_ai',
       Zeabur: 'zeabur',
     } as const;
