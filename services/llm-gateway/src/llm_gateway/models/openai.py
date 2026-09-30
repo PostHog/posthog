@@ -9,6 +9,8 @@ class ChatCompletionRequest(BaseModel):
     model: str
     messages: list[dict[str, Any]]
     stream: bool = False
+    tools: list[dict[str, Any]] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class ResponsesRequest(BaseModel):
@@ -25,6 +27,8 @@ class ResponsesRequest(BaseModel):
     stream: bool = False
     max_output_tokens: int | None = None
     previous_response_id: str | None = None
+    tools: list[dict[str, Any]] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class TranscriptionRequest(BaseModel):

@@ -51,6 +51,16 @@ class TestChatCompletionsEndpoint:
         [
             pytest.param({}, "model", id="missing_model"),
             pytest.param({"model": "gpt-4"}, "messages", id="missing_messages"),
+            pytest.param(
+                {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}], "tools": ["not-a-tool"]},
+                "tools",
+                id="tools_item_not_object",
+            ),
+            pytest.param(
+                {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}], "metadata": ["not-a-dict"]},
+                "metadata",
+                id="metadata_not_object",
+            ),
         ],
     )
     def test_validation_errors(
