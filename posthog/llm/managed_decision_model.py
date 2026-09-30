@@ -5,6 +5,8 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 from posthoganalytics.ai.prompts import PromptResult, Prompts
@@ -18,15 +20,23 @@ logger = structlog.get_logger(__name__)
 
 @functools.cache
 def app_prompts() -> Prompts:
-    # PostHog's own prompts live in the US project, and EU has no copy of that project, so every region
-    # reads them through the SDK. One client per process keeps the last good copy when a fetch fails.
-    # It is built on first use, because apps.ready() sets the key after this module can be imported.
+    # PostHog's own prompts live in the US project, and EU has no copy of that project. Regions
+    # without the prompt rows in their own database read them through the SDK. One client per
+    # process keeps the last good copy when a fetch fails. It is built on first use, because
+    # apps.ready() sets the key after this module can be imported.
     # A zero TTL leaves the refresh interval to BackgroundRefresher alone.
     return Prompts(posthoganalytics, capture_errors=True, default_cache_ttl_seconds=0)
 
 
 def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptResult | None:
-    """The `production` version, or `version` when given. None without a personal API key."""
+    """The `production` version, or `version` when given.
+
+    On a deployment whose own project holds the prompt rows (US cloud), the read goes through the
+    database, so no personal API key is needed. Everywhere else this falls back to the Prompts SDK,
+    which is None without a personal API key.
+    """
+    if settings.APP_PROMPTS_TEAM_ID is not None:
+        return _get_app_prompt_from_db(prompt_name, version=version)
     # Without a key (tests, local dev, self-hosted) the SDK still sends the request and gets a 401.
     if not posthoganalytics.personal_api_key:
         if version is not None:
@@ -34,6 +44,25 @@ def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptRes
         return None
     label = PROMPT_LABEL if version is None else None
     return app_prompts().get(prompt_name, with_metadata=True, label=label, version=version)
+
+
+def _get_app_prompt_from_db(prompt_name: str, *, version: int | None = None) -> PromptResult | None:
+    from posthog.models import Team
+    from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
+
+    team = Team.objects.only("id").get(id=settings.APP_PROMPTS_TEAM_ID)
+    label = PROMPT_LABEL if version is None else None
+    serialized = get_prompt_by_name_from_cache(team, prompt_name, version=version, label=label)
+    if serialized is None:
+        return None
+    return PromptResult(
+        source="api",
+        prompt=serialized.get("prompt") or "",
+        name=prompt_name,
+        version=serialized.get("version"),
+        label=serialized.get("label"),
+        config=serialized.get("config"),
+    )
 
 
 class BackgroundRefresher[T]:

@@ -1,9 +1,10 @@
 import threading
 from concurrent.futures import Future
 
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from posthoganalytics.ai.prompts import PromptResult
@@ -15,6 +16,11 @@ from posthog.llm.managed_decision_model import (
     ManagedDecisionModel,
     model_from_config,
 )
+from posthog.storage.llm_prompt_cache import invalidate_prompt_label_cache, invalidate_prompt_latest_cache
+from posthog.storage.llm_prompt_cache_keys import prompt_label_cache_key
+from posthog.utils import safe_cache_delete
+
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
 
 NEW_MODEL = "posthog/hogference/jeeves-0.1"
 
@@ -113,3 +119,71 @@ class TestManagedDecisionModel(SimpleTestCase):
         with self.assertRaisesRegex(RuntimeError, "version 3 needs POSTHOG_PERSONAL_API_KEY"):
             managed.fetch(version=3)
         prompts_class.assert_not_called()
+
+
+class TestGetAppPromptFromDatabase(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self._clear_caches()
+        self.addCleanup(self._clear_caches)
+
+    def _clear_caches(self) -> None:
+        invalidate_prompt_latest_cache(self.team.id, "emoji-search-suggestions")
+        invalidate_prompt_label_cache(self.team.id, "emoji-search-suggestions", "production")
+        safe_cache_delete(prompt_label_cache_key(self.team.id, "emoji-search-suggestions", "production"))
+
+    def _publish_prompt(self, *, version: int, config: dict) -> None:
+        LLMPrompt.objects.filter(team=self.team, name="emoji-search-suggestions").update(is_latest=False)
+        LLMPrompt.objects.create(
+            team=self.team,
+            name="emoji-search-suggestions",
+            prompt="Suggest related emojis for a search.",
+            version=version,
+            is_latest=True,
+            config=config,
+            created_by=self.user,
+        )
+
+    @override_settings(APP_PROMPTS_TEAM_ID=None)
+    def test_none_team_id_reads_through_the_sdk(self) -> None:
+        with patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", None):
+            with patch("posthog.llm.managed_decision_model.Prompts") as prompts_class:
+                assert managed_decision_model.get_app_prompt("emoji-search-suggestions") is None
+                prompts_class.assert_not_called()
+
+    def test_the_production_label_resolves_without_an_api_key(self) -> None:
+        self._publish_prompt(version=1, config={"model": DEFAULT_DECISION_MODEL})
+        self._publish_prompt(version=2, config={"model": NEW_MODEL})
+        LLMPromptLabel.objects.create(
+            team=self.team,
+            prompt_name="emoji-search-suggestions",
+            name="production",
+            prompt=LLMPrompt.objects.get(team=self.team, name="emoji-search-suggestions", version=2),
+            created_by=self.user,
+        )
+
+        with override_settings(APP_PROMPTS_TEAM_ID=self.team.id):
+            with patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", None):
+                result = managed_decision_model.get_app_prompt("emoji-search-suggestions")
+
+        assert result is not None
+        assert result.config == {"model": NEW_MODEL}
+        assert result.label == "production"
+        assert result.source == "api"
+
+    def test_an_exact_version_resolves_without_the_label(self) -> None:
+        self._publish_prompt(version=1, config={"model": DEFAULT_DECISION_MODEL})
+        self._publish_prompt(version=2, config={"model": NEW_MODEL})
+
+        with override_settings(APP_PROMPTS_TEAM_ID=self.team.id):
+            with patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", None):
+                result = managed_decision_model.get_app_prompt("emoji-search-suggestions", version=1)
+
+        assert result is not None
+        assert result.config == {"model": DEFAULT_DECISION_MODEL}
+        assert result.label is None
+
+    def test_a_missing_prompt_returns_none(self) -> None:
+        with override_settings(APP_PROMPTS_TEAM_ID=self.team.id):
+            with patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", None):
+                assert managed_decision_model.get_app_prompt("emoji-search-suggestions") is None
