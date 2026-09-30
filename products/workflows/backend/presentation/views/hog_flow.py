@@ -51,8 +51,9 @@ from posthog.hogql.parser import parse_expr
 from posthog.api.app_metrics2 import (
     AppMetricResponseSerializer,
     AppMetricsMixin,
+    AppMetricsRequestSerializer,
     AppMetricsTotalsResponseSerializer,
-    HogFlowMetricsRequestSerializer,
+    MetricSeries,
     fetch_app_metric_totals,
     fetch_app_metric_totals_by_source,
     fetch_app_metric_totals_by_team_and_source,
@@ -4838,6 +4839,21 @@ def mint_audience_confirm_token(
 WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogFlowSerializer.Meta.read_only_fields)
 
 
+class HogFlowMetricsRequestSerializer(AppMetricsRequestSerializer):
+    """The workflow metrics request: the shared parameters plus `version`, which only workflows can
+    answer. Kept off the shared serializer so the hog function tools never advertise a parameter
+    their endpoint refuses."""
+
+    version = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Read one workflow version's series: every run of that version, keyed on the workflow. "
+            "The unversioned read keys batch and broadcast runs on the run instead, so it is not the "
+            "sum of the versions; compare versions with each other, not with it."
+        ),
+    )
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
     metrics=extend_schema(parameters=[HogFlowMetricsRequestSerializer], responses=AppMetricResponseSerializer),
@@ -4940,6 +4956,14 @@ class HogFlowViewSet(
     function_kind = "hog_flow"
     _workflow_last_runs: dict[uuid_mod.UUID, WorkflowLastRunDTO] | None = None
     metrics_request_serializer_class = HogFlowMetricsRequestSerializer
+
+    def _metric_series_for(self, obj, params: Mapping[str, Any]) -> MetricSeries:
+        # Every hog flow metric is mirrored under `hog_flow_version` with the version appended to the
+        # id, which is what makes "before and after this change" answerable at all.
+        version = params.get("version")
+        if version is None:
+            return super()._metric_series_for(obj, params)
+        return MetricSeries(app_source=HOG_FLOW_VERSION_APP_SOURCE, app_source_id=f"{obj.id}/{version}")
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
