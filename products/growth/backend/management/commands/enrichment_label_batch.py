@@ -164,7 +164,7 @@ class Command(BaseCommand):
             validate_output_fields(config)
         except PromptConfigError as e:
             raise CommandError(str(e)) from e
-        if settings.CLOUD_DEPLOYMENT and not settings.FIRECRAWL_API_KEY:
+        if gates.region_allowed() and not settings.FIRECRAWL_API_KEY:
             raise CommandError(
                 "FIRECRAWL_API_KEY is not configured, so every org whose model turn calls a web tool would be "
                 "deferred after a paid model call; aborting before any spend"
