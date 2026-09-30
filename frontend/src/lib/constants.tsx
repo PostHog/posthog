@@ -324,6 +324,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EXPERIMENT_BEHAVIOR_COMPARISON: 'experiment-behavior-comparison', // owner: @mp-hog #team-experiments
     EXPERIMENT_METRIC_EVENT_BREAKDOWNS: 'experiment-metric-event-breakdowns', // owner: @rodrigoi #team-experiments
+    EXPERIMENT_MULTIPLE_RECALCULATION_TIMES: 'experiment-multiple-recalculation-times', // owner: @jurajmajerik #team-experiments, gates the second daily recalculation time picker in environment settings
     EXPERIMENT_SETUP_CONTEXT: 'experiment-setup-context', // owner: @mp-hog #team-experiments, gates the experiment-setup-context MCP tool, its endpoint and the staff setup context drawer on the experiments list
     EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_EXCLUDED_VARIANTS: 'experiments-excluded-variants', // owner: @rodrigoi #team-experiments
