@@ -57,7 +57,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "BrowserUse",
     "Cohere",
     "DenoDeploy",
-    "Fintoc",
     "FlyIo",
     "Groq",
     "GrowthBook",
