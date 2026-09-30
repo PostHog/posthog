@@ -21,11 +21,10 @@ from products.workflows.backend.facade.api import (
 )
 from products.workflows.backend.facade.contracts import WorkflowCodeRejected
 from products.workflows.backend.facade.enums import (
-    WORKFLOW_CODE_APPLY_RESULT_CHOICES,
-    WORKFLOW_CODE_ERROR_STATUS_CHOICES,
-    WORKFLOW_CODE_PLAN_RESULT_CHOICES,
     WORKFLOW_STATUS_CHOICES,
     WorkflowCodeApplyResult,
+    WorkflowCodeErrorStatus,
+    WorkflowCodePlanResult,
 )
 
 if TYPE_CHECKING:
@@ -58,7 +57,7 @@ class HogFlowCodeRequestSerializer(serializers.Serializer):
 
 class HogFlowCodeErrorSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
-        choices=WORKFLOW_CODE_ERROR_STATUS_CHOICES, help_text="A machine-readable code for the kind of mistake."
+        choices=WorkflowCodeErrorStatus.choices, help_text="A machine-readable code for the kind of mistake."
     )
     message = serializers.CharField(help_text="What is wrong, and where.")
     why = serializers.CharField(help_text="Why PostHog refuses it.")
@@ -118,7 +117,7 @@ class HogFlowCodeStatusChangeSerializer(serializers.Serializer):
 
 class HogFlowCodePlanSerializer(serializers.Serializer):
     result = serializers.ChoiceField(
-        choices=WORKFLOW_CODE_PLAN_RESULT_CHOICES,
+        choices=WorkflowCodePlanResult.choices,
         help_text=(
             "create: no workflow has this key. update: applying the file changes the workflow. "
             "stage: applying it through MCP stages the change as a draft of the active workflow, to publish with workflows-publish. "
@@ -180,7 +179,7 @@ class HogFlowCodeCheckResponseSerializer(serializers.Serializer):
 
 class HogFlowCodeApplyResponseSerializer(serializers.Serializer):
     result = serializers.ChoiceField(
-        choices=WORKFLOW_CODE_APPLY_RESULT_CHOICES,
+        choices=WorkflowCodeApplyResult.choices,
         help_text=(
             "created: the file made a new workflow. updated: it changed the workflow. "
             "staged: the change waits as a draft of the active workflow; publish it with workflows-publish. "

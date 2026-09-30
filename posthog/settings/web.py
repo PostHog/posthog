@@ -624,10 +624,6 @@ SPECTACULAR_SETTINGS = {
             "RoleEnum": ["primary", "supporting"],
             # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
             "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
-            # The workflows-as-code facade enums are framework-free StrEnums, so no Choices class derives a name.
-            "WorkflowCodeErrorStatusEnum": "products.workflows.backend.facade.enums.WORKFLOW_CODE_ERROR_STATUS_CHOICES",
-            "WorkflowCodePlanResultEnum": "products.workflows.backend.facade.enums.WORKFLOW_CODE_PLAN_RESULT_CHOICES",
-            "WorkflowCodeApplyResultEnum": "products.workflows.backend.facade.enums.WORKFLOW_CODE_APPLY_RESULT_CHOICES",
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             # The subset a client may write. Shared by the single-issue and bulk write serializers,
