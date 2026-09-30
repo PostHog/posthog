@@ -58,6 +58,8 @@ class ExternalTicketProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthent
     """Returns None instead of raising when the key's team has conversations disabled, so
     such a key is indistinguishable from an unknown token."""
 
+    activity_credential_type = "project_secret_key"
+
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         result = super().authenticate(request)
         if result is None:
