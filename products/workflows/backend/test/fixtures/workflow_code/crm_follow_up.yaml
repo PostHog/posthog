@@ -19,6 +19,9 @@ steps:
     body:
       distinct_id: '{event.distinct_id}'
       plan: '{person.properties.plan}'
+    output_variable:
+      key: crm_id
+      result_path: body.id
   - type: branch
     name: Which plan?
     description: Split the path on the plan the person is on.
@@ -51,4 +54,5 @@ steps:
             name: Wait a week
             duration: 7d
 exit:
+  name: Hand over
   reason: Handed to sales

@@ -122,7 +122,8 @@ class TestHogFlowCodeApply(APIBaseTest):
         assert [a["id"] for a in workflow.actions] == [a["id"] for a in SAMPLE_DEFINITION["actions"]]
         assert workflow.edges == SAMPLE_DEFINITION["edges"]
 
-    def test_applying_the_same_file_again_writes_nothing(self) -> None:
+    @patch(IN_FLIGHT_COUNT)
+    def test_applying_the_same_file_again_writes_nothing(self, mock_count: MagicMock) -> None:
         self._applied(SAMPLE, status.HTTP_201_CREATED)
         workflow = self._workflow("trial-upgrade-nudge")
         revisions_before = self._revision_count(workflow)
@@ -135,6 +136,7 @@ class TestHogFlowCodeApply(APIBaseTest):
         assert (after.version, after.updated_at) == (workflow.version, workflow.updated_at)
         assert self._revision_count(workflow) == revisions_before
         assert ActivityLog.objects.filter(scope="HogFlow", item_id=str(workflow.id)).count() == activity_before
+        mock_count.assert_not_called()
 
     @patch(IN_FLIGHT_COUNT)
     def test_apply_of_a_renamed_step_updates_the_workflow_and_moves_its_people_as_planned(self, mock_count) -> None:

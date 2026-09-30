@@ -1,14 +1,53 @@
+import sys
+from collections.abc import Callable
+from dataclasses import replace
+from types import FrameType
 from typing import Any
 
 from django.test import SimpleTestCase
+from unittest.mock import patch
 
 from jsonschema import Draft202012Validator
 from parameterized import parameterized
 
+from products.workflows.backend.facade.enums import WorkflowCodeErrorStatus
+from products.workflows.backend.services.workflow_code import yaml_loader
 from products.workflows.backend.services.workflow_code.compiler import compile_document, definition_errors
-from products.workflows.backend.services.workflow_code.errors import DocumentInvalid, format_path
+from products.workflows.backend.services.workflow_code.errors import (
+    DocumentError,
+    DocumentInvalid,
+    DocumentPath,
+    format_path,
+)
+from products.workflows.backend.services.workflow_code.plan import WorkflowState, plan_create, plan_warnings
 from products.workflows.backend.services.workflow_code.schema import validate_document, workflow_document_schema
 from products.workflows.backend.services.workflow_code.yaml_loader import load_content
+
+
+def _error(path: DocumentPath) -> DocumentError:
+    return DocumentError(status=WorkflowCodeErrorStatus.INVALID_VALUE, message="", why="", fix="", path=path)
+
+
+def _empty_state() -> WorkflowState:
+    return WorkflowState(name="", description="", status="draft", content={})
+
+
+def _lines_run(call: Callable[[], object]) -> int:
+    """How many Python lines `call` runs, a measure of its work that does not depend on the machine."""
+    count = 0
+
+    def trace(_frame: FrameType, event: str, _arg: object) -> Callable:
+        nonlocal count
+        if event == "line":
+            count += 1
+        return trace
+
+    sys.settrace(trace)
+    try:
+        call()
+    finally:
+        sys.settrace(None)
+    return count
 
 
 def _document(*steps: dict[str, Any]) -> dict[str, Any]:
@@ -44,12 +83,16 @@ class TestWorkflowCodeSchema(SimpleTestCase):
             ("sexagesimal", "at: 1:30", {"at": "1:30"}),
             ("core_boolean", "flag: true", {"flag": True}),
             ("core_null", "gone: ~", {"gone": None}),
-            ("core_float", "ratio: 1.10", {"ratio": 1.1}),
-            ("core_octal", "mode: 0o17", {"mode": 15}),
+            ("core_float", "ratio: 1.5", {"ratio": 1.5}),
+            ("core_float_written_as_the_dumper_writes_it", "tiny: 1.0e-07", {"tiny": 1e-07}),
+            ("core_integer", "count: -12", {"count": -12}),
+            ("json_after_a_byte_order_mark", '\ufeff{"name": "\\ud83d\\ude00"}', {"name": "\U0001f600"}),
         ]
     )
     def test_yaml_reads_scalars_by_the_1_2_core_schema(self, _name: str, content: str, expected: dict) -> None:
-        assert load_content(content).data == expected
+        loaded = load_content(content)
+
+        assert (loaded.data, loaded.errors) == (expected, [])
 
     @parameterized.expand(
         [
@@ -61,6 +104,18 @@ class TestWorkflowCodeSchema(SimpleTestCase):
             ("alias_as_key", "name: &n description\n*n : hello\n", ["yaml_feature_not_allowed"]),
             ("tag_on_key", "!!str name: Welcome\n", ["yaml_feature_not_allowed"]),
             ("anchor_on_key", "&k name: Welcome\n", ["yaml_feature_not_allowed"]),
+            ("yaml_escaped_lone_surrogate", 'name: "\\ud800"\n', ["invalid_value"]),
+            ("yaml_escaped_nul", 'url: "https://example.com/h\\0"\n', ["invalid_value"]),
+            ("yaml_key_with_an_escaped_nul", '"na\\0me": Welcome\n', ["invalid_value"]),
+            ("json_escaped_lone_surrogate", '{"name": "\\ud800"}', ["invalid_value"]),
+            ("json_escaped_nul", '{"url": "https://example.com/h\\u0000"}', ["invalid_value"]),
+            ("json_key_with_a_lone_surrogate", '{"\\udc00": 1}', ["invalid_value"]),
+            ("number_with_a_trailing_zero", "value: 1.10\n", ["invalid_value"]),
+            ("number_with_a_leading_zero", "value: [012]\n", ["invalid_value"]),
+            ("hexadecimal_number", "body: { v: 0x1F }\n", ["invalid_value"]),
+            ("octal_number", "mode: 0o17\n", ["invalid_value"]),
+            ("number_with_an_exponent", "value: 1e3\n", ["invalid_value"]),
+            ("number_with_a_plus_sign", "value: +5\n", ["invalid_value"]),
         ]
     )
     def test_content_no_workflow_can_hold_is_one_error(self, _name: str, content: str, statuses: list[str]) -> None:
@@ -70,6 +125,67 @@ class TestWorkflowCodeSchema(SimpleTestCase):
             errors = invalid.errors
 
         assert [error.status for error in errors] == statuses
+        assert all("\x00" not in error.message and error.message.encode("utf-8") for error in errors)
+
+    @parameterized.expand([("yaml", "a: [" + "1, " * 30 + "1]\n"), ("json", '{"a": [' + "1, " * 30 + "1]}")])
+    def test_content_with_more_values_than_a_workflow_holds_is_refused(self, _name: str, content: str) -> None:
+        with patch.object(yaml_loader, "MAX_VALUES", 20), self.assertRaises(DocumentInvalid) as raised:
+            load_content(content)
+
+        assert [error.status for error in raised.exception.errors] == ["content_too_large"]
+
+    def test_leaving_out_errors_under_refused_values_grows_linearly_with_the_errors(self) -> None:
+        def lines_run_for(count: int) -> int:
+            loaded = load_content("steps: [" + ", ".join(["!t {type: x}"] * count) + "]\n")
+            validation = [_error(("steps", index, "type")) for index in range(count)]
+            validation += [_error(("exit", index)) for index in range(count)]
+            return _lines_run(lambda: loaded.with_validation_errors(validation))
+
+        assert lines_run_for(400) < 3 * lines_run_for(200)
+
+    @parameterized.expand(
+        [
+            ("zero", "0d", "Use a number above zero, for example 30m or 3d."),
+            ("seconds_past_their_cap", "90s", "Write the duration as 1.5m."),
+            ("minutes_that_make_whole_days", "43200m", "Write the duration as 30d."),
+            ("seconds_past_thirty_days", "2592001s", "Use 30d or less. To wait longer, add a second delay step after this one."),
+            ("seconds_with_no_exact_larger_unit", "61s", "Use at most 60s, or write the delay in a larger unit."),
+            ("words", "3 days", "Write the duration as 3d."),
+            ("hours_that_make_a_day_and_a_half", "36h", "Write the duration as 1.5d."),
+        ]
+    )
+    def test_a_wrong_duration_suggests_one_the_check_accepts(self, _name: str, duration: str, fix: str) -> None:
+        with self.assertRaises(DocumentInvalid) as raised:
+            validate_document(_document({"type": "delay", "name": "Wait", "duration": duration}), {})
+
+        [error] = raised.exception.errors
+        assert (error.path, error.fix) == (("steps", 0, "duration"), fix)
+
+    @parameterized.expand([("float", "1.0"), ("boolean", "true")])
+    def test_a_version_that_is_not_the_number_1_is_unsupported(self, _name: str, version: str) -> None:
+        loaded = load_content(f"version: {version}\n")
+
+        with self.assertRaises(DocumentInvalid) as raised:
+            validate_document({**_document(), **loaded.data}, loaded.scalar_sources)
+
+        [error] = raised.exception.errors
+        assert (error.status, error.path) == ("unsupported_version", ("version",))
+
+    @parameterized.expand(
+        [
+            ("valid_id", "wait_three_days", "add id: wait_three_days to it"),
+            ("id_a_file_cannot_hold", "wait.three", "A file cannot give a step the id wait.three"),
+        ]
+    )
+    def test_a_removed_step_warning_says_how_to_keep_its_people_only_when_a_file_can(
+        self, _name: str, action_id: str, fix: str
+    ) -> None:
+        removed = {"action_id": action_id, "name": "Wait three days", "runs": 3, "moves_to": None}
+        plan = replace(plan_create(_empty_state()), removed_steps=[removed])
+
+        [warning] = plan_warnings(plan)
+
+        assert fix in warning.fix
 
     @parameterized.expand(
         [

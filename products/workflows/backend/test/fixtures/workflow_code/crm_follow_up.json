@@ -68,6 +68,7 @@
             "description": "Push the deal to the CRM.",
             "on_error": null,
             "filters": null,
+            "output_variable": {"key": "crm_id", "result_path": "body.id"},
             "type": "function",
             "config": {
                 "template_id": "template-webhook",
@@ -190,7 +191,7 @@
         },
         {
             "id": "exit_node",
-            "name": "Exit",
+            "name": "Hand over",
             "description": "",
             "on_error": null,
             "filters": null,

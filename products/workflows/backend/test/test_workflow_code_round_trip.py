@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,34 @@ from products.workflows.backend.services.workflow_code.yaml_loader import load_c
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "workflow_code"
 
 _DERIVED_KEYS = {"bytecode", "bytecode_error", "bytecode_contract", "transpiled"}
+_EDITOR_FIELDS = {"created_at", "updated_at"}
+
+
+def _stored(case: str) -> dict[str, Any]:
+    return json.loads((FIXTURES / f"{case}.json").read_text())
+
+
+def _action(definition: dict[str, Any], action_id: str) -> dict[str, Any]:
+    return next(action for action in definition["actions"] if action["id"] == action_id)
+
+
+def _nested(depth: int) -> Any:
+    value: Any = "deepest"
+    for _ in range(depth):
+        value = {"next": value}
+    return value
+
+
+def _rename_action(definition: dict[str, Any], old: str, new: str) -> None:
+    _action(definition, old)["id"] = new
+    for edge in definition["edges"]:
+        edge.update({end: new for end in ("from", "to") if edge[end] == old})
+
+
+def _mutated(change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    stored = _stored("crm_follow_up")
+    change(stored)
+    return stored
 
 
 def _cases() -> list[str]:
@@ -48,12 +77,9 @@ def _without_derived(value: Any, *, in_inputs: bool = False) -> Any:
 def _normalized(definition: dict[str, Any], key: str) -> dict[str, Any]:
     actions = [
         {
-            "id": action["id"],
-            "name": action["name"],
+            **{field: value for field, value in action.items() if value is not None and field not in _EDITOR_FIELDS},
             "description": action.get("description") or "",
-            "type": action["type"],
             "config": _without_derived(action.get("config") or {}),
-            **{field: action[field] for field in ("filters", "on_error") if action.get(field)},
         }
         for action in definition["actions"]
     ]
@@ -112,7 +138,19 @@ class TestWorkflowCodeRoundTrip(SimpleTestCase):
         assert compiled["actions"][0]["config"] == {"type": "event", "filters": filters}
 
     @parameterized.expand(
-        [("on",), ("no",), ("1.10",), ("012",), ("0o12",), ("null",), ("2026-09-30",), ("1:30",), ("line\x85break",)]
+        [
+            ("on",),
+            ("no",),
+            ("y",),
+            ("N",),
+            ("1.10",),
+            ("012",),
+            ("0o12",),
+            ("null",),
+            ("2026-09-30",),
+            ("1:30",),
+            ("line\x85break",),
+        ]
     )
     def test_text_that_yaml_reads_as_another_type_stays_text(self, text: str) -> None:
         stored = json.loads((FIXTURES / "welcome_series.json").read_text())
@@ -124,3 +162,77 @@ class TestWorkflowCodeRoundTrip(SimpleTestCase):
         data = load_content(rendered.content).data
         assert (data["name"], data["description"]) == (text, text)
         assert yaml.safe_load(rendered.content)["name"] == text
+        assert f"\nname: {text}\n" not in rendered.content
+
+    @parameterized.expand(
+        [
+            ("action_field", lambda s: _action(s, "tell_the_crm").update(retries=3), "retries"),
+            ("exit_config_field", lambda s: _action(s, "exit_node")["config"].update(notify=True), "notify"),
+            ("event_trigger_config_field", lambda s: _action(s, "trigger_node")["config"].update(masked=True), "masked"),
+            ("variable_without_type_or_default", lambda s: s.update(variables=[{"key": "plan"}]), "plan"),
+            ("blank_name", lambda s: s.update(name=""), "no name"),
+            (
+                "credential_header",
+                lambda s: _action(s, "tell_the_crm")["config"]["inputs"].update(
+                    headers={"value": {"Authorization": "Bearer EXAMPLE_TOKEN"}}
+                ),
+                "Authorization",
+            ),
+            (
+                "credential_in_the_url",
+                lambda s: _action(s, "tell_the_crm")["config"]["inputs"]["url"].update(
+                    value="https://example.com/hooks/crm?api_key=EXAMPLE_KEY"
+                ),
+                "api_key",
+            ),
+            (
+                "value_nested_too_deep",
+                lambda s: _action(s, "tell_the_crm")["config"]["inputs"]["body"].update(value=_nested(120)),
+                "100 levels",
+            ),
+            (
+                "file_too_large",
+                lambda s: _action(s, "tell_the_crm")["config"]["inputs"]["body"].update(value={"blob": "x" * 1100000}),
+                "bytes",
+            ),
+        ]
+    )
+    def test_what_a_file_cannot_carry_as_stored_is_a_warning(
+        self, _name: str, change: Callable[[dict[str, Any]], None], named: str
+    ) -> None:
+        rendered = render_workflow(_mutated(change), key="crm-follow-up")
+
+        matching = [warning.message for warning in rendered.warnings if named in warning.message]
+        assert len(matching) == 1, rendered.warnings
+        assert f"# {matching[0]}" in rendered.content
+
+    def test_a_workflow_without_a_key_is_pulled_as_a_draft_so_the_file_never_runs_a_second_copy(self) -> None:
+        stored = _stored("welcome_series")
+        stored["status"] = "active"
+
+        rendered = render_workflow(stored, key=None)
+
+        assert load_content(rendered.content).data["status"] == "draft"
+        [warning] = [warning.message for warning in rendered.warnings if "no key" in warning.message]
+        assert "keeps running" in warning
+
+    def test_a_filter_source_that_validation_does_not_fill_in_is_kept(self) -> None:
+        stored = _stored("weekly_digest")
+        trigger_config = {"type": "batch", "filters": {"source": "events", "properties": []}}
+        _action(stored, "trigger_node")["config"] = trigger_config
+
+        compiled, _key = _load(render_workflow(stored, key="weekly-digest").content)
+
+        assert compiled["actions"][0]["config"] == trigger_config
+
+    def test_a_step_id_a_file_cannot_hold_is_replaced_by_one_no_other_step_has(self) -> None:
+        stored = _stored("crm_follow_up")
+        _rename_action(stored, "wait_a_week", "give_sales_a_day_later")
+        _rename_action(stored, "give_sales_a_day", "give.sales")
+        _rename_action(stored, "give_sales_a_day_later", "give_sales_a_day")
+
+        compiled, _key = _load(render_workflow(stored, key="crm-follow-up").content)
+
+        ids = [action["id"] for action in compiled["actions"]]
+        assert len(ids) == len(set(ids))
+        assert {"give_sales_a_day", "give_sales_a_day_2"} <= set(ids)

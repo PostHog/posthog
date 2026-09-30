@@ -340,7 +340,10 @@ class TestHogFlowCodeCheck(APIBaseTest):
         assert response.json()["warnings"] == []
 
     @parameterized.expand([("as_the_api_stores_it", False), ("as_the_editor_stores_it", True)])
-    def test_check_of_a_file_matching_the_stored_workflow_is_unchanged(self, _name: str, editor_shape: bool) -> None:
+    @patch(IN_FLIGHT_COUNT)
+    def test_check_of_a_file_matching_the_stored_workflow_is_unchanged(
+        self, _name: str, editor_shape: bool, mock_count: MagicMock
+    ) -> None:
         workflow = self._create_workflow("trial-upgrade-nudge", SAMPLE_DEFINITION)
         stored_email = next(a for a in workflow.actions if a["id"] == "thank_the_new_customer")
         assert "design" in stored_email["config"]["inputs"]["email"]["value"]
@@ -366,6 +369,7 @@ class TestHogFlowCodeCheck(APIBaseTest):
             [],
             [],
         )
+        mock_count.assert_not_called()
 
     @patch(IN_FLIGHT_COUNT)
     def test_check_of_a_renamed_step_reports_where_its_people_go_and_how_to_keep_them(self, mock_count) -> None:
@@ -459,6 +463,15 @@ class TestHogFlowCodeCheck(APIBaseTest):
     @parameterized.expand(
         [
             ("string_field_given_a_number", BASE.replace("name: Welcome", "name: 1.10"), "invalid_value", "name", 3, 7),
+            (
+                "escaped_lone_surrogate",
+                BASE.replace("key: welcome", 'key: "\\ud800"'),
+                "invalid_value",
+                "key",
+                2,
+                6,
+            ),
+            ("version_written_as_a_float", BASE.replace("version: 1", "version: 1.0"), "unsupported_version", "version", 1, 10),
             (
                 "duplicate_key",
                 BASE.replace("name: Welcome\n", "name: Welcome\nname: Welcome again\n"),
@@ -592,6 +605,17 @@ class TestHogFlowCodeCheck(APIBaseTest):
             ("unknown_field", "colour", 5),
             ("invalid_value", "steps[0].duration", 12),
         ]
+
+    def test_a_file_with_more_errors_than_one_response_lists_says_how_many_are_left_out(self) -> None:
+        content = BASE + "extra: [" + ", ".join(["!t 1"] * 60) + "]\n"
+
+        response = self._check(content)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        errors = response.json()["errors"]
+        assert len(errors) == 51
+        assert errors[-1]["status"] == "too_many_errors"
+        assert "11 more" in errors[-1]["message"]
 
     @parameterized.expand(
         [
