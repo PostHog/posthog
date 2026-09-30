@@ -71,10 +71,11 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
         )
     }
     return (
-        <div className="flex flex-col gap-3">
+        // No gap: the cards' own margins and the separators' padding space the feed, like PostHog Desktop.
+        <div className="flex flex-col">
             {feedGroups.map((group) => (
                 <Fragment key={group.key}>
-                    <div className="flex items-center gap-3 pt-2">
+                    <div className="flex items-center gap-3 pt-5 pb-2">
                         <Separator className="flex-1" />
                         <Text
                             render={<span />}
