@@ -1,4 +1,3 @@
-import errno
 import dataclasses
 
 from django.conf import settings
@@ -7,7 +6,6 @@ from django.db import DatabaseError, close_old_connections
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import get_size_of_folder
@@ -118,14 +116,20 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
         if total_mib is None:
             total_mib = get_size_of_folder(s3_folder)
     except OSError as e:
-        if e.errno not in (errno.EMFILE, errno.ENFILE):
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this activity module's import path
+            TransientObjectStoreError,
+            is_transient_object_store_error,
+        )
+
+        if not is_transient_object_store_error(e):
             raise
-        # Fd pressure on this worker (e.g. botocore loading a data file while building the S3
-        # client) — the same transient-capacity class postgres.py's _is_too_many_open_files_error
-        # already recognizes on the connect path. A descriptor frees the moment another
-        # connection/client in this worker closes, so it's never a defect in this activity.
-        logger.warning("Too many open files calculating table size in S3", exc_info=e)
-        raise NonReportableError("Too many open files calculating table size in S3") from e
+        # Covers this worker's own fd pressure (EMFILE/ENFILE, e.g. botocore loading a data file
+        # while building the S3 client) and known-transient S3/object-store blips (IMDS/STS hiccups,
+        # dropped connections) hit opening the Delta log (_live_delta_size_mib) or listing the query
+        # folder (get_size_of_folder) — see is_transient_object_store_error. A retry recovers on its
+        # own, so it shouldn't page anyone.
+        logger.warning("Transient object-store error calculating table size in S3", exc_info=e)
+        raise TransientObjectStoreError(str(e)) from e
 
     logger.debug(f"Total size in MiB = {total_mib:.2f}")
 

@@ -16,7 +16,7 @@ from posthog.temporal.health_checks.models import HealthCheckResult
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.facade.config import detect_config_format
+from products.feature_flags.backend.facade.config import is_v1_config
 from products.feature_flags.backend.facade.filters import EVALUATED_BEFORE_RELEASE_CONDITIONS
 from products.feature_flags.backend.flag_status import (
     ROLLOUT_FULLY_ROLLED_OUT,
@@ -217,8 +217,7 @@ def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
     """
     kept = []
     for flag in flags:
-        filters = flag.filters
-        if filters is None or (isinstance(filters, dict) and detect_config_format(filters).kind == "v1"):
+        if is_v1_config(flag.filters):
             kept.append(flag)
         else:
             logger.info("stale_feature_flags_skipped_unsupported_config", flag_id=flag.id, team_id=flag.team_id)

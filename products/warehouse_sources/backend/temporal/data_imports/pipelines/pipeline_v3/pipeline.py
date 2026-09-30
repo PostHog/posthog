@@ -29,8 +29,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
-    advance_xmin_state,
     cleanup_memory,
+    commit_source_cursor,
     finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
@@ -84,6 +84,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     S3BatchWriter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
     ResumableSourceManager,
     resolve_resume_manager,
@@ -129,6 +130,7 @@ class PipelineV3(Generic[ResumableData]):
     _reset_pipeline: bool
     _delta_table_ref: DeltaTableRef
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
+    _source_cursor_manager: SourceCursorManager[Any] | None
     _internal_schema: HogQLSchema
     _sinks: PipelineSinks
     _batcher: Batcher
@@ -150,8 +152,10 @@ class PipelineV3(Generic[ResumableData]):
         models: "ImportJobModels",
         retry_loaded_rows: int | None = None,
         rows_ordered_by_cursor: bool = False,
+        source_cursor_manager: SourceCursorManager[Any] | None = None,
     ) -> None:
         self._resource = source_response
+        self._source_cursor_manager = source_cursor_manager
         self._resource_name = source_response.name
 
         # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
@@ -760,6 +764,15 @@ class PipelineV3(Generic[ResumableData]):
             # no batches the load consumer is never notified. Without this a v3 schema whose
             # source stays quiet could never satisfy `_fast_return_eligible`.
             await self._stamp_full_run()
+            # No batch reaches the loader, so nothing would promote a staged cursor. With no rows
+            # outstanding the cursor is already safe to store.
+            await commit_source_cursor(
+                self._source_cursor_manager,
+                self._schema,
+                self._logger,
+                staging_run_uuid=None,
+                log_prefix="V3 Pipeline: ",
+            )
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
             return
 
@@ -779,10 +792,15 @@ class PipelineV3(Generic[ResumableData]):
             log_prefix="V3 Pipeline: ",
             staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
         )
+        await commit_source_cursor(
+            self._source_cursor_manager,
+            self._schema,
+            self._logger,
+            staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
+            log_prefix="V3 Pipeline: ",
+        )
 
         schema_path = await self._send_final_batches(total_batches, row_count)
-
-        await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 
         # initial_sync_complete is set by the loader's post-load after data lands in Delta.
 

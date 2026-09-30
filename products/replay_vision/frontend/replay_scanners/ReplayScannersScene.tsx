@@ -176,7 +176,10 @@ export function ReplayScannersScene(): JSX.Element {
                     <Link to={urls.replayVision(scanner.id)} className="font-semibold text-primary">
                         {scanner.name || '(untitled)'}
                     </Link>
-                    {scanner.description && <div className="text-muted text-sm">{scanner.description}</div>}
+                    {/* The creator's own description wins; the question fills in for scanners that have none. */}
+                    {(scanner.description || scanner.prompt_question) && (
+                        <div className="text-muted text-sm">{scanner.description || scanner.prompt_question}</div>
+                    )}
                 </div>
             ),
         },

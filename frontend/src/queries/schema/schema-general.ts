@@ -533,6 +533,8 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    useNewEventsSchema?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
     /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
@@ -771,6 +773,11 @@ export interface RecordingsQueryExperimentExposureFilter {
     experiment_id: integer
     /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
     variant?: string
+    /**
+     * Narrow to persons exposed to any of these variants. Defaults to all of the experiment's variants.
+     * Do not combine with `variant`, the single-variant form that predates this field.
+     */
+    variants?: string[]
     /**
      * Only sessions carrying in-session exposure evidence: an event matching the experiment's exposure criteria
      * inside the session (with the stamped `$feature/<flag_key>` property standing in when the exposure event was
@@ -3275,6 +3282,11 @@ export type AccountsTableFilter =
     | AccountsTableAccountFieldFilter
     | AccountsTableCustomPropertyFilter
 
+export type AccountsTablePropertyFilter =
+    | AccountsTableAccountFieldFilter
+    | AccountsTableRelationshipFilter
+    | AccountsTableCustomPropertyFilter
+
 export type AccountsTableCustomPropertyValue = string | number | boolean | null
 
 export interface AccountsTableCustomPropertyHistoryPoint {
@@ -3325,6 +3337,8 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     columns: AccountsTableColumn[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?: AccountsTableFilter[]
+    /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
+    filterGroups?: AccountsTablePropertyFilter[][]
     /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
     metrics?: AccountsTableMetric[]
     sort?: AccountsTableSort
@@ -9014,6 +9028,7 @@ export enum ProductKey {
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
+    AUTORESEARCH = 'autoresearch',
     BUSINESS_KNOWLEDGE = 'business_knowledge',
     COHORTS = 'cohorts',
     COMMENTS = 'comments',

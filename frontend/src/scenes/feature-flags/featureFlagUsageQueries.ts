@@ -181,8 +181,8 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
     ]
 }
 
-// Not a root table, so the `posthog.` prefix is part of the name. An organization without the
-// flag-evaluations-hogql-table flag has no such table, and these queries fail to resolve for it.
+// Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode without
+// the flag-evaluations-hogql-table flag has no such table, and these queries fail to resolve for it.
 const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
 
 /** How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever. */
