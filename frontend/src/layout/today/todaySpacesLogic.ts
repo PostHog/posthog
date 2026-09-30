@@ -81,7 +81,7 @@ export function sortSpaces(spaces: ChannelDTOApi[]): ChannelDTOApi[] {
 }
 
 export function spaceLabel(space: Pick<ChannelDTOApi, 'name' | 'system_role'>): string {
-    return space.system_role === 'personal' ? 'Me' : space.name
+    return space.system_role === 'personal' ? 'personal' : space.name
 }
 
 /** Only some people can see it: the personal space, or a private shared space. */

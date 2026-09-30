@@ -7010,6 +7010,18 @@ snapshots:
         hash: v1.k794b7964.ff266ce4b007479bd8156db3c4b65a91a8b987d226bfd7622b20085df50d5d1c.2IsZbL1hVZEqsqWd22bNC0XJvJSqSlXHKCc0LGtJzJc
     products-posthog-ai-threadview--saved-insight-query--light:
         hash: v1.k794b7964.405cb15303a44d4f837d5569ab4110e07b62ffa71fc418e0aaeb29ddafe8cf8e.mnRWTc0Tao1ttGBbi8vm9n77TQn-RXrRtmeeaDk-yM8
+    products-posthog-ai-threadview-quill--compared-with-lemon--dark:
+        hash: v1.k794b7964.0eef4b8bb8e847af86a96de1b100ccef151cc567197bee0200ca75a0e715c286.a5rC4BaHZaP6PhJ0-i0xMfj1DhJiQLcQtM_xXJkvMj4
+    products-posthog-ai-threadview-quill--compared-with-lemon--light:
+        hash: v1.k794b7964.c7a5ffd2925080a181b740d34b2c27b38ad09f50892b11d14ceceba7e336a968.6xFkSM46Y-L3sx2EzN4vegRwjUqUwaxMc4usQN_1Bcw
+    products-posthog-ai-threadview-quill--completed-turn--dark:
+        hash: v1.k794b7964.bd9bb2903f370c2f1030c1b31e69f004007f3aeb9c1be958381f91ecfc1aeca0.RxgqjdEnZ5RANGV5fD3rSvbYHYRo-6M7N2L-KS4oGNk
+    products-posthog-ai-threadview-quill--completed-turn--light:
+        hash: v1.k794b7964.7814b44a7cdb67fe04b11c0b67cd29da9df560fdd443a6a049127785b87eaddb.Ms_Zza_5d6X6oEsJVYbLuYXaZDqrN80vHn7E9nSP_bw
+    products-posthog-ai-threadview-quill--streaming-turn--dark:
+        hash: v1.k794b7964.dc0c5375f7622aa8755a424c981f16489ca45e0b178a147a1ef45f1bf85d4c4a.PmyP1cKLntqhPrftuHkvd3HvPYcS7iE9spSH9NXVbho
+    products-posthog-ai-threadview-quill--streaming-turn--light:
+        hash: v1.k794b7964.ab821f2b11da4c0a45f57411e64e6a420e09d024c3580da2b24f465810606212.-muSpXCIxCIulLSskbyWyNXWTqn16CR6ZXl03tuiwLo
     products-posthog-ai-virtualizedthread--anchored-open--dark:
         hash: v1.k794b7964.eecc3dde9e8475fb8f20f259880edae96e2750529897fc326c44d33ce20e0885.hQlXYcfwZ9CiFajcBHUg9oY6h2QcGrm91CkXVIht-OE
     products-posthog-ai-virtualizedthread--anchored-open--light:
@@ -7047,9 +7059,9 @@ snapshots:
     products-posthog-ai-virtualizedthread--remembered-position--light:
         hash: v1.k794b7964.fcd3d3ae2a58e891ec3fb4b224d8674f1591e349a990e0211aee29c9bf6f8d01.ThH9PVDZc4Ziy5_MNxrvijx6pRk5muGoa3ul6PgEEZw
     products-posthog-ai-virtualizedthread--streaming--dark:
-        hash: v1.k794b7964.c4ebc83f695831769cc95475925e983a71d5909636818ff2153e2dc7df5450a1.9VcSQPoSe9fMttmpga5INPhkJySlhF35v8dHEs52L90
+        hash: v1.k794b7964.b82eb1f4dc8701cf771e98d9214e6b72878727e5f68feac99a7a2a97d120c8a7.yrNrQvDVMHhEcXBq_FC0zykgDZ33RIRP6hHC95RFdEc
     products-posthog-ai-virtualizedthread--streaming--light:
-        hash: v1.k794b7964.e731151aea72bc9d5f4248dd2548e03fe07336fb29b2110d1e348020985ef9d1.NMSw9HS1VJuLZsmgp29MVPo708vTot8RLCqFv8IC7RQ
+        hash: v1.k794b7964.abd616bcda408ecf3fd0dfcaa1595491e88913000ad61893414d3536612ee3b5.94VJLVoiR9MVKJHF7FbnLu64DXBRbUpQLLoXu1Z74As
     products-signals-self-driving-intro-modal--default--dark:
         hash: v1.k794b7964.e72031a3a874ed6a1825089edff6147a3ea0d74c20c74951f8b5d38d92f54464.WQmsYZby7Raw1OaQn_oKtu1eASs_te6AgRALWXM6xLE
     products-signals-self-driving-intro-modal--default--light:
@@ -9718,6 +9730,10 @@ snapshots:
         hash: v1.k794b7964.1074de0d6b43c97997e4cf0805a72c6d6421d705c19302d513843b20fcd228a6.iLBmTqiDcsehqfv8-kOyDSMaUBDhMJzv8zv-BXpxmPQ
     scenes-app-experiments-setup-context--setup-context-drawer-narrow--light:
         hash: v1.k794b7964.cc999db118582bdb5f64351350f6013fc380f65ff7f029699b999ec6ec88d165.fgI_0tKTAlU-s75XAXeOKhCSc5GAiqMeTvCcgYcPFrg
+    scenes-app-feature-flags--deleted-feature-flag--dark:
+        hash: v1.k794b7964.3795bb1f396527c180bfcef4de823b5064fc13a2ed44cd4ef60abe7cb88002bb.bDHlqsOUbRivTPIRkkukSBdGNT9qfo4LPtuL5GSKvyI
+    scenes-app-feature-flags--deleted-feature-flag--light:
+        hash: v1.k794b7964.0e7e762946624e513cd91315999f4eec08f741351e5305537f752ca23f73d043.iZUHrQEikVJFEDf5HnL6ffOYuQZJr5lCturFKuLetiI
     scenes-app-feature-flags--edit-encrypted-remote-config-feature-flag--dark:
         hash: v1.k794b7964.8504bd833db23615979e665b2e02508a6a6d8650fe64ba2bd8ab16509e6b5f2c.Mr1CI-569yDB1Rd7c08A7B-_0GSnEHXA0wNvR22TNF4
     scenes-app-feature-flags--edit-encrypted-remote-config-feature-flag--light:
