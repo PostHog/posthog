@@ -18,6 +18,7 @@ from posthog.slack.channels import (
     SlackPostRefused,
     fetch_channel_map,
     find_channel,
+    is_shared_channel,
     post_message,
     post_with_join,
 )
@@ -32,6 +33,7 @@ _PRODUCER: Producer = "visual_review"
 
 # Listing channels walks every page of a rate-limited Slack endpoint, and a rate-limited walk returns
 # a partial map. Quarantine notices can arrive in bursts, so one listing serves them all for a while.
+# The cached shared flag can be stale, so post_to_team checks the channel again before each post.
 _CHANNEL_MAP_TTL_SECONDS = 10 * 60
 
 
@@ -89,6 +91,16 @@ def resolve_channel(
     return Delivery(channel_id=match.channel.channel_id, channel_name=name)
 
 
+def _is_still_internal(slack: SlackIntegration, channel_id: str) -> bool:
+    """Whether the channel is still unshared right now. Fails closed when Slack cannot say."""
+    try:
+        channel = slack.client.conversations_info(channel=channel_id).get("channel") or {}
+    except Exception as e:
+        logger.warning("visual_review.team_channel_info_failed", channel_id=channel_id, error=str(e))
+        return False
+    return not is_shared_channel(channel)
+
+
 def post_to_team(
     workspace: Workspace,
     team_slug: str,
@@ -102,6 +114,9 @@ def post_to_team(
         return False
 
     slack = SlackIntegration(workspace.integration, source="visual_review")
+    if not _is_still_internal(slack, delivery.channel_id):
+        logger.info("visual_review.team_channel_now_shared", team_slug=team_slug, channel_name=delivery.channel_name)
+        return False
     try:
         thread_ts = post_with_join(
             slack, delivery.channel_id, lead.blocks, lead.text, channel_name=delivery.channel_name

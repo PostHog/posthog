@@ -33,7 +33,7 @@ class TestSendQuarantineNotice:
                 return_value=PathOwnership(team_by_path={_SOURCE_PATH: "team-devex"}, registry={}, resolved=True),
             ) as owners,
             patch(f"{channels}.Integration") as integration,
-            patch(f"{channels}.SlackIntegration"),
+            patch(f"{channels}.SlackIntegration") as slack,
             patch(
                 f"{channels}.fetch_channel_map",
                 return_value={"team-devex": SlackChannel(channel_id="C1", shared=False)},
@@ -41,6 +41,8 @@ class TestSendQuarantineNotice:
             patch(f"{channels}.post_with_join", return_value="1700000000.1") as post,
         ):
             integration.objects.filter.return_value.first.return_value = MagicMock()
+            slack.return_value.client.conversations_info.return_value = {"channel": {"is_shared": False}}
+            post.slack = slack
             post.owners = owners
             post.channel_map = channel_map
             yield post
@@ -74,9 +76,11 @@ class TestSendQuarantineNotice:
 
     @pytest.mark.parametrize(
         "case",
-        ["unowned", "story_absent", "lifted"],
+        ["unowned", "story_absent", "lifted", "shared_since_listing"],
     )
-    def test_nothing_is_posted_without_an_owning_team_or_an_active_quarantine(self, repo, team, user, post, case):
+    def test_nothing_is_posted_without_an_owning_team_an_active_quarantine_or_an_internal_channel(
+        self, repo, team, user, post, case
+    ):
         if case == "unowned":
             post.owners.return_value = PathOwnership(
                 team_by_path={_SOURCE_PATH: UNOWNED_TEAM}, registry={}, resolved=True
@@ -84,6 +88,8 @@ class TestSendQuarantineNotice:
         entry = self._quarantine(
             repo, user, "scenes-app-gone--primary--light" if case == "story_absent" else _IDENTIFIER
         )
+        if case == "shared_since_listing":
+            post.slack.return_value.client.conversations_info.return_value = {"channel": {"is_ext_shared": True}}
         if case == "lifted":
             QuarantinedIdentifier.objects.using(WRITER_DB).filter(id=entry.id).update(expires_at=timezone.now())
 
