@@ -87,6 +87,7 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { featureFlagsSetupLogic } from 'products/feature_flags/frontend/emptyState/featureFlagsSetupLogic'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
@@ -4066,6 +4067,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         refreshTreeItem('feature_flag', String(featureFlag.id))
                         // The delete removed the flag from the loaded list, so the list has to load it again.
                         actions.loadFeatureFlags()
+                        // Deleting a project's only flag puts the setup screen in front of the list.
+                        // That screen counts flags only when it mounts.
+                        featureFlagsSetupLogic.findMounted()?.actions.loadFlagCount()
                     } else {
                         featureFlag.id && actions.deleteFlag(featureFlag.id)
                         deleteFromTree('feature_flag', String(featureFlag.id))
