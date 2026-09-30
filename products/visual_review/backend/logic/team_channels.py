@@ -98,7 +98,9 @@ def _is_still_internal(slack: SlackIntegration, channel_id: str) -> bool:
     except Exception as e:
         logger.warning("visual_review.team_channel_info_failed", channel_id=channel_id, error=str(e))
         return False
-    return bool(channel) and not is_shared_channel(channel)
+    if not channel:
+        return False
+    return not is_shared_channel(channel)
 
 
 def post_to_team(
