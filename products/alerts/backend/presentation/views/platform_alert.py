@@ -3,7 +3,8 @@ from django.db.models import Prefetch, QuerySet
 from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scopes
+from posthog.scopes import APIScopeObject, scopes_not_covered
 
 from products.alerts.backend.models.platform_alert import PlatformAlert, PlatformAlertConfiguration
 from products.alerts.backend.presentation.views.alert import ScheduleRestrictionField
@@ -95,6 +96,13 @@ class PlatformAlertConfigurationSerializer(serializers.ModelSerializer):
         }
 
 
+# A configuration shows the source product's data (its filters and firing state), so a reader
+# also needs read access to that product. `alert:read` alone must not reveal it.
+SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
+    PlatformAlertConfiguration.SourceKind.LOGS: "logs",
+}
+
+
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "alert"
     serializer_class = PlatformAlertConfigurationSerializer
@@ -109,9 +117,26 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnl
         # default parent-lookup filter would AND the raw URL team id back in and hide them.
         return True
 
+    def _readable_source_kinds(self) -> list[str]:
+        # Session auth carries no scopes, so only the access-control check applies to it.
+        token_scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
+        readable: list[str] = []
+        for source_kind, resource in SOURCE_KIND_RESOURCE.items():
+            if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
+                continue
+            if (
+                token_scopes is not None
+                and "*" not in token_scopes
+                and scopes_not_covered(token_scopes, [f"{resource}:read"])
+            ):
+                continue
+            readable.append(source_kind)
+        return readable
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
             PlatformAlertConfiguration.objects.for_team(self.team_id)
+            .filter(source_kind__in=self._readable_source_kinds())
             .prefetch_related(
                 Prefetch("alerts", queryset=PlatformAlert.objects.for_team(self.team_id).order_by("grouping_key"))
             )

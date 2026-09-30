@@ -7,9 +7,12 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
@@ -89,3 +92,44 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert child_retrieve_response.status_code == status.HTTP_200_OK, child_retrieve_response.json()
         assert child_retrieve_response.json() == results[0]
         assert other_retrieve_response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("member_without_logs_access", None, False),
+            ("key_without_logs_scope", ["alert:read"], False),
+            ("key_with_logs_scope", ["alert:read", "logs:read"], True),
+        ]
+    )
+    def test_logs_configurations_need_logs_read_access(
+        self, _name: str, key_scopes: list[str] | None, visible: bool
+    ) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors")
+        headers: dict[str, str] = {}
+        if key_scopes is None:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            member = User.objects.create_and_join(self.organization, "alerts-only@posthog.com", "testtest")
+            AccessControl.objects.create(
+                team=self.team,
+                resource="logs",
+                resource_id=None,
+                access_level="none",
+                organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            )
+            self.client.force_login(member)
+        else:
+            headers["HTTP_AUTHORIZATION"] = f"Bearer {self.create_personal_api_key_with_scopes(key_scopes)}"
+            self.client.logout()
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/", **headers)
+        retrieve_response = self.client.get(
+            f"/api/projects/{self.team.id}/platform_alerts/{configuration.id}/", **headers
+        )
+
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        assert [r["id"] for r in list_response.json()["results"]] == ([str(configuration.id)] if visible else [])
+        expected_retrieve_status = status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND
+        assert retrieve_response.status_code == expected_retrieve_status, retrieve_response.json()
