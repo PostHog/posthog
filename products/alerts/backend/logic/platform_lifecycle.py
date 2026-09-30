@@ -6,6 +6,7 @@ and every write to these rows, stays here. A source never holds one of these mod
 
 from collections.abc import Sequence
 from datetime import datetime
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
@@ -216,3 +217,64 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
         alert.snooze_until = upsert.snooze_until
         alert.save(update_fields=["snooze_until"])
     return created
+
+
+# `next_check_at` is left out: after the first copy the platform owns its own schedule.
+_SYNCED_CONFIGURATION_FIELDS: tuple[str, ...] = (
+    "name",
+    "enabled",
+    "source_config",
+    "threshold_count",
+    "threshold_operator",
+    "window_minutes",
+    "check_interval_minutes",
+    "evaluation_periods",
+    "datapoints_to_alarm",
+    "cooldown_minutes",
+    "schedule_restriction",
+)
+
+
+def sync_existing_configuration(upsert: PlatformAlertUpsert) -> bool:
+    """Copies a source edit onto the configuration already copied from it. Returns False when
+    there is none.
+
+    Never creates a configuration, so a source only reaches the platform through a backfill.
+    Runtime fields stay with the platform.
+    """
+    with transaction.atomic():
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(upsert.team_id)
+            .select_for_update()
+            .filter(legacy_configuration_id=upsert.legacy_configuration_id)
+            .first()
+        )
+        if configuration is None:
+            return False
+        configuration.name = upsert.name
+        configuration.enabled = upsert.enabled
+        configuration.source_config = upsert.source_config
+        configuration.threshold_count = upsert.threshold_count
+        configuration.threshold_operator = upsert.threshold_operator
+        configuration.window_minutes = upsert.window_minutes
+        configuration.check_interval_minutes = upsert.check_interval_minutes
+        configuration.evaluation_periods = upsert.evaluation_periods
+        configuration.datapoints_to_alarm = upsert.datapoints_to_alarm
+        configuration.cooldown_minutes = upsert.cooldown_minutes
+        configuration.schedule_restriction = upsert.schedule_restriction
+        configuration.save(update_fields=[*_SYNCED_CONFIGURATION_FIELDS, "updated_at"])
+        PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(
+            snooze_until=upsert.snooze_until
+        )
+    return True
+
+
+def delete_configuration_copied_from(team_id: int, legacy_configuration_id: UUID) -> bool:
+    """Deletes the configuration copied from a source row, with its runtime rows. Returns False
+    when there is none."""
+    deleted, _ = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(legacy_configuration_id=legacy_configuration_id)
+        .delete()
+    )
+    return deleted > 0
