@@ -78,7 +78,7 @@ class AlertsPlatformInputs:
 @activity.defn
 async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
     demand = await database_sync_to_async_pool(discover_demand)(inputs.cutoff)
-    await _record_inventory(dt.datetime.fromisoformat(inputs.cutoff))
+    await _record_inventory(dt.datetime.now(dt.UTC))
     return demand
 
 

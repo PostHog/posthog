@@ -524,6 +524,14 @@ class TestDemandDiscovery(APIBaseTest):
 
         assert result.batch_keys_by_source == {}
 
+    async def test_discovery_returns_demand_when_the_inventory_count_fails(self) -> None:
+        with patch(
+            "products.alerts.backend.temporal.workflows.count_inventory", side_effect=OperationalError("timeout")
+        ):
+            result = await alerts_platform_discover_demand_activity(DemandDiscoveryInputs(cutoff=self.tick.isoformat()))
+
+        assert result.batch_keys_by_source == {}
+
     def test_discovery_rejects_a_limit_below_one(self) -> None:
         with pytest.raises(ValueError):
             demand.discover_demand(self.tick.isoformat(), limit_per_source=0)
