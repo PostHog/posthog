@@ -252,6 +252,7 @@ DASHBOARD_SHARED_FIELDS = [
     "name",
     "description",
     "pinned",
+    "archived",
     "created_at",
     "created_by",
     "last_accessed_at",
@@ -1212,6 +1213,7 @@ class DashboardBasicSerializer(
             "name",
             "description",
             "pinned",
+            "archived",
             "created_at",
             "created_by",
             "last_accessed_at",
@@ -1237,6 +1239,14 @@ class DashboardBasicSerializer(
             "name": {"help_text": "Name of the dashboard."},
             "description": {"help_text": "Description of the dashboard."},
             "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},
+            "archived": {
+                "help_text": (
+                    "Whether the dashboard is archived. Archived dashboards are hidden from the dashboard "
+                    "list scene by default, but pass `?archived=true` to this endpoint to list only "
+                    "archived ones. Distinct from `deleted`: an archived dashboard keeps working normally "
+                    "when linked to directly."
+                )
+            },
             "restriction_level": {"help_text": "Controls who can edit the dashboard."},
         }
 
@@ -2577,6 +2587,12 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                 description="Optional. Return only pinned dashboards.",
             ),
             OpenApiParameter(
+                "archived",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Return only archived dashboards. By default archived dashboards are included alongside non-archived ones.",
+            ),
+            OpenApiParameter(
                 "exclude_generated",
                 OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
@@ -2786,6 +2802,9 @@ class DashboardsViewSet(
 
         if self.action == "list" and self.request.query_params.get("pinned") == "true":
             queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name", "id")
+
+        if self.action == "list" and self.request.query_params.get("archived") == "true":
+            queryset = queryset.filter(archived=True)
 
         # Allow filtering by creation_mode query param
         creation_mode = self.request.query_params.get("creation_mode")

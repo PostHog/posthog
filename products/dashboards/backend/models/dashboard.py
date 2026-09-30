@@ -69,6 +69,10 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
+    # Archived dashboards are hidden from the dashboard list scene by default but keep working
+    # normally when linked to directly (embeds, subscriptions, alerts). Distinct from `deleted`,
+    # which is a soft delete. Mirrors FeatureFlag.archived / Survey.archived.
+    archived = models.BooleanField(default=False, db_default=False)
     last_accessed_at = models.DateTimeField(blank=True, null=True)
     last_refresh = models.DateTimeField(blank=True, null=True)
     filters = models.JSONField(default=dict)
@@ -166,6 +170,7 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
         return {
             "dashboard_id": self.pk,
             "pinned": self.pinned,
+            "archived": self.archived,
             "item_count": self.tiles.exclude(insight=None).count(),
             "is_shared": self.is_sharing_enabled,
             "created_at": self.created_at,

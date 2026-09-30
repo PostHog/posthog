@@ -195,6 +195,7 @@ export const AddToDashboard: Story = {
                                 created_at: '2026-01-01T00:00:00Z',
                                 pinned: index === 0,
                                 deleted: false,
+                                archived: false,
                                 is_shared: false,
                                 last_accessed_at: null,
                                 creation_mode: 'default',

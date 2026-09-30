@@ -250,6 +250,8 @@ export interface DashboardBasicApi {
     readonly description: string
     /** Whether the dashboard is pinned to the top of the list. */
     readonly pinned: boolean
+    /** Whether the dashboard is archived. Archived dashboards are hidden from the dashboard list scene by default, but pass `?archived=true` to this endpoint to list only archived ones. Distinct from `deleted`: an archived dashboard keeps working normally when linked to directly. */
+    readonly archived: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -420,6 +422,7 @@ export interface DashboardApi {
     name?: string | null
     description?: string
     pinned?: boolean
+    archived?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -1097,6 +1100,8 @@ export interface PatchedPatchedDashboardOpenApiApi {
     name?: string | null
     description?: string
     pinned?: boolean
+    /** Whether the dashboard is archived. Archived dashboards are hidden from the dashboard list scene by default. Distinct from deleting the dashboard. */
+    archived?: boolean
     /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
     filters?: DashboardFiltersOpenApiApi
     /**
@@ -10612,6 +10617,10 @@ export const DashboardTemplatesListScope = {
 } as const
 
 export type DashboardsListParams = {
+    /**
+     * Optional. Return only archived dashboards. By default archived dashboards are included alongside non-archived ones.
+     */
+    archived?: boolean
     /**
      * Optional. Exclude dashboards that PostHog generated.
      */

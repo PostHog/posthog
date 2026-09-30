@@ -63,6 +63,12 @@ export const DashboardsListParams = () => zod.object({
 })
 
 export const DashboardsListQueryParams = () => zod.object({
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Optional. Return only archived dashboards. By default archived dashboards are included alongside non-archived ones.'
+        ),
     exclude_generated: zod.boolean().optional().describe('Optional. Exclude dashboards that PostHog generated.'),
     folder: zod
         .string()
@@ -110,6 +116,7 @@ export const DashboardsCreateBody = () => zod
         name: zod.string().max(dashboardsCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        archived: zod.boolean().optional(),
         breakdown_colors: zod
             .array(
                 zod.object({
@@ -320,6 +327,12 @@ export const DashboardsPartialUpdateBody = () => zod
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the dashboard is archived. Archived dashboards are hidden from the dashboard list scene by default. Distinct from deleting the dashboard.'
+            ),
         filters: zod
             .object({
                 date_from: zod

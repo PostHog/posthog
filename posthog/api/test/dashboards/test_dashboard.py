@@ -483,6 +483,38 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             unseen_id,
         ]
 
+    def test_archiving_a_dashboard_hides_it_only_when_filtered_for(self):
+        archived_id, response_json = self.dashboard_api.create_dashboard({"name": "Old dashboard"})
+        active_id, _ = self.dashboard_api.create_dashboard({"name": "Current dashboard"})
+        assert response_json["archived"] is False
+
+        _, patched = self.dashboard_api.update_dashboard(archived_id, {"archived": True})
+        assert patched["archived"] is True
+
+        # Archiving does not exclude the dashboard from the default list — only the
+        # `archived=true` filter narrows down to it, so the frontend can keep loading the
+        # full set and filter client-side.
+        default_ids = {d["id"] for d in self.dashboard_api.list_dashboards(parent="environment")["results"]}
+        assert {archived_id, active_id}.issubset(default_ids)
+
+        archived_only_ids = [
+            d["id"]
+            for d in self.dashboard_api.list_dashboards(parent="environment", query_params={"archived": "true"})[
+                "results"
+            ]
+        ]
+        assert archived_only_ids == [archived_id]
+
+        _, unarchived = self.dashboard_api.update_dashboard(archived_id, {"archived": False})
+        assert unarchived["archived"] is False
+        archived_only_ids = [
+            d["id"]
+            for d in self.dashboard_api.list_dashboards(parent="environment", query_params={"archived": "true"})[
+                "results"
+            ]
+        ]
+        assert archived_only_ids == []
+
     @parameterized.expand(
         [
             ("default order", {}),
@@ -1858,6 +1890,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 6,
                 "pinned": False,
+                "archived": False,
                 "tags_count": 0,
                 "template_key": "DEFAULT_APP",
             },
@@ -1887,6 +1920,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 1,
                 "pinned": False,
+                "archived": False,
                 "tags_count": 0,
                 "tile_count": 2,
             },
@@ -1912,6 +1946,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 0,
                 "pinned": False,
+                "archived": False,
                 "tags_count": 0,
             },
             team=ANY,
@@ -2942,6 +2977,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 1,
                 "pinned": False,
+                "archived": False,
                 "tags_count": 0,
                 "template_key": valid_template["template_name"],
                 "template_scope": None,

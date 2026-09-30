@@ -41,6 +41,9 @@ const dashboardCreate = (): ToolBase<
         if (params.pinned !== undefined) {
             body['pinned'] = params.pinned
         }
+        if (params.archived !== undefined) {
+            body['archived'] = params.archived
+        }
         if (params.breakdown_colors !== undefined) {
             body['breakdown_colors'] = params.breakdown_colors
         }
@@ -586,6 +589,9 @@ const dashboardUpdate = (): ToolBase<
         if (params.pinned !== undefined) {
             body['pinned'] = params.pinned
         }
+        if (params.archived !== undefined) {
+            body['archived'] = params.archived
+        }
         if (params.filters !== undefined) {
             body['filters'] = params.filters
         }
@@ -872,6 +878,7 @@ const dashboardsGetAll = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             query: {
+                archived: params.archived,
                 exclude_generated: params.exclude_generated,
                 folder: params.folder,
                 limit: params.limit,

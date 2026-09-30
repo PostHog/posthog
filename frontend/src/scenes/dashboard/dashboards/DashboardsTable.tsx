@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { IconArchive, IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
@@ -83,7 +83,7 @@ export function DashboardsTable({
     extraActions,
     hideActions,
 }: DashboardsTableProps): JSX.Element {
-    const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
+    const { unpinDashboard, pinDashboard, archiveDashboard, unarchiveDashboard } = useActions(dashboardsModel)
     const { tableSortingChanged, setFilters, moveDashboardsToFolder } = useActions(dashboardsLogic)
     const { tableSorting, filters, filedDashboardIds } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
@@ -120,7 +120,7 @@ export function DashboardsTable({
             title: 'Name',
             dataIndex: 'name',
             width: 540,
-            render: function Render(_, { id, name, description, is_shared, user_access_level }) {
+            render: function Render(_, { id, name, description, is_shared, archived, user_access_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
                 const canEditDashboard = accessLevelSatisfied(
                     AccessControlResourceType.Dashboard,
@@ -144,6 +144,11 @@ export function DashboardsTable({
                                     {is_shared && (
                                         <Tooltip title="This dashboard is shared publicly.">
                                             <IconShare className="ml-1 text-base text-link" />
+                                        </Tooltip>
+                                    )}
+                                    {archived && (
+                                        <Tooltip title="This dashboard is archived.">
+                                            <IconArchive className="ml-1 text-base text-secondary" />
                                         </Tooltip>
                                     )}
                                     {!canEditDashboard && (
@@ -228,7 +233,7 @@ export function DashboardsTable({
                   // Fixed-layout table: give the actions menu a fixed width so it isn't squeezed to a sliver.
                   width: 48,
                   render: function RenderActions(_, dashboard: DashboardType) {
-                      const { id, name, user_access_level } = dashboard
+                      const { id, name, user_access_level, archived } = dashboard
                       return (
                           <More
                               overlay={
@@ -328,6 +333,27 @@ export function DashboardsTable({
                                               Set as my homepage
                                           </LemonButton>
                                       )}
+
+                                      <LemonDivider />
+
+                                      <AccessControlAction
+                                          resourceType={AccessControlResourceType.Dashboard}
+                                          minAccessLevel={AccessControlLevel.Editor}
+                                          userAccessLevel={user_access_level}
+                                      >
+                                          <LemonButton
+                                              icon={<IconArchive />}
+                                              onClick={() =>
+                                                  archived
+                                                      ? unarchiveDashboard(id, DashboardEventSource.DashboardsList)
+                                                      : archiveDashboard(id, DashboardEventSource.DashboardsList)
+                                              }
+                                              fullWidth
+                                              data-attr={archived ? 'dashboard-unarchive' : 'dashboard-archive'}
+                                          >
+                                              {archived ? 'Unarchive dashboard' : 'Archive dashboard'}
+                                          </LemonButton>
+                                      </AccessControlAction>
 
                                       <LemonDivider />
 

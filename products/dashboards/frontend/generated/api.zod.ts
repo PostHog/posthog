@@ -139,6 +139,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        archived: zod.boolean().optional(),
         last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod
@@ -242,6 +243,7 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        archived: zod.boolean().optional(),
         last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod
@@ -408,6 +410,12 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the dashboard is archived. Archived dashboards are hidden from the dashboard list scene by default. Distinct from deleting the dashboard.'
+            ),
         filters: zod
             .object({
                 date_from: zod
@@ -3720,6 +3728,7 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsCreateFromTemplateJsonCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        archived: zod.boolean().optional(),
         last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod
@@ -3821,6 +3830,7 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsCreateUnlistedDashboardCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        archived: zod.boolean().optional(),
         last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod

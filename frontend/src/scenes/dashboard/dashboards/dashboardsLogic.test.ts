@@ -76,7 +76,10 @@ describe('dashboardsLogic', () => {
                 name: 'VMS Feature - History Browser - Nova',
             }),
         },
+        { ...dashboard({ created_by: CURRENT_USER, archived: true }) },
     ]
+    const visibleDashboards = allDashboards.filter((d) => !(d as DashboardType).archived)
+    const archivedDashboard = allDashboards.find((d) => (d as DashboardType).archived)!
 
     beforeEach(async () => {
         jest.clearAllMocks()
@@ -86,7 +89,7 @@ describe('dashboardsLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/dashboards/': {
-                    count: 7,
+                    count: allDashboards.length,
                     next: null,
                     previous: null,
                     results: allDashboards,
@@ -240,8 +243,19 @@ describe('dashboardsLogic', () => {
         })
     })
 
-    it('shows all dashboards when no filters', async () => {
-        expect(logic.values.dashboards).toHaveLength(allDashboards.length)
+    it('shows all non-archived dashboards when no filters', async () => {
+        // Archived dashboards stay in the fetched set (so the archived filter can find them
+        // without a refetch) but are hidden from the default view.
+        expect(logic.values.dashboards).toHaveLength(visibleDashboards.length)
+        expect(logic.values.dashboards.some((d) => d.id === archivedDashboard.id)).toBe(false)
+    })
+
+    it('shows only archived dashboards when the archived filter is on', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ archived: true })
+        }).toMatchValues({
+            dashboards: [expect.objectContaining({ id: archivedDashboard.id })],
+        })
     })
 
     it('shows correct dashboards when on pinned tab', async () => {
@@ -291,12 +305,12 @@ describe('dashboardsLogic', () => {
     })
 
     it('shows dashboards from all selected creators when multiple are chosen', async () => {
-        // Multi-select is a union: selecting both users returns every dashboard, since each was
-        // created by one of them.
+        // Multi-select is a union: selecting both users returns every non-archived dashboard,
+        // since each was created by one of them.
         expectLogic(logic, () => {
             logic.actions.setFilters({ createdBy: [CURRENT_USER.id, OTHER_USER.id] })
         }).toMatchValues({
-            dashboards: truth((dashboards: DashboardType[]) => dashboards.length === allDashboards.length),
+            dashboards: truth((dashboards: DashboardType[]) => dashboards.length === visibleDashboards.length),
         })
     })
 
@@ -497,6 +511,7 @@ describe('dashboardsLogic', () => {
         },
         { name: 'pinned', set: { pinned: true }, reset: { pinned: false }, param: 'pinned', expected: true },
         { name: 'shared', set: { shared: true }, reset: { shared: false }, param: 'shared', expected: true },
+        { name: 'archived', set: { archived: true }, reset: { archived: false }, param: 'archived', expected: true },
         { name: 'tags', set: { tags: ['finance'] }, reset: { tags: [] }, param: 'tags', expected: ['finance'] },
     ]
 
@@ -523,6 +538,7 @@ describe('dashboardsLogic', () => {
         { name: 'created_by', params: { created_by: [2] }, expected: { createdBy: [2] } },
         { name: 'pinned', params: { pinned: true }, expected: { pinned: true } },
         { name: 'shared', params: { shared: true }, expected: { shared: true } },
+        { name: 'archived', params: { archived: true }, expected: { archived: true } },
         { name: 'tags', params: { tags: ['finance', 'q4'] }, expected: { tags: ['finance', 'q4'] } },
     ]
 

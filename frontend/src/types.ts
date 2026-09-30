@@ -2745,6 +2745,8 @@ export interface DashboardBasicType extends WithAccessControl {
     last_viewed_at?: string | null
     is_shared: boolean
     deleted: boolean
+    /** Archived dashboards are hidden from the dashboard list scene by default. Distinct from `deleted`. */
+    archived: boolean
     creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
     /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */

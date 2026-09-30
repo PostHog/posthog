@@ -36,6 +36,8 @@ export interface DashboardsFilters {
     createdBy: number[] | 'All users'
     pinned: boolean
     shared: boolean
+    /** Show only archived dashboards. When false, archived dashboards are hidden from the list. */
+    archived: boolean
     tags?: string[]
     /** Folder path to filter to, e.g. 'Unfiled/Dashboards' (empty string = project root). null means no folder filter. */
     folder?: string | null
@@ -46,6 +48,7 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     createdBy: 'All users',
     pinned: false,
     shared: false,
+    archived: false,
     tags: [],
     folder: null,
 }
@@ -55,6 +58,7 @@ export function hasDashboardFilters(filters: DashboardsFilters): boolean {
         filters.search ||
         filters.pinned ||
         filters.shared ||
+        filters.archived ||
         (filters.createdBy !== 'All users' && filters.createdBy.length > 0) ||
         filters.tags?.length ||
         filters.folder != null
@@ -445,6 +449,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     filters.search && searchedDashboards
                         ? searchedDashboards.map((d) => (rawDashboards[d.id] as DashboardBasicType | undefined) ?? d)
                         : allDashboards
+                // Archived dashboards are hidden from every tab unless explicitly filtered for, so
+                // toggling `filters.archived` swaps between the two — never both at once.
+                haystack = haystack.filter((d) => Boolean(d.archived) === filters.archived)
                 if (currentTab === DashboardsTab.Pinned) {
                     haystack = haystack.filter((d) => d.pinned)
                 }
@@ -532,7 +539,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
         setFilters: () => {
-            const { createdBy, pinned, shared, tags } = values.filters
+            const { createdBy, pinned, shared, archived, tags } = values.filters
             const searchParams: Record<string, any> = { ...router.values.searchParams }
 
             if (searchParams['tab'] === DashboardsTab.Pinned) {
@@ -553,6 +560,11 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 searchParams['shared'] = true
             } else {
                 delete searchParams['shared']
+            }
+            if (archived) {
+                searchParams['archived'] = true
+            } else {
+                delete searchParams['archived']
             }
             if (tags && tags.length > 0) {
                 searchParams['tags'] = tags
@@ -586,7 +598,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             const hasFilterParams =
                 requestedTab === DashboardsTab.Pinned ||
-                ['created_by', 'pinned', 'shared', 'tags', 'folder', 'search'].some((key) => key in searchParams)
+                ['created_by', 'pinned', 'shared', 'archived', 'tags', 'folder', 'search'].some(
+                    (key) => key in searchParams
+                )
             if (tab === DashboardsTab.Yours && values.filters.createdBy !== DEFAULT_FILTERS.createdBy) {
                 actions.setFilters({ createdBy: DEFAULT_FILTERS.createdBy })
             }
@@ -627,6 +641,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     searchParams['pinned'] === true ||
                     searchParams['pinned'] === 'true',
                 shared: searchParams['shared'] === true || searchParams['shared'] === 'true',
+                archived: searchParams['archived'] === true || searchParams['archived'] === 'true',
                 tags: Array.isArray(searchParams['tags']) ? searchParams['tags'] : DEFAULT_FILTERS.tags,
                 folder: 'folder' in searchParams ? urlSearchParamToString(searchParams['folder']) : null,
             }
@@ -635,6 +650,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 !objectsEqual(current.createdBy, nextFilters.createdBy) ||
                 current.pinned !== nextFilters.pinned ||
                 current.shared !== nextFilters.shared ||
+                current.archived !== nextFilters.archived ||
                 !objectsEqual(current.tags ?? [], nextFilters.tags ?? []) ||
                 (current.folder ?? null) !== nextFilters.folder
             ) {

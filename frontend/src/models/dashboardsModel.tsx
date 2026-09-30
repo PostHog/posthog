@@ -30,6 +30,14 @@ function reportDashboardPinToggled(dashboardId: number, pinned: boolean, source:
     })
 }
 
+function reportDashboardArchiveToggled(dashboardId: number, archived: boolean, source: DashboardEventSource): void {
+    posthog.capture(`dashboard archive toggled`, {
+        dashboard_id: dashboardId,
+        archived,
+        source,
+    })
+}
+
 /** A dashboard's folder is its file system path without the dashboard's own name, so the two move together. */
 function filedAt<T extends DashboardBasicType | DashboardType>(dashboard: T, path: string): T {
     return { ...dashboard, file_system_path: path, folder: parentPath(path) }
@@ -106,6 +114,33 @@ export interface dashboardsModelActions {
     } // tagsModel
     addDashboardSuccess: (dashboard: DashboardType) => {
         dashboard: DashboardType
+    }
+    archiveDashboard: (
+        id: number,
+        source: DashboardEventSource
+    ) => {
+        id: number
+        source: DashboardEventSource
+    }
+    archiveDashboardFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    archiveDashboardSuccess: (
+        dashboard: DashboardType,
+        payload?: {
+            id: number
+            source: DashboardEventSource
+        }
+    ) => {
+        dashboard: DashboardType
+        payload?: {
+            id: number
+            source: DashboardEventSource
+        }
     }
     dashboardsFullyLoaded: () => {
         value: true
@@ -279,6 +314,33 @@ export interface dashboardsModelActions {
         dashboardId: number | undefined
         tile: DashboardTile | undefined
     }
+    unarchiveDashboard: (
+        id: number,
+        source: DashboardEventSource
+    ) => {
+        id: number
+        source: DashboardEventSource
+    }
+    unarchiveDashboardFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    unarchiveDashboardSuccess: (
+        dashboard: DashboardType,
+        payload?: {
+            id: number
+            source: DashboardEventSource
+        }
+    ) => {
+        dashboard: DashboardType
+        payload?: {
+            id: number
+            source: DashboardEventSource
+        }
+    }
     unpinDashboard: (
         id: number,
         source: DashboardEventSource
@@ -387,6 +449,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
         }),
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
+        archiveDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
+        unarchiveDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         duplicateDashboard: ({
             id,
             name,
@@ -550,6 +614,22 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 reportDashboardPinToggled(id, false, source)
                 return getQueryBasedDashboard(response)!
             },
+            archiveDashboard: async ({ id, source }) => {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    archived: true,
+                })
+                reportDashboardArchiveToggled(id, true, source)
+                return getQueryBasedDashboard(response)!
+            },
+            unarchiveDashboard: async ({ id, source }) => {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    archived: false,
+                })
+                reportDashboardArchiveToggled(id, false, source)
+                return getQueryBasedDashboard(response)!
+            },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
                 const result = await api.create<DashboardType>(
@@ -618,6 +698,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 },
                 pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
                 unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+                archiveDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+                unarchiveDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
                 duplicateDashboardSuccess: (state, { dashboard }) => ({
                     ...state,
                     [dashboard.id]: { ...dashboard, _highlight: true },
