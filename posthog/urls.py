@@ -41,7 +41,10 @@ from posthog.web_bot_auth import http_message_signatures_directory
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.canvas.backend.artifacts import canvas_artifact
 from products.cdp.backend.api import hog_function_template
-from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
+from products.conversations.backend.api.internal import (
+    InternalTicketView as ConversationsInternalTicketView,
+    InternalWorkflowEmailView as ConversationsInternalWorkflowEmailView,
+)
 from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
     InternalAccountView as CustomerAnalyticsInternalAccountView,
@@ -265,6 +268,10 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>",
         csrf_exempt(ConversationsInternalTicketView.as_view()),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/conversations/workflow-emails",
+        csrf_exempt(ConversationsInternalWorkflowEmailView.as_view()),
     ),
     # Account routes for the CDP worker's workflow actions (auth: scoped service JWT)
     path(

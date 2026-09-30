@@ -187,6 +187,7 @@ export type CdpConfig = ClickhouseConfig & {
     // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
     WORKFLOWS_RESCHEDULE_JWT_SECRET: string
     CONVERSATIONS_TICKETS_JWT_SECRET: string
+    CONVERSATIONS_WORKFLOW_EMAILS_JWT_SECRET: string
     CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET: string
     // Scoped JWT keys verifying Django's calls to the cancel routes (invocations/cancel and
     // batch_jobs/:id/cancel). A dedicated key, separate from the reschedule sweep's above: the
@@ -382,6 +383,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev default must equal Django's CONVERSATIONS_TICKETS_JWT_SECRETS default so local
         // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
         CONVERSATIONS_TICKETS_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-conversations-tickets-jwt' : '',
+        CONVERSATIONS_WORKFLOW_EMAILS_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-conversations-workflow-emails-jwt' : '',
         // Dev/test default must match Django's CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS so local calls work.
         // When empty, account actions use legacy auth. Customer task creation fails closed without a fallback.
         CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET:

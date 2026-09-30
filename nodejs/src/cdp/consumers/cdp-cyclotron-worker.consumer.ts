@@ -231,7 +231,8 @@ export class CdpCyclotronWorker<
 
         // After this point we parallelize and any issues are logged rather than thrown
         // as retrying now would end up in duplicate messages
-        await Promise.allSettled([this.flushMonitoring(invocationResults), this.observeResults(invocationResults)])
+        const monitoredResults = invocationResults.filter((result) => !result.skipMonitoring)
+        await Promise.allSettled([this.flushMonitoring(monitoredResults), this.observeResults(monitoredResults)])
     }
 
     @instrumented({ key: 'cdpConsumer.backgroundTask.monitoringFlush', timeoutMs: 15_000, sendException: false })

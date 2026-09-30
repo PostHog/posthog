@@ -74,16 +74,26 @@ export async function isFeatureFlagEnabled(
         groupProperties?: Record<string, Record<string, string>>
         onlyEvaluateLocally?: boolean
         sendFeatureFlagEvents?: boolean
-    }
+    },
+    failOnError = false
 ): Promise<boolean> {
     if (!posthog) {
+        if (failOnError) {
+            throw new Error('PostHog feature flag client is not configured')
+        }
         return false
     }
 
     try {
         const isEnabled = await posthog.isFeatureEnabled(key, distinctId, options)
+        if (isEnabled == null && failOnError) {
+            throw new Error('PostHog feature flag evaluation is unavailable')
+        }
         return isEnabled ?? false
     } catch (error) {
+        if (failOnError) {
+            throw error
+        }
         // Log errors to aid debugging of feature flag evaluation issues (e.g. SES v1 vs v2 gating).
         console.error('Error evaluating PostHog feature flag', {
             key,

@@ -234,6 +234,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             // When false, no open pixel is injected, links are not rewritten, and the send uses the
             // untracked SES configuration set. Absent/true means tracked (existing behavior).
             tracking_enabled: z.boolean().optional(),
+            match_email_to_accounts: z.boolean().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),

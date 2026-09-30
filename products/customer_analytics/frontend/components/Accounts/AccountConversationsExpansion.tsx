@@ -48,7 +48,7 @@ import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
 const SOURCE_OPTIONS: { key: ConversationSource; label: string }[] = [
-    { key: 'email', label: 'Gmail' },
+    { key: 'email', label: 'Email' },
     { key: 'support', label: 'Support' },
     { key: 'slack', label: 'Slack' },
 ]

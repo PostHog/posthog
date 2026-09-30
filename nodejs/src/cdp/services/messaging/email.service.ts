@@ -1,4 +1,5 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { convert } from 'html-to-text'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
 import { Counter, Histogram } from 'prom-client'
@@ -6,6 +7,7 @@ import { Counter, Histogram } from 'prom-client'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
+    CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionType,
@@ -32,6 +34,7 @@ import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
+import { WorkflowConversationCaptureService } from './workflow-conversation-capture.service'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -351,7 +354,8 @@ export class EmailService {
         private recipientsManager: RecipientsManagerService,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
-        private teamEmailRateLimiter: RateLimiterService | null = null
+        private teamEmailRateLimiter: RateLimiterService | null = null,
+        private workflowConversationCaptureService?: WorkflowConversationCaptureService
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -360,6 +364,21 @@ export class EmailService {
               })
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
+    }
+
+    public async recordConversationCaptureSkipped(
+        teamId: number,
+        invocationId: string,
+        reason: 'queue_unavailable'
+    ): Promise<void> {
+        await this.workflowConversationCaptureService?.recordSkipped(teamId, invocationId, reason)
+    }
+
+    public async executeConversationCapture(invocation: CyclotronJobInvocation): Promise<CyclotronJobInvocationResult> {
+        if (!this.workflowConversationCaptureService) {
+            throw new Error('Workflow conversation capture service unavailable')
+        }
+        return this.workflowConversationCaptureService.executeCapture(invocation)
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -393,6 +412,7 @@ export class EmailService {
         let throttled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
+        let providerMessageId: string | undefined
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -575,7 +595,7 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, params, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from, trackingEnabled, isTest)
+                    providerMessageId = await this.sendEmailWithSES(result, params, from, trackingEnabled, isTest)
                     break
 
                 case 'unsupported':
@@ -592,6 +612,39 @@ export class EmailService {
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
+            if (
+                !isTest &&
+                invocation.hogFunction.metadata?.workflow_email_action === true &&
+                invocation.hogFunction.metadata?.match_email_to_accounts === true &&
+                (integration.config.provider ?? 'ses') === 'ses' &&
+                this.workflowConversationCaptureService?.enabled &&
+                providerMessageId
+            ) {
+                try {
+                    const bodyPlain = params.text || convert(params.html, { wordwrap: false })
+                    if (bodyPlain.length > 200000) {
+                        throw new Error('Conversation body exceeds capture limit')
+                    }
+                    result.conversationCaptures = [
+                        {
+                            source_id: invocation.id,
+                            provider_message_id: providerMessageId,
+                            email_integration_id: integrationId,
+                            sent_at: new Date().toISOString(),
+                            sender: from,
+                            to: { email: params.to.email, name: params.to.name ?? '' },
+                            cc: extractEmailsFromAddressList(params.cc).map((email) => ({ email, name: '' })),
+                            subject: sanitizeEmailSubject(params.subject),
+                            body_plain: bodyPlain,
+                        },
+                    ]
+                } catch {
+                    // Capture failures must not retry an email SES already accepted.
+                    void this.workflowConversationCaptureService
+                        .recordSkipped(invocation.teamId, invocation.id, 'body_unavailable')
+                        .catch(() => {})
+                }
+            }
         } catch (error) {
             if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
@@ -1013,7 +1066,7 @@ export class EmailService {
         from: { email: string; name: string },
         trackingEnabled: boolean,
         isTest = false
-    ): Promise<void> {
+    ): Promise<string> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
@@ -1120,6 +1173,7 @@ export class EmailService {
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
+            return response.MessageId
         } catch (error: unknown) {
             if (isSesThrottleError(error)) {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })

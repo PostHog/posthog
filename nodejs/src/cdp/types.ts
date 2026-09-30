@@ -2,7 +2,11 @@ import { DateTime } from 'luxon'
 
 import { VMState } from '@posthog/hogvm'
 
-import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/cdp/schema/cyclotron'
+import {
+    CyclotronInputType,
+    CyclotronInvocationQueueParametersType,
+    WorkflowConversationCaptureType,
+} from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 import {
@@ -349,6 +353,8 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
     messageAssets: MessageAssetRow[]
+    conversationCaptures?: WorkflowConversationCaptureType[]
+    skipMonitoring?: boolean
     conversionWatchers: ConversionWatcherRow[]
     execResult?: unknown
 }

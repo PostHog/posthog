@@ -157,6 +157,10 @@ export class HogFunctionHandler implements ActionHandler {
         ]
         result.metrics = [...result.metrics, ...functionResult.metrics]
         result.messageAssets = [...result.messageAssets, ...functionResult.messageAssets]
+        result.conversationCaptures = [
+            ...(result.conversationCaptures ?? []),
+            ...(functionResult.conversationCaptures ?? []),
+        ]
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
@@ -346,7 +350,12 @@ export class HogFunctionHandler implements ActionHandler {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
-            () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
+            () =>
+                this.hogFlowFunctionsService.buildHogFunction(
+                    invocation.hogFlow,
+                    action.config,
+                    action.type === 'function_email'
+                )
         )
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },

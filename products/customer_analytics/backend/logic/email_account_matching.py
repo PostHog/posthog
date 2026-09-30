@@ -145,6 +145,7 @@ def _match_accounts_for_emails(
     emails: list[str],
     *,
     use_organization_membership: bool,
+    use_person_group_match: bool = True,
 ) -> dict[str, MatchedAccount]:
     normalized_emails = sorted(
         email for email in normalize_emails(emails) if not email.endswith(POSTHOG_INTERNAL_EMAIL_SUFFIX)
@@ -169,12 +170,13 @@ def _match_accounts_for_emails(
     matched.update(domain_matches)
     ambiguous.update(domain_ambiguous)
 
-    person_group_matches, person_group_ambiguous = _match_accounts_by_person_group(
-        team,
-        _unresolved_emails(normalized_emails, matched, ambiguous),
-    )
-    matched.update(person_group_matches)
-    ambiguous.update(person_group_ambiguous)
+    if use_person_group_match:
+        person_group_matches, person_group_ambiguous = _match_accounts_by_person_group(
+            team,
+            _unresolved_emails(normalized_emails, matched, ambiguous),
+        )
+        matched.update(person_group_matches)
+        ambiguous.update(person_group_ambiguous)
 
     if use_organization_membership:
         organization_matches, organization_ambiguous = _match_accounts_by_organization_membership(
@@ -187,8 +189,12 @@ def _match_accounts_for_emails(
     return matched
 
 
-def match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, MatchedAccount]:
-    return _match_accounts_for_emails(team, emails, use_organization_membership=False)
+def match_accounts_for_emails(
+    team: Team, emails: list[str], *, use_person_group_match: bool = True
+) -> dict[str, MatchedAccount]:
+    return _match_accounts_for_emails(
+        team, emails, use_organization_membership=False, use_person_group_match=use_person_group_match
+    )
 
 
 def match_accounts_for_gmail_emails(team: Team, emails: list[str]) -> dict[str, MatchedAccount]:

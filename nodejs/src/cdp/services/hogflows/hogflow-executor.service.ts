@@ -253,6 +253,7 @@ export class HogFlowExecutorService {
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
         const messageAssets: MessageAssetRow[] = []
+        const conversationCaptures: NonNullable<CyclotronJobInvocationResult['conversationCaptures']> = []
         const conversionWatchers: ConversionWatcherRow[] = []
 
         // A run enrolls on its first execution, before any exit check: a run that exits immediately
@@ -306,6 +307,7 @@ export class HogFlowExecutorService {
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
             warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
             messageAssets.push(...result.messageAssets)
+            conversationCaptures.push(...(result.conversationCaptures ?? []))
             conversionWatchers.push(...result.conversionWatchers)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
@@ -318,6 +320,7 @@ export class HogFlowExecutorService {
         result.capturedPostHogEvents = capturedPostHogEvents
         result.warehouseWebhookPayloads = warehouseWebhookPayloads
         result.messageAssets = messageAssets
+        result.conversationCaptures = conversationCaptures
         result.conversionWatchers = conversionWatchers
 
         return result

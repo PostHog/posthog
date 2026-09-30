@@ -12,6 +12,7 @@ export enum PosthogJwtAudience {
     WORKFLOW_SCOUT_RUN = 'posthog:workflows:scout_run',
     // Must match PosthogJwtAudience.CONVERSATIONS_TICKETS in posthog/jwt.py exactly.
     CONVERSATIONS_TICKETS = 'posthog:conversations:tickets',
+    CONVERSATIONS_WORKFLOW_EMAILS = 'posthog:conversations:workflow_emails',
     // Must match PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS in posthog/jwt.py exactly.
     CUSTOMER_ANALYTICS_ACCOUNTS = 'posthog:customer_analytics:accounts',
 }

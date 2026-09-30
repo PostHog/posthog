@@ -457,6 +457,7 @@ export interface workflowMetricsSummaryLogicValues {
                     value: any
                 }
             >
+            match_email_to_accounts?: boolean | undefined
             message_category_id?: string | undefined
             message_category_type?: 'marketing' | 'transactional' | undefined
             template_id: 'template-email'
@@ -682,6 +683,7 @@ export interface workflowMetricsSummaryLogicMeta {
                         value: any
                     }
                 >
+                match_email_to_accounts?: boolean | undefined
                 message_category_id?: string | undefined
                 message_category_type?: 'marketing' | 'transactional' | undefined
                 template_id: 'template-email'
@@ -815,6 +817,7 @@ export interface workflowMetricsSummaryLogicMeta {
                             value: any
                         }
                     >
+                    match_email_to_accounts?: boolean | undefined
                     message_category_id?: string | undefined
                     message_category_type?: 'marketing' | 'transactional' | undefined
                     template_id: 'template-email'

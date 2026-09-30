@@ -191,6 +191,70 @@ describe('EmailService', () => {
             sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send') as any
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
         })
+        describe('workflow conversation capture', () => {
+            let captureService: { enabled: boolean; recordSkipped: jest.Mock }
+
+            beforeEach(() => {
+                captureService = { enabled: true, recordSkipped: jest.fn().mockResolvedValue(undefined) }
+                Reflect.set(service, 'workflowConversationCaptureService', captureService)
+                invocation.hogFunction.metadata = { workflow_email_action: true, match_email_to_accounts: true }
+            })
+
+            it('queues a plain-text capture without BCC after SES accepts the send', async () => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    cc: 'observer@example.com',
+                    bcc: 'hidden@example.com',
+                    text: undefined,
+                    html: '<p>Welcome <strong>back</strong></p>',
+                })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.conversationCaptures).toEqual([
+                    expect.objectContaining({
+                        source_id: 'invocation-1',
+                        provider_message_id: 'test-message-id',
+                        cc: [{ email: 'observer@example.com', name: '' }],
+                        body_plain: 'Welcome back',
+                    }),
+                ])
+                expect(result.conversationCaptures?.[0]).not.toHaveProperty('bcc')
+            })
+
+            it('records a skip instead of queueing oversized content', async () => {
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, text: 'x'.repeat(200001) })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.conversationCaptures).toBeUndefined()
+                expect(captureService.recordSkipped).toHaveBeenCalledWith(team.id, invocation.id, 'body_unavailable')
+            })
+
+            it.each<[string, () => void, boolean]>([
+                ['SES rejects the send', () => sendEmailSpy.mockRejectedValueOnce(new Error('SES unavailable')), false],
+                ['capture is not configured', () => (captureService.enabled = false), false],
+                [
+                    'the step did not opt in',
+                    () => (invocation.hogFunction.metadata = { workflow_email_action: true }),
+                    false,
+                ],
+                [
+                    'the send is a standalone email',
+                    () => (invocation.hogFunction.metadata = { match_email_to_accounts: true }),
+                    false,
+                ],
+                ['the send is an editor test', () => undefined, true],
+            ])('does not queue a capture when %s', async (_, arrange, isTest) => {
+                arrange()
+
+                const result = await service.executeSendEmail(invocation, isTest)
+
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(result.conversationCaptures).toBeUndefined()
+            })
+        })
+
         describe('integration validation', () => {
             beforeEach(async () => {
                 await insertIntegration(hub.postgres, team.id, {
