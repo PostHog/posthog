@@ -6,6 +6,8 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 from posthoganalytics.ai.prompts import PromptResult, Prompts
@@ -46,7 +48,14 @@ def app_prompts() -> Prompts | None:
 
 
 def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptResult | None:
-    """The `production` version, or `version` when given. None without a personal API key."""
+    """The `production` version, or `version` when given.
+
+    On a deployment whose own project holds the prompt rows (US cloud), the read goes through the
+    database, so no personal API key is needed. Everywhere else this falls back to the Prompts SDK,
+    which is None without a personal API key.
+    """
+    if settings.APP_PROMPTS_TEAM_ID is not None:
+        return _get_app_prompt_from_db(prompt_name, version=version)
     prompts = app_prompts()
     if prompts is None:
         if version is not None:
@@ -57,6 +66,25 @@ def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptRes
         return None
     label = PROMPT_LABEL if version is None else None
     return prompts.get(prompt_name, with_metadata=True, label=label, version=version)
+
+
+def _get_app_prompt_from_db(prompt_name: str, *, version: int | None = None) -> PromptResult | None:
+    from posthog.models import Team
+    from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
+
+    team = Team.objects.only("id").get(id=settings.APP_PROMPTS_TEAM_ID)
+    label = PROMPT_LABEL if version is None else None
+    serialized = get_prompt_by_name_from_cache(team, prompt_name, version=version, label=label)
+    if serialized is None:
+        return None
+    return PromptResult(
+        source="api",
+        prompt=serialized.get("prompt") or "",
+        name=prompt_name,
+        version=serialized.get("version"),
+        label=serialized.get("label"),
+        config=serialized.get("config"),
+    )
 
 
 class BackgroundRefresher[T]:
