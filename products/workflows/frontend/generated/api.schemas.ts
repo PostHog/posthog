@@ -1622,9 +1622,9 @@ export interface EmailSendingSuspensionStatusApi {
 export interface WorkflowStatsRowApi {
     /** The workflow these counts are for. */
     workflow_id: string
-    /** Successful invocations in the window. */
+    /** Workflow steps that succeeded in the window. One invocation adds one count per step it runs. */
     succeeded: number
-    /** Failed invocations in the window. */
+    /** Workflow steps that failed in the window. One invocation adds one count per failed step. A step with on_error 'continue' (the default) fails without failing its invocation, so this count can be higher than the failed invocations. */
     failed: number
 }
 

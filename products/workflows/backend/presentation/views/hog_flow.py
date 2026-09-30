@@ -1105,8 +1105,16 @@ class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
 
 class WorkflowStatsRowSerializer(serializers.Serializer):
     workflow_id = serializers.CharField(help_text="The workflow these counts are for.")
-    succeeded = serializers.IntegerField(help_text="Successful invocations in the window.")
-    failed = serializers.IntegerField(help_text="Failed invocations in the window.")
+    succeeded = serializers.IntegerField(
+        help_text="Workflow steps that succeeded in the window. One invocation adds one count per step it runs."
+    )
+    failed = serializers.IntegerField(
+        help_text=(
+            "Workflow steps that failed in the window. One invocation adds one count per failed step. "
+            "A step with on_error 'continue' (the default) fails without failing its invocation, "
+            "so this count can be higher than the failed invocations."
+        )
+    )
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
