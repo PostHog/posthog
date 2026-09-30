@@ -360,7 +360,7 @@ const platformAlertsList = (): ToolBase<
                     offset: params.offset,
                 },
             })
-            return await withPostHogUrl(context, result, '/alerts')
+            return await withPostHogUrl(context, result, '/alerts?alert_type=platform')
         },
     })
 

@@ -249,6 +249,7 @@ tools:
         enabled: true
         feature_flag: platform-alerts
         ui_app: platform-alert-list
+        url_prefix: /alerts?alert_type=platform
         scopes:
             - alert:read
         annotations:
