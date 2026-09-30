@@ -10,6 +10,8 @@ from typing import Literal, cast
 
 from django.conf import settings
 
+import requests
+
 from posthog.dataclasses import frozen
 from posthog.egress.firecrawl.limiter import consume_firecrawl_sync
 from posthog.egress.firecrawl.transport import FirecrawlEgressBudgetExhausted, firecrawl_request
@@ -112,6 +114,63 @@ def _as_sequence(value: object) -> Sequence[object]:
     return value
 
 
+def _require_api_key() -> str:
+    api_key = settings.FIRECRAWL_API_KEY
+    if not api_key:
+        raise FirecrawlNotConfigured("No FIRECRAWL_API_KEY configured")
+    return api_key
+
+
+def _successful_payload(
+    response: requests.Response, subject: str, error: type[Exception]
+) -> tuple[Mapping[str, object], Mapping[str, object]]:
+    """Return the top-level payload and its ``data`` object, or raise ``error`` when Firecrawl did
+    not answer with a successful body."""
+    if not response.ok:
+        # The body can carry the scraped page, so keep it out of the exception that gets logged.
+        raise error(f"{subject} returned HTTP {response.status_code}")
+
+    try:
+        body: object = response.json()
+    except ValueError as exc:
+        raise error(f"{subject} returned a non-JSON body") from exc
+
+    payload = _as_mapping(body)
+    if payload is None or payload.get("success") is not True:
+        raise error(f"{subject} was unsuccessful")
+
+    data = _as_mapping(payload.get("data"))
+    if data is None:
+        raise error(f"{subject} returned no data")
+
+    return payload, data
+
+
+def _check_search_input(query: str, limit: int) -> None:
+    if limit > MAX_SEARCH_LIMIT:
+        raise ValueError(f"limit must be at most {MAX_SEARCH_LIMIT}")
+    if len(query) > MAX_SEARCH_QUERY_CHARS:
+        raise ValueError(f"query must be at most {MAX_SEARCH_QUERY_CHARS} characters")
+
+
+def _search_result(entry: object) -> FirecrawlSearchResult | None:
+    entry_mapping = _as_mapping(entry)
+    if entry_mapping is None:
+        return None
+    url = _as_str(entry_mapping.get("url"))
+    if url is None:
+        return None
+    return FirecrawlSearchResult(
+        url=url,
+        title=_as_str(entry_mapping.get("title")),
+        description=_as_str(entry_mapping.get("description")),
+    )
+
+
+def _search_results(web: object) -> tuple[FirecrawlSearchResult, ...]:
+    return tuple(result for entry in _as_sequence(web) if (result := _search_result(entry)) is not None)
+
+
 def scrape(
     url: str,
     *,
@@ -129,37 +188,17 @@ def scrape(
     :class:`~posthog.egress.firecrawl.transport.FirecrawlEgressBudgetExhausted` when our own egress
     budget sheds the call.
     """
-    api_key = settings.FIRECRAWL_API_KEY
-    if not api_key:
-        raise FirecrawlNotConfigured("No FIRECRAWL_API_KEY configured")
-
     response = firecrawl_request(
         "POST",
         f"{FIRECRAWL_API_BASE}{SCRAPE_ENDPOINT}",
-        api_key=api_key,
+        api_key=_require_api_key(),
         source=source,
         endpoint=SCRAPE_ENDPOINT,
         priority=priority,
         timeout=timeout,
         json={"url": url, "formats": list(formats), "onlyMainContent": only_main_content},
     )
-
-    if not response.ok:
-        # The body can carry the scraped page, so keep it out of the exception that gets logged.
-        raise FirecrawlScrapeFailed(f"Firecrawl scrape of {url} returned HTTP {response.status_code}")
-
-    try:
-        payload: object = response.json()
-    except ValueError as exc:
-        raise FirecrawlScrapeFailed(f"Firecrawl scrape of {url} returned a non-JSON body") from exc
-
-    payload_mapping = _as_mapping(payload)
-    if payload_mapping is None or payload_mapping.get("success") is not True:
-        raise FirecrawlScrapeFailed(f"Firecrawl scrape of {url} was unsuccessful")
-
-    data = _as_mapping(payload_mapping.get("data"))
-    if data is None:
-        raise FirecrawlScrapeFailed(f"Firecrawl scrape of {url} returned no data")
+    _payload, data = _successful_payload(response, f"Firecrawl scrape of {url}", FirecrawlScrapeFailed)
 
     metadata = _as_mapping(data.get("metadata")) or {}
     return FirecrawlScrape(
@@ -189,14 +228,8 @@ def search(
     :class:`~posthog.egress.firecrawl.transport.FirecrawlEgressBudgetExhausted` when our own egress
     budget sheds the call.
     """
-    if limit > MAX_SEARCH_LIMIT:
-        raise ValueError(f"limit must be at most {MAX_SEARCH_LIMIT}")
-    if len(query) > MAX_SEARCH_QUERY_CHARS:
-        raise ValueError(f"query must be at most {MAX_SEARCH_QUERY_CHARS} characters")
-
-    api_key = settings.FIRECRAWL_API_KEY
-    if not api_key:
-        raise FirecrawlNotConfigured("No FIRECRAWL_API_KEY configured")
+    _check_search_input(query, limit)
+    api_key = _require_api_key()
 
     if not consume_firecrawl_sync(1, priority=priority, source=source):
         raise FirecrawlEgressBudgetExhausted("Firecrawl search egress budget exhausted; degrading")
@@ -211,41 +244,10 @@ def search(
         timeout=timeout,
         json={"query": query, "limit": limit, "sources": [{"type": "web"}]},
     )
-
-    if not response.ok:
-        raise FirecrawlSearchFailed(f"Firecrawl search for {query!r} returned HTTP {response.status_code}")
-
-    try:
-        payload: object = response.json()
-    except ValueError as exc:
-        raise FirecrawlSearchFailed(f"Firecrawl search for {query!r} returned a non-JSON body") from exc
-
-    payload_mapping = _as_mapping(payload)
-    if payload_mapping is None or payload_mapping.get("success") is not True:
-        raise FirecrawlSearchFailed(f"Firecrawl search for {query!r} was unsuccessful")
-
-    data = _as_mapping(payload_mapping.get("data"))
-    if data is None:
-        raise FirecrawlSearchFailed(f"Firecrawl search for {query!r} returned no data")
-
-    results = []
-    for entry in _as_sequence(data.get("web")):
-        entry_mapping = _as_mapping(entry)
-        if entry_mapping is None:
-            continue
-        url = _as_str(entry_mapping.get("url"))
-        if url is None:
-            continue
-        results.append(
-            FirecrawlSearchResult(
-                url=url,
-                title=_as_str(entry_mapping.get("title")),
-                description=_as_str(entry_mapping.get("description")),
-            )
-        )
+    payload, data = _successful_payload(response, f"Firecrawl search for {query!r}", FirecrawlSearchFailed)
 
     return FirecrawlSearch(
         query=query,
-        results=tuple(results),
-        credits_used=_as_int(payload_mapping.get("creditsUsed")),
+        results=_search_results(data.get("web")),
+        credits_used=_as_int(payload.get("creditsUsed")),
     )
