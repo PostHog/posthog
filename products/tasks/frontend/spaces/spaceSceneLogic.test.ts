@@ -1,7 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { urls } from 'scenes/urls'
+
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
+import { spaceNewSessionUrl, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -9,12 +12,19 @@ import { spaceSceneLogic } from './spaceSceneLogic'
 
 describe('spaceSceneLogic', () => {
     let sessionSpace = 'space-a'
+    let starredIds: string[] = []
+    let starRequests: { id: string; starred: boolean }[] = []
 
     beforeEach(() => {
         sessionSpace = 'space-a'
+        starredIds = []
+        starRequests = []
         useMocks({
             get: {
-                '/api/projects/:team_id/task_channels/': [],
+                '/api/projects/:team_id/task_channels/': () => [
+                    200,
+                    ['space-a', 'space-b'].map((id) => ({ id, name: id, starred: starredIds.includes(id) })),
+                ],
                 '/api/projects/:team_id/task_channels/:id/': ({ params }) => [
                     200,
                     {
@@ -35,6 +45,16 @@ describe('spaceSceneLogic', () => {
                             ? [{ id: 'task-1', title: 'Session', channel, archived: false, last_activity_at: null }]
                             : []
                     return [200, { results, count: results.length }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/task_channels/:id/star/': async ({ params, request }) => {
+                    const { starred } = (await request.json()) as { starred: boolean }
+                    starRequests.push({ id: String(params.id), starred })
+                    starredIds = starred
+                        ? [...starredIds, String(params.id)]
+                        : starredIds.filter((id) => id !== params.id)
+                    return [200, {}]
                 },
             },
             patch: {
@@ -124,5 +144,48 @@ describe('spaceSceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['spaceSaved', 'loadMembersSuccess'])
 
         expect(logic.values.members.map((member) => member.id)).toEqual([7])
+    })
+
+    it('stars a space from the sidebar menu and shows it on that space page', async () => {
+        const logic = spaceSceneLogic({ id: 'space-b' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        todaySpacesLogic.actions.toggleStar('space-b', true)
+        await expectLogic(todaySpacesLogic).toDispatchActions(['toggleStar', 'loadSpaces', 'loadSpacesSuccess'])
+
+        expect(starRequests).toEqual([{ id: 'space-b', starred: true }])
+        expect(todaySpacesLogic.values.pendingSpaceIds).toEqual([])
+        expect(logic.values.space?.starred).toBe(true)
+    })
+
+    it('copies the project-scoped link to the space', async () => {
+        const writeText = jest.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+        todaySpacesLogic.mount()
+
+        todaySpacesLogic.actions.copySpaceLink('space-a')
+        await expectLogic(todaySpacesLogic).toFinishAllListeners()
+
+        expect(writeText).toHaveBeenCalledWith(
+            expect.stringMatching(new RegExp(`^${window.location.origin}/project/\\d+/spaces/space-a$`))
+        )
+    })
+
+    it('focuses the composer once when a new session is requested for this space', async () => {
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        const other = spaceSceneLogic({ id: 'space-b' })
+        logic.mount()
+        other.mount()
+
+        router.actions.push(spaceNewSessionUrl('space-a'))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.composerFocusRequest).toBe(1)
+        expect(router.values.searchParams).toEqual({})
+
+        router.actions.push(urls.taskSpaceSettings('space-a'))
+        router.actions.push(urls.taskSpace('space-a'))
+        expect(logic.values.composerFocusRequest).toBe(1)
+        expect(other.values.composerFocusRequest).toBe(0)
     })
 })
