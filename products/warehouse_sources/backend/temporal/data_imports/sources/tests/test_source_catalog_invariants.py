@@ -81,7 +81,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Telli",
     "TerraApi",
     "TriggerDev",
-    "Turso",
     "TwelveLabs",
     "Upstash",
     "Vespa",
