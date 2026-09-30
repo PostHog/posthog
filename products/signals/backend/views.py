@@ -2509,6 +2509,7 @@ class SignalReportViewSet(
         serializer = SignalReportStateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        was_suppressed = report.status == SignalReport.Status.SUPPRESSED
 
         outcome, detail = self._transition_report_state(
             report,
@@ -2536,7 +2537,9 @@ class SignalReportViewSet(
             dismissal_note=data.get("dismissal_note"),
         )
         self._capture_background_dismissals(
-            reports=[report], target=data["state"], dismissal_reason=data.get("dismissal_reason")
+            reports=[] if was_suppressed else [report],
+            target=data["state"],
+            dismissal_reason=data.get("dismissal_reason"),
         )
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
@@ -3176,6 +3179,7 @@ class SignalReportViewSet(
         results: list[dict] = []
         counts: dict[str, int] = {outcome.value: 0 for outcome in SignalReportBulkStateOutcome}
         transitioned: list[SignalReport] = []
+        newly_dismissed: list[SignalReport] = []
         for report_id in ordered_ids:
             report = reports_by_id.get(report_id)
             if report is None:
@@ -3183,6 +3187,7 @@ class SignalReportViewSet(
                 detail = None
                 report_status = None
             else:
+                was_suppressed = report.status == SignalReport.Status.SUPPRESSED
                 outcome, detail = self._transition_report_state(
                     report,
                     target=target,
@@ -3194,6 +3199,8 @@ class SignalReportViewSet(
                 report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
                 if outcome == SignalReportBulkStateOutcome.TRANSITIONED:
                     transitioned.append(report)
+                    if not was_suppressed:
+                        newly_dismissed.append(report)
             results.append(
                 {
                     "id": report_id,
@@ -3209,7 +3216,7 @@ class SignalReportViewSet(
             dismissal_reason=dismissal_reason,
             dismissal_note=dismissal_note,
         )
-        self._capture_background_dismissals(reports=transitioned, target=target, dismissal_reason=dismissal_reason)
+        self._capture_background_dismissals(reports=newly_dismissed, target=target, dismissal_reason=dismissal_reason)
 
         return Response(
             {

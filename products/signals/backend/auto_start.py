@@ -1659,7 +1659,7 @@ async def maybe_autostart_from_report_artefacts(
     A report that a background-enrolled scout authored never auto-starts. Nobody on the project
     asked for that scout, so its findings must not open pull requests on their own.
     """
-    if await database_sync_to_async(report_is_from_background_scout, thread_sensitive=False)(team_id, report_id):
+    if await database_sync_to_async(report_is_from_background_scout)(team_id, report_id):
         logger.info(
             "signals auto-start re-eval skipped",
             report_id=report_id,

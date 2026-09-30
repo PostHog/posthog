@@ -162,6 +162,24 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
         else:
             assert captured == []
 
+    @patch("products.signals.backend.background_pilot.posthoganalytics.capture")
+    def test_repeat_dismissal_of_a_background_report_is_not_counted_again(self, mock_capture: MagicMock) -> None:
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        self._author_with_scout(report, SignalScoutConfig.EnrollmentOrigin.BACKGROUND)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/signals/reports/{report.pk}/state/",
+            {"state": "suppressed", "dismissal_reason": "report_unclear"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not [
+            call
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] == "signals_background_report_dismissed"
+        ]
+
     def test_a_suppressed_report_still_records_its_view(self) -> None:
         # The Dismissed tab renders the same detail view, so its opens must count too instead of
         # 404ing like mutating-by-ID actions on suppressed reports do.
