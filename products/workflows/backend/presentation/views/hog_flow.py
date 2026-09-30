@@ -121,6 +121,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     validate_skill_names,
 )
 from products.workflows.backend.facade.api import create_batch_job
+from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
     mask_derived_trigger,
@@ -186,8 +187,6 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
-    fetch_message_asset_html,
-    fetch_message_assets,
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
 from products.workflows.backend.providers.ses import SESProvider
