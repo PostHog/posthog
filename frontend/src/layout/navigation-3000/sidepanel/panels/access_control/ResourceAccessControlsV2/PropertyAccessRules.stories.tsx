@@ -78,13 +78,12 @@ export const SavingAIPropertyRule: Story = {
         const page = within(document.body)
         await userEvent.click(await page.findByRole('button', { name: 'output ($ai_output)' }))
         const dialog = within(page.getByRole('dialog'))
-        const save = dialog.getByRole('button', { name: 'Add rule' })
         await waitFor(() => {
-            if (save.getAttribute('aria-disabled') === 'true') {
+            if (dialog.getByRole('button', { name: 'Add rule' }).getAttribute('aria-disabled') === 'true') {
                 throw new Error('Waiting for property selection')
             }
         })
-        await userEvent.click(save)
+        await userEvent.click(dialog.getByRole('button', { name: 'Add rule' }))
     },
 }
 
