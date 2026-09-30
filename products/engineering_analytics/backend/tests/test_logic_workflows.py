@@ -15,6 +15,7 @@ from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
+from products.engineering_analytics.backend.logic.queries.workflow_flakiness import query_workflow_flakiness
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
@@ -1182,6 +1183,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         self._create_depot_table(
             [
                 _depot_attempt_row(
+                    run_id="0000000020",
                     ref="refs/pull/65/merge",
                     head_sha="sha65",
                     workflow_name="CI",
@@ -1204,13 +1206,67 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
-            [_run_row(9800, "CI", "sha-main", "completed", "success", _ago(1), _ago(1), head_branch="main")],
+            [_run_row(60, "CI", "sha-main", "completed", "success", _ago(1), _ago(1), head_branch="main")],
         )
-        self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(98000, 9800, "build", "success")])
+        self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(98000, 60, "build", "success")])
 
         aggregates = api.list_job_aggregates(team=self.team, workflow_name="CI", branch="feature/depot")
 
         assert [aggregate.job_name for aggregate in aggregates] == ["ci.yml:lint"]
+
+    @parameterized.expand([("recovery", "finished"), ("failure", "failed")])
+    def test_colliding_engine_ids_do_not_pair_recovery_or_reduce_run_counts(
+        self, _name: str, depot_status: str
+    ) -> None:
+        started, completed = _ago_with_duration(1, 120)
+        self._create_depot_table(
+            [
+                _depot_attempt_row(
+                    run_id="0000000020",
+                    ref="refs/heads/master",
+                    head_sha="same-sha",
+                    workflow_name="CI",
+                    workflow_status=depot_status,
+                    workflow_created_at=started,
+                    workflow_started_at=started,
+                    workflow_finished_at=completed,
+                    job_key="ci.yml:build",
+                    job_display_name="build",
+                    attempt=2,
+                    attempt_status=depot_status,
+                    attempt_started_at=started,
+                    attempt_finished_at=completed,
+                )
+            ]
+        )
+        self._create_table("github_pull_requests", PULL_REQUESTS_COLUMNS, [_pr_row(65, "alice", "open", 0, _ago(1))])
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(60, "CI", "same-sha", "completed", "failure", started, completed, head_branch="master")],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(
+                    600,
+                    60,
+                    "build",
+                    "failure",
+                    started=started,
+                    completed=completed,
+                    head_branch="master",
+                    head_sha="same-sha",
+                )
+            ],
+        )
+
+        assert query_workflow_flakiness(curated=CuratedGitHubSource.for_team(self.team), date_from=_dt(_ago(2))) == []
+        [build] = api.list_job_aggregates(team=self.team, workflow_name="CI")
+        assert (build.job_count, build.runs_in, build.run_share) == (2, 2, 1.0)
+        [failure] = api.list_master_failures(team=self.team, branch="master", date_from="-2d")
+        assert failure.run_count == (2 if depot_status == "failed" else 1)
 
     def test_job_aggregates_rate_and_queue_time_use_verdicts(self) -> None:
         self._create_table(

@@ -327,6 +327,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             repo: str = "PostHog/posthog",
             job_key: str = "ci-backend.yml:turbo-tests:matrix-38",
             head_sha: str = "abc123",
+            sha: str = "",
         ) -> dict[str, str | int]:
             return {
                 "run_id": run_id,
@@ -334,6 +335,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "repo": repo,
                 "ref": ref,
                 "head_sha": head_sha,
+                "sha": sha,
                 "workflow_id": workflow_id,
                 "workflow_name": workflow_name,
                 "workflow_status": workflow_status,
@@ -356,7 +358,8 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "run_id": "bbbbbbbbbb",
             "run_workflow_count": 2,
             "ref": "refs/heads/master",
-            "head_sha": "def456",
+            "head_sha": "",
+            "sha": "def456",
         }
         depot_table = self._create_table(
             "depot_job_attempts",
