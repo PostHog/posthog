@@ -10,6 +10,7 @@ from datetime import (
 )
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 
 from django.core.management import call_command
 
@@ -23,11 +24,14 @@ from products.warehouse_sources.backend.management.commands.report_warehouse_sch
     parse_schedule_fired_at,
 )
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.scheduling import runner as scheduler_runner
+from products.warehouse_sources.backend.scheduling.runner import ShadowScheduler, ShadowSchedulerConfig
 from products.warehouse_sources.backend.scheduling.shadow import (
     DECISION_SKIP_CDC_HALTED,
     DECISION_SKIP_OUT_OF_SCOPE,
     DECISION_SKIP_OVERLAP,
     DECISION_WOULD_FIRE,
+    EvaluationResult,
     SchemaCadence,
     evaluate_due,
     fetch_in_scope_schemas,
@@ -36,7 +40,12 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     schedule_offset,
     window_boundary,
 )
-from products.warehouse_sources_queue.backend.core.scheduler_state import SCHEDULER_DECISION_TABLE
+from products.warehouse_sources_queue.backend.core.scheduler_state import (
+    SCHEDULER_DECISION_TABLE,
+    SCHEDULER_STATE_TABLE,
+    DecisionRecord,
+    SchedulerStateTable,
+)
 from products.warehouse_sources_queue.backend.sdk import DueSchedule
 from products.warehouse_sources_queue.backend.testing import ensure_scheduler_tables, get_test_database_url
 
@@ -244,6 +253,116 @@ class TestEvaluateDue:
         now_epoch = int(time.time())
         result = async_to_sync(evaluate_due)([_due_row(str(uuid.uuid4()), team.pk, now_epoch)], now_epoch)
         assert [record.decision for record in result.records] == [DECISION_SKIP_OUT_OF_SCOPE]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestShadowSchedulerTick:
+    def _setup_due_state(self, team_id: int) -> tuple[str, datetime, str]:
+        db_url = get_test_database_url()
+        schema_id = str(uuid.uuid4())
+        due_at = (datetime.now(UTC) - timedelta(minutes=1)).replace(microsecond=0)
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            ensure_scheduler_tables(conn)
+            conn.execute(f"TRUNCATE {SCHEDULER_DECISION_TABLE}, {SCHEDULER_STATE_TABLE}")
+            conn.execute(
+                f"""
+                INSERT INTO {SCHEDULER_STATE_TABLE}
+                    (schema_id, team_id, interval_seconds, offset_seconds, next_due_at)
+                VALUES (%s, %s, 3600, 0, %s)
+                """,
+                (schema_id, team_id, due_at),
+            )
+        return schema_id, due_at, db_url
+
+    def _record(self, schema_id: str, team_id: int, due_at: datetime) -> DecisionRecord:
+        return DecisionRecord(
+            team_id=team_id,
+            schema_id=schema_id,
+            window_boundary=due_at,
+            due_at=due_at,
+            decision=DECISION_WOULD_FIRE,
+            interval_seconds=3600,
+            late_seconds=60.0,
+        )
+
+    def test_failed_decision_write_rolls_back_state_advance(self, team, monkeypatch):
+        schema_id, due_at, db_url = self._setup_due_state(team.pk)
+        record = self._record(schema_id, team.pk, due_at)
+        original_insert = SchedulerStateTable.insert_decisions
+
+        async def insert_then_fail(conn, records):
+            await original_insert(conn, records)
+            raise RuntimeError("decision write failed")
+
+        monkeypatch.setattr(
+            scheduler_runner.JobsTable,
+            "try_acquire_sentinel_slot",
+            AsyncMock(side_effect=[True, False]),
+        )
+        monkeypatch.setattr(
+            scheduler_runner,
+            "evaluate_due",
+            AsyncMock(return_value=EvaluationResult(records=(record,), missed_windows=0)),
+        )
+        monkeypatch.setattr(SchedulerStateTable, "insert_decisions", insert_then_fail)
+
+        scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url))
+        with pytest.raises(RuntimeError, match="decision write failed"):
+            async_to_sync(scheduler._tick)(lambda: None)
+
+        with psycopg.Connection.connect(db_url) as conn:
+            assert conn.execute(
+                f"SELECT next_due_at FROM {SCHEDULER_STATE_TABLE} WHERE schema_id = %s", (schema_id,)
+            ).fetchone() == (due_at,)
+            assert conn.execute(f"SELECT count(*) FROM {SCHEDULER_DECISION_TABLE}").fetchone() == (0,)
+
+    def test_duplicate_decision_does_not_emit_outcome_metrics(self, team, monkeypatch):
+        schema_id, due_at, db_url = self._setup_due_state(team.pk)
+        record = self._record(schema_id, team.pk, due_at)
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            conn.execute(
+                f"""
+                INSERT INTO {SCHEDULER_DECISION_TABLE}
+                    (team_id, schema_id, window_boundary, due_at, decision, interval_seconds, late_seconds)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    record.team_id,
+                    record.schema_id,
+                    record.window_boundary,
+                    record.due_at,
+                    record.decision,
+                    record.interval_seconds,
+                    record.late_seconds,
+                ),
+            )
+
+        monkeypatch.setattr(
+            scheduler_runner.JobsTable,
+            "try_acquire_sentinel_slot",
+            AsyncMock(side_effect=[True, False]),
+        )
+        monkeypatch.setattr(
+            scheduler_runner,
+            "evaluate_due",
+            AsyncMock(return_value=EvaluationResult(records=(record,), missed_windows=0)),
+        )
+        would_fire = MagicMock()
+        skips = MagicMock()
+        lateness = MagicMock()
+        duplicate_windows = MagicMock()
+        monkeypatch.setattr(scheduler_runner, "WOULD_FIRE_TOTAL", would_fire)
+        monkeypatch.setattr(scheduler_runner, "SKIPS_TOTAL", skips)
+        monkeypatch.setattr(scheduler_runner, "FIRE_LATENESS_SECONDS", lateness)
+        monkeypatch.setattr(scheduler_runner, "DUPLICATE_WINDOWS_TOTAL", duplicate_windows)
+
+        scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url))
+        async_to_sync(scheduler._tick)(lambda: None)
+
+        would_fire.inc.assert_not_called()
+        skips.labels.assert_not_called()
+        lateness.observe.assert_not_called()
+        duplicate_windows.inc.assert_called_once_with(1)
 
 
 @pytest.mark.django_db
