@@ -972,6 +972,29 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ hide_viewed_recordings: undefined }))
             })
 
+            it('keeps viewed recordings when the caller ignores the hide viewed setting', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
+                const listSpy = jest.spyOn(api.recordings, 'list')
+
+                const ignoringLogic = sessionRecordingsPlaylistLogic({
+                    logicKey: 'ignores-hide-viewed',
+                    ignoreHideViewedRecordings: true,
+                })
+                ignoringLogic.mount()
+                await expectLogic(ignoringLogic).toDispatchActions(['loadSessionRecordingsSuccess'])
+                expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ hide_viewed_recordings: undefined }))
+
+                ignoringLogic.actions.setSelectedRecordingId('abc')
+                ignoringLogic.actions.setSelectedRecordingId(null)
+                await expectLogic(ignoringLogic)
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        otherRecordings: [expect.objectContaining({ id: 'abc', viewed: true }), bRecording],
+                        hiddenRecordings: [],
+                    })
+            })
+
             it('bulk delete only marks successfully deleted recordings', async () => {
                 jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockResolvedValue({
                     success: true,
