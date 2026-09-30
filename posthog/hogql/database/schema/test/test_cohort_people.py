@@ -100,5 +100,16 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
             self.team,
         ).results
 
+        # Both names in one query are two lazy tables of the same class, so each must keep its own alias.
+        both_names = execute_hogql_query(
+            f"""
+            SELECT cm.person_id FROM cohort_membership cm
+            JOIN cohort_people cp ON cp.person_id = cm.person_id AND cp.cohort_id = cm.cohort_id
+            WHERE cm.cohort_id = {cohort.pk} ORDER BY cm.person_id
+            """,
+            self.team,
+        ).results
+
         assert members is not None and len(members) == 2
         assert legacy_name == members
+        assert both_names == members
