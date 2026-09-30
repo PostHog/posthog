@@ -5445,6 +5445,7 @@ class TestStripeIntegrationOAuthTokens:
             token="ph_refresh_unlinked",
             user=self.user,
             access_token=None,
+            revoked=timezone.now(),
             scoped_teams=[self.team.pk],
         )
         stripe_int = StripeIntegration(integration)
@@ -5564,10 +5565,25 @@ class TestStripeIntegrationOAuthTokens:
 
         integration, legacy_access, legacy_refresh = self._create_integration_with_tokens()
 
+        def mint_while_waiting(**kwargs):
+            OAuthAccessToken.objects.get_or_create(
+                token="ph_access_minted_at_lock",
+                defaults={
+                    "application": self.oauth_app,
+                    "user": self.user,
+                    "expires": timezone.now() + timedelta(days=1),
+                    "scope": StripeIntegration.SCOPES,
+                    "scoped_teams": [self.team.pk],
+                },
+            )
+
+        mock_lock.side_effect = mint_while_waiting
+
         StripeIntegration(integration)._destroy_posthog_oauth_tokens()
 
         assert not OAuthAccessToken.objects.filter(pk=legacy_access.pk).exists()
         assert not OAuthRefreshToken.objects.filter(pk=legacy_refresh.pk).exists()
+        assert not OAuthAccessToken.objects.filter(token="ph_access_minted_at_lock").exists()
         locked_pairs = {(call.kwargs["user_id"], call.kwargs["application_id"]) for call in mock_lock.call_args_list}
         assert locked_pairs == {(self.user.pk, marketplace_app.id), (self.user.pk, self.oauth_app.id)}
 
