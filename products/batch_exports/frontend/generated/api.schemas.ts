@@ -13,9 +13,9 @@
  * * `sessions` - Sessions
  * * `hogql` - Hogql
  */
-export type ModelEnumApi = (typeof ModelEnumApi)[keyof typeof ModelEnumApi]
+export type BatchExportModelEnumApi = (typeof BatchExportModelEnumApi)[keyof typeof BatchExportModelEnumApi]
 
-export const ModelEnumApi = {
+export const BatchExportModelEnumApi = {
     Events: 'events',
     Persons: 'persons',
     Sessions: 'sessions',
@@ -42,10 +42,10 @@ export const BlankEnumApi = {
  * * `NoOp` - Noop
  * * `FileDownload` - File Download
  */
-export type BatchExportDestinationDestinationEnumApi =
-    (typeof BatchExportDestinationDestinationEnumApi)[keyof typeof BatchExportDestinationDestinationEnumApi]
+export type BatchExportDestinationTypeEnumApi =
+    (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
 
-export const BatchExportDestinationDestinationEnumApi = {
+export const BatchExportDestinationTypeEnumApi = {
     AwsS3: 'AwsS3',
     S3Compatible: 'S3Compatible',
     Snowflake: 'Snowflake',
@@ -471,7 +471,7 @@ export interface BatchExportDestinationApi {
      * * `HTTP` - Http
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
-    type: BatchExportDestinationDestinationEnumApi
+    type: BatchExportDestinationTypeEnumApi
     /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
@@ -886,7 +886,7 @@ export interface BatchExportApi {
      * * `persons` - Persons
      * * `sessions` - Sessions
      * * `hogql` - Hogql */
-    model?: ModelEnumApi | BlankEnumApi | null
+    model?: BatchExportModelEnumApi | BlankEnumApi | null
     /** Destination configuration (type, config, and optional integration). */
     destination: BatchExportDestinationApi
     /** How often the batch export should run.
@@ -1716,7 +1716,7 @@ export interface BatchExportRequestApi {
      * * `persons` - Persons
      * * `sessions` - Sessions
      * * `hogql` - Hogql */
-    model?: ModelEnumApi
+    model?: BatchExportModelEnumApi
     /** Destination configuration. Required integration_id is enforced per destination type. */
     destination: BatchExportDestinationRequestApi
     /** How often the batch export should run.
@@ -1882,7 +1882,7 @@ export interface PatchedBatchExportRequestApi {
      * * `persons` - Persons
      * * `sessions` - Sessions
      * * `hogql` - Hogql */
-    model?: ModelEnumApi
+    model?: BatchExportModelEnumApi
     /** Destination configuration. Required integration_id is enforced per destination type. */
     destination?: BatchExportDestinationRequestApi
     /** How often the batch export should run.

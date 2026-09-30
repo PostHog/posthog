@@ -5,6 +5,7 @@ import { Fragment } from 'react'
 import { IconChat, IconList, IconLock, IconPlus } from '@posthog/icons'
 import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
@@ -95,17 +96,18 @@ export function TodaySpacesSidebar(): JSX.Element {
     return (
         <TooltipProvider>
             <div className="TodayPane" data-quill>
-                <button
-                    type="button"
-                    className="TodaySidebar__new"
+                <Button
+                    variant="primary"
+                    size="lg"
+                    className="w-full"
+                    render={<LinkPrimitive to={urls.ai()} />}
                     data-attr="today-spaces-new-chat"
-                    onClick={() => router.actions.push(urls.ai())}
                 >
                     <IconPlus />
                     New chat
-                </button>
+                </Button>
                 <div
-                    className="mt-4 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden px-1"
+                    className="mt-6 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden px-1"
                     ref={layout.measureRefs.area}
                 >
                     {hasPinned && (

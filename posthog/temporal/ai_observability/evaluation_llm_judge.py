@@ -12,7 +12,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
-from posthog.llm.system_one import NoulAnswer, NoulQuestion, Question
+from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, NoulAnswer, NoulQuestion, Question
 from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
@@ -474,11 +474,11 @@ def call_llm_judge(
     key_id = str(provider_key.id) if provider_key else None
 
     if provider == "system_one":
-        if output_type != "boolean":
+        if output_type not in ("boolean", "categorical"):
             return build_skipped_evaluation_result(
                 output_type=output_type,
                 allows_na=allows_na,
-                reasoning="System One currently supports boolean evaluations only.",
+                reasoning="System One supports boolean and categorical evaluations.",
                 skip_reason="unsupported_output_type",
             )
         base_url = provider_key.encrypted_config.get("base_url", "") if provider_key else ""
@@ -506,7 +506,28 @@ def call_llm_judge(
     try:
         if provider == "system_one":
             prompt = evaluation["evaluation_config"]["prompt"]
-            questions: dict[str, Question] = {"verdict": NoulQuestion(instructions=prompt)}
+            categorical_config = (
+                CategoricalOutputConfig.model_validate(output_config) if output_type == "categorical" else None
+            )
+            questions: dict[str, Question]
+            if categorical_config is None:
+                questions = {"verdict": NoulQuestion(instructions=prompt)}
+            elif categorical_config.selection_mode == "single":
+                questions = {
+                    "category": ChoiceQuestion(
+                        instructions=prompt,
+                        criteria={option.key: option.label for option in categorical_config.options},
+                    )
+                }
+            else:
+                questions = {
+                    f"category_{index}": NoulQuestion(
+                        instructions=prompt,
+                        criteria_true=f"Matches category: {option.label}",
+                        criteria_false=f"Does not match category: {option.label}",
+                    )
+                    for index, option in enumerate(categorical_config.options)
+                }
             if allows_na:
                 questions["applicable"] = NoulQuestion(
                     instructions=(
@@ -528,18 +549,39 @@ def call_llm_judge(
                 if not isinstance(applicability_answer, NoulAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid applicability answer.")
                 applicable = applicability_answer.probability >= 0.5
-            verdict_answer = system_one_result.answers["verdict"]
-            if not isinstance(verdict_answer, NoulAnswer):
-                raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
-            probability = verdict_answer.probability
-            parsed = (
-                BooleanWithNAEvalResult(
-                    reasoning="",
-                    outcome="not_applicable" if not applicable else "pass" if probability >= 0.5 else "fail",
+            parsed: BooleanEvalResult | BooleanWithNAEvalResult | CategoricalEvalResult | CategoricalWithNAEvalResult
+            if categorical_config is not None:
+                categories: list[str] = []
+                if categorical_config.selection_mode == "single":
+                    category_answer = system_one_result.answers["category"]
+                    if not isinstance(category_answer, ChoiceAnswer):
+                        raise StructuredOutputParseError("The endpoint returned an invalid category answer.")
+                    categories = [category_answer.choice]
+                else:
+                    for index, option in enumerate(categorical_config.options):
+                        category_match = system_one_result.answers[f"category_{index}"]
+                        if not isinstance(category_match, NoulAnswer):
+                            raise StructuredOutputParseError("The endpoint returned an invalid category answer.")
+                        if category_match.probability >= 0.5:
+                            categories.append(option.key)
+                parsed = (
+                    CategoricalWithNAEvalResult(reasoning="", categories=categories if applicable else None)
+                    if allows_na
+                    else CategoricalEvalResult(reasoning="", categories=categories)
                 )
-                if allows_na
-                else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
-            )
+            else:
+                verdict_answer = system_one_result.answers["verdict"]
+                if not isinstance(verdict_answer, NoulAnswer):
+                    raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
+                probability = verdict_answer.probability
+                parsed = (
+                    BooleanWithNAEvalResult(
+                        reasoning="",
+                        outcome="not_applicable" if not applicable else "pass" if probability >= 0.5 else "fail",
+                    )
+                    if allows_na
+                    else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
+                )
             response = CompletionResponse(
                 content="",
                 model=model,
@@ -794,6 +836,9 @@ def call_llm_judge(
         "model": model,
         "provider": provider,
     }
+    if system_one_result is not None:
+        result_dict["input_tokens"] = system_one_result.input_tokens
+        result_dict["output_tokens"] = system_one_result.output_tokens
 
     if isinstance(parsed_result, CategoricalEvalResult | CategoricalWithNAEvalResult):
         result_dict["result_type"] = "categorical"
@@ -852,8 +897,4 @@ def call_llm_judge(
 
     if probability is not None and result_dict["verdict"] is not None:
         result_dict["probability"] = probability
-    if system_one_result is not None:
-        result_dict["input_tokens"] = system_one_result.input_tokens
-        result_dict["output_tokens"] = system_one_result.output_tokens
-
     return result_dict

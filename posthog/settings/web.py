@@ -574,10 +574,12 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": ChoicesEnumNameOverrides(
         {
             # Most enum components are named automatically: ChoicesEnumNameOverrides walks
-            # every django.db.models.Choices subclass at schema-build time and names the
-            # component after the class (EarlyAccessFeature.Stage -> EarlyAccessFeatureStageEnum),
-            # so defining choices as a TextChoices class is all a new enum needs. See
-            # posthog/openapi/enum_names.py for the derivation and its safety rules.
+            # every django.db.models.Choices subclass and every posthog.enums labeled enum at
+            # schema-build time and names the component after the class
+            # (EarlyAccessFeature.Stage -> EarlyAccessFeatureStageEnum), so defining choices as
+            # a TextChoices class, or a LabeledStrEnum in a facade contract file, is all a new
+            # enum needs. See posthog/openapi/enum_names.py for the derivation and its safety
+            # rules.
             #
             # An entry below is for a choice set no class can carry, and each group states
             # why. drf-spectacular matches an entry to fields by a hash of the exact
@@ -596,8 +598,6 @@ SPECTACULAR_SETTINGS = {
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
             # Matches tasks' LoopVisibility (personal/team).
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
-            # BatchExport.Model and BatchExportOnDemand.Model are identical.
-            "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
             # Matches Subscription frequency (daily/weekly/monthly).
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
             # Matches the messaging email channel setup provider list.
@@ -617,8 +617,6 @@ SPECTACULAR_SETTINGS = {
             "RoleEnum": ["primary", "supporting"],
             # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
             "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
-            # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
-            "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             # The subset a client may write. Shared by the single-issue and bulk write serializers,
@@ -629,6 +627,9 @@ SPECTACULAR_SETTINGS = {
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
+            # Every grantable scope object, from posthog/scopes.py. The frontend's APIScopeObject type
+            # derives from this enum, so the object list is never copied by hand.
+            "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             # signals maps a warehouse import's status down to these three. Same values as the
             # warehouse's own SyncStatus, but that class carries different labels, so the two are
@@ -651,20 +652,18 @@ SPECTACULAR_SETTINGS = {
             # growth's identity-matching tier and the signals scout suggestion confidence.
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #
-            # The definition site is a deliberately Django-free module (facade contracts,
-            # signals taxonomy), so it cannot define a models.Choices class.
-            "WizardTaskStatusEnum": "products.wizard.backend.facade.enums.WIZARD_TASK_STATUS_CHOICES",
+            # The definition site is a Django-free module, and no field builds these choices from a
+            # posthog.enums labeled enum, so no name derives. The engineering_analytics fields go
+            # through DataclassSerializer, which pairs each value with the member name, not a label.
+            # The signals entries need a member order, or a name without the Enum suffix, that no
+            # class derives.
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
-            "ReportLinkKindEnum": "products.signals.backend.enums.report_link_kind_choices",
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
             "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
             "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
             "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
             "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
-            "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
-            "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
-            "LifecycleStatusEnum": "products.notebooks.backend.widget_models.WIDGET_LIFECYCLE_STATUS_CHOICES",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
@@ -1303,6 +1302,10 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 # secret for routing LLM calls through the gateway. Unset = direct to the provider.
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
+
+# Decision model behind the preview HogQL `__preview_promptJev` function. Per environment, so a
+# different model can be measured without a code change.
+HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jevk5-fp8-0.2")
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.

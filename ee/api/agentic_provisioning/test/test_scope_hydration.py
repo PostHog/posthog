@@ -143,7 +143,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
     @parameterized.expand([("issued", False), ("stored_in_id_order", True)])
     def test_consented_project_stays_first_across_refreshes_in_partner_created_org(
         self, _name: str, stored_in_id_order: bool
-    ):
+    ) -> None:
         TeamProvisioningConfig.objects.update_or_create(team=self.team, defaults={"application": self.partner})
         consented = Team.objects.create_with_data(
             initiating_user=self.user, organization=self.organization, name="Consented"
@@ -200,7 +200,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         assert self.team.id in refresh_token.scoped_teams
         assert newly_provisioned.id in refresh_token.scoped_teams
 
-    def test_backfill_keeps_consent_team_when_scope_is_stored_in_id_order(self):
+    def test_backfill_keeps_consent_team_when_scope_is_stored_in_id_order(self) -> None:
         TeamProvisioningConfig.objects.update_or_create(team=self.team, defaults={"application": self.partner})
         consented = Team.objects.create_with_data(
             initiating_user=self.user, organization=self.organization, name="Consented"
@@ -216,8 +216,8 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
 
         access_token.refresh_from_db()
         refresh_token.refresh_from_db()
-        assert set(access_token.scoped_teams) == {self.team.id, consented.id}
-        assert set(refresh_token.scoped_teams) == {self.team.id, consented.id}
+        assert access_token.scoped_teams == [consented.id, self.team.id]
+        assert refresh_token.scoped_teams == [consented.id, self.team.id]
 
     def test_backfill_leaves_scope_unchanged_when_recomputed_scope_is_empty(self):
         # When the user has lost access, compute_partner_scoped_teams returns [].

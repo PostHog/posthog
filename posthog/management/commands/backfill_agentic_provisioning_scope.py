@@ -83,12 +83,10 @@ class Command(BaseCommand):
                         f"new=[] (empty scope; left unchanged, needs re-authorization)"
                     )
                     continue
-                if sorted(new_scope) == sorted(old_scope):
+                if new_scope == old_scope:
                     continue
                 changed_access += 1
-                self.stdout.write(
-                    f"  access_token={access_token.pk} user={user.id} old={sorted(old_scope)} new={sorted(new_scope)}"
-                )
+                self.stdout.write(f"  access_token={access_token.pk} user={user.id} old={old_scope} new={new_scope}")
                 if not dry_run:
                     try:
                         with transaction.atomic():
@@ -121,12 +119,10 @@ class Command(BaseCommand):
                         f"new=[] (empty scope; left unchanged, needs re-authorization)"
                     )
                     continue
-                if sorted(new_scope) == sorted(old_scope):
+                if new_scope == old_scope:
                     continue
                 changed_refresh += 1
-                self.stdout.write(
-                    f"  refresh_token={refresh_token.pk} user={user.id} old={sorted(old_scope)} new={sorted(new_scope)}"
-                )
+                self.stdout.write(f"  refresh_token={refresh_token.pk} user={user.id} old={old_scope} new={new_scope}")
                 if not dry_run:
                     try:
                         with transaction.atomic():

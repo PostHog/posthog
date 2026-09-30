@@ -138,7 +138,7 @@ class TestOAuthToken(StripeProvisioningTestBase):
     @parameterized.expand([("issued", False), ("stored_in_id_order", True)])
     def test_consented_team_stays_first_across_refreshes_when_a_lower_id_team_is_provisioned(
         self, _name: str, stored_in_id_order: bool
-    ):
+    ) -> None:
         TeamProvisioningConfig.objects.update_or_create(
             team=self.team, defaults={"stripe_project_id": "proj_earlier", "application": self.stripe_app}
         )
