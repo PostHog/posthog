@@ -26,9 +26,14 @@ WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 # — so a `QUEUED`/`IN_PROGRESS` TaskRun past this cutoff is an orphan left behind by a
 # crashed worker/sandbox that never wrote a terminal status. Set to a generous multiple of
 # the ceiling so a run merely at the wall (about to fail or finish) is never reaped out from
-# under itself; a lane blocked by an orphan then self-clears within one or two coordinator
-# ticks.
+# under itself. The coordinator sweeps orphans on every tick, so one closes within a tick of
+# this cutoff whether or not its lane is due.
 STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
+
+# Cap on the `(team, skill)` lanes one coordinator sweep reaps, so a backlog of orphans cannot
+# hold the tick past its activity timeout. The oldest lanes go first, and the rest drain on
+# later ticks.
+STALE_RUN_SWEEP_MAX_LANES = 500
 
 # Cap on the one-off steering note an on-demand ("Run now") dispatch carries. It renders verbatim
 # into that run's prompt, so it is held to the 1,000 characters `report_steering` cuts a durable

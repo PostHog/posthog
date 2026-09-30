@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
-from django.db.models import F
+from django.db.models import F, Min
 from django.utils import timezone
 
 import posthoganalytics
@@ -36,6 +36,7 @@ from products.signals.backend.scout_harness.limits import (
     FAILURE_STREAK_MAX_RUNS,
     FAILURE_STREAK_MIN_SPAN_MINUTES,
     STALE_RUN_CUTOFF_S,
+    STALE_RUN_SWEEP_MAX_LANES,
     TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
@@ -956,23 +957,25 @@ def _has_running_run(*, team_id: int, skill_name: str) -> bool:
     )
 
 
-def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
+def _self_heal_stale_runs(team_id: int, skill_name: str, *, reaped_by: str = "dispatch") -> int:
     """Reap orphaned in-flight runs so a dead run can't block the lane forever.
 
     A scout run writes its own terminal `task_run.status` from inside the activity. If the
     worker / sandbox dies hard mid-run (SIGKILL, pod eviction, sandbox loss), that write
     never lands and the TaskRun is frozen at `QUEUED`/`IN_PROGRESS`. `_has_running_run`
     then single-flights against that frozen row and skips every future dispatch for this
-    `(team, skill)` indefinitely — there is no other release. Nothing else reconciles it:
-    Temporal has already torn the workflow down (the activity is killed at
-    `WORKFLOW_HARD_CEILING_S` with `maximum_attempts=1`), and the Tasks cleanup path does
-    not cover a crashed worker.
+    `(team, skill)` indefinitely. Temporal has already torn the workflow down (the activity is
+    killed at `WORKFLOW_HARD_CEILING_S` with `maximum_attempts=1`), and the Tasks cleanup path
+    does not cover a crashed worker. So this runs before every dispatch of the lane, and
+    `reap_stale_runs` also calls it from each coordinator tick, so a daily lane does not stay
+    open until its next dispatch.
 
     A run older than `STALE_RUN_CUTOFF_S` (a generous multiple of that ceiling) cannot
     still be legitimately executing, so it is an orphan and we mark it failed. The cutoff's
     slack means a run merely at the wall — about to fail or finish on its own — is never
     reaped out from under itself. Best-effort and silent: a failure to reap one row must
-    never block the new run, so each is guarded independently.
+    never block the new run, so each is guarded independently. Returns the count of rows
+    this call reaped.
     """
     cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
     stale_runs = list(
@@ -986,11 +989,12 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
         .select_related("task_run")
     )
     if not stale_runs:
-        return
+        return 0
     # Resolve the team once, only when there is actually something to reap, so the reaped
     # event carries the same team / groups shape as the other scout lifecycle events.
     team = _get_team(team_id)
     now = timezone.now()
+    reaped = 0
     for run in stale_runs:
         try:
             task_run = run.task_run
@@ -1011,13 +1015,15 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
             )
             if not claimed:
                 continue
+            reaped += 1
             logger.warning(
-                "signals_scout: reaped stale in-progress run before dispatch",
+                "signals_scout: reaped stale in-progress run",
                 extra={
                     "team_id": team_id,
                     "skill_name": skill_name,
                     "run_id": str(run.id),
                     "task_run_id": str(run.task_run_id),
+                    "reaped_by": reaped_by,
                 },
             )
             # A reaped run never reaches the finalize path, so it emits no
@@ -1031,12 +1037,48 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 task_run_id=str(run.task_run_id),
                 status_before=status_before,
                 age_seconds=age_seconds,
+                reaped_by=reaped_by,
             )
         except Exception:
             logger.exception(
                 "signals_scout: failed to reap stale in-progress run; continuing",
                 extra={"team_id": team_id, "skill_name": skill_name, "run_id": str(run.id)},
             )
+    return reaped
+
+
+def reap_stale_runs(max_lanes: int = STALE_RUN_SWEEP_MAX_LANES) -> int:
+    """Reap stale in-flight runs across the fleet; return the count reaped.
+
+    A worker that dies mid-run (for example in a deploy restart) never emits
+    `signals_scout_run_finished`. The dispatch-time self-heal closes such a run only at the next
+    dispatch of its lane, which is about a day later for a daily scout. The coordinator calls this
+    on each tick, so a stranded run closes within one tick after `STALE_RUN_CUTOFF_S`. It reuses
+    `_self_heal_stale_runs` per lane, so the compare-and-set claim still stops a concurrent
+    dispatch from reaping the same row twice. The oldest lanes go first, and `max_lanes` bounds
+    one tick, so a large backlog drains over a few ticks.
+    """
+    cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
+    lanes = list(
+        SignalScoutRun.objects.unscoped()
+        .filter(
+            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
+            task_run__created_at__lt=cutoff,
+        )
+        .values("team_id", "skill_name")
+        .annotate(oldest=Min("task_run__created_at"))
+        .order_by("oldest")[:max_lanes]
+    )
+    reaped = 0
+    for lane in lanes:
+        try:
+            reaped += _self_heal_stale_runs(lane["team_id"], lane["skill_name"], reaped_by="sweep")
+        except Exception:
+            logger.exception(
+                "signals_scout: failed to sweep stale runs for lane; continuing",
+                extra={"team_id": lane["team_id"], "skill_name": lane["skill_name"]},
+            )
+    return reaped
 
 
 def _create_run_row(
@@ -1388,6 +1430,7 @@ def _capture_run_reaped(
     task_run_id: str,
     status_before: str,
     age_seconds: float,
+    reaped_by: str,
 ) -> None:
     """Emit a scout-owned event when a stranded run is reaped (see `_self_heal_stale_runs`).
 
@@ -1409,6 +1452,7 @@ def _capture_run_reaped(
                 "status_before": status_before,
                 "age_seconds": round(age_seconds, 1),
                 "stale_cutoff_seconds": STALE_RUN_CUTOFF_S,
+                "reaped_by": reaped_by,
             },
             groups=groups(team.organization, team),
         )
