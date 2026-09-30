@@ -55,7 +55,7 @@
 #   The shadow routes cache writes to Depot Cache, so it must not fill the GitHub
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
 # - Superseded-run cancel: Depot's concurrency policy can keep an older event, so each event gets
-#   its own group and `cancel-superseded-runs` cancels older runs. See "Superseded runs" in
+#   its own group, and after the hand-off `cancel-superseded-runs` cancels older runs. See "Superseded runs" in
 #   .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 # - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
 #   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
@@ -350,8 +350,10 @@ jobs:
                   }
                   post "$WAIT_CHECK" success
                   [ "$HANDED_OFF" = true ] || post "$GATE_CHECK" skipped
+    # Runs only after the hand-off, so it acts on the event GitHub Actions kept and never on its own order.
     cancel-superseded-runs:
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        needs: wait-for-handoff
+        if: github.event_name == 'pull_request' && needs.wait-for-handoff.outputs.handed_off == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Cancel superseded Backend CI runs

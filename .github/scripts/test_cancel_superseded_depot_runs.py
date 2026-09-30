@@ -12,10 +12,8 @@ script = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(script)
 
 
-def run(run_id: str, second: int, head_sha: str = "head") -> "script.Run":
-    return script.Run(
-        run_id=run_id, created_at=datetime.fromisoformat(f"2026-09-30T12:00:{second:02d}Z"), head_sha=head_sha
-    )
+def run(run_id: str, second: int) -> "script.Run":
+    return script.Run(run_id=run_id, created_at=datetime.fromisoformat(f"2026-09-30T12:00:{second:02d}Z"))
 
 
 def workflow(run_id: str, path: str = "ci-backend.yml") -> "script.Workflow":
@@ -26,12 +24,9 @@ def workflow(run_id: str, path: str = "ci-backend.yml") -> "script.Workflow":
     "runs,others,expected",
     [
         pytest.param([run("old", 0), run("me", 5)], ["old"], ["old"], id="older_run"),
-        pytest.param([run("me", 0), run("new", 5)], ["new"], ["me"], id="newer_run_cancels_self"),
-        pytest.param([run("old", 0), run("me", 5), run("new", 9)], ["old", "new"], ["me"], id="newer_run_leaves_older"),
-        pytest.param([run("me", 0), run("new", 5)], [], ["me"], id="newer_run_already_ended"),
-        pytest.param([run("a", 5), run("me", 5)], ["a"], ["a"], id="same_commit_tie_higher_id_wins"),
-        pytest.param([run("me", 5), run("z", 5)], ["z"], ["me"], id="same_commit_tie_lower_id_loses"),
-        pytest.param([run("a", 5, "other"), run("me", 5), run("z", 5, "other")], ["a", "z"], [], id="two_commit_tie"),
+        pytest.param([run("me", 0), run("new", 5)], ["new"], [], id="newer_run_never_cancels_self"),
+        pytest.param([run("old", 0), run("me", 5), run("new", 9)], ["old", "new"], ["old"], id="newer_run_left_alone"),
+        pytest.param([run("a", 5), run("me", 5), run("z", 5)], ["a", "z"], ["a", "z"], id="same_second_tie"),
     ],
 )
 def test_superseded(runs: list["script.Run"], others: list[str], expected: list[str]) -> None:

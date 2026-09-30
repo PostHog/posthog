@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Cancel the Backend CI runs on Depot CI that a later event of the same pull request superseded.
 
-Depot's concurrency policy keeps the workflow it created last, and Depot can create an older
-event's workflow after a newer one's. Runs keep event order, so this script orders by run.
-A run cancels the older runs it sees, and cancels itself when it sees a newer one, so the run
-whose workflow Depot creates last settles each pair.
+Only a run that GitHub Actions handed off runs this script. GitHub Actions keeps one run per pull
+request and cancels the others within seconds, long before any hand-off, so the handed-off run
+is the event GitHub Actions kept. The script never cancels its own run: an order Depot sees can
+disagree with the one GitHub Actions kept. It cancels every other run of the pull request that
+Depot created at the same time or earlier. A newer run is left alone, and cancels this one once
+it is handed off.
 See "Superseded runs" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 
 Standard library only: the job runs this with the runner's python3 before any install.
@@ -30,13 +32,6 @@ CLI_TIMEOUT_SECONDS = 60
 class Run:
     run_id: str
     created_at: datetime
-    head_sha: str
-
-    def supersedes(self, other: "Run") -> bool:
-        # The run id cannot tell which of two commits is the PR's head, so a same-second tie between commits keeps both.
-        if self.created_at != other.created_at:
-            return self.created_at > other.created_at
-        return self.head_sha == other.head_sha and self.run_id > other.run_id
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -50,14 +45,13 @@ def superseded(own_workflow_id: str, active_workflows: Sequence[Workflow], runs:
     runs_by_id = {run.run_id: run for run in runs}
     own = {workflow.workflow_id: workflow for workflow in active_workflows}[own_workflow_id]
     me = runs_by_id[own.run_id]
-    if any(run.supersedes(me) for run in runs):
-        return [own]
     return [
         workflow
         for workflow in active_workflows
         if workflow.path == WORKFLOW_PATH
+        and workflow.run_id != me.run_id
         and workflow.run_id in runs_by_id
-        and me.supersedes(runs_by_id[workflow.run_id])
+        and runs_by_id[workflow.run_id].created_at <= me.created_at
     ]
 
 
@@ -87,7 +81,7 @@ def main() -> int:
             for row in list_pr("workflow", repo, pr_number, ACTIVE)
         ]
         runs = [
-            Run(run_id=row["run_id"], created_at=datetime.fromisoformat(row["created_at"]), head_sha=row["head_sha"])
+            Run(run_id=row["run_id"], created_at=datetime.fromisoformat(row["created_at"]))
             for row in list_pr("run", repo, pr_number, ALL)
         ]
         targets = superseded(match[1], workflows, runs)
