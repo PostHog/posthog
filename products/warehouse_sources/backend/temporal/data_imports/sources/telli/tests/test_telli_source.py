@@ -15,7 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.telli import TelliSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.telli.source import TelliSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli import telli_source
+from products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli import TelliResumeConfig, telli_source
 
 
 @pytest.mark.parametrize(
@@ -54,9 +54,7 @@ def test_validation_probes_only_requested_resource(schema_name: str | None, path
         (403, "contacts", "does not have permission"),
     ],
 )
-def test_auth_errors_are_actionable_and_terminal(
-    status: int, schema_name: str | None, expected_message: str | None
-) -> None:
+def test_auth_errors_are_actionable_and_terminal(status: int, schema_name: str | None, expected_message: str) -> None:
     source = TelliSource()
     path = "/v2/contacts" if schema_name else "/v1/verify-api-key"
     with responses.RequestsMock() as http:
@@ -64,11 +62,8 @@ def test_auth_errors_are_actionable_and_terminal(
         valid, message = source.validate_credentials(
             TelliSourceConfig(api_key="test-telli-key"), 1, schema_name=schema_name
         )
-        assert valid is (expected_message is None)
-        if expected_message is None:
-            assert message is None
-        else:
-            assert message and expected_message in message
+        assert valid is False
+        assert message and expected_message in message
         assert len(http.calls) == 1
 
     manager = MagicMock(spec=ResumableSourceManager)
@@ -80,6 +75,14 @@ def test_auth_errors_are_actionable_and_terminal(
             list(cast(Iterable[object], response.items()))
         assert error_message_matches(str(error.value), source.get_non_retryable_errors())
         manager.save_state.assert_not_called()
+
+
+def test_resumable_manager_uses_telli_state() -> None:
+    inputs = cast(SourceInputs, SimpleNamespace(logger=MagicMock(), team_id=1, job_id="test-job"))
+    manager = TelliSource().get_resumable_source_manager(inputs)
+
+    assert isinstance(manager, ResumableSourceManager)
+    assert manager._data_class is TelliResumeConfig
 
 
 def test_unexpected_validation_error_is_not_invalid_credentials() -> None:
