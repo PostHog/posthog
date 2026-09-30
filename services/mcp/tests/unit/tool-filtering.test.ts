@@ -1007,7 +1007,6 @@ describe('Tool Filtering - Feature Flags', () => {
             expect.arrayContaining([
                 'logs-anomalies',
                 'llm-analytics-datasets',
-                'llm-analytics-eval-backfills',
                 'tracing',
                 'visual-review',
                 'user-interviews',
@@ -1047,7 +1046,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
             ])
         )
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(38)
     })
 
     it('every loops tool is gated on the loops flag', () => {

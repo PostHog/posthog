@@ -528,7 +528,6 @@ tools:
                 aliases:
                     - backfillId
                     - backfill_id
-        feature_flag: llm-analytics-eval-backfills
     llma-evaluation-backfill-create:
         operation: evaluations_backfills_create
         enabled: true
@@ -552,7 +551,6 @@ tools:
             evaluation_id:
                 aliases:
                     - evaluationId
-        feature_flag: llm-analytics-eval-backfills
     llma-evaluation-backfill-estimate:
         operation: evaluations_backfills_estimate_create
         enabled: true
@@ -574,7 +572,6 @@ tools:
             evaluation_id:
                 aliases:
                     - evaluationId
-        feature_flag: llm-analytics-eval-backfills
     llma-evaluation-backfill-get:
         operation: evaluations_backfills_retrieve
         enabled: true
@@ -598,7 +595,6 @@ tools:
                 aliases:
                     - backfillId
                     - backfill_id
-        feature_flag: llm-analytics-eval-backfills
     llma-evaluation-backfill-list:
         operation: evaluations_backfills_list
         enabled: true
@@ -617,7 +613,6 @@ tools:
             evaluation_id:
                 aliases:
                     - evaluationId
-        feature_flag: llm-analytics-eval-backfills
     llma-evaluation-config-get:
         operation: llm_analytics_evaluation_config_retrieve
         enabled: true
