@@ -303,6 +303,8 @@ The scout rubric generator in `products/signals/backend/scout_harness/rubrics_ru
 It defaults to GPT-6 Sol at high effort through the Codex runtime.
 The `signals-pipeline-models` payload can select its adapter, model and effort through the `scout_rubrics` step without changing regular scout runs.
 The backend supplies the description, current instructions, reference text and up to five recent run summaries in the first request.
+Owners can add an optional paragraph of priorities for one generation. It is saved with that request, and the next generation starts without it.
+The generator treats these priorities as extra context, not evidence or a replacement for the scout's responsibilities, shared checks or saved choices.
 Rubric generation requests no project-read MCP scopes because its source context is supplied up front.
 The existing sandbox still has internal credentials and tool access; this remains an accepted limitation of the staff-only v0.
 That request includes effective defaults and disabled criteria, including edits, but withholds enabled custom criteria until a second comparison step.
