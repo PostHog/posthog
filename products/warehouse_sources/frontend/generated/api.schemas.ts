@@ -347,7 +347,7 @@ export interface ExternalDataSchemaApi {
      */
     full_refresh_interval_days?: number | null
     /**
-     * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the interval from when it was saved or from the last full resync. Saving a new time restarts the clock. Cleared when full_refresh_interval_days is null.
+     * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Saving a new time restarts the clock from the latest occurrence of that time, so the first refresh can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
      * @nullable
      */
     full_refresh_time_of_day?: string | null
@@ -532,7 +532,7 @@ export interface PatchedExternalDataSchemaApi {
      */
     full_refresh_interval_days?: number | null
     /**
-     * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the interval from when it was saved or from the last full resync. Saving a new time restarts the clock. Cleared when full_refresh_interval_days is null.
+     * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Saving a new time restarts the clock from the latest occurrence of that time, so the first refresh can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
      * @nullable
      */
     full_refresh_time_of_day?: string | null
@@ -5017,7 +5017,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      */
     full_refresh_interval_days?: number | null
     /**
-     * UTC time of day that scheduled full refreshes are due, for example outside working hours. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
+     * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Saving a new time restarts the clock from the latest occurrence of that time, so the first refresh can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
      * @nullable
      */
     full_refresh_time_of_day?: string | null

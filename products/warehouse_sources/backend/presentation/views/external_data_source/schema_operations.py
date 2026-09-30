@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.facade.source_management import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
     ExternalDataSchemaSerializer,
     RowFiltersField,
 )
@@ -99,13 +100,7 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         ),
     )
     full_refresh_time_of_day = serializers.TimeField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "UTC time of day that scheduled full refreshes are due, for example outside working hours. Null counts "
-            "the interval from when it was saved or from the last full resync. Cleared when "
-            "full_refresh_interval_days is null."
-        ),
+        required=False, allow_null=True, help_text=FULL_REFRESH_TIME_OF_DAY_HELP_TEXT
     )
     primary_key_columns = serializers.ListField(
         child=serializers.CharField(),

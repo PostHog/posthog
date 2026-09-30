@@ -225,6 +225,15 @@ SCHEDULED_FULL_REFRESH_TOO_SHORT_ERROR = (
     "Choose a longer interval, or sync more often."
 )
 
+FULL_REFRESH_TIME_OF_DAY_HELP_TEXT = (
+    "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. "
+    "The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that "
+    "syncs every few hours it can run hours later. Saving a new time restarts the clock from the latest "
+    "occurrence of that time, so the first refresh can come up to a day before a full interval has passed. "
+    "Null counts the interval from when it was saved or from the last full resync. Cleared when "
+    "full_refresh_interval_days is null."
+)
+
 
 def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
     """Trigger the schema's sync, creating its Temporal schedule first if it has none.
@@ -436,14 +445,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         ),
     )
     full_refresh_time_of_day = serializers.TimeField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. "
-            "The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the "
-            "interval from when it was saved or from the last full resync. Saving a new time restarts the clock. "
-            "Cleared when full_refresh_interval_days is null."
-        ),
+        required=False, allow_null=True, help_text=FULL_REFRESH_TIME_OF_DAY_HELP_TEXT
     )
     primary_key_columns = serializers.ListField(
         child=serializers.CharField(),

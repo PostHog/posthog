@@ -1096,8 +1096,7 @@ function FullRefreshIntervalField({
             <span className="text-xs text-muted max-w-md">
                 Re-import every row of the table on this cadence, so rows deleted at the source are removed. The refresh
                 runs on a scheduled sync, and queries keep showing the current rows until it finishes. Re-imported rows
-                count toward your usage. Leave it empty to turn it off. Set a time of day to keep refreshes outside
-                working hours. The refresh then runs on the first sync around that time.
+                count toward your usage. Leave it empty to turn it off.
                 {schema.sync_type === 'append' && (
                     <span>
                         {' '}
@@ -1139,15 +1138,20 @@ function FullRefreshIntervalField({
                             ? utcTimeToDisplayTime(draftFullRefreshTime, isProjectTime, timezone).substring(0, 5)
                             : undefined
                     }
-                    onChange={(value) => {
-                        if (value) {
-                            setDraftFullRefreshTime(displayTimeToUtcTime(`${value}:00`, isProjectTime, timezone))
-                        }
-                    }}
+                    onChange={(value) =>
+                        setDraftFullRefreshTime(
+                            value ? displayTimeToUtcTime(`${value}:00`, isProjectTime, timezone) : null
+                        )
+                    }
                     data-attr="schema-full-refresh-time"
                 />
                 <span className="text-xs text-muted">{isProjectTime ? timezone : 'UTC'}</span>
             </div>
+            <span className="text-xs text-muted max-w-md">
+                Set a time to keep refreshes outside working hours. The refresh runs with the first sync near or after
+                that time, which can be hours later for a table that syncs every few hours. The time is saved in UTC, so
+                it does not follow daylight saving changes.
+            </span>
             {schema.next_full_refresh_at && isDraftSaved && (
                 <span className="text-xs text-muted">
                     Next full refresh:{' '}
