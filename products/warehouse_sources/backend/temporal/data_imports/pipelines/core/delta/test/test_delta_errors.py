@@ -52,6 +52,14 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # A bare botocore connection failure reaching our own bucket endpoint (e.g.
+                # `ensure_bucket_exists`'s `head_bucket` hitting a still-booting local object store) —
+                # never an OSError subclass, so only the type check catches it.
+                "bare_endpoint_connection_error",
+                botocore.exceptions.EndpointConnectionError(endpoint_url="http://objectstorage:19000/data-warehouse"),
+                True,
+            ),
+            (
                 # aiobotocore's session bootstrap (e.g. inside `aget_s3_client`) opens botocore's own
                 # bundled endpoints.json before any network call is made - a full fd table fails that
                 # local open the same way it fails a socket connect, so it needs the same transient
@@ -72,6 +80,15 @@ class TestIsTransientObjectStoreError:
                 False,
             ),
             ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
+            (
+                # s3fs maps every 403 onto the same generic PermissionError
+                # (s3fs/errors.py::translate_boto_error), so RequestTimeTooSkewed (the worker's clock
+                # drifting from S3's) reaches us with this exact fixed message instead of a real
+                # AccessDenied - and clears on its own once the worker's clock resyncs.
+                "s3_clock_skew_permission_error",
+                PermissionError("The difference between the request time and the current time is too large."),
+                True,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught

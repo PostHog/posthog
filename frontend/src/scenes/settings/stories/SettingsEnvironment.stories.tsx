@@ -5,7 +5,7 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -45,6 +45,14 @@ const meta: Meta<StoryProps> = {
                     cookie_delivery_enabled: true,
                 },
                 '/api/projects/:id/error_tracking/alerts/': { count: 0, next: null, previous: null, results: [] },
+                '/api/projects/:id/heatmap_capture/settings/': {
+                    capture_mode: 'url_allowlist',
+                    url_allowlist: ['https://example.com/pricing'],
+                    enforcement_enabled: false,
+                    can_capture_all_urls: true,
+                    capture_url_limit: null,
+                },
+                '/api/projects/:id/heatmap_capture/pages/': { pages: [] },
                 // The GitHub section fetches both on mount; unmocked, their error toasts land in the snapshot.
                 '/api/projects/:id/integrations/github/available_installations/': {
                     installations: [],
@@ -130,6 +138,49 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
 }
 
 export const SettingsEnvironmentWebAnalytics: Story = { args: { sectionId: 'environment-web-analytics' } }
+
+const EXPERIMENTS_CONFIG_MOCK = {
+    experiment_recalculation_time: '02:00:00',
+    experiment_recalculation_times: ['02:00:00'],
+    default_experiment_confidence_level: null,
+    default_experiment_stats_method: null,
+    default_only_count_matured_users: false,
+    default_cuped_enabled: false,
+    default_cuped_lookback_days: null,
+    default_minimum_detectable_effect: 5,
+    default_sequential_testing_enabled: false,
+    default_sequential_tuning_parameter: null,
+    flag_cleanup_repository: null,
+}
+
+export const SettingsEnvironmentExperiments: Story = {
+    args: { sectionId: 'environment-experiments' },
+    parameters: {
+        // STORYBOOK_FEATURE_FLAGS enables every flag, so the flag-off picker needs the exclusion
+        featureFlags: STORYBOOK_FEATURE_FLAGS.filter(
+            (f) => f !== FEATURE_FLAGS.EXPERIMENT_MULTIPLE_RECALCULATION_TIMES
+        ),
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:id/experiments_config/': EXPERIMENTS_CONFIG_MOCK },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentExperimentsMultipleRecalculationTimes: Story = {
+    args: { sectionId: 'environment-experiments' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/experiments_config/': {
+                    ...EXPERIMENTS_CONFIG_MOCK,
+                    experiment_recalculation_times: ['02:00:00', '14:00:00'],
+                },
+            },
+        }),
+    ],
+}
 
 export const SettingsEnvironmentReplay: Story = { args: { sectionId: 'environment-replay' } }
 

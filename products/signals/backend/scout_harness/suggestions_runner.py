@@ -13,11 +13,9 @@ from collections.abc import Collection
 from typing import Literal
 
 import structlog
-import posthoganalytics
 from rest_framework import serializers
 
 from posthog.dataclasses import frozen
-from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -37,6 +35,7 @@ from products.signals.backend.scout_harness.suggestions import (
     ScoutSuggestionItem,
     SuggestionSettings,
     build_suggestions_prompt,
+    capture_suggestions_generated,
     fleet_context,
     mark_generation_failed,
     persist_suggestion_batch,
@@ -147,25 +146,17 @@ def _gate_skip_reason(team: Team) -> str | None:
 def _capture_generated(
     team: Team, *, result: SuggestionRunResult, tier: int | None, model: str | None, triggered_by: str
 ) -> None:
-    try:
-        posthoganalytics.capture(
-            event="$scout_suggestions_generated",
-            distinct_id=str(team.uuid),
-            properties={
-                "team_id": team.id,
-                "status": result.status,
-                "skip_reason": result.skip_reason,
-                "suggestion_count": result.suggestion_count,
-                "runtime_s": round(result.runtime_s, 1),
-                "task_run_id": result.task_run_id,
-                "tier": tier,
-                "model": model,
-                "triggered_by": triggered_by,
-            },
-            groups=groups(team.organization, team),
-        )
-    except Exception:
-        logger.warning("scout_suggestions: failed to capture generated event", team_id=team.id)
+    capture_suggestions_generated(
+        team,
+        status=result.status,
+        skip_reason=result.skip_reason,
+        suggestion_count=result.suggestion_count,
+        runtime_s=result.runtime_s,
+        task_run_id=result.task_run_id,
+        tier=tier,
+        model=model,
+        triggered_by=triggered_by,
+    )
 
 
 async def arun_scout_suggestions(

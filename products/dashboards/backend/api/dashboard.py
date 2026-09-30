@@ -119,7 +119,14 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     UpdateDashboardWidgetRequestOpenApi,
     WidgetCatalogResponseSerializer,
 )
-from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
+from products.dashboards.backend.constants import (
+    DASHBOARD_GRID_COLUMN_COUNT,
+    MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+    MAX_WIDGETS_BATCH_SIZE,
+    RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
+    RUN_INSIGHTS_MAX_TOTAL_CHARS,
+    RUN_INSIGHTS_MIN_TILE_CHARS,
+)
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
@@ -130,6 +137,15 @@ from products.dashboards.backend.models.dashboard import (
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.run_insights_output import (
+    bound_formatted_result,
+    parse_max_result_chars,
+    parse_tile_ids,
+    render_unsupported_result,
+    tile_budget,
+    tile_fits_response_budget,
+    unrun_tile_results,
+)
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
@@ -137,11 +153,8 @@ from products.dashboards.backend.widget_access import (
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
-from products.dashboards.backend.widget_create import prepare_widget_tile_create
-from products.dashboards.backend.widget_layouts import (
-    collect_dashboard_sm_layouts_for_dashboard,
-    stack_widget_layout_at_bottom,
-)
+from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
+from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
 from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
@@ -172,6 +185,14 @@ from products.product_analytics.backend.presentation.insight import (
 )
 
 from ee.hogai.utils.aio import async_to_sync
+
+AGENT_CONTEXT_HELP_TEXT = (
+    "Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, "
+    "data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the "
+    "semantic layer. Store canonical metric definitions there, not in this field. "
+    "An empty string or null means there is no agent context. Shared and exported dashboards, and organizations "
+    "without AI data processing approval, omit this field. Max 10000 characters."
+)
 
 
 def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
@@ -628,6 +649,14 @@ class CreateTextTileRequestSerializer(serializers.Serializer):
             "max_length": "Tile body cannot exceed 4000 characters",
         },
     )
+    agent_context = serializers.CharField(
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=AGENT_CONTEXT_HELP_TEXT,
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
+    )
     layouts = TileLayoutsSerializer(
         required=False,
         help_text=(
@@ -661,6 +690,14 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
             "min_length": "Text body cannot be empty",
             "max_length": "Text body cannot exceed 4000 characters",
         },
+    )
+    agent_context = serializers.CharField(
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=AGENT_CONTEXT_HELP_TEXT,
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
     )
     layouts = TileLayoutsSerializer(
         required=False,
@@ -856,6 +893,14 @@ class TextSerializer(serializers.ModelSerializer):
         allow_null=True,
         error_messages={"max_length": "Text body cannot exceed 4000 characters"},
     )
+    agent_context = serializers.CharField(
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=AGENT_CONTEXT_HELP_TEXT,
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
+    )
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
 
     class Meta:
@@ -865,6 +910,13 @@ class TextSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Text) -> dict[str, Any]:
         representation = super().to_representation(instance)
+        if self.context.get("is_shared"):
+            representation.pop("agent_context", None)
+        else:
+            get_team = self.context.get("get_team")
+            team = get_team() if callable(get_team) else instance.team
+            if not team.organization.is_ai_data_processing_approved:
+                representation.pop("agent_context", None)
         _hide_extra_details(self.context, representation)
         return representation
 
@@ -1038,7 +1090,7 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
 
 
 class InsightResultSerializer(InsightSerializer):
-    """InsightSerializer restricted to identifiers + result only."""
+    """InsightSerializer restricted to identifiers, the result, and the warnings about that result."""
 
     class Meta:
         model = Insight
@@ -1048,6 +1100,7 @@ class InsightResultSerializer(InsightSerializer):
             "name",
             "derived_name",
             "result",
+            "warnings",
         ]
         read_only_fields = fields
 
@@ -1668,42 +1721,43 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "layout_compaction": layout_compaction,
             }
 
-        dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
+        with transaction.atomic():
+            dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
-        if use_template:
-            try:
-                create_dashboard_from_template(
-                    use_template,
-                    dashboard,
-                    cast(User, request.user),
-                    user_access_control=user_access_control,
+            if use_template:
+                try:
+                    create_dashboard_from_template(
+                        use_template,
+                        dashboard,
+                        cast(User, request.user),
+                        user_access_control=user_access_control,
+                    )
+                except (AttributeError, ValueError) as error:
+                    logger.error(
+                        "dashboard_create.create_from_template_failed",
+                        team_id=team_id,
+                        template=use_template,
+                        error=error,
+                        exc_info=True,
+                    )
+                    raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+
+            elif existing_dashboard:
+                existing_tiles = (
+                    DashboardTile.objects.filter(dashboard=existing_dashboard)
+                    .exclude(deleted=True)
+                    .select_related("insight", "text", "button_tile", "widget")
                 )
-            except AttributeError as error:
-                logger.error(
-                    "dashboard_create.create_from_template_failed",
-                    team_id=team_id,
-                    template=use_template,
-                    error=error,
-                    exc_info=True,
-                )
-                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
+                for existing_tile in existing_tiles:
+                    # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
+                    if duplicate_tiles or existing_tile.widget_id is not None:
+                        self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
+                    else:
+                        existing_tile.copy_to_dashboard(dashboard)
 
-        elif existing_dashboard:
-            existing_tiles = (
-                DashboardTile.objects.filter(dashboard=existing_dashboard)
-                .exclude(deleted=True)
-                .select_related("insight", "text", "button_tile", "widget")
-            )
-            duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
-            for existing_tile in existing_tiles:
-                # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
-                if duplicate_tiles or existing_tile.widget_id is not None:
-                    self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
-                else:
-                    existing_tile.copy_to_dashboard(dashboard)
-
-        # Manual tag creation since this create method doesn't call super()
-        self._attempt_set_tags(tags, dashboard)
+            # Manual tag creation since this create method doesn't call super()
+            self._attempt_set_tags(tags, dashboard)
 
         report_user_action(
             request.user,
@@ -2547,7 +2601,7 @@ class DashboardsViewSet(
     scope_object = "dashboard"
     # Record a tags change per dashboard when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "Dashboard"
-    queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
+    queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name", "id")
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
@@ -2633,7 +2687,7 @@ class DashboardsViewSet(
             span_prefix="dashboard.search",
             fields=(NAME_FIELD, DESCRIPTION_FIELD),
             include_tag_search=True,
-            tiebreakers=("-pinned", "name"),
+            tiebreakers=("-pinned", "name", "id"),
         )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
@@ -2731,7 +2785,7 @@ class DashboardsViewSet(
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
 
         if self.action == "list" and self.request.query_params.get("pinned") == "true":
-            queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name")
+            queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name", "id")
 
         # Allow filtering by creation_mode query param
         creation_mode = self.request.query_params.get("creation_mode")
@@ -3114,6 +3168,7 @@ class DashboardsViewSet(
         with transaction.atomic():
             text = Text.objects.create(
                 body=validated["body"],
+                agent_context=validated.get("agent_context"),
                 team=dashboard.team,
                 created_by=user,
                 last_modified_at=now(),
@@ -3161,6 +3216,8 @@ class DashboardsViewSet(
             text = tile.text
             if "body" in validated:
                 text.body = validated["body"]
+            if "agent_context" in validated:
+                text.agent_context = validated["agent_context"]
             text.last_modified_by = user
             text.last_modified_at = now()
             text.save()
@@ -3247,8 +3304,30 @@ class DashboardsViewSet(
                 OpenApiTypes.STR,
                 enum=["optimized", "json"],
                 description=(
-                    "'optimized' (default) returns LLM-friendly formatted text per insight. "
-                    "'json' returns the raw query result objects."
+                    "'optimized' (default) returns LLM-friendly formatted text per insight, bounded by "
+                    "max_result_chars. 'json' returns the raw query result objects, unbounded."
+                ),
+            ),
+            OpenApiParameter(
+                "tile_ids",
+                OpenApiTypes.STR,
+                description=(
+                    "Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the "
+                    "dashboard. Use it to read one tile without receiving the others. An ID that is not on "
+                    "this dashboard is rejected."
+                ),
+            ),
+            OpenApiParameter(
+                "max_result_chars",
+                OpenApiTypes.INT,
+                description=(
+                    "Per-tile character budget for 'optimized' output, truncation marker included. A longer "
+                    "table keeps its header and both ends, and names how many rows were dropped from the "
+                    f"middle. Defaults to {RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS}; pass 0 for the whole table, "
+                    f"or {RUN_INSIGHTS_MIN_TILE_CHARS} or more, since a smaller budget cannot carry the marker. "
+                    "Ignored when output_format is 'json'. Any value above zero is also held down to what the "
+                    f"response has left of its {RUN_INSIGHTS_MAX_TOTAL_CHARS} character budget, and tiles past "
+                    "that budget are not run."
                 ),
             ),
             VARIABLES_OVERRIDE_PARAM,
@@ -3261,6 +3340,10 @@ class DashboardsViewSet(
         """Run all insights on a dashboard and return their results."""
         dashboard = self.get_object()
         output_format = request.query_params.get("output_format", "optimized")
+        requested_tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
+        max_result_chars = (
+            parse_max_result_chars(request.query_params.get("max_result_chars")) if output_format == "optimized" else 0
+        )
 
         access_method = dashboard_access_method(request)
         record_dashboard_access(access_method)
@@ -3282,20 +3365,48 @@ class DashboardsViewSet(
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
-        sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, "sm")
+        # Order over every tile first, so a tile_ids subset keeps the dashboard's own ordering.
+        ordered_tiles = list(enumerate(DashboardTile.sort_tiles_by_layout(tiles, "sm")))
+        if requested_tile_ids:
+            wanted_tile_ids = set(requested_tile_ids)
+            unknown_ids = sorted(wanted_tile_ids - {tile.id for _, tile in ordered_tiles})
+            if unknown_ids:
+                raise exceptions.ValidationError(
+                    f"These tile IDs are not on this dashboard: {', '.join(str(tile_id) for tile_id in unknown_ids)}. "
+                    "Read the dashboard to see the tiles it has."
+                )
+            ordered_tiles = [(order, tile) for order, tile in ordered_tiles if tile.id in wanted_tile_ids]
+
+        # Narrowing to runnable tiles here lets the budget path count what it leaves out.
+        insight_tiles = [
+            (order, tile, tile.insight) for order, tile in ordered_tiles if tile.insight and tile.insight.query
+        ]
 
         tile_results = []
-        for order, tile in enumerate(sorted_tiles):
-            if not tile.insight or not tile.insight.query:
-                continue
+        used_chars = 0
+        for index, (order, tile, insight) in enumerate(insight_tiles):
+            if output_format == "optimized" and not tile_fits_response_budget(used_chars):
+                tile_results.extend(unrun_tile_results(insight_tiles[index:]))
+                break
+
             tile_context = {**context, "dashboard_tile": tile, "order": order}
             tile_data = DashboardTileResultSerializer(tile, context=tile_context).data
 
             if output_format == "optimized":
                 insight_data = tile_data.get("insight") or {}
-                formatted = self._format_insight_for_llm(tile.insight, insight_data)
-                if formatted is not None and insight_data:
+                raw_result = insight_data.get("result")
+                if insight_data and raw_result is not None:
+                    formatted = self._format_insight_for_llm(insight, insight_data)
+                    if formatted is None:
+                        # No formatter covers this query type, so the raw result still has to be bounded.
+                        formatted = render_unsupported_result(raw_result)
+                    formatted = bound_formatted_result(
+                        formatted,
+                        tile_id=tile.id,
+                        max_chars=tile_budget(max_result_chars, used_chars),
+                    )
                     insight_data["result"] = formatted
+                    used_chars += len(formatted)
 
             tile_results.append(tile_data)
 
@@ -3318,18 +3429,9 @@ class DashboardsViewSet(
         if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
             raise exceptions.PermissionDenied("Dashboard widgets are not enabled for this project.")
 
-        tile_ids_param = request.query_params.get("tile_ids")
-        if not tile_ids_param:
-            raise exceptions.ValidationError("tile_ids is required.")
-
-        try:
-            tile_ids = [int(tile_id.strip()) for tile_id in tile_ids_param.split(",") if tile_id.strip()]
-        except ValueError as exc:
-            raise exceptions.ValidationError("tile_ids must be a comma-separated list of integers.") from exc
-
-        tile_ids = list(dict.fromkeys(tile_ids))
+        tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
         if not tile_ids:
-            raise exceptions.ValidationError("tile_ids must include at least one tile ID.")
+            raise exceptions.ValidationError("tile_ids is required.")
         if len(tile_ids) > MAX_WIDGETS_BATCH_SIZE:
             raise exceptions.ValidationError(f"At most {MAX_WIDGETS_BATCH_SIZE} tile_ids may be requested at once.")
 
@@ -3514,43 +3616,13 @@ class DashboardsViewSet(
         existing_sm_layouts: builtins.list[dict[str, Any]] | None = None,
         pending_sm_layouts: builtins.list[dict[str, Any]] | None = None,
     ) -> DashboardTile:
-        widget_type = payload["widget_type"]
-        config = payload["config"]
-        normalized_widget_type, validated_config = prepare_widget_tile_create(
-            team=self.team,
-            widget_type=widget_type,
-            config=config,
+        return create_widget_tile(
+            dashboard=dashboard,
             user=user,
             user_access_control=user_access_control,
-        )
-        _check_dashboard_widget_count_limit(dashboard=dashboard, user=user)
-        layouts = payload.get("layouts")
-        if layouts is None:
-            layouts = stack_widget_layout_at_bottom(
-                widget_type=normalized_widget_type,
-                existing_sm_layouts=existing_sm_layouts or [],
-                pending_sm_layouts=pending_sm_layouts,
-            )
-        tile_defaults: dict[str, Any] = {
-            "layouts": layouts,
-        }
-        if "show_description" in payload:
-            tile_defaults["show_description"] = payload["show_description"]
-
-        widget = DashboardWidget.objects.create(
-            team_id=self.team_id,
-            widget_type=normalized_widget_type,
-            name=payload.get("name") or None,
-            description=payload.get("description", ""),
-            config=validated_config,
-            created_by=user,
-            last_modified_by=user,
-        )
-        return DashboardTile.objects.create(
-            dashboard=dashboard,
-            team_id=dashboard.team_id,
-            widget=widget,
-            **tile_defaults,
+            payload=payload,
+            existing_sm_layouts=existing_sm_layouts,
+            pending_sm_layouts=pending_sm_layouts,
         )
 
     @extend_schema(

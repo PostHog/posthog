@@ -27,6 +27,14 @@ class PropertyAccessLevel(str, Enum):
 
 
 @dataclass(frozen=True)
+class RestrictedPropertyNames:
+    """Restricted property names grouped by event and person scope."""
+
+    event: frozenset[str]
+    person: frozenset[str]
+
+
+@dataclass(frozen=True)
 class PropertyAccessControlRule:
     """A single access control rule for a property definition."""
 

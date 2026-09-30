@@ -15,10 +15,15 @@ import {
     SignalReport,
     SignalReportStatus,
 } from '../types'
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntireProject } from './reportListLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 const REFRESH_METRICS_URL = '/api/projects/:team_id/signals/reports/refresh_metrics/'
+
+it('uses the needs-decision view without an actionability filter that hides failed reports', () => {
+    expect(INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision']).toEqual({ view: 'needs_decision' })
+})
 
 function makeReport(id: string): SignalReport {
     return {
@@ -183,6 +188,167 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.pageLoadFailed).toBe(false)
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+        })
+
+        it('keeps a row removed while the next page is in flight out of the appended list', async () => {
+            let releasePage: () => void = () => {}
+            const heldPage = new Promise<void>((resolve) => {
+                releasePage = resolve
+            })
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async () => {
+                        await heldPage
+                        return [
+                            200,
+                            {
+                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                next: null,
+                                previous: null,
+                                results: SECOND_PAGE,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            logic.actions.loadMore()
+            logic.actions.removeReport(FIRST_PAGE[3].id)
+            releasePage()
+            await expectLogic(logic).toDispatchActions(['loadMoreReportsSuccess'])
+
+            expect(logic.values.reports.map((r) => r.id)).toEqual([
+                ...FIRST_PAGE.filter((r) => r.id !== FIRST_PAGE[3].id).map((r) => r.id),
+                ...SECOND_PAGE.map((r) => r.id),
+            ])
+        })
+
+        // A refetch reloads only the first page, so a reviewer edit must drop the row in place or the
+        // reader loses their scroll position in a long list.
+        it.each([
+            {
+                name: 'drops the row once the scoped reviewer is removed',
+                scope: 'teammate:t-1',
+                after: [],
+                dropped: true,
+            },
+            {
+                name: 'keeps the row while the scoped reviewer stays',
+                scope: 'teammate:t-1',
+                after: ['t-1'],
+                dropped: false,
+            },
+            {
+                name: 'keeps the row when no reviewer scope applies',
+                scope: INBOX_SCOPE_ENTIRE_PROJECT,
+                after: [],
+                dropped: false,
+            },
+        ] as { name: string; scope: InboxScope; after: string[]; dropped: boolean }[])(
+            '$name',
+            async ({ scope, after, dropped }) => {
+                const bulkLogic = inboxBulkActionsLogic()
+                bulkLogic.mount()
+                logic.actions.setScope(scope)
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.loadMore()
+                await expectLogic(logic).toFinishAllListeners()
+                requestedOffsets = []
+
+                bulkLogic.actions.reportReviewersChanged(FIRST_PAGE[3].id, after)
+                await expectLogic(logic).toFinishAllListeners()
+
+                const loadedCount = FIRST_PAGE.length + SECOND_PAGE.length
+                expect(logic.values.reports.map((r) => r.id).includes(FIRST_PAGE[3].id)).toBe(!dropped)
+                expect(logic.values.reports).toHaveLength(dropped ? loadedCount - 1 : loadedCount)
+                expect(requestedOffsets).toEqual([])
+                bulkLogic.unmount()
+            }
+        )
+    })
+
+    // The list skips the ClickHouse source lookup so it renders from Postgres alone. The source line
+    // must then fill in from one follow-up request, and a refresh must ask again so new sources show.
+    describe('lazy source line', () => {
+        let logic: ReturnType<typeof reportListLogic.build>
+        let includeSourceMetadata: (string | null)[]
+        let queriedReportIds: string[][]
+        let scoutName: string
+
+        beforeEach(async () => {
+            includeSourceMetadata = []
+            queriedReportIds = []
+            scoutName = 'signals-scout-support'
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: ({ request }) => {
+                        const { searchParams } = new URL(request.url)
+                        if (searchParams.get('count_only') !== 'true') {
+                            includeSourceMetadata.push(searchParams.get('include_source_metadata'))
+                        }
+                        return [
+                            200,
+                            {
+                                count: 2,
+                                next: null,
+                                previous: null,
+                                results: ['scouted', 'no-signals'].map((id) => ({
+                                    ...makeReport(id),
+                                    source_products: [],
+                                    scout_name: null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+                post: {
+                    '/api/projects/:team_id/signals/reports/source_metadata/': async ({ request }) => {
+                        const { report_ids } = (await request.json()) as { report_ids: string[] }
+                        queriedReportIds.push(report_ids)
+                        return [
+                            200,
+                            {
+                                reports: report_ids.map((id) =>
+                                    id === 'scouted'
+                                        ? { id, source_products: ['signals_scout'], scout_name: scoutName }
+                                        : { id, source_products: [], scout_name: null }
+                                ),
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('fills the source line after the rows load and refreshes it with the rows', async () => {
+            expect(includeSourceMetadata).toEqual(['false'])
+            expect(queriedReportIds).toEqual([['scouted', 'no-signals']])
+            expect(
+                logic.values.reports.map(({ id, source_products, scout_name }) => ({ id, source_products, scout_name }))
+            ).toEqual([
+                { id: 'scouted', source_products: ['signals_scout'], scout_name: 'signals-scout-support' },
+                { id: 'no-signals', source_products: [], scout_name: null },
+            ])
+
+            scoutName = 'signals-scout-billing'
+            logic.actions.refresh()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(queriedReportIds).toEqual([
+                ['scouted', 'no-signals'],
+                ['scouted', 'no-signals'],
+            ])
+            expect(logic.values.reports[0].scout_name).toEqual('signals-scout-billing')
         })
     })
 

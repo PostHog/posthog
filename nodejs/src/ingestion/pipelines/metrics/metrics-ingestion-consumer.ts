@@ -51,6 +51,9 @@ const DEFAULT_USAGE_STATS: UsageStats = {
 
 export type UsageStatsByTeam = Map<number, UsageStats>
 
+/** Retention stamped on every produced batch; metrics has no per-team setting yet. ClickHouse falls back to `DEFAULT_RETENTION_DAYS` in `posthog/clickhouse/metrics/metrics2.py` only when this header is absent. */
+export const DEFAULT_METRICS_RETENTION_DAYS = 30
+
 export const metricMessageDroppedCounter = new Counter({
     name: 'metrics_ingestion_message_dropped_count',
     help: 'The number of metrics ingestion messages dropped',
@@ -302,6 +305,7 @@ export class MetricsIngestionConsumer {
                                 ...parseKafkaHeaders(message.message.headers),
                                 token: message.token,
                                 team_id: message.teamId.toString(),
+                                'retention-days': DEFAULT_METRICS_RETENTION_DAYS.toString(),
                             },
                         },
                     ])

@@ -406,7 +406,12 @@ class TestFreeTierModelGateWiring:
             get_settings.cache_clear()
 
 
-class TestPreviewModelGateWiring:
+class TestModelAccessGateWiring:
+    # No model is behind a rollout flag now, so the gate is wired with a stand-in. Naming a
+    # real model here would tie these cases to a rollout that ends.
+    GATED_MODEL = "acme/gated-model"
+    GATED_FLAG = "acme-gated-model"
+
     @pytest.fixture(autouse=True)
     def billed_org(self):
         with patch(
@@ -415,78 +420,26 @@ class TestPreviewModelGateWiring:
         ):
             yield
 
+    @pytest.fixture
+    def gate(self):
+        with patch(
+            "llm_gateway.dependencies.get_required_model_flag",
+            side_effect=lambda model: self.GATED_FLAG if model == self.GATED_MODEL else None,
+        ):
+            yield
+
+    def _gate_call(self, model: str):
+        request = _make_request({"model": model, "messages": []}, path="/posthog_code/v1/messages")
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+        return request, user, runner
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("flag_result", [False, None])
-    async def test_preview_model_blocked_when_flag_off_or_unavailable(self, flag_result: bool | None) -> None:
+    async def test_gated_model_blocked_when_flag_off_or_unavailable(self, gate, flag_result: bool | None) -> None:
         # flag_result=None is the eval-outage case: must fail closed (403), not fail open.
-        request = _make_request({"model": "moonshotai/kimi-k3", "messages": []}, path="/posthog_code/v1/messages")
-        user = _make_user(auth_method="oauth_access_token", user_id=7)
-
-        runner = MagicMock()
-        runner.check = AsyncMock(return_value=ThrottleResult.allow())
-
-        with (
-            patch("llm_gateway.dependencies.ensure_costs_fresh"),
-            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=flag_result)),
-        ):
-            with pytest.raises(HTTPException) as exc_info:
-                await enforce_throttles(request=request, user=user, runner=runner)
-
-        assert exc_info.value.status_code == 403
-        error = exc_info.value.detail["error"]
-        assert error["code"] == "model_gate"
-        assert "moonshotai/kimi-k3" in error["message"]
-        assert error["message"].endswith("(rate_limit)")
-        assert error["reason"] == "model_not_available"
-
-    @pytest.mark.asyncio
-    async def test_preview_model_allowed_when_flag_enabled(self) -> None:
-        request = _make_request({"model": "moonshotai/kimi-k3", "messages": []}, path="/posthog_code/v1/messages")
-        user = _make_user(auth_method="oauth_access_token", user_id=7)
-
-        runner = MagicMock()
-        runner.check = AsyncMock(return_value=ThrottleResult.allow())
-
-        with (
-            patch("llm_gateway.dependencies.ensure_costs_fresh"),
-            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)) as flag,
-        ):
-            await enforce_throttles(request=request, user=user, runner=runner)
-
-        flag.assert_awaited_once()
-        assert flag.await_args is not None
-        assert flag.await_args.args[0] == "tasks-kimi-k3"
-
-
-class TestBasetenExclusiveModelGateWiring:
-    @pytest.fixture(autouse=True)
-    def billed_org(self):
-        with patch(
-            "llm_gateway.dependencies.resolve_quota",
-            AsyncMock(return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=True)),
-        ):
-            yield
-
-    # Baseten-only models with no fallback aren't cleared for external rollout, so each is blocked
-    # behind its own access flag (not the GLM Baseten routing flag).
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("model", "access_flag", "path"),
-        [
-            (BASETEN_DEEPSEEK_PUBLIC_MODEL, "posthog-code-deepseek-model", "/posthog_code/v1/messages"),
-            (BASETEN_GLM53_PUBLIC_MODEL, "posthog-code-glm-53-model", "/posthog_code/v1/messages"),
-            (BASETEN_GLM53_FLASH_PUBLIC_MODEL, "posthog-code-glm-53-flash-model", "/posthog_code/v1/messages"),
-        ],
-    )
-    @pytest.mark.parametrize("flag_result", [False, None])
-    async def test_baseten_exclusive_model_blocked_when_flag_off_or_unavailable(
-        self, flag_result: bool | None, model: str, access_flag: str, path: str
-    ) -> None:
-        request = _make_request({"model": model, "messages": []}, path=path)
-        user = _make_user(auth_method="oauth_access_token", user_id=7)
-
-        runner = MagicMock()
-        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+        request, user, runner = self._gate_call(self.GATED_MODEL)
 
         with (
             patch("llm_gateway.dependencies.ensure_costs_fresh"),
@@ -496,34 +449,36 @@ class TestBasetenExclusiveModelGateWiring:
                 await enforce_throttles(request=request, user=user, runner=runner)
 
         assert exc_info.value.status_code == 403
-        assert exc_info.value.detail["error"]["code"] == "model_gate"
+        error = exc_info.value.detail["error"]
+        assert error["code"] == "model_gate"
+        assert self.GATED_MODEL in error["message"]
+        # Legacy PostHog Desktop clients route errors by substring; the "(rate_limit)" suffix
+        # sends this 403 to their usage-limit modal instead of their fatal-session teardown path.
+        assert error["message"].endswith("(rate_limit)")
+        assert error["reason"] == "model_not_available"
         assert flag.await_args is not None
-        assert flag.await_args.args[0] == access_flag
+        assert flag.await_args.args[0] == self.GATED_FLAG
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "model", [BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL, BASETEN_GLM53_FLASH_PUBLIC_MODEL]
-    )
-    async def test_baseten_exclusive_model_allowed_when_flag_enabled(self, model: str) -> None:
-        request = _make_request({"model": model, "messages": []}, path="/posthog_code/v1/messages")
-        user = _make_user(auth_method="oauth_access_token", user_id=7)
-
-        runner = MagicMock()
-        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+    async def test_gated_model_allowed_when_flag_enabled(self, gate) -> None:
+        request, user, runner = self._gate_call(self.GATED_MODEL)
 
         with (
             patch("llm_gateway.dependencies.ensure_costs_fresh"),
-            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)) as flag,
         ):
             await enforce_throttles(request=request, user=user, runner=runner)
 
+        flag.assert_awaited_once()
+        assert flag.await_args is not None
+        assert flag.await_args.args[0] == self.GATED_FLAG
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("flag_result", [False, None])
-    async def test_unbilled_glm_gets_rollout_denial_before_billing_denial(self, flag_result: bool | None) -> None:
-        request = _make_request({"model": BASETEN_GLM53_PUBLIC_MODEL, "messages": []}, path="/posthog_code/v1/messages")
-        user = _make_user(auth_method="oauth_access_token", user_id=7)
-        runner = MagicMock()
-        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+    async def test_unbilled_gated_model_gets_rollout_denial_before_billing_denial(
+        self, gate, flag_result: bool | None
+    ) -> None:
+        request, user, runner = self._gate_call(self.GATED_MODEL)
 
         with (
             patch(
@@ -539,6 +494,30 @@ class TestBasetenExclusiveModelGateWiring:
         error = exc_info.value.detail["error"]
         assert error["reason"] == "model_not_available"
         assert "payment method" not in error["message"].lower()
+
+    # The open-weights models run on the claude and pi harnesses and are offered to everyone.
+    # A gate left behind after a rollout finished rejected any caller the flag service could
+    # not answer for, which is what took these models away from non-staff accounts.
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "model",
+        [
+            BASETEN_DEEPSEEK_PUBLIC_MODEL,
+            BASETEN_GLM53_PUBLIC_MODEL,
+            BASETEN_GLM53_FLASH_PUBLIC_MODEL,
+            "moonshotai/kimi-k3",
+        ],
+    )
+    async def test_open_weights_model_needs_no_flag_evaluation(self, model: str) -> None:
+        request, user, runner = self._gate_call(model)
+
+        with (
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=False)) as flag,
+        ):
+            await enforce_throttles(request=request, user=user, runner=runner)
+
+        flag.assert_not_awaited()
 
 
 class TestServerCredentialRequirementWiring:

@@ -6,14 +6,13 @@ import {
   type ChannelItemModel,
   channelItemSortEvent,
   channelItemSources,
-  DEFAULT_CHANNEL_ITEM_FILTERS,
+  DESKTOP_SOURCE,
   filterChannelItems,
   groupChannelItems,
   hasActiveChannelItemFilters,
   PINNED_SECTION_KEY,
   sortChannelItems,
 } from "@posthog/core/canvas/channelItems";
-import { getCanvasCellId } from "@posthog/core/command-center/grid";
 import {
   Empty,
   EmptyDescription,
@@ -33,6 +32,10 @@ import {
 } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import {
+  commandCenterAssigner,
+  isInCommandCenter,
+} from "@posthog/ui/features/canvas/commandCenterAssign";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
 import { ChannelItemDragPreview } from "@posthog/ui/features/canvas/components/ChannelItemDragPreview";
 import type { ChannelItemActions } from "@posthog/ui/features/canvas/components/ChannelItemRow";
@@ -41,14 +44,13 @@ import { PinnedRun } from "@posthog/ui/features/canvas/components/PinnedRun";
 import { useChannelItemSelection } from "@posthog/ui/features/canvas/hooks/useChannelItemSelection";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
-import {
-  placeCanvasInCommandCenter,
-  placeTaskInCommandCenter,
-} from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
 import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
-import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import {
+  DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+  useSidebarStore,
+} from "@posthog/ui/features/sidebar/sidebarStore";
 import { taskDragSiblings } from "@posthog/ui/features/sidebar/taskDrag";
 import { usePinDrag } from "@posthog/ui/features/sidebar/usePinDrag";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
@@ -64,27 +66,6 @@ import {
 } from "react";
 
 const log = logger.scope("channel-items-pane");
-
-function commandCenterAssigner(item: ChannelItemModel): () => void {
-  return () => {
-    if (item.kind === "canvas") {
-      placeCanvasInCommandCenter(item.id, item.title);
-    } else {
-      placeTaskInCommandCenter(item.id, item.title);
-    }
-  };
-}
-
-function isInCommandCenter(
-  item: ChannelItemModel,
-  commandCenterCells: readonly (string | null)[],
-): boolean {
-  return commandCenterCells.some((cell) =>
-    item.kind === "canvas"
-      ? getCanvasCellId(cell) === item.id
-      : cell === item.id,
-  );
-}
 
 const SKELETON_ROW_WIDTHS = [60, 80, 40, 75, 50, 66] as const;
 
@@ -179,18 +160,26 @@ export function ChannelItemsPane({
 
   const sources = useMemo(() => channelItemSources(items), [items]);
   const filters = useMemo<ChannelItemFilters>(() => {
-    const sourceMissing =
-      rawFilters.source !== ANY_SOURCE && !sources.includes(rawFilters.source);
     const scoped: ChannelItemFilters = {
       ...rawFilters,
       ...(hasMultipleAuthors ? {} : { createdBy: "anyone" as const }),
-      ...(sourceMissing ? { source: ANY_SOURCE } : {}),
+      sources: rawFilters.sources.filter(
+        (source) => source === DESKTOP_SOURCE || sources.includes(source),
+      ),
     };
     return hasRuns
       ? scoped
-      : { ...scoped, attention: "any", environment: "any", source: ANY_SOURCE };
+      : {
+          ...scoped,
+          attention: "any",
+          environment: "any",
+          sources: ANY_SOURCE,
+        };
   }, [rawFilters, hasMultipleAuthors, hasRuns, sources]);
-  const filtersActive = hasActiveChannelItemFilters(filters);
+  const filtersActive = hasActiveChannelItemFilters(
+    filters,
+    DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+  );
 
   const listItems = useMemo(() => {
     const ordered = sortChannelItems(
@@ -355,7 +344,10 @@ export function ChannelItemsPane({
               onFilterChange={(key, value) =>
                 setFilters({ ...rawFilters, [key]: value })
               }
-              onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
+              onClearFilters={() =>
+                setFilters(DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS)
+              }
+              defaultFilters={DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS}
               sort={sort}
               onSortChange={setSort}
               grouping={grouping}

@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 
+from posthog.dataclasses import frozen
+
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError, SandboxTimeoutError
 from products.tasks.backend.logic.services.agentsh import (
@@ -37,10 +39,15 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.sandbox import (
+    CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
+    CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
+    build_agent_server_capability_probe,
+    build_bundled_skills_clear_command,
     build_health_check_command,
+    build_subscription_flags,
     health_check_timeout_seconds,
     wait_for_health_check,
 )
@@ -51,10 +58,31 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
+AGENT_SERVER_PID_FILE = "/tmp/agent-server.pid"
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 # The whole diagnostics dict rides in the Temporal failure payload, which is capped at about 2 MiB.
 STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
+# The agent-server reads this fd once at boot and closes it, so processes it starts never see the
+# token. The launch shell opens the file on fd 3 and deletes it before the server starts.
+CODEX_RUN_TOKEN_FD = 3
+CODEX_RUN_TOKEN_FILE = "/tmp/agent-codex-run-token"
+
+AGENT_SERVER_FREE_PORT_SCRIPT = (
+    "agent_server_pids() { for p in $(pgrep -f '[a]gent-server'); do "
+    'cmp -s "/proc/$p/cmdline" "/proc/$$/cmdline" 2>/dev/null || echo "$p"; done; }; '
+    'pids=$(agent_server_pids); [ -n "$pids" ] && echo "$pids" | xargs kill -TERM 2>/dev/null; '
+    'for _ in $(seq 1 10); do [ -z "$(agent_server_pids)" ] && break; sleep 0.5; done; '
+    'pids=$(agent_server_pids); [ -n "$pids" ] && echo "$pids" | xargs kill -KILL 2>/dev/null; true'
+)
+
+AGENT_SERVER_LAUNCH_CAPABILITIES = ("pi_runtime", "auto_publish", "exec_permission_regex")
+AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX = "__posthog_agent_preflight_capability="
+AGENT_SERVER_PREFLIGHT_REUSE_MARKER = "__posthog_agent_preflight_reuse=1"
+AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE = 90
+AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE = 91
+AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE = 92
+AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS = 60
 
 # The read probe wants a large file the agent-server boot never opens, so its first read is cold:
 # nothing at boot loads the global TypeScript compiler. Its prefix follows the Node install and its
@@ -159,7 +187,7 @@ def _egress_failure_reason(egress: str) -> str | None:
 
 
 def _start_and_wait_command(command: str, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS) -> str:
-    health_command = build_health_check_command(AGENT_SERVER_PORT, max_attempts, pid_file="/tmp/agent-server.pid")
+    health_command = build_health_check_command(AGENT_SERVER_PORT, max_attempts, pid_file=AGENT_SERVER_PID_FILE)
     return (
         f"{command}; launch_status=$?; "
         'if [ "$launch_status" -ne 0 ]; then exit "$launch_status"; fi; '
@@ -169,6 +197,66 @@ def _start_and_wait_command(command: str, max_attempts: int = AGENT_SERVER_HEALT
         f'echo "{AGENT_SERVER_HEALTH_DURATION_PREFIX}$((health_finished - health_started))"; '
         'exit "$health_status"'
     )
+
+
+@frozen
+class AgentServerPreflight:
+    reused: bool
+    capabilities: frozenset[str]
+
+    def supports(self, capability: str) -> bool:
+        return capability in self.capabilities
+
+
+def build_agent_server_preflight_script(*, probe_health: bool, executable_paths: tuple[str, ...]) -> str:
+    lines = [
+        f"if ! ( {build_bundled_skills_clear_command()} ); then exit {AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE}; fi"
+    ]
+    lines.extend(
+        f"if ! chmod +x {shlex.quote(path)}; then exit {AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE}; fi"
+        for path in executable_paths
+    )
+    lines.extend(
+        f"if {build_agent_server_capability_probe(capability)}; then "
+        f"echo {shlex.quote(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX + capability)}; fi"
+        for capability in AGENT_SERVER_LAUNCH_CAPABILITIES
+    )
+    if probe_health:
+        health_command = build_health_check_command(AGENT_SERVER_PORT, 1, 0.0, pid_file=AGENT_SERVER_PID_FILE)
+        lines.extend(
+            [
+                f"health_output=$({health_command})",
+                "health_status=$?",
+                'printf "%s\\n" "$health_output"',
+                f'case "$health_output" in *claude_credential_unavailable*|*codex_credential_unavailable*) '
+                f"exit {AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE};; esac",
+                f'if [ "$health_status" -eq 0 ]; then '
+                f"echo {shlex.quote(AGENT_SERVER_PREFLIGHT_REUSE_MARKER)}; exit 0; fi",
+                AGENT_SERVER_FREE_PORT_SCRIPT,
+            ]
+        )
+    lines.append("exit 0")
+    return "\n".join(lines)
+
+
+CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER = "claude_credential_unavailable"
+CODEX_CREDENTIAL_UNAVAILABLE_MARKER = "codex_credential_unavailable"
+
+
+def _credential_marker(*sources: str) -> str | None:
+    for marker in (CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER, CODEX_CREDENTIAL_UNAVAILABLE_MARKER):
+        if any(marker in source for source in sources):
+            return marker
+    return None
+
+
+def _health_initialization_phase(health_response: str) -> str | None:
+    try:
+        payload = json.loads(health_response or "{}")
+    except ValueError:
+        return None
+    phase = payload.get("initializationPhase") if isinstance(payload, dict) else None
+    return phase if isinstance(phase, str) else None
 
 
 def _health_duration_ms(stdout: str) -> int | None:
@@ -234,6 +322,8 @@ class AgentServerLaunchMixin(SandboxBase):
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
+        codex_run_token_file: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -256,7 +346,7 @@ class AgentServerLaunchMixin(SandboxBase):
             peer_messaging=peer_messaging,
             unset_bedrock=self.disable_direct_bedrock,
         )
-        subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
+        subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -292,6 +382,8 @@ class AgentServerLaunchMixin(SandboxBase):
                 f"{launch_started_at}; exec {server_cmd}"
             )
             server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
+        if codex_run_token_file:
+            server_cmd = self._with_codex_run_token_fd(server_cmd, codex_run_token_file)
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
         initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
@@ -307,6 +399,26 @@ class AgentServerLaunchMixin(SandboxBase):
                 f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
                 f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
             )
+
+    def _stage_codex_run_token(self, codex_run_token: str) -> None:
+        self._write_required_file(CODEX_RUN_TOKEN_FILE, codex_run_token.encode())
+        # Best effort: a child process must not read the token out of the agent-server's memory.
+        # agentsh still traces its own descendants under scope 1. Kernels without Yama ignore this,
+        # and a sandbox with CAP_SYS_PTRACE bypasses it.
+        self.execute(
+            f"chmod 600 {CODEX_RUN_TOKEN_FILE}; (echo 1 > /proc/sys/kernel/yama/ptrace_scope) 2>/dev/null || true",
+            timeout_seconds=5,
+        )
+
+    @staticmethod
+    def _with_codex_run_token_fd(server_cmd: str, token_file: str) -> str:
+        """Open the run token on fd 3 for the agent-server and remove the file before it starts.
+
+        Runs inside the launched process tree, so it works the same under ``nohup`` and under
+        ``agentsh exec``, which does not forward the caller's descriptors.
+        """
+        quoted_file = shlex.quote(token_file)
+        return f"bash -c {shlex.quote(f'exec {CODEX_RUN_TOKEN_FD}< {quoted_file} && rm -f {quoted_file} && exec {server_cmd}')}"
 
     def _termination_failure_reason(self) -> str:
         """Provider-specific detail for a sandbox that died before becoming healthy."""
@@ -331,11 +443,19 @@ class AgentServerLaunchMixin(SandboxBase):
             diagnostics["log"] = log_result.stdout
             if len(log_result.stdout.encode()) >= STARTUP_LOG_MAX_BYTES:
                 diagnostics["log_truncated"] = "true"
+            if _credential_marker(log_result.stdout) is not None:
+                diagnostics["failure_reason"] = "agent-server reported a missing subscription token"
+                return diagnostics
             health_result = self.execute(
                 f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo 'no-health-response'",
                 timeout_seconds=5,
             )
             diagnostics["health_response"] = health_result.stdout.strip()[:500]
+            if _health_initialization_phase(health_result.stdout) == "setup_hooks":
+                diagnostics["failure_reason"] = (
+                    "agent server still running the repository's SessionStart hooks when the startup budget ended"
+                )
+                return diagnostics
 
             egress = self._probe_session_init_egress()
             diagnostics["egress_probe"] = egress
@@ -377,11 +497,12 @@ class AgentServerLaunchMixin(SandboxBase):
         )
         return self.execute(checks, timeout_seconds=30).stdout.strip()
 
-    def _prepare_agent_server_launch(self, allowed_domains: list[str] | None) -> None:
+    def _install_agent_server_launch_files(self) -> tuple[str, ...]:
         self._write_required_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
         self._write_required_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
-        self._chmod_required(GH_GUARD_INSTALL_PATH, "+x")
+        return (GH_GUARD_INSTALL_PATH,)
 
+    def _prepare_agent_server_launch(self, allowed_domains: list[str] | None) -> None:
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
 
@@ -398,12 +519,55 @@ class AgentServerLaunchMixin(SandboxBase):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-    def _reuse_healthy_agent_server(self, allowed_domains: list[str] | None) -> bool:
-        if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
-            logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
-            return True
-        self._free_agent_server_port()
-        return False
+    def _agent_server_reuse_enabled(self) -> bool:
+        return True
+
+    def _on_agent_server_reused(self) -> None:
+        return None
+
+    def _agent_server_preflight(self, allowed_domains: list[str] | None) -> AgentServerPreflight:
+        executable_paths = self._install_agent_server_launch_files()
+        result = self.execute(
+            build_agent_server_preflight_script(
+                probe_health=self._agent_server_reuse_enabled(), executable_paths=executable_paths
+            ),
+            timeout_seconds=AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+        if result.exit_code == AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE:
+            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
+        if result.exit_code == AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE:
+            raise SandboxExecutionError(
+                "Failed to set permissions on required sandbox file",
+                {"sandbox_id": self.id, "paths": ",".join(executable_paths), "mode": "+x", "stderr": result.stderr},
+                cause=RuntimeError("agent-server preflight could not make the required files executable"),
+            )
+        if result.exit_code == AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE:
+            raise ProcessTaskFatalError(
+                CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
+                {"sandbox_id": self.id},
+                RuntimeError("Claude token unavailable"),
+                capture=False,
+            )
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                "Agent-server preflight failed",
+                {"sandbox_id": self.id, "exit_code": str(result.exit_code), "stderr": result.stderr},
+                cause=RuntimeError(result.stderr or "agent-server preflight returned a non-zero exit"),
+            )
+
+        lines = result.stdout.splitlines()
+        capabilities = frozenset(
+            line.removeprefix(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
+            for line in lines
+            if line.startswith(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
+        )
+        if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in lines:
+            if allowed_domains is None or self._agentsh_daemon_is_healthy():
+                logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
+                self._on_agent_server_reused()
+                return AgentServerPreflight(reused=True, capabilities=capabilities)
+            self._free_agent_server_port()
+        return AgentServerPreflight(reused=False, capabilities=capabilities)
 
     def _launch_prepared_agent_server(
         self,
@@ -432,16 +596,11 @@ class AgentServerLaunchMixin(SandboxBase):
             health_duration_ms = _health_duration_ms(launch_result.stdout)
             if wait_for_health and health_duration_ms is not None:
                 diagnostics = self._diagnose_startup_failure(allowed_domains)
-                if (
-                    "claude_credential_unavailable" in launch_result.stdout
-                    or "claude_credential_unavailable" in diagnostics.get("log", "")
-                ):
-                    raise ProcessTaskFatalError(
-                        "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
-                        {"task_id": task_id, "run_id": run_id},
-                        RuntimeError("Claude token unavailable"),
-                        capture=False,
-                    )
+                credential_error = self._credential_unavailable_error(
+                    launch_result.stdout, diagnostics.get("log", ""), context={"task_id": task_id, "run_id": run_id}
+                )
+                if credential_error is not None:
+                    raise credential_error
                 raise SandboxExecutionError(
                     "Agent-server failed to start",
                     {
@@ -502,6 +661,8 @@ class AgentServerLaunchMixin(SandboxBase):
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
+        codex_run_token: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -513,8 +674,8 @@ class AgentServerLaunchMixin(SandboxBase):
 
         # Before the already-healthy shortcut: images that boot the agent server never relaunch it,
         # and the agent reads its skill directories when a session starts, not when the server does.
-        self.clear_bundled_skills_if_disabled()
-        if self._reuse_healthy_agent_server(allowed_domains):
+        preflight = self._agent_server_preflight(allowed_domains)
+        if preflight.reused:
             return 0 if wait_for_health else None
 
         repo_path: str | None = None
@@ -523,6 +684,8 @@ class AgentServerLaunchMixin(SandboxBase):
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         self._prepare_agent_server_launch(allowed_domains)
+
+        codex_run_token_file = CODEX_RUN_TOKEN_FILE if codex_run_token else None
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -533,15 +696,15 @@ class AgentServerLaunchMixin(SandboxBase):
         if relayed_mcp_servers:
             relay_mcp_servers_arg = f" --relayMcpServers {shlex.quote(json.dumps(relayed_mcp_servers))}"
 
-        if agent_runtime == "pi" and not self.agent_server_supports_pi_runtime():
+        if agent_runtime == "pi" and not preflight.supports("pi_runtime"):
             raise RuntimeError("Installed sandbox agent-server does not support the Pi runtime")
 
-        if auto_publish and not self.agent_server_supports_auto_publish():
+        if auto_publish and not preflight.supports("auto_publish"):
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
             auto_publish = False
 
         exec_permission_regex: str | None = POSTHOG_EXEC_PERMISSION_REGEX
-        if not self.agent_server_supports_exec_permission_regex():
+        if not preflight.supports("exec_permission_regex"):
             logger.warning(
                 f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
                 "connected-project operations will not prompt"
@@ -549,6 +712,9 @@ class AgentServerLaunchMixin(SandboxBase):
             exec_permission_regex = None
 
         def build_command(base_branch: str | None) -> str:
+            # The launch shell deletes the token file, so every launch attempt needs its own copy.
+            if codex_run_token:
+                self._stage_codex_run_token(codex_run_token)
             return self._build_agent_server_command(
                 repo_path,
                 task_id,
@@ -580,6 +746,8 @@ class AgentServerLaunchMixin(SandboxBase):
                 peer_messaging=peer_messaging,
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
+                codex_model_access=codex_model_access,
+                codex_run_token_file=codex_run_token_file,
             )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -613,16 +781,51 @@ class AgentServerLaunchMixin(SandboxBase):
             logger.info(f"Agent-server ready in sandbox {self.id}")
             return
         diagnostics = self._diagnose_startup_failure(allowed_domains)
+        credential_error = self._credential_unavailable_error(
+            diagnostics.get("log", ""), context={"sandbox_id": self.id}
+        )
+        if credential_error is not None:
+            raise credential_error
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, **diagnostics},
             cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
         )
 
+    def _credential_unavailable_error(self, *sources: str, context: dict[str, str]) -> ProcessTaskFatalError | None:
+        """Turn a missing subscription token into a non-retryable error.
+
+        The health poll sees the marker only while the agent-server still answers. After the
+        relay timeout ends the session, the marker survives only in the log. Checking the log
+        too means the run fails at once, instead of relaunching and waiting out the same
+        timeout again for a token the user has to supply.
+        """
+        marker = _credential_marker(*sources)
+        if marker == CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER:
+            return ProcessTaskFatalError(
+                CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
+                context,
+                RuntimeError("Claude token unavailable"),
+                capture=False,
+            )
+        if marker == CODEX_CREDENTIAL_UNAVAILABLE_MARKER:
+            return ProcessTaskFatalError(
+                CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
+                context,
+                RuntimeError("ChatGPT token unavailable"),
+                capture=False,
+            )
+        return None
+
     def _startup_timeout_with_diagnostics(
         self, allowed_domains: list[str] | None, timeout_seconds: int
-    ) -> SandboxTimeoutError:
+    ) -> SandboxTimeoutError | ProcessTaskFatalError:
         diagnostics = self._diagnose_startup_failure(allowed_domains)
+        credential_error = self._credential_unavailable_error(
+            diagnostics.get("log", ""), context={"sandbox_id": self.id}
+        )
+        if credential_error is not None:
+            return credential_error
         logger.warning(
             "Agent-server health poll timed out in sandbox %s after %ss: %s",
             self.id,
@@ -715,11 +918,8 @@ class AgentServerLaunchMixin(SandboxBase):
     ) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
         return wait_for_health_check(
-            self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
+            self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file=AGENT_SERVER_PID_FILE
         )
-
-    def _agent_server_is_healthy(self) -> bool:
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
 
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)
@@ -731,9 +931,4 @@ class AgentServerLaunchMixin(SandboxBase):
         return self._read_health_boot_metrics(AGENT_SERVER_PORT)
 
     def _free_agent_server_port(self) -> None:
-        self.execute(
-            "pkill -TERM -f '[a]gent-server' 2>/dev/null || true; "
-            "for _ in $(seq 1 10); do pgrep -f '[a]gent-server' >/dev/null || break; sleep 0.5; done; "
-            "pkill -KILL -f '[a]gent-server' 2>/dev/null || true",
-            timeout_seconds=15,
-        )
+        self.execute(AGENT_SERVER_FREE_PORT_SCRIPT, timeout_seconds=15)

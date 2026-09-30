@@ -8,20 +8,38 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import patch
 
+from django.conf import settings
+
+from parameterized import parameterized
+
 from posthog.schema import (
+    CachedSessionQueryResponse,
+    CachedTraceQueryResponse,
+    CachedTracesQueryResponse,
     DateRange,
     EventPropertyFilter,
     LLMTrace,
     LLMTraceEvent,
     PersonPropertyFilter,
     PropertyOperator,
+    SessionQuery,
     TraceQuery,
+    TracesQuery,
 )
 
-from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
-from posthog.models import PropertyDefinition, Team
-from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
+from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
+from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
+from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
+from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
+from posthog.models import PropertyDefinition, Team, User
+from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.models.event.util import bulk_create_events
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 
@@ -271,6 +289,173 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIsNotNone(event.id)
         for field, value in expected_event.items():
             self.assertEqual(getattr(event, field), value, f"Field {field} does not match")
+
+    @parameterized.expand(
+        [
+            ("trace", "ai_events"),
+            ("trace", "events"),
+            ("session", "ai_events"),
+            ("session", "events"),
+            ("traces", "events"),
+        ]
+    )
+    @time_machine.travel("2025-01-15T12:00:00Z", tick=False)
+    def test_member_property_denial_survives_reconstruction_and_cache(self, runner_kind: str, table: str) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        denied_user = self._create_user("restricted@example.com")
+        denied_membership = denied_user.organization_memberships.get(organization=self.organization)
+        denied_properties = {
+            "$ai_input",
+            "$ai_input_state",
+            "$ai_output_state",
+            "$ai_tools",
+            "$ai_input_tokens",
+            "$ai_total_cost_usd",
+            "$ai_is_error",
+            "private_note",
+        }
+        for name in denied_properties | {"$ai_sentiment_messages"}:
+            property_definition, _ = PropertyDefinition.objects.get_or_create(
+                team=self.team, name=name, type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=property_definition,
+                organization_member=denied_membership,
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+
+        events: list[dict[str, Any]] = [
+            {
+                "event": event_name,
+                "team": self.team,
+                "distinct_id": "person1",
+                "timestamp": datetime(2025, 1, 15, 0, minute, tzinfo=UTC),
+                "properties": {
+                    "$ai_trace_id": "restricted-trace",
+                    "$ai_generation_id": "restricted-generation",
+                    "$ai_session_id": "restricted-session",
+                    "$ai_parent_id": "restricted-trace",
+                    "$ai_input": [{"role": "user", "content": "Private input"}],
+                    "$ai_input_state": {"note": "Private input state"},
+                    "$ai_output_state": {"note": "Private output state"},
+                    "$ai_tools": [{"name": "private_tool"}],
+                    "$ai_output": "Public output",
+                    "$ai_input_tokens": 7,
+                    "$ai_total_cost_usd": 0.25,
+                    "$ai_is_error": True,
+                    "private_note": "Private custom property",
+                    "public_note": "Public custom property",
+                },
+            }
+            for minute, event_name in enumerate(("$ai_trace", "$ai_generation"))
+        ]
+        events.append(
+            {
+                "event": "$ai_evaluation",
+                "team": self.team,
+                "distinct_id": "person1",
+                "timestamp": datetime(2025, 1, 15, 0, 2, tzinfo=UTC),
+                "properties": {
+                    "$ai_trace_id": "restricted-trace",
+                    "$ai_evaluation_runtime": "sentiment",
+                    "$ai_target_event_id": "restricted-generation",
+                    "$ai_sentiment_label": "negative",
+                    "$ai_sentiment_score": 0.8,
+                    "$ai_sentiment_scores": {"positive": 0.1, "neutral": 0.1, "negative": 0.8},
+                    "$ai_sentiment_messages": {"0": {"label": "negative", "score": 0.8}},
+                    "$ai_sentiment_message_count": 1,
+                },
+            }
+        )
+        if table == "ai_events":
+            bulk_create_ai_events(events)
+        else:
+            bulk_create_events(events)
+        stored = events[0]["properties"]
+        if table == "events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # The JSON ingest cleaner drops the heavy AI properties, and the table stores declared String paths as text.
+            # The runner converts the numeric ones back, but not $ai_is_error.
+            stored = {name: value for name, value in stored.items() if name not in HEAVY_PROPERTY_NAMES} | {
+                "$ai_is_error": "true"
+            }
+
+        def make_runner(user: User) -> TraceQueryRunner | SessionQueryRunner | TracesQueryRunner:
+            date_range = DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z")
+            if runner_kind == "trace":
+                return TraceQueryRunner(
+                    team=self.team,
+                    user=user,
+                    query=TraceQuery(traceId="restricted-trace", dateRange=date_range, includeSentiment=True),
+                )
+            if runner_kind == "session":
+                return SessionQueryRunner(
+                    team=self.team,
+                    user=user,
+                    query=SessionQuery(sessionId="restricted-session", dateRange=date_range, includeSentiment=True),
+                )
+            return TracesQueryRunner(
+                team=self.team, user=user, query=TracesQuery(dateRange=date_range, includeSentiment=True)
+            )
+
+        allowed_runner = make_runner(self.user)
+        allowed = allowed_runner.run()
+        assert isinstance(allowed, (CachedTraceQueryResponse, CachedSessionQueryResponse, CachedTracesQueryResponse))
+        assert len(allowed.results) == 1
+        allowed_trace = allowed.results[0]
+        assert allowed_trace.inputState == stored.get("$ai_input_state")
+        assert allowed_trace.outputState == stored.get("$ai_output_state")
+        assert allowed_trace.events
+        for event in allowed_trace.events:
+            for property_name in denied_properties:
+                assert event.properties.get(property_name) == stored.get(property_name)
+        assert allowed_trace.sentiment is not None
+        assert allowed_trace.sentiment.messages
+        if runner_kind != "traces":
+            generation = next(event for event in allowed_trace.events if event.event == "$ai_generation")
+            assert generation.sentiment is not None
+            assert generation.sentiment.messages
+
+        denied_runner = make_runner(denied_user)
+        assert denied_runner.get_cache_key() != allowed_runner.get_cache_key()
+        for index, response in enumerate((denied_runner.run(), make_runner(denied_user).run())):
+            assert isinstance(
+                response, (CachedTraceQueryResponse, CachedSessionQueryResponse, CachedTracesQueryResponse)
+            )
+            assert len(response.results) == 1
+            trace = response.results[0]
+            assert trace.inputState is None
+            assert trace.outputState is None
+            assert trace.sentiment is not None
+            assert not trace.sentiment.messages
+            assert trace.events
+            for event in trace.events:
+                if event.sentiment is not None:
+                    assert not event.sentiment.messages
+                assert denied_properties.isdisjoint(event.properties)
+                assert event.properties.get("$ai_output") == stored.get("$ai_output")
+                assert event.properties["public_note"] == "Public custom property"
+            if index == 1:
+                assert response.is_cached
+
+        if table == "ai_events":
+            aggregates = execute_hogql_query(
+                query="""
+                    SELECT sum(input_tokens), sum(total_cost_usd), countIf(is_error),
+                           countIf(input_tokens > 0), countIf(total_cost_usd > 0)
+                    FROM posthog.ai_events
+                """,
+                team=self.team,
+                user=denied_user,
+            )
+            assert len(aggregates.results) == 1
+            tokens, cost, errors, positive_tokens, positive_cost = aggregates.results[0]
+            assert tokens in (None, 0)
+            assert cost in (None, 0)
+            assert (errors, positive_tokens, positive_cost) == (0, 0, 0)
 
     def test_field_mapping(self):
         """Test that field mapping works correctly for a single trace."""
@@ -1013,6 +1198,34 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(bounded.totalCost, 0.02)
         self.assertEqual(bounded.inputTokens, 10)
         self.assertEqual(bounded.outputTokens, 10)
+
+    def test_bound_events_to_date_range_keeps_the_whole_calendar_day(self):
+        trace_id = str(uuid.uuid4())
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": datetime(2024, 12, 1, 14, 30, tzinfo=UTC),
+                    "properties": {"$ai_trace_id": trace_id, "$ai_parent_id": trace_id, "$ai_latency": 1.0},
+                }
+            ]
+        )
+
+        trace = (
+            TraceQueryRunner(
+                team=self.team,
+                query=TraceQuery(
+                    traceId=trace_id,
+                    dateRange=DateRange(date_from="2024-12-01", date_to="2024-12-01"),
+                ),
+                bound_events_to_date_range=True,
+            )
+            .calculate()
+            .results[0]
+        )
+        self.assertEqual(len(trace.events), 1)
 
     def test_bound_events_to_date_range_keeps_sub_second_events(self):
         trace_id = str(uuid.uuid4())

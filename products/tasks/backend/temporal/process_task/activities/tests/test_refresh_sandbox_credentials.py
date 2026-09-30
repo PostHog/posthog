@@ -16,7 +16,8 @@ from products.tasks.backend.exceptions import (
     SandboxNotRunningError,
     SandboxRateLimitedError,
 )
-from products.tasks.backend.logic.services.sandbox import ExecutionResult
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
@@ -204,12 +205,18 @@ class TestRefreshSandboxCredentialsActivity:
         assert output.refreshed_kinds == []
         increment_probe.assert_called_once_with("pids_exhausted", "exec_write")
 
-    def test_skips_refresh_when_sandbox_not_running(self, activity_environment, task_context, test_task, sandbox):
-        sandbox.is_running.return_value = False
+    def test_skips_refresh_when_sandbox_not_running(self, activity_environment, task_context, test_task):
+        modal_sandbox = MagicMock()
+        modal_sandbox.poll.return_value = 137
+        modal_sandbox.returncode = 137
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
+            sandbox = ModalSandbox(sandbox=modal_sandbox, config=SandboxConfig(name="sandbox-abc"))
+        sandbox_class = MagicMock()
+        sandbox_class.get_by_id.return_value = sandbox
         with (
             patch(
                 "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
-                **{"return_value.get_by_id.return_value": sandbox},
+                return_value=sandbox_class,
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token"
@@ -227,8 +234,9 @@ class TestRefreshSandboxCredentialsActivity:
         assert output.refreshed_kinds == []
         assert output.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
         assert output.sandbox_gone is True
+        assert output.sandbox_exit_reason == "killed with exit code 137, usually because it ran out of memory"
         get_token.assert_not_called()
-        sandbox.execute.assert_not_called()
+        modal_sandbox.exec.assert_not_called()
         increment.assert_called_once_with("github", "skipped")
 
     def test_missing_task_returns_task_gone_flag(self, activity_environment, task_context, test_task, sandbox):

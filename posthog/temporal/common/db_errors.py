@@ -1,6 +1,8 @@
 import errno
 
-from django.db import InterfaceError, InternalError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError, ProgrammingError
+
+import psycopg.errors
 
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
 # for a backend connection with `query_wait_timeout`, and surfaces dropped/reset backend
@@ -49,7 +51,11 @@ _TRANSIENT_SQLSTATE_PREFIXES = ("57P",)
 # rather than by class prefix, because SQLSTATE class 25 (invalid transaction state) also covers
 # codes that are real transaction-handling bugs, not infra hiccups. psycopg raises this under
 # InternalError, not OperationalError, hence the wider isinstance check below.
-_TRANSIENT_SQLSTATES = ("25006",)
+#
+# deadlock_detected: Postgres picked one side of a lock-ordering race and rolled back our
+# transaction so the other side could proceed. The query itself isn't at fault, and retrying
+# resolves it because the race that caused it essentially never repeats identically.
+_TRANSIENT_SQLSTATES = ("25006", "40P01")
 
 
 def _is_too_many_open_files_error(error: BaseException) -> bool:
@@ -65,15 +71,37 @@ def _is_too_many_open_files_error(error: BaseException) -> bool:
     return isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE)
 
 
+# Count the raised error toward the limit so cyclic or very long chains stay bounded.
+_MAX_CAUSE_CHAIN_DEPTH = 10
+
+
 def is_transient_db_error(error: BaseException) -> bool:
-    if _is_too_many_open_files_error(error):
-        return True
-    if not isinstance(error, OperationalError | InterfaceError | InternalError):
-        return False
-    sqlstate = getattr(error.__cause__, "sqlstate", None)
-    if isinstance(sqlstate, str) and (
-        sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES) or sqlstate in _TRANSIENT_SQLSTATES
-    ):
-        return True
-    message = str(error)
-    return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
+    """Check this error and its explicit causes for a transient database failure.
+
+    Ignore `__context__`: an unrelated failure inside an `except` block must stay reportable.
+    """
+    for _ in range(_MAX_CAUSE_CHAIN_DEPTH):
+        if _is_too_many_open_files_error(error):
+            return True
+        # SQLSTATE 42703/42P01: a migration adding a column/table and the activity code that reads
+        # it ship in the same deploy, but a worker can roll out ahead of the migration completing.
+        # Every activity here already retries via Temporal's retry policy, and the query succeeds
+        # once the migration lands, so this is a self-healing race, not a bug. Mirrors the
+        # schema-lag handling in batch_consumer.py, loop_retention.py and task_auto_archive.py.
+        if isinstance(error, ProgrammingError) and isinstance(
+            error.__cause__, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable
+        ):
+            return True
+        if isinstance(error, OperationalError | InterfaceError | InternalError):
+            sqlstate = getattr(error.__cause__, "sqlstate", None)
+            if isinstance(sqlstate, str) and (
+                sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES) or sqlstate in _TRANSIENT_SQLSTATES
+            ):
+                return True
+            message = str(error)
+            if any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS):
+                return True
+        if error.__cause__ is None:
+            break
+        error = error.__cause__
+    return False

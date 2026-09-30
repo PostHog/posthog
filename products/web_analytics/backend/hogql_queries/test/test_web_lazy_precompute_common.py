@@ -42,6 +42,7 @@ from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTab
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     _VOLUME_FLOOR_LOCAL_CACHE,
+    LAZY_MAX_WINDOW_DAYS,
     OOM_PIN_TTL_SECONDS,
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
@@ -69,6 +70,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     is_team_above_volume_floor,
     is_team_oom_pinned,
     lazy_precompute_ineligible_reason,
+    lazy_ttl_schedule,
     log_eligibility_outcome,
     pin_team_oom,
     publish_volume_floor_teams,
@@ -114,6 +116,43 @@ class TestIsPrecomputeEnabledForTeam(BaseTest):
         # unreliable) silently warm the raw path instead of building buckets.
         assert is_precompute_enabled_for_team(self.team) is True
         flag.assert_not_called()
+
+
+class TestChannelModifiersShapeKey(BaseTest):
+    def _runner(self, modifiers=None):
+        from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+        )
+        query.modifiers = modifiers
+        return WebOverviewQueryRunner(team=self.team, query=query)
+
+    def test_semantic_overrides_key_apart_and_defaults_stay_stable(self) -> None:
+        from posthog.schema import HogQLQueryModifiers
+
+        from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import channel_rules_shape_key
+
+        # Default requests must share one namespace across constructions, while a
+        # request-controlled semantic override (the reviewers' bounce-threshold
+        # example) must mint its own — never write into the shared buckets.
+        default_key = channel_rules_shape_key(self._runner())
+        assert channel_rules_shape_key(self._runner()) == default_key
+        override_key = channel_rules_shape_key(self._runner(HogQLQueryModifiers(bounceRateDurationSeconds=42)))
+        assert override_key != default_key
+
+
+class TestLazyTtlSchedule(BaseTest):
+    def test_schedule_caps_job_width_and_holds_old_days(self) -> None:
+        # Every family reaches MAX_PRECOMPUTE_DAYS, so both guards must hold for
+        # every family. Without max_window_days, `split_ranges_by_ttl` merges a
+        # year-long span's default-band tail into ONE insert; without the long
+        # default hold, annual shapes re-scan a year of events every time the
+        # band expires.
+        schedule = lazy_ttl_schedule(self.team)
+        assert schedule.max_window_days == LAZY_MAX_WINDOW_DAYS
+        assert schedule.default_ttl_seconds == 90 * 24 * 60 * 60
 
 
 class TestCheckCommonEligibility(BaseTest):
@@ -338,7 +377,15 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
             team=self.team,
             query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]),
         )
-        return runner.get_cache_key()
+        identity = runner.get_query_identity()
+        return f"{runner.get_cache_key()} {identity.query_hash} {identity.runtime_hash}"
+
+    def _assert_only_the_runtime_changed(self, before: str, after: str) -> None:
+        key_before, query_hash_before, runtime_hash_before = before.split(" ")
+        key_after, query_hash_after, runtime_hash_after = after.split(" ")
+        assert key_before != key_after
+        assert query_hash_before == query_hash_after
+        assert runtime_hash_before != runtime_hash_after
 
     def test_flipping_enrollment_changes_cache_key(self) -> None:
         # With default-on reads, disabling the rollout flag (the kill switch)
@@ -348,7 +395,7 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
             key_enabled = self._cache_key()
         with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=False):
             key_disabled = self._cache_key()
-        assert key_enabled != key_disabled
+        self._assert_only_the_runtime_changed(key_enabled, key_disabled)
 
     def test_crossing_the_volume_floor_changes_cache_key(self) -> None:
         # A team crossing below the floor switches to the live path; the key must
@@ -358,7 +405,7 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
                 key_above = self._cache_key()
             with mock.patch(f"{self._RUNNER_MOD}.is_team_above_volume_floor", return_value=False):
                 key_below = self._cache_key()
-        assert key_above != key_below
+        self._assert_only_the_runtime_changed(key_above, key_below)
 
 
 class TestHostFilterExpr(BaseTest):
@@ -704,6 +751,22 @@ class TestWebEnsurePrecomputed(BaseTest):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
         web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert is_team_oom_pinned(self.team.pk) is False
+
+    @parameterized.expand(
+        [
+            ("defaults_to_no_quorum", {}, False),
+            ("explicit_override_survives", {"read_after_write": True}, True),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_builds_never_require_replica_quorum(self, _name, extra_kwargs, expected, mock_ensure):
+        # No web analytics build is read back in-request, so the wrapper must opt out of
+        # the framework's quorum wait: with it, one downed aux replica fails every build
+        # (TOO_FEW_LIVE_REPLICAS) and precompute serving collapses region-wide. An
+        # explicit caller override must survive — the default is a setdefault, not a stamp.
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None, **extra_kwargs)
+        assert mock_ensure.call_args.kwargs["read_after_write"] is expected
 
     @mock.patch(f"{_COMMON}.ensure_precomputed")
     def test_pinned_team_restamps_prebuilt_schedule(self, mock_ensure):
@@ -1126,6 +1189,31 @@ class TestStaleRevalidationEnqueue(BaseTest):
             handle_stale_served(runner=stats_runner, family="web_stats")
         assert delay.call_count == 2
 
+    def test_channel_rule_variants_get_distinct_debounce_keys(self):
+        # Channel-filtered shapes are distinct per custom-rules set (the rules join
+        # the job hash), so one rule set's stale serve must not debounce-suppress
+        # revalidating another's.
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+        )
+        rules = [
+            {
+                "channel_type": "Partners",
+                "combiner": "OR",
+                "id": "r1",
+                "items": [{"id": "c1", "key": "utm_source", "op": "exact", "value": ["partner"]}],
+            }
+        ]
+        default_runner = WebOverviewQueryRunner(team=self.team, query=query)
+        self.team.modifiers = {"customChannelTypeRules": rules}
+        self.team.save()
+        rules_runner = WebOverviewQueryRunner(team=self.team, query=query)
+        with self._delay_patch() as delay:
+            handle_stale_served(runner=default_runner, family="web_overview")
+            handle_stale_served(runner=rules_runner, family="web_overview")
+        assert delay.call_count == 2
+
     def test_per_team_budget_bounds_distinct_shape_enqueues(self):
         # Filters/dates are request-controlled, so distinct shapes are unbounded;
         # the per-team budget must cap total enqueues per window regardless.
@@ -1300,3 +1388,20 @@ class TestPrecomputeShapeCapWiring(BaseTest):
             _team_shape_set_key(self.team.pk),
             compute_shape_cap_key(self._runner().query, self.team.timezone),
         )
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM=1)
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_changed_channel_rules_consume_a_distinct_shape(self, mock_ensure, _enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        with tags_context(trigger="webAnalyticsQueryWarming"):
+            for rules_key in ("first-rule-set", "first-rule-set", "second-rule-set"):
+                web_ensure_precomputed(
+                    team=self.team,
+                    runner=self._runner(),
+                    family="web_overview",
+                    ttl_seconds={"default": 3600},
+                    table=None,
+                    shape_key_extra=rules_key,
+                )
+        assert [call.kwargs["run_inserts"] for call in mock_ensure.call_args_list] == [True, True, False]

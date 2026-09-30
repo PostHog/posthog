@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -40,11 +40,14 @@ from products.slack_app.backend.services.model_catalogue import (
     COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
+    ModelChoice,
     available_model_choices,
     describe_run_model,
     display_name_for_model,
     group_by_runtime,
     label_for,
+    offered_model_choices,
+    runtime_adapter_for,
 )
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
 from products.slack_app.backend.services.slack_app_home_stats import (
@@ -183,36 +186,52 @@ def _describe_cost(cost_multiplier: str | None) -> str | None:
     return f"Cost per token vs {display_name_for_model(COST_BASELINE_MODEL)}: {cost_multiplier}"
 
 
+def _picker_model(choice: ModelChoice) -> PickerModel:
+    """One model dressed in the effort labels the modal's linked dropdowns render."""
+    return PickerModel(
+        value=choice.model,
+        label=choice.label,
+        supported_efforts=tuple(
+            PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES)) for e in choice.supported_efforts
+        ),
+        cost_description=_describe_cost(choice.cost_multiplier),
+    )
+
+
 def get_picker_choices() -> tuple[PickerAdapter, ...]:
-    """Dress the catalogue's runtime → model tree in the effort labels the modal's linked
-    dropdowns render. Adapters with no available models are omitted entirely."""
+    """The runtime → model tree the modal offers, retired models left out.
+
+    Adapters with no models are omitted entirely.
+    """
     return tuple(
         PickerAdapter(
             value=group.runtime_adapter,
             label=group.label,
-            models=tuple(
-                PickerModel(
-                    value=choice.model,
-                    label=choice.label,
-                    supported_efforts=tuple(
-                        PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES))
-                        for e in choice.supported_efforts
-                    ),
-                    cost_description=_describe_cost(choice.cost_multiplier),
-                )
-                for choice in group.choices
-            ),
+            models=tuple(_picker_model(choice) for choice in group.choices),
         )
-        for group in group_by_runtime(available_model_choices())
+        for group in group_by_runtime(offered_model_choices())
     )
 
 
-def _models_for(runtime_adapter: str) -> tuple[PickerModel, ...]:
-    """The models the modal's model dropdown offers for one runtime."""
-    for adapter in get_picker_choices():
-        if adapter.value == runtime_adapter:
-            return adapter.models
-    return ()
+def _models_for(runtime_adapter: str, keep: str | None = None) -> tuple[PickerModel, ...]:
+    """The models the modal's model dropdown offers for one runtime.
+
+    ``keep`` names a model to list even where the catalog retired it, so someone whose
+    stored preference is on one still sees it selected, and saving the modal does not
+    quietly move them off it.
+    """
+    models = next((adapter.models for adapter in get_picker_choices() if adapter.value == runtime_adapter), ())
+    if not keep or any(model.value == keep for model in models):
+        return models
+    retained = next(
+        (
+            choice
+            for choice in available_model_choices()
+            if choice.runtime_adapter == runtime_adapter and choice.model == keep
+        ),
+        None,
+    )
+    return (*models, _picker_model(retained)) if retained else models
 
 
 def _runtime_adapter_options() -> tuple[tuple[str, str], ...]:
@@ -407,6 +426,7 @@ def render_home_view(
     stats_state: StatsState | None = None,
     untagged_followup_mode: UntaggedFollowupMode | None = None,
     has_project_access: bool = True,
+    account_settings_url: str | None = None,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -420,7 +440,7 @@ def render_home_view(
     # and stop, rather than drawing empty cards that read as "you have no tasks yet".
     if not has_project_access:
         blocks.append({"type": "divider"})
-        blocks.extend(_no_project_access_blocks())
+        blocks.extend(_no_project_access_blocks(account_settings_url))
         return {"type": "home", "callback_id": HOME_CALLBACK_ID, "blocks": blocks}
 
     # Section 1 — workspace activity: aggregates across everyone's Slack-started work,
@@ -444,8 +464,7 @@ def render_home_view(
     blocks.extend(_personal_section_blocks(run_defaults))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
-    # threads you started reach PostHog on their own. Absent when the workspace
-    # hasn't been opted into untagged follow-ups at all.
+    # threads you started reach PostHog on their own.
     if untagged_followup_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
@@ -536,12 +555,17 @@ def _header_blocks() -> list[dict]:
     ]
 
 
-def _no_project_access_blocks() -> list[dict]:
+def _no_project_access_blocks(account_settings_url: str | None = None) -> list[dict]:
     """Shown when the viewer can't reach any PostHog project connected to this workspace.
 
-    Covers both halves of the same dead end — no project is connected yet, or one is but
-    the viewer isn't a member of its organization — because from Slack the two are
-    indistinguishable and the next step is the same page either way.
+    Covers three causes that look identical from Slack: no project is connected yet, one
+    is but the viewer isn't a member of its organization, or they are a member under an
+    address that doesn't match their Slack profile. Only the third has a different next
+    step, so it gets its own line rather than its own screen.
+
+    The signed account-link URL is deliberately absent. Landing here means nobody could
+    be identified, which is also what a Slack Connect guest from another company looks
+    like, so the remedy points at PostHog's own settings behind a login instead.
     """
     site_url = (settings.SITE_URL or "").rstrip("/")
     blocks: list[dict] = [
@@ -557,21 +581,38 @@ def _no_project_access_blocks() -> list[dict]:
                 "text": ("Connect a project in PostHog, or ask an admin to add you to one that's already connected."),
             },
         },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "If you already belong to one, check that your PostHog account uses the same email "
+                    "address as your Slack profile. When the two differ, link them from Personal "
+                    "integrations in PostHog and this tab will find you."
+                ),
+            },
+        },
     ]
+    elements: list[dict] = []
     if site_url:
-        blocks.append(
+        elements.append(
             {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "url": f"{site_url}/settings/project-integrations",
-                        "text": {"type": "plain_text", "text": "Connect PostHog to Slack", "emoji": True},
-                        "style": "primary",
-                    }
-                ],
+                "type": "button",
+                "url": f"{site_url}/settings/project-integrations",
+                "text": {"type": "plain_text", "text": "Connect PostHog to Slack", "emoji": True},
+                "style": "primary",
             }
         )
+    if account_settings_url:
+        elements.append(
+            {
+                "type": "button",
+                "url": account_settings_url,
+                "text": {"type": "plain_text", "text": "Personal integrations", "emoji": True},
+            }
+        )
+    if elements:
+        blocks.append({"type": "actions", "elements": elements})
     return blocks
 
 
@@ -698,7 +739,7 @@ def _linked_accounts_section_blocks(
     section and renders `actions` blocks full width, so a row apiece is the
     only layout that keeps each button next to the account it acts on.
     The PostHog row only appears when `is_slack_app_oauth_enabled` returned
-    True; the GitHub row is independent of that flag.
+    True; the GitHub row is independent of that gate.
     """
     rows: list[dict] = []
 
@@ -852,8 +893,7 @@ UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
 def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
     """Picker for how untagged replies land in the threads you started.
 
-    Off until picked, so the card doubles as the only way to turn the behaviour
-    on for your own threads. The choice covers every reply in those threads,
+    Ask until picked. The choice covers every reply in those threads,
     including the ones you write yourself.
     """
     options = [
@@ -1348,7 +1388,7 @@ def render_edit_modal(
                     else {}
                 ),
             }
-            for model in _models_for(current.runtime_adapter)
+            for model in _models_for(current.runtime_adapter, keep=current.model)
         ]
         if model_options:
             model_element: dict[str, Any] = {
@@ -1541,7 +1581,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_PROJECT_PERSONAL:
-        _apply_project_pick(integration, slack_user_id=slack_user_id, action=action, scope="personal")
+        _apply_project_pick(integration, actor_slack_user_id=slack_user_id, action=action, scope="personal")
         republish()
         return HttpResponse(status=200)
 
@@ -1555,7 +1595,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         if not _is_admin(slack, integration, slack_user_id):
             _post_ephemeral_admin_only(slack, payload)
             return HttpResponse(status=200)
-        _apply_project_pick(integration, slack_user_id=None, action=action, scope="workspace")
+        _apply_project_pick(integration, actor_slack_user_id=slack_user_id, action=action, scope="workspace")
         republish()
         return HttpResponse(status=200)
 
@@ -1781,7 +1821,7 @@ def _drop_invalidated_selections(
     effort. The scoped block ids stop Slack handing those back on the next interaction;
     this stops the view we render from the same payload showing them in the meantime.
     """
-    if model and model not in {offered.value for offered in _models_for(runtime_adapter or "")}:
+    if model and runtime_adapter_for(model) != runtime_adapter:
         model = None
     if reasoning_effort and reasoning_effort not in (_supported_efforts(runtime_adapter, model) or ()):
         reasoning_effort = None
@@ -1993,6 +2033,8 @@ def _build_home_view(
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
         has_project_access=bool(accessible),
+        # The same settings page the GitHub card deep-links to.
+        account_settings_url=github_state.settings_url,
     )
     return _HomeRender(
         view=view,
@@ -2225,6 +2267,9 @@ def _resolve_run_defaults_state(
         logger.exception("slack_app_home_run_defaults_resolution_failed", slack_user_id=slack_user_id)
         return RunDefaultsState(settings_url=settings_url)
 
+    if resolved.runtime != ai_run_defaults.ACP:
+        return RunDefaultsState(settings_url=settings_url)
+
     return RunDefaultsState(
         model=resolved.model,
         reasoning_effort=resolved.reasoning_effort,
@@ -2289,7 +2334,7 @@ def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | N
             candidate_org_ids=candidate_org_ids,
         )
         if linked_user is not None:
-            return linked_user if linked_user.is_active else None
+            return linked_user
 
     profile = SlackUserProfileCache.objects.filter(integration_id=integration.id, slack_user_id=slack_user_id).first()
     if profile is None or not profile.email:
@@ -2373,6 +2418,10 @@ def _accessible_integrations(integration: Integration, slack_user_id: str) -> li
     build plus three queries, and all three cards want the same answer. It is also the
     authorization boundary for the whole tab, so it should have exactly one definition.
     """
+    # Deliberately not health-filtered, unlike the mention path. There, dropping an
+    # install with a dead token lets resolution fall through to the next candidate; here
+    # it would blank the whole tab whenever `auth.test` is unreachable, since every card
+    # hangs off this list.
     return _filter_accessible_integrations(
         integration, slack_user_id, _workspace_integrations(integration.integration_id)
     )
@@ -2388,8 +2437,7 @@ def _resolve_stats_state(
 ) -> StatsState | None:
     """Workspace activity aggregates, or None when the card shouldn't render at all.
 
-    Admin-only, and rides the same `slack-app-home` gate as the rest of the tab — the
-    callers already returned early when that flag is off.
+    Admin-only: every other card on the tab renders for any viewer.
 
     Scoped to the projects this admin can already reach: being a Slack workspace admin
     says nothing about PostHog org membership, so the card must never widen what its
@@ -2466,33 +2514,33 @@ def _resolve_project_state(
 def _filter_accessible_integrations(
     integration: Integration, slack_user_id: str, candidates: list[Integration]
 ) -> list[Integration]:
-    # Falls back to the full candidate list when we can't identify the user —
-    # hiding the picker would mean an unidentified user has no way to change
-    # their routing at all.
-    profile = SlackUserProfileCache.objects.filter(integration_id=integration.id, slack_user_id=slack_user_id).first()
-    if profile is None or not profile.email:
-        return candidates
-    membership = (
-        OrganizationMembership.objects.filter(
-            user__email=profile.email,
-            organization_id__in={c.team.organization_id for c in candidates},
-        )
-        .select_related("user")
-        .first()
-    )
-    if membership is None:
-        return candidates
-    permissions = UserPermissions(user=membership.user)
+    """The candidates this Slack identity can reach.
+
+    `views.publish` answers whoever opens the tab, including a Slack Connect guest with no
+    PostHog account, so a viewer this cannot resolve must reach no project at all.
+
+    `_apply_project_pick` gates on this too, so an unidentified viewer also cannot save a
+    default for any team in the workspace.
+    """
+    user = _resolve_home_user(integration, slack_user_id)
+    if user is None:
+        return []
+    permissions = UserPermissions(user=user)
     return [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
 
 
 def _apply_project_pick(
     integration: Integration,
     *,
-    slack_user_id: str | None,
+    actor_slack_user_id: str,
     action: dict,
-    scope: str,
+    scope: Literal["personal", "workspace"],
 ) -> None:
+    """Point a default at the picked project, for the clicker or for the whole workspace.
+
+    `scope` chooses whose default moves; the clicker is who both scopes are
+    authorized against.
+    """
     selected = (action.get("selected_option") or {}).get("value")
     if not selected:
         return
@@ -2507,23 +2555,20 @@ def _apply_project_pick(
     )
     if target is None:
         return
-    # Personal-scope picks are user-driven, so re-check that the picker
-    # actually had this team in its accessible set. The renderer hides
-    # inaccessible options but a hand-crafted block_actions can still arrive
-    # with any team_id in the workspace.
-    if scope == "personal" and slack_user_id:
-        accessible = _filter_accessible_integrations(integration, slack_user_id, [target] if target else [])
-        if not accessible:
-            return
+    # The renderer hides options the clicker can't reach, but a hand-crafted
+    # block_actions — or one replayed from a view Slack published before access was
+    # removed — can still carry any team id in the workspace.
+    if not _filter_accessible_integrations(integration, actor_slack_user_id, [target]):
+        return
     SlackSettings.objects.update_or_create(
         slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
+        slack_user_id=actor_slack_user_id if scope == "personal" else None,
         defaults={"default_integration": target},
     )
     logger.info(
         "slack_app_home_project_default_set",
         slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
+        slack_user_id=actor_slack_user_id,
         scope=scope,
         team_id=team_id,
     )

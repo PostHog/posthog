@@ -545,6 +545,34 @@ class TestSavedQuery(APIBaseTest):
         )
         assert cast(dict[str, Any], delete_activity.detail)["name"] == query_name
 
+    def test_a_refused_delete_names_its_dependents_and_links_their_lineage(self):
+        dag = DAG.get_or_create_default(self.team)
+        view = DataWarehouseSavedQuery.objects.create(team=self.team, name="accounts_view")
+        view_node = Node.objects.create(team=self.team, saved_query=view, dag=dag, type=NodeType.VIEW)
+        metric_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="weekly_active_accounts",
+            type=NodeType.METRIC,
+            metric_id=uuid.uuid4(),
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=view_node, target=metric_node)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}",
+        )
+
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["detail"] == (
+            "Can't delete accounts_view yet. These read from it: weekly_active_accounts (metric). "
+            "Update or delete them first."
+        )
+        assert body["code"] == "has_dependents"
+        assert body["extra"] == {"node_id": str(view_node.id)}
+        view.refresh_from_db()
+        assert view.deleted is not True
+
     def test_update_folder_assignment(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(
             team=self.team, name="Warehouse ops", created_by=self.user
@@ -1139,12 +1167,46 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         return response.json()
 
-    def test_update_sync_frequency_rejects_invalid_value(self):
+    def test_create_applies_the_requested_sync_frequency(self) -> None:
+        from products.data_modeling.backend.facade.api import get_declared_target
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event from events LIMIT 100"},
+                    "sync_frequency": "6hour",
+                },
+            )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["sync_frequency"], "6hour")
+        self.assertEqual(
+            get_declared_target(Node.objects.get(saved_query_id=response.json()["id"])), timedelta(hours=6)
+        )
+
+    def test_explicit_null_sync_frequency_clears_the_target(self) -> None:
+        from products.data_modeling.backend.facade.api import get_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}"
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            initial = self.client.patch(url, {"sync_frequency": "6hour"})
+            self.assertEqual(initial.status_code, 200, initial.content)
+            response = self.client.patch(url, {"sync_frequency": None})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNone(response.json()["sync_frequency"])
+        self.assertIsNone(get_declared_target(Node.objects.get(saved_query_id=saved_query["id"])))
+
+    @parameterized.expand(
+        [("unknown", "every_fortnight"), ("list", []), ("dict", {}), ("number", 5), ("boolean", True)]
+    )
+    def test_update_sync_frequency_rejects_invalid_value(self, _name, value):
         saved_query = self._create_saved_query()
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-            {"sync_frequency": "every_fortnight"},
+            {"sync_frequency": value},
         )
         self.assertEqual(response.status_code, 400, response.content)
 

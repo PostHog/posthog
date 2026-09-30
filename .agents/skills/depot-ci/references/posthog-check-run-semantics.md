@@ -60,7 +60,36 @@ Depot creates a job's check run when it resolves the job, not when it creates th
 
 ## Reruns
 
-Retrying a failed Depot job creates a new check run with the same name and leaves the failed one behind (measured 2026-09-17 with `depot ci retry --failed` on run `jb7zh5rvnk`: the retried cell got check run `105270302262` while `105262890457` stayed `completed/failure`; only `filter=all` on the check-runs API lists both). GitHub Actions does the same per attempt, which is why a superseded run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine: the API's default `filter=latest` already returns only the newest, and `max_by(.id)` does the same on a full listing. Two details matter when the read decides something: a GitHub Actions rerun queues a fresh check run for every job before any of them runs, so a script that wants the last verdict filters on `status == "completed"` before it takes the newest; and the check-runs API lists every pull request's checks for a head SHA, so a script that acts for one pull request filters on `pull_requests[].number` too (both engines populate it; measured 2026-09-17 on the throwaway and the stack heads).
+Retrying a failed Depot job created a new check run with the same name and left the failed one behind in the measured 2026-09-17 run `jb7zh5rvnk`: the retried cell got check run `105270302262` while `105262890457` stayed `completed/failure`; only `filter=all` on the check-runs API listed both. GitHub Actions does the same per attempt, which is why a superseded run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine: the API's default `filter=latest` returns only the newest, and `max_by(.id)` does the same on a full listing. Two details matter when the read decides something: a GitHub Actions rerun queues a fresh check run for every job before any of them runs, so a script that wants the last verdict filters on `status == "completed"` before it takes the newest; and the check-runs API lists every pull request's checks for a head SHA, so a script that acts for one pull request filters on `pull_requests[].number` when it is present.
+
+Depot's list can still be empty. The [check suites API](https://docs.github.com/en/rest/checks/suites) says a suite is created when code is pushed and an app usually receives one suite event per commit SHA even if that SHA is pushed to multiple branches. On commit `f786b640f2f0`, Depot's suite `97293642167` names a `posthog/rewrite-tmp/` branch and has `pull_requests: []`, while GitHub Actions suites on the same commit name PR 104868's branch and list that PR. Commit `749f24dd5b7a` shows the same split with a `-rebase-1` branch. This is consistent with the suite retaining an earlier push branch, but the suite records do not establish push order. Filtering those Depot checks by `pull_requests[].number` finds no check for the PR.
+
+## Cancelled runs
+
+In the following cancelled runs, an unstarted job received a `cancelled` check with `started_at` and `completed_at` set to the cancel time. A `started_at >= event time` filter kept the superseded run's check, which could be the newest one of its name. Measured 2026-09-24:
+
+- Depot: gate check `107582798883` of cancelled workflow `x17bxd5m0z` started and completed at 09:55:14, 54 seconds after the next event and before that event's gate appeared.
+- GitHub Actions: hand-off check `107604825793` of cancelled run `35990511352` started and completed at 11:05:40, after the next event (11:04:23) and 14 seconds before that event's hand-off check.
+
+## Finding one event's Depot run
+
+Check times and `pull_requests` did not pick out the Depot run in these cases, so the event goes into a check name. The Depot wait job's name ends with `(PR <number>, event <pull_request.updated_at>)`, and Depot renders expressions in job names into the check name. `.github/scripts/ci_backend_relay.py` builds the same name from the GitHub run's payload, reads that check, takes the Depot workflow id from its `details_url`, and reads the gate check of that workflow only. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, and GitHub relay job `107655803961` used `EVENT_AT: 2026-09-24T13:33:14Z` and relayed a successful gate.
+
+### Racing events
+
+Two events of one commit that arrive within a second or two race the concurrency cancel on both engines, and neither engine reliably keeps the newer event. A stack push shows it: it force-pushes a pull request's head and its base about one second apart, and each push starts a pull request event. Measured 2026-09-25 on a stack push at 15:17Z:
+
+- PR 106429: GitHub Actions cancelled the run of the newer event (15:17:40Z) and kept the older one (15:17:39Z). Depot kept 15:17:40Z and cancelled Depot run `rtl932mrbc` with "Cancelled due to the workflow concurrency policy".
+- PR 106435: GitHub Actions kept the newer event (15:17:41Z). Depot kept the older one (15:17:40Z) and cancelled `nzb661zql2`.
+- Neither cancelled Depot run posted a wait check, so each surviving GitHub relay found no run for its event and failed after the grace period, although Depot's run for the other event passed on the same commit.
+
+GitHub Actions alone does the same. Among the 946 `ci-backend.yml` pull request runs created on 2026-09-25 between 11:30Z and 16:00Z, 56 same-commit pairs were created within 30 seconds of each other, 52 of them 0 to 2 seconds apart. GitHub kept the older run in 6 pairs, all 0 to 1 second apart. So after its grace period, the relay follows the Depot run of an event of the same pull request up to 2 seconds away (`RACING_EVENT_SECONDS`), newest first.
+
+The newest check per name tells you the verdict. It does not tell you whether the PR can merge. A cancelled run on the same head keeps its checks, and when one of them is a required check, GitHub's merge box and Trunk keep the PR blocked until that run is rerun. `/merging-prs` has the recipe.
+
+## pull_request_target checks
+
+Depot can post a `pull_request_target` job's check on another pull request's head commit. A `pull_request_target` run's `github.sha` is the base branch head, so pull requests opened against the same master commit share it, and every misplaced check measured sat on a commit whose own run shared that base commit. Measured 2026-09-25 on a migration report workflow that ran on `pull_request_target`: 35 of its 42 checks sat on the wrong commit. For example, check `108123656729` on PR 106758's head `0295b92b41` links Depot workflow `ljv421dmlt`, whose run `vpg4b1kvh7` tested PR 106767's head `fb236b6c26`, and both runs had base `7af9307723`. The jobs' own writes, a check posted with an explicit `head_sha` and a comment on an explicit PR number, reached the right pull request. Post pull-request-facing results from a `pull_request` workflow, whose checks land on the right head.
 
 ## Depot CI CLI recipes
 
@@ -88,7 +117,7 @@ Depot CI checks out the pull request merge ref (`refs/pull/<n>/merge`) and posts
 
 From Depot's [compatibility page](https://depot.dev/docs/ci/compatibility), not measured here:
 
-- Fork pull requests are unsupported. Depot lists support as planned.
+- Fork pull requests get no run; Depot lists support as planned. The backend router keeps them on GitHub Actions, see [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
 - `environment:` is unsupported, and `uses:` cannot reference a workflow in another repository.
 - `secrets.GITHUB_TOKEN` is a GitHub App installation token, not the Actions token. GitHub Packages rejects it. The rate limit it draws on is the app installation's pool, which is shared across repos and is not the per-repo Actions bucket that `monitor-github-rate-limit.yml` watches.
 - Non-Depot `runs-on` labels are treated as `depot-ubuntu-latest`.

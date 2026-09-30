@@ -1,10 +1,11 @@
 import datetime as dt
 from uuid import UUID
 
-from temporalio.common import Priority
+from temporalio.common import Priority, RetryPolicy
 
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
+BUILD_BENCHMARK_WORKFLOW_NAME = "replay-vision-build-benchmark"
 
 # How long a cached admission budget admits without re-running the spend aggregates. Spend the
 # cache misses (settling receipts, evaluation reservations, failed-observation refunds) stays wrong
@@ -18,6 +19,17 @@ ADMISSION_BUDGET_TTL = dt.timedelta(seconds=15)
 # between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
 # row is stranded in `running` until the reaper's cutoff below.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
+
+# Retry policy for the short Postgres writes that move an observation or its media between states.
+STATE_ACTIVITY_RETRY = RetryPolicy(
+    initial_interval=dt.timedelta(seconds=1),
+    maximum_interval=dt.timedelta(seconds=10),
+    maximum_attempts=5,
+)
+
+# Bounds each state write's whole retry chain, backoff included, so the failure path provably fits inside
+# APPLY_SCANNER_EXECUTION_TIMEOUT (see the arithmetic on that constant).
+STATE_ACTIVITY_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=3)
 
 
 def on_demand_priority(team_id: int) -> Priority:
@@ -260,10 +272,14 @@ def replay_vision_distinct_id(team_id: int) -> str:
 SEARCH_SUGGESTIONS_WORKFLOW_NAME = "replay-vision-refresh-search-suggestions"
 SEARCH_SUGGESTIONS_WORKFLOW_ID = "replay-vision-search-suggestions-refresher"
 SEARCH_SUGGESTIONS_SCHEDULE_ID = "replay-vision-search-suggestions-refresher-schedule"
-SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(hours=1)
-SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=50)
+# Short, so a new scanner or team has phrases minutes after its first observations land.
+SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(minutes=10)
+SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=9)
+# With the concurrency below and a 30s model timeout, a full run of slow calls still ends inside the execution timeout.
 SEARCH_SUGGESTIONS_MAX_PER_RUN = 200
-SEARCH_SUGGESTIONS_MAX_PER_DAY = 2000
-SEARCH_SUGGESTIONS_CONCURRENCY = 4
+# Backstop against a bug that makes every scope look stale. Sized for every active scanner and team refreshing
+# each REFRESH_INTERVAL, at a fraction of a cent per call.
+SEARCH_SUGGESTIONS_MAX_PER_DAY = 40_000
+SEARCH_SUGGESTIONS_CONCURRENCY = 16
 LIST_STALE_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=60)
 REFRESH_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=90)

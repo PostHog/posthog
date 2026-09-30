@@ -5,6 +5,10 @@ value: the right side of ``x IN (subquery)``, or a scalar ``(SELECT ...)`` in a 
 comparison, a function argument, or a column ``WITH`` alias. Each such run reads real data. The
 constant keeps the outer query's shape, so the plan still shows how it reads the events table.
 
+One shape is lost. A comparison that holds a subquery folds to true, so when it filtered ``event``
+or ``timestamp`` the plan shows the read without that filter. For those the tree's verdict stands:
+see ``EventFilterOutcome.hidden_from_plan`` and ``TreeFacts.start_date_hidden_from_plan``.
+
 A subquery that is a query source is kept, because the plan needs it: the root query, a ``FROM`` or
 ``JOIN`` table, a ``UNION`` member, and a subquery ``WITH`` body (``WITH a AS (SELECT ...)``). The
 value subqueries taken out of the tree are collected so each can be explained on its own.

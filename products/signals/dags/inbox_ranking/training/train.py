@@ -21,6 +21,11 @@ from products.signals.dags.inbox_ranking.training.calibration import (
     calibration_buckets,
     expected_calibration_error,
 )
+from products.signals.dags.inbox_ranking.training.classification import (
+    UNKNOWN_THRESHOLD,
+    ClassificationMetrics,
+    classification_metrics,
+)
 from products.signals.dags.inbox_ranking.training.examples import holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import Head
 
@@ -71,6 +76,12 @@ class HeadMetrics:
     # part of a gap to the unseen numbers is the refit rather than holdout optimism.
     holdout_mean_score: float | None = None
     holdout_expected_calibration_error: float | None = None
+    # The holdout graded at the positive rate of the train-only rows, the threshold fixed before the
+    # holdout outcomes are read.
+    holdout_classification: ClassificationMetrics = UNKNOWN_THRESHOLD
+    # The positive rate of every row the refit that ships was fit on. The unseen grades of this
+    # model read it as their threshold, so it is saved here rather than derived from the unseen rows.
+    refit_classification_threshold: float | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -90,6 +101,8 @@ class HeadMetrics:
             "holdout_positive_rate": self.holdout_positive_rate,
             "holdout_mean_score": self.holdout_mean_score,
             "holdout_expected_calibration_error": self.holdout_expected_calibration_error,
+            **self.holdout_classification.as_dict(prefix="holdout_"),
+            "refit_classification_threshold": self.refit_classification_threshold,
         }
 
 
@@ -188,6 +201,8 @@ def train_head(
         holdout_positive_rate=float(y_test.mean()) if len(y_test) else None,
         holdout_mean_score=float(holdout_scores.mean()) if len(y_test) else None,
         holdout_expected_calibration_error=expected_calibration_error(calibration),
+        holdout_classification=classification_metrics(y_test, holdout_scores, float(y_train.mean())),
+        refit_classification_threshold=float(y.mean()),
     )
     # Refit on everything before shipping: the holdout only exists to grade the recipe.
     final = _fit(x, y, seed)

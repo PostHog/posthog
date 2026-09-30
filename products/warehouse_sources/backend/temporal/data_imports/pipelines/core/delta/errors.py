@@ -16,6 +16,11 @@ from posthog.temporal.common.errors import NonReportableError
 #   when a bulk operation (e.g. `_purge_s3_prefix`'s list-then-delete) outruns the bucket's request-rate limit
 # - "We encountered an internal error. Please try again." is S3's fixed message for its InternalError
 #   (500) response, surfaced by s3fs/aiobotocore as an OSError once its own request retries are exhausted
+# - "The difference between the request time and the current time is too large." is S3's fixed message
+#   for RequestTimeTooSkewed, raised when the worker's clock has drifted from S3's. s3fs maps every 403
+#   onto the same generic PermissionError (s3fs/errors.py::translate_boto_error), so this message - not
+#   a permission denial - is the only way to tell the two apart. The worker's own clock resyncs and the
+#   identical request succeeds moments later.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -24,6 +29,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Generic S3 error",
     "Please reduce your request rate",
     "We encountered an internal error. Please try again.",
+    "The difference between the request time and the current time is too large.",
 )
 
 
@@ -50,6 +56,13 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     match), but hitting our own instance-role-authenticated bucket always means the same transient
     resolution hiccup, so it's recognized by type rather than by message.
 
+    `boto3`'s own client calls (e.g. `ensure_bucket_exists`'s `head_bucket`) can likewise raise a bare
+    `botocore.exceptions.ConnectionError` — `EndpointConnectionError` (DNS not resolvable yet, or the
+    endpoint refusing connections) and its siblings — when our own bucket endpoint isn't reachable
+    yet, most commonly a local/self-hosted object store still bootstrapping. Never an `OSError`
+    subclass, so the message-matched branch below never sees it; recognized by type for the same
+    reason as `NoCredentialsError`.
+
     A bare `OSError` with errno `EMFILE`/`ENFILE` means this worker's (or the system's) file
     descriptor table is full — e.g. `aget_s3_client`'s aiobotocore session bootstrap opening
     botocore's own bundled `endpoints.json` fails with this errno before any network call is even
@@ -57,7 +70,9 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     (`_is_too_many_open_files_error`): a descriptor frees the moment another connection/client in
     this worker closes, so it's fd pressure on our side, never an object-store or customer problem.
     """
-    if isinstance(error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError):
+    if isinstance(
+        error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError | botocore.exceptions.ConnectionError
+    ):
         # Already classified and wrapped by a prior call to this same function (see
         # `_capture_unless_transient`) — a caller further up the stack that catches broadly and
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it

@@ -13,6 +13,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { isApprovalRequiredError } from 'lib/api-error'
@@ -22,7 +23,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
@@ -77,7 +78,6 @@ import {
 } from '~/types'
 
 import {
-    EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
     NEW_EXPERIMENT,
     NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
@@ -128,9 +128,9 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     type ExperimentUpdatePayload,
+    getDisplayOrderedIndices,
     getExperimentVariants,
     getOrderedMetricsWithResults,
-    initializeMetricOrdering,
     conflictPreservedFields,
     isExperimentConflictError,
     isLegacyExperiment,
@@ -264,48 +264,6 @@ function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: bool
     } catch {
         return { detail: error.detail || error.message, hasDiagnostics: false }
     }
-}
-
-/**
- * Returns metric indices in display order. Metrics whose UUID appears in
- * orderedUuids come first (in that order), followed by any remaining metrics
- * in their original array position. Each entry is the original index into the
- * metrics array so callers can write results to the correct positional slot.
- */
-export function getDisplayOrderedIndices(
-    metrics: { uuid?: string }[],
-    orderedUuids: string[] | null | undefined
-): number[] {
-    if (!orderedUuids || orderedUuids.length === 0) {
-        return metrics.map((_, i) => i)
-    }
-
-    const uuidToIndex = new Map<string, number>()
-    for (let i = 0; i < metrics.length; i++) {
-        const uuid = metrics[i].uuid
-        if (uuid) {
-            uuidToIndex.set(uuid, i)
-        }
-    }
-
-    const ordered: number[] = []
-    const seen = new Set<number>()
-
-    for (const uuid of orderedUuids) {
-        const idx = uuidToIndex.get(uuid)
-        if (idx !== undefined && !seen.has(idx)) {
-            ordered.push(idx)
-            seen.add(idx)
-        }
-    }
-
-    for (let i = 0; i < metrics.length; i++) {
-        if (!seen.has(i)) {
-            ordered.push(i)
-        }
-    }
-
-    return ordered
 }
 
 /**
@@ -527,10 +485,6 @@ export interface experimentLogicValues {
     currentTeamId: number | null // teamLogic
     trendResults: TrendResult[] // trendsDataLogic
     actualRunningTime: number
-    autoRefresh: {
-        enabled: boolean
-        interval: number
-    }
     compatibleSharedMetrics: SharedMetric[]
     currentRefresh: CurrentRefreshSnapshot | null
     editingPrimaryMetricUuid: string | null
@@ -571,7 +525,6 @@ export interface experimentLogicValues {
     isExperimentRunning: boolean
     isExperimentStopped: boolean
     isFlagActive: boolean
-    isPageVisible: boolean
     isSingleVariantShipped: boolean
     launchExperimentLoading: boolean
     minimumDetectableEffect: number
@@ -615,32 +568,6 @@ export interface experimentLogicValues {
 export interface experimentLogicActions {
     reportExperimentAiSummaryRequested: (experiment: Experiment) => {
         experiment: Experiment
-    } // eventUsageLogic
-    reportExperimentAutoRefreshToggled: (
-        experiment: Experiment,
-        enabled: boolean,
-        interval: number
-    ) => {
-        enabled: boolean
-        experiment: Experiment
-        interval: number
-    } // eventUsageLogic
-    reportExperimentCreated: (
-        experiment: Experiment,
-        metadata?:
-            | {
-                  creation_source?: string
-                  has_linked_flag?: boolean
-              }
-            | undefined
-    ) => {
-        experiment: Experiment
-        metadata:
-            | {
-                  creation_source?: string | undefined
-                  has_linked_flag?: boolean | undefined
-              }
-            | undefined
     } // eventUsageLogic
     reportExperimentDashboardCreated: (
         experiment: Experiment,
@@ -687,39 +614,7 @@ export interface experimentLogicActions {
         isPrimary: boolean
         metricUuid: string
     } // eventUsageLogic
-    reportExperimentMetricsRefreshed: (
-        experiment: Experiment,
-        forceRefresh: boolean,
-        context?:
-            | {
-                  auto_refresh_enabled?: boolean
-                  auto_refresh_interval?: number
-                  previous_refresh_age_ms?: number | null
-                  previous_refresh_id?: string | null
-                  previous_refresh_state?: string | null
-                  previous_refresh_triggered_by?: string | null
-                  triggered_by: 'auto-refresh' | 'manual'
-              }
-            | undefined
-    ) => {
-        context:
-            | {
-                  auto_refresh_enabled?: boolean | undefined
-                  auto_refresh_interval?: number | undefined
-                  previous_refresh_age_ms?: number | null | undefined
-                  previous_refresh_id?: string | null | undefined
-                  previous_refresh_state?: string | null | undefined
-                  previous_refresh_triggered_by?: string | null | undefined
-                  triggered_by: 'auto-refresh' | 'manual'
-              }
-            | undefined
-        experiment: Experiment
-        forceRefresh: boolean
-    } // eventUsageLogic
     reportExperimentReleaseConditionsViewed: (experimentId: ExperimentIdType) => {
-        experimentId: ExperimentIdType
-    } // eventUsageLogic
-    reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => {
         experimentId: ExperimentIdType
     } // eventUsageLogic
     reportExperimentSharedMetricAssigned: (
@@ -1025,8 +920,32 @@ export interface experimentLogicActions {
         isSecondary: boolean
         orderedUuids: string[]
     }
-    resetAutoRefreshInterval: () => {
-        value: true
+    reportExperimentMetricsRefreshed: (
+        experiment: Experiment,
+        forceRefresh: boolean,
+        context?: {
+            auto_refresh_enabled?: boolean
+            auto_refresh_interval?: number
+            previous_refresh_age_ms?: number | null
+            previous_refresh_id?: string | null
+            previous_refresh_state?: string | null
+            previous_refresh_triggered_by?: string | null
+            triggered_by: 'auto-refresh' | 'manual'
+        }
+    ) => {
+        context:
+            | {
+                  auto_refresh_enabled?: boolean | undefined
+                  auto_refresh_interval?: number | undefined
+                  previous_refresh_age_ms?: number | null | undefined
+                  previous_refresh_id?: string | null | undefined
+                  previous_refresh_state?: string | null | undefined
+                  previous_refresh_triggered_by?: string | null | undefined
+                  triggered_by: 'auto-refresh' | 'manual'
+              }
+            | undefined
+        experiment: Experiment
+        forceRefresh: boolean
     }
     resetRunningExperiment: () => {
         value: true
@@ -1042,13 +961,6 @@ export interface experimentLogicActions {
     }
     retrySecondaryMetric: (index: number) => {
         index: number
-    }
-    setAutoRefresh: (
-        enabled: boolean,
-        interval: number
-    ) => {
-        enabled: boolean
-        interval: number
     }
     setEditExperiment: (editing: boolean) => {
         editing: boolean
@@ -1133,9 +1045,6 @@ export interface experimentLogicActions {
     setNotifyWhenResultsReady: (notify: boolean) => {
         notify: boolean
     }
-    setPageVisibility: (visible: boolean) => {
-        visible: boolean
-    }
     setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => {
         results: CachedNewExperimentQueryResponse[]
     }
@@ -1207,9 +1116,6 @@ export interface experimentLogicActions {
     ) => {
         excluded: boolean
         variantKey: string
-    }
-    stopAutoRefreshInterval: () => {
-        value: true
     }
     subscribeToResultsNotification: () => {
         value: true
@@ -1431,12 +1337,10 @@ export const experimentLogic = kea<experimentLogicType>([
             ['loadTags'],
             eventUsageLogic,
             [
-                'reportExperimentCreated',
                 'reportExperimentViewed',
 
                 'reportExperimentExposureCohortCreated',
                 'reportExperimentVariantScreenshotUploaded',
-                'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
                 'reportExperimentHoldoutAssigned',
                 'reportExperimentSharedMetricAssigned',
@@ -1444,8 +1348,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
-                'reportExperimentMetricsRefreshed',
-                'reportExperimentAutoRefreshToggled',
                 'reportExperimentMetricBreakdownAdded',
                 'reportExperimentMetricBreakdownRemoved',
             ],
@@ -1471,6 +1373,19 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     })),
     actions({
+        reportExperimentMetricsRefreshed: (
+            experiment: Experiment,
+            forceRefresh: boolean,
+            context?: {
+                triggered_by: 'manual' | 'auto-refresh'
+                auto_refresh_enabled?: boolean
+                auto_refresh_interval?: number
+                previous_refresh_id?: string | null
+                previous_refresh_age_ms?: number | null
+                previous_refresh_state?: string | null
+                previous_refresh_triggered_by?: string | null
+            }
+        ) => ({ experiment, forceRefresh, context }),
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1694,10 +1609,6 @@ export const experimentLogic = kea<experimentLogicType>([
             variants,
             rolloutPercentage,
         }),
-        setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        resetAutoRefreshInterval: true,
-        stopAutoRefreshInterval: true,
-        setPageVisibility: (visible: boolean) => ({ visible }),
         subscribeToResultsNotification: true,
         dismissNotificationOffer: true,
         setShowNotificationOffer: (show: boolean) => ({ show }),
@@ -2314,22 +2225,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 setHogfettiTrigger: (_, { trigger }) => trigger,
             },
         ],
-        autoRefresh: [
-            {
-                interval: EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
-                enabled: false,
-            } as { interval: number; enabled: boolean },
-            { persist: true, prefix: '2_' },
-            {
-                setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
-            },
-        ],
-        isPageVisible: [
-            true as boolean,
-            {
-                setPageVisibility: (_, { visible }) => visible,
-            },
-        ],
         showNotificationOffer: [
             false,
             {
@@ -2346,8 +2241,20 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
     listeners(({ values, actions, asyncActions, cache, props }) => ({
+        reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
+            posthog.capture('experiment metrics refreshed', {
+                ...getEventPropertiesForExperiment(experiment),
+                force_refresh: forceRefresh,
+                triggered_by: context?.triggered_by || 'manual',
+                auto_refresh_enabled: context?.auto_refresh_enabled,
+                auto_refresh_interval: context?.auto_refresh_interval,
+                previous_refresh_id: context?.previous_refresh_id ?? null,
+                previous_refresh_age_ms: context?.previous_refresh_age_ms ?? null,
+                previous_refresh_state: context?.previous_refresh_state ?? null,
+                previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
+            })
+        },
         beforeUnmount: () => {
-            actions.stopAutoRefreshInterval()
             clearTimeout(cache.notificationOfferTimer)
         },
         subscribeToResultsNotification: async () => {
@@ -2391,15 +2298,15 @@ export const experimentLogic = kea<experimentLogicType>([
         launchExperiment: async () => {
             actions.setLaunchExperimentLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsLaunchCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const experiment: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/launch`
                 )
-                const experimentWithMetricOrdering = initializeMetricOrdering(experiment)
-                actions.setExperiment(experimentWithMetricOrdering)
+                actions.setExperiment(experiment)
                 refreshTreeItem('experiment', String(values.experimentId))
                 // Trigger results refresh so the metrics table doesn't get stuck in "loading" state
                 actions.refreshExperimentResults(false, 'manual')
-                actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
+                actions.setUnmodifiedExperiment(structuredClone(experiment))
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
                 // Prefer the flag key — it's the shorter handle someone would actually type at an agent.
                 const experimentHandle = experiment.feature_flag_key || experiment.name
@@ -2415,18 +2322,31 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: async ({ startDate }) => {
             await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
             // eslint-disable-next-line no-unused-expressions
-            values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
+            if (values.experiment) {
+                posthog.capture('experiment start date changed', {
+                    ...getEventPropertiesForExperiment(values.experiment),
+                    old_start_date: values.experiment.start_date,
+                    new_start_date: startDate,
+                })
+            }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
             await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
             // eslint-disable-next-line no-unused-expressions
-            values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
+            if (values.experiment) {
+                posthog.capture('experiment end date changed', {
+                    ...getEventPropertiesForExperiment(values.experiment),
+                    old_end_date: values.experiment.end_date,
+                    new_end_date: endDate,
+                })
+            }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         endExperiment: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
             actions.setEndExperimentLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsEndCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/end`,
                     {
@@ -2459,6 +2379,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         pauseExperiment: async () => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsPauseCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/pause`
                 )
@@ -2470,6 +2391,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         resumeExperiment: async () => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsResumeCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/resume`
                 )
@@ -2485,6 +2407,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.setFreezeExposureLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsFreezeExposureCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure`
                 )
@@ -2503,6 +2426,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.setUnfreezeExposureLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsUnfreezeExposureCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unfreeze_exposure`
                 )
@@ -2517,6 +2441,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         archiveExperiment: async ({ disableFeatureFlag }) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsArchiveCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
                     { disable_feature_flag: disableFeatureFlag }
@@ -2530,6 +2455,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         unarchiveExperiment: async () => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsUnarchiveCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unarchive`
                 )
@@ -2622,29 +2548,27 @@ export const experimentLogic = kea<experimentLogicType>([
                     const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
                     const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
 
-                    eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
-                        values.experimentId,
-                        values.currentTeamId,
-                        {
-                            total_duration_ms: totalDurationMs,
-                            primary_metrics_count: primaryCount,
-                            secondary_metrics_count: secondaryCount,
-                            successful_count: successfulCount,
-                            errored_count: erroredCount,
-                            cached_count: cachedCount,
-                            triggered_by: triggeredBy ?? 'manual',
-                            force_refresh: !!forceRefresh,
-                            refresh_id: refreshId,
-                            experiment_duration_hours: values.experiment?.start_date
-                                ? Math.round(
-                                      (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
-                                  )
-                                : null,
-                            experiment_status: values.experiment?.status ?? null,
-                            total_metrics_count: primaryCount + secondaryCount,
-                            execution_mode: getExperimentExecutionMode(values.featureFlags),
-                        }
-                    )
+                    posthog.capture('experiment results refresh completed', {
+                        experiment_id: values.experimentId,
+                        team_id: values.currentTeamId,
+                        total_duration_ms: totalDurationMs,
+                        primary_metrics_count: primaryCount,
+                        secondary_metrics_count: secondaryCount,
+                        successful_count: successfulCount,
+                        errored_count: erroredCount,
+                        cached_count: cachedCount,
+                        triggered_by: triggeredBy ?? 'manual',
+                        force_refresh: !!forceRefresh,
+                        refresh_id: refreshId,
+                        experiment_duration_hours: values.experiment?.start_date
+                            ? Math.round(
+                                  (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
+                              )
+                            : null,
+                        experiment_status: values.experiment?.status ?? null,
+                        total_metrics_count: primaryCount + secondaryCount,
+                        execution_mode: getExperimentExecutionMode(values.featureFlags),
+                    })
 
                     const finalState: FinishedRefreshState = caughtError
                         ? 'errored'
@@ -2673,17 +2597,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     // Reset notification state
                     actions.setShowNotificationOffer(false)
                     actions.setNotifyWhenResultsReady(false)
-
-                    // Only set up auto-refresh if enabled AND page is visible
-                    // This prevents the interval from restarting when async operations complete after the page becomes invisible
-                    if (
-                        values.experiment &&
-                        values.autoRefresh.enabled &&
-                        isLaunched(values.experiment) &&
-                        values.isPageVisible
-                    ) {
-                        actions.resetAutoRefreshInterval()
-                    }
 
                     // A warming-up experiment can show a stale "no results yet" snapshot on load, so fetch
                     // fresh once. When it has results we leave it to the in-tab auto-refresh, since recomputes
@@ -2780,6 +2693,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         resetRunningExperiment: async () => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsResetCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/reset`
                 )
@@ -2830,6 +2744,7 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => {
             actions.setEndExperimentLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsShipVariantCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/ship_variant`,
                     {
@@ -2883,6 +2798,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...withoutProjectedFlagConfig(values.experiment.parameters),
                     variant_screenshot_media_ids: variantPreviewMediaIds,
                 }
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                 const response: Experiment = await api.update(
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     {
@@ -2891,7 +2807,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         update_feature_flag_params: false,
                     }
                 )
-                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
@@ -2913,6 +2829,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...withoutProjectedFlagConfig(values.experiment.parameters),
                     variant_notes: variantNotes,
                 }
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                 const response: Experiment = await api.update(
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     {
@@ -2921,7 +2838,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         update_feature_flag_params: false,
                     }
                 )
-                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
@@ -2971,6 +2888,7 @@ export const experimentLogic = kea<experimentLogicType>([
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                 await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                     ...toConcurrencyPayload(values.unmodifiedExperiment),
                     saved_metrics_ids: combinedMetricsIds,
@@ -3013,6 +2931,7 @@ export const experimentLogic = kea<experimentLogicType>([
             )
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                 await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                     ...toConcurrencyPayload(values.unmodifiedExperiment),
                     saved_metrics_ids: sharedMetricsIds,
@@ -3066,22 +2985,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 /**
                  * create a new dashboard
                  */
-                const dashboard: DashboardType = await api.create(
-                    `api/environments/${values.currentTeamId}/dashboards/`,
-                    {
-                        name: 'Experiment: ' + values.experiment.name,
-                        description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
-                        filters: {
-                            date_from: values.experiment.start_date,
-                            date_to: values.experiment.end_date,
-                            properties: [],
-                            breakdown_filter: {
-                                breakdown: featureFlagVariantProperty(values.experiment.feature_flag_key),
-                                breakdown_type: 'event' as BreakdownType,
-                            },
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
+                const dashboard: DashboardType = await api.create(`api/projects/${values.currentTeamId}/dashboards/`, {
+                    name: 'Experiment: ' + values.experiment.name,
+                    description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
+                    filters: {
+                        date_from: values.experiment.start_date,
+                        date_to: values.experiment.end_date,
+                        properties: [],
+                        breakdown_filter: {
+                            breakdown: featureFlagVariantProperty(values.experiment.feature_flag_key),
+                            breakdown_type: 'event' as BreakdownType,
                         },
-                    } as Partial<DashboardType>
-                )
+                    },
+                } as Partial<DashboardType>)
 
                 /**
                  * create a new insight for each metric, either primary or secondary
@@ -3102,6 +3019,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     for (const query of metrics) {
                         const insightQuery = queryBuilder(query)
 
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsCreate() from 'products/product_analytics/frontend/generated/api' instead.
                         await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
                             name: query.name || undefined,
                             query: insightQuery,
@@ -3337,6 +3255,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 // Deliberately not the updateExperiment loader: kea-loaders swallows the rejection
                 // into a Failure action, and a silent failure here would leave the table showing an
                 // order that never saved.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                 const response: Experiment = await api.update(
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     {
@@ -3347,11 +3266,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
                 // A newer reorder may have started while this request was in flight.
                 breakpoint()
-                const responseWithMetricsOrdering = initializeMetricOrdering(response)
                 // Refreshing unmodifiedExperiment too, so a later edit-cancel doesn't revert the
                 // order the user just set.
-                actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
-                actions.setExperiment(responseWithMetricsOrdering)
+                actions.setUnmodifiedExperiment(structuredClone(response))
+                actions.setExperiment(response)
             } catch (error) {
                 // Swallowing the breakpoint would roll a superseded reorder back over a newer one.
                 if (isBreakpoint(error as Error)) {
@@ -3397,12 +3315,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 (m) => !(m.uuid && (moved.has(m.uuid) || removed.has(m.uuid)))
             )
 
-            // The backend appends moved metrics to the target section's ordering
-            // from the metric list changes, so only the source ordering is sent.
+            // The ordering arrays are a display hint: a removed metric's stale entry matches nothing,
+            // and a moved metric needs no entry in the target section, where it renders last. The
+            // source array is pruned on a move so readers that rank across both sections do not keep
+            // placing the metric among its old neighbours.
             const update: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 [sourceField]: remainingInlineMetrics,
-                [orderingField]: orderedUuids.filter((uuid) => !removed.has(uuid) && !moved.has(uuid)),
                 update_feature_flag_params: false,
+            }
+            if (moved.size > 0) {
+                update[orderingField] = orderedUuids.filter((uuid) => !removed.has(uuid) && !moved.has(uuid))
             }
             if (movedInlineMetrics.length > 0) {
                 update[targetField] = [...(values.experiment[targetField] || []), ...movedInlineMetrics]
@@ -3678,47 +3600,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 throw error
             }
         },
-        setAutoRefresh: ({ enabled, interval }) => {
-            // Track when user toggles auto-refresh settings
-            actions.reportExperimentAutoRefreshToggled(values.experiment, enabled, interval)
-            actions.resetAutoRefreshInterval()
-        },
-        stopAutoRefreshInterval: () => {
-            cache.disposables.dispose('autoRefreshInterval')
-        },
-        setPageVisibility: ({ visible }) => {
-            if (!visible) {
-                actions.stopAutoRefreshInterval()
-            } else if (values.autoRefresh.enabled) {
-                actions.resetAutoRefreshInterval()
-            }
-        },
-        resetAutoRefreshInterval: () => {
-            // Clear any existing interval first
-            cache.disposables.dispose('autoRefreshInterval')
-
-            // Completed experiments have final results — never poll them
-            if (values.autoRefresh.enabled && !hasEnded(values.experiment)) {
-                cache.disposables.add(() => {
-                    const intervalId = window.setInterval(() => {
-                        // The experiment may have ended while the interval was running
-                        if (hasEnded(values.experiment)) {
-                            cache.disposables.dispose('autoRefreshInterval')
-                            return
-                        }
-                        // Track auto-refresh trigger
-                        actions.reportExperimentMetricsRefreshed(values.experiment, true, {
-                            triggered_by: 'auto-refresh',
-                            auto_refresh_enabled: values.autoRefresh.enabled,
-                            auto_refresh_interval: values.autoRefresh.interval,
-                            ...previousRefreshAnalytics(values.currentRefresh),
-                        })
-                        actions.refreshExperimentResults(true, 'auto_refresh')
-                    }, values.autoRefresh.interval * 1000)
-                    return () => clearInterval(intervalId)
-                }, 'autoRefreshInterval')
-            }
-        },
     })),
     loaders(({ actions, values, cache }) => ({
         experiment: {
@@ -3726,14 +3607,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 void payload?.triggeredBy
                 if (values.experimentId && values.experimentId !== 'new') {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsRetrieve() from 'products/experiments/frontend/generated/api' instead.
                         const response: Experiment = await api.get(
                             `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
                         )
 
-                        const responseWithMetricsOrdering = initializeMetricOrdering(response)
-
-                        actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
-                        return responseWithMetricsOrdering
+                        actions.setUnmodifiedExperiment(structuredClone(response))
+                        return response
                     } catch (error: any) {
                         if (error.status === 404) {
                             actions.setExperimentMissing()
@@ -3755,16 +3635,16 @@ export const experimentLogic = kea<experimentLogicType>([
                     // response instead of the one both dispatches started from.
                     const send = async (): Promise<Experiment> => {
                         try {
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                             const response: Experiment = await api.update(
                                 `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                                 { ...toConcurrencyPayload(values.unmodifiedExperiment), ...update }
                             )
-                            const responseWithMetricsOrdering = initializeMetricOrdering(response)
                             refreshTreeItem('experiment', String(values.experimentId))
-                            actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                            actions.setUnmodifiedExperiment(structuredClone(response))
                             // Also update the main experiment state
-                            actions.setExperiment(responseWithMetricsOrdering)
-                            return responseWithMetricsOrdering
+                            actions.setExperiment(response)
+                            return response
                         } catch (error: any) {
                             if (isExperimentConflictError(error)) {
                                 lemonToast.error(
@@ -3776,12 +3656,12 @@ export const experimentLogic = kea<experimentLogicType>([
                                 // user's edit isn't lost — they can review the fresh state and save again.
                                 const preserved = conflictPreservedFields(update)
                                 try {
+                                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsRetrieve() from 'products/experiments/frontend/generated/api' instead.
                                     const fresh: Experiment = await api.get(
                                         `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
                                     )
-                                    const freshWithOrdering = initializeMetricOrdering(fresh)
-                                    actions.setUnmodifiedExperiment(structuredClone(freshWithOrdering))
-                                    actions.setExperiment({ ...freshWithOrdering, ...preserved })
+                                    actions.setUnmodifiedExperiment(structuredClone(fresh))
+                                    actions.setExperiment({ ...fresh, ...preserved })
                                 } catch {
                                     actions.loadExperiment()
                                 }

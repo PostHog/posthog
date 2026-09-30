@@ -59,6 +59,7 @@ from products.data_modeling.backend.facade.api import (
     get_incremental_config,
     get_incremental_state,
     inject_incremental_filter,
+    record_incremental_history,
     set_incremental_state,
     window_start,
 )
@@ -330,7 +331,7 @@ class _CDPRowSink:
             # A missing write grant on the cdp_producer/ prefix is the same anticipated
             # provisioning gap `_list_files_to_produce` already tolerates quietly for reads (see its
             # `except PermissionError` branch) — not a bug worth paging on.
-            if not _is_s3_permission_denied(e):
+            if not _is_s3_permission_denied(e) and not isinstance(e, NonReportableError):
                 capture_exception(e)
             await self._logger.awarning(f"Failed to stage rows for CDP; discarding this run's staged rows: {e}")
             self.enabled = False
@@ -899,7 +900,8 @@ async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: Fi
         await sink.clear()
     except Exception as e:
         await logger.awarning(f"Could not clear stale person-property staging: {e}")
-        capture_exception(e)
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
 
 
 async def _stage_person_property_batch(
@@ -926,7 +928,8 @@ async def _stage_person_property_batch(
         await sink.logger.awarning(f"Failed to stage person-property batch {batch_index}: {e}")
         if fatal:
             raise
-        capture_exception(e)
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
 
 
 FAILED_UPDATE_REASON_PREFIX = "incremental update failed: "
@@ -1230,6 +1233,10 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         # deltalite can only open a table, never create one, so a missing table has to rebuild.
         plan = dataclasses.replace(plan, incremental=False, reason="table missing")
     await logger.ainfo(f"Materializing node {objects.node.name}: {plan.reason}")
+
+    # Record this before writing any rows. A failed first seed still belongs in mode history.
+    if plan.config is not None:
+        await database_sync_to_async_pool(record_incremental_history)(objects.saved_query)
 
     # Recorded on the job so the runs UI can tell a rebuild's row count (the whole table) apart
     # from an incremental run's (only the rows synced in its window).

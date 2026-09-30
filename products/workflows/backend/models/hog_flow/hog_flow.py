@@ -136,6 +136,7 @@ class HogFlow(UUIDTModel):
 
     class OriginProduct(models.TextChoices):
         LOOPS = "loops", "Loops"
+        BROADCASTS = "broadcasts", "Broadcasts"
 
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")

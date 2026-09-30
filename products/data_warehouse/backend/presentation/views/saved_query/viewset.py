@@ -42,6 +42,22 @@ class _CancelTarget:
     workflow_run_id: str | None
 
 
+HAS_DEPENDENTS_CODE = "has_dependents"
+
+
+class DependentsValidationError(serializers.ValidationError):
+    """A refused delete, carrying the blocked view's node id for a link to its lineage.
+
+    exceptions_hog renders only str, list, or {field: message} details, so the id travels on
+    `extra`, which the handler attaches to the response verbatim.
+    """
+
+    def __init__(self, detail: str, node_id: str | None = None) -> None:
+        super().__init__(detail, code=HAS_DEPENDENTS_CODE)
+        if node_id:
+            self.extra = {"node_id": node_id}
+
+
 class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
@@ -198,9 +214,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
     def create(self, request, *args, **kwargs):
         # Check for UPSERT logic
-        saved_query = DataWarehouseSavedQuery.objects.filter(
-            team_id=self.team_id, name=request.data.get("name")
-        ).first()
+        saved_query = (
+            DataWarehouseSavedQuery.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, name=request.data.get("name"))
+            .first()
+        )
         if saved_query:
             # The UPSERT branch updates an existing row without going through get_object(),
             # so run object-level permission checks explicitly to honor per-object access controls.
@@ -217,15 +235,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.facade.api import HasDependentsError
+        from products.data_modeling.backend.facade.api import HasDependentsError, describe_dependents
 
         instance: DataWarehouseSavedQuery = self.get_object()
         name = instance.name
         try:
             lifecycle.delete_saved_query(instance)
-        except HasDependentsError:
-            raise serializers.ValidationError(
-                "Cannot delete this view because other views depend on it. Delete or update those views first."
+        except HasDependentsError as dependents_error:
+            visible = lifecycle.visible_dependents(dependents_error.dependents, self.user_access_control)
+            raise DependentsValidationError(
+                describe_dependents(name, visible, any_hidden=len(visible) < len(dependents_error.dependents)),
+                node_id=lifecycle.refusal_node_id(dependents_error, visible, self.user_access_control),
             )
 
         log_activity(

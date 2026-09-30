@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from enum import StrEnum
 
@@ -20,7 +21,17 @@ SANDBOX_GONE_ERROR_MESSAGE = "Sandbox stopped; resume to continue"
 TASK_ROWS_GONE_ERROR_MESSAGE = "Task records were deleted while the run was in progress"
 
 
-async def run_credential_refresh_loop(context: TaskProcessingContext, sandbox_id: str) -> CredentialRefreshExitReason:
+def sandbox_gone_error_message(sandbox_exit_reason: str | None) -> str:
+    if sandbox_exit_reason is None:
+        return SANDBOX_GONE_ERROR_MESSAGE
+    return f"Sandbox stopped: {sandbox_exit_reason}. Resume to continue."
+
+
+async def run_credential_refresh_loop(
+    context: TaskProcessingContext,
+    sandbox_id: str,
+    on_sandbox_gone: Callable[[str | None], None] | None = None,
+) -> CredentialRefreshExitReason:
     """Periodically re-inject fresh credentials into the running sandbox.
 
     Sandbox credentials (GitHub token; user *or* installation, per authorship)
@@ -46,6 +57,8 @@ async def run_credential_refresh_loop(context: TaskProcessingContext, sandbox_id
                 return CredentialRefreshExitReason.TASK_GONE
             if result.sandbox_gone:
                 workflow.logger.info("Stopping credential refresh loop: sandbox is gone")
+                if on_sandbox_gone is not None:
+                    on_sandbox_gone(result.sandbox_exit_reason)
                 return CredentialRefreshExitReason.SANDBOX_GONE
             for kind in result.orphaned_kinds:
                 if kind not in exclude_kinds:

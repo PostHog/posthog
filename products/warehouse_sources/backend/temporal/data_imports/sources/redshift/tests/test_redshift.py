@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -38,6 +38,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.r
     RedshiftColumn,
     RedshiftImplementation,
     SafeDateLoader,
+    SafeTimestampLoader,
+    SafeTimestamptzLoader,
     _build_query,
     _explain_query,
     _fetch_arrow_batches,
@@ -321,6 +323,41 @@ class TestSafeDateLoader:
         # an unparseable value must surface as a loud sync failure instead.
         with pytest.raises(ValueError):
             loader.load(input_data)
+
+
+class TestSafeTimestampLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimestampLoader(oid=1114)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (b"2024-01-15 10:30:00", datetime(2024, 1, 15, 10, 30, 0)),
+            (b"0001-01-01 00:00:00", datetime(1, 1, 1, 0, 0, 0)),
+            (b"9999-12-31 23:59:59", datetime(9999, 12, 31, 23, 59, 59)),
+            (b"10000-01-01 00:00:00", datetime.max),
+            (b"infinity", datetime.max),
+            (b"-infinity", datetime.min),
+            # Reproduces the reported incident: psycopg's default `TimestampLoader` raises
+            # `DataError: timestamp too small (before year 1)`, aborting the sync.
+            (b"0001-02-11 00:00:00 BC", datetime.min),
+            (None, None),
+        ],
+    )
+    def test_load_timestamps(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+
+class TestSafeTimestamptzLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimestamptzLoader(oid=1184)
+
+    def test_clamps_out_of_range_value_with_utc_tzinfo(self, loader):
+        # `timestamptz` columns map to a UTC-aware Arrow type; mixing in a naive clamp would
+        # raise when the batch tries to combine aware and naive datetimes in one column.
+        assert loader.load(b"0001-02-11 00:00:00 BC") == datetime.min.replace(tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -1718,6 +1755,37 @@ class TestBuildPipeline:
         with pytest.raises(psycopg.OperationalError):
             impl.build_pipeline(_make_config(), _make_inputs())
 
+    def test_retries_once_on_transient_connection_drop_opening_the_streaming_connection(
+        self, build_pipeline_mocks, mocker
+    ):
+        # Regression: unlike the metadata connect above, opening the streaming connection had no
+        # in-process retry. Nothing has been read yet at that point, so a drop there is exactly as
+        # safe to retry as a setup-phase drop — but without the retry it fell straight through to a
+        # full Temporal activity retry that restarts the whole sync.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.time.sleep")
+        mock_connect, streaming_cursor = build_pipeline_mocks
+        real_side_effect = mock_connect.side_effect
+        attempts = {"n": 0}
+
+        def flaky_streaming_connect(*args, **kwargs):
+            attempts["n"] += 1
+            # Call 1 is the metadata connect; call 2 is the first streaming connect attempt.
+            if attempts["n"] == 2:
+                raise psycopg.OperationalError("the connection is lost")
+            return real_side_effect(*args, **kwargs)
+
+        mock_connect.side_effect = flaky_streaming_connect
+
+        impl = RedshiftImplementation()
+        response = impl.build_pipeline(_make_config(), _make_inputs())
+        list(response.items())  # type: ignore[arg-type]
+
+        assert attempts["n"] == 3
+        # The metadata connect's own `SET statement_timeout` also calls `execute` on this shared
+        # cursor mock, so asserting `execute.called` would pass even if the retried streaming
+        # connection never ran its query. `stream` is only called once the retry succeeds.
+        streaming_cursor.stream.assert_called_once()
+
     def test_returns_source_response(self, build_pipeline_mocks):
         mock_connect, _ = build_pipeline_mocks
         impl = RedshiftImplementation()
@@ -1880,8 +1948,8 @@ class TestConnect:
         assert kwargs["keepalives_count"] == 3
         assert kwargs["tcp_user_timeout"] == 60000
 
-    def test_connect_registers_safe_date_loader(self, mocker):
-        # Wiring guard: SafeDateLoader only protects a sync if it's actually registered on the
+    def test_connect_registers_safe_date_and_timestamp_loaders(self, mocker):
+        # Wiring guard: these loaders only protect a sync if they're actually registered on the
         # connection every `connect()` call produces.
         mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.open_ssh_tunnel",
@@ -1898,6 +1966,8 @@ class TestConnect:
             pass
 
         mock_conn.adapters.register_loader.assert_any_call("date", SafeDateLoader)
+        mock_conn.adapters.register_loader.assert_any_call("timestamp", SafeTimestampLoader)
+        mock_conn.adapters.register_loader.assert_any_call("timestamptz", SafeTimestamptzLoader)
 
 
 class TestGetConnectionMetadata:

@@ -240,6 +240,7 @@ export interface accessDetailLogicActions {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -283,8 +284,10 @@ export interface accessDetailLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -327,6 +330,7 @@ export interface accessDetailLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
         resourceId: string
     }
@@ -386,6 +390,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
             [] as AccessObjectRule[],
             {
                 loadObjects: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     (await api.get<{ results: AccessObjectRule[] }>(subjectRulesEndpoint(props, 'objects'))).results,
             },
         ],
@@ -393,6 +398,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
             [] as AccessPropertyRule[],
             {
                 loadProperties: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     (await api.get<{ results: AccessPropertyRule[] }>(subjectRulesEndpoint(props, 'properties')))
                         .results,
             },
@@ -403,6 +409,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
         setObjectRule: async ({ resource, resourceId, level }) => {
             // A null level clears the subject's rule on the object
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.put(`api/projects/${props.projectId}/access_control_object_rules`, {
                     resource,
                     resource_id: resourceId,

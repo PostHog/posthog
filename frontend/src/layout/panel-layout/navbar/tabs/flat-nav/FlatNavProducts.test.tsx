@@ -17,7 +17,7 @@ const productRow = (productPath: string): UserProductListItem => ({
     updated_at: '2026-01-01T00:00:00Z',
 })
 
-function toolRow(container: HTMLElement, slug: string): HTMLElement {
+function renderedProductRow(container: HTMLElement, slug: string): HTMLElement {
     const row = container.querySelector<HTMLElement>(`[data-attr="flat-nav-tool-${slug}"]`)
     if (!row) {
         throw new Error(`No flat-nav row rendered for "${slug}"`)
@@ -32,10 +32,16 @@ describe('FlatNavProducts', () => {
                 '/api/projects/:team_id/conversations/tickets/unread_count': () => [200, { count: 3 }],
             },
         })
-        // customProductsLogic seeds the picked tools from the page context rather than fetching them
+        // customProductsLogic seeds the picked products from the page context rather than fetching them
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT,
-            custom_products: [productRow('Support'), productRow('Feature flags')],
+            custom_products: [
+                productRow('Support'),
+                productRow('Feature flags'),
+                productRow('Dashboards'),
+                productRow('Product analytics'),
+                productRow('Session replay'),
+            ],
         } as AppContext
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, conversations_enabled: true } as TeamType)
     })
@@ -49,9 +55,26 @@ describe('FlatNavProducts', () => {
         const { container } = render(<FlatNavProducts />)
 
         await waitFor(() => {
-            const row = toolRow(container, slug)
+            const row = renderedProductRow(container, slug)
             expect(row.querySelector('.LemonBadge')?.textContent ?? null).toBe(expectedCount)
             expect(row.querySelector('svg')).not.toBeNull()
+        })
+    })
+
+    // The inline menus are keyed by product path, so a path that stops matching silently drops
+    // the button from the row
+    it.each<[string, string | null]>([
+        ['dashboards', 'flat-nav-tool-menu-dashboards'],
+        ['product-analytics', 'flat-nav-tool-menu-insight'],
+        ['session-replay', 'flat-nav-tool-menu-session-replay'],
+        ['feature-flags', null],
+    ])('renders the inline menu button the %s row resolves to', async (slug, menuAttr) => {
+        const { container } = render(<FlatNavProducts />)
+
+        await waitFor(() => {
+            const row = renderedProductRow(container, slug)
+            const menuButton = row.parentElement?.querySelector('[data-attr^="flat-nav-tool-menu-"]')
+            expect(menuButton?.getAttribute('data-attr') ?? null).toBe(menuAttr)
         })
     })
 })

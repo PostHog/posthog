@@ -25,6 +25,7 @@ STORED_ANALYSIS = json.dumps(
                     "kind": "no_event_filter",
                     "message": "This query read every event in its date range.",
                     "fix": "Add an event filter naming the events this question is about.",
+                    "actionable": True,
                 }
             ],
         },

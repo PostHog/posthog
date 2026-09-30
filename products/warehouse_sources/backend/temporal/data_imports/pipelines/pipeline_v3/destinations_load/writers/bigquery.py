@@ -33,8 +33,14 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     DestinationBatchContext,
     DestinationRunContext,
 )
-
-BATCH_INDEX_COLUMN = "_ph_batch_index"
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.merge_dedup import (
+    dedupe_merge_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.run_markers import (
+    BATCH_INDEX_COLUMN,
+    run_scope,
+    stamp_batch_index,
+)
 
 # Proof this writer created a table, so a sync never truncates, merges into or appends to one
 # the customer already had. `table_name` comes from the source's resource name, which a custom
@@ -45,13 +51,23 @@ BATCH_INDEX_COLUMN = "_ph_batch_index"
 # lets `finalize_run` check the live table's label after the swap that publishes it.
 _OWNERSHIP_LABEL_KEY = "posthog_sync_schema"
 
+# The run that last published this table, carried beside the ownership label. A redelivered
+# final batch reads it to tell "this run already published" from "this run never started";
+# without it the replay rebuilds a staging table out of that one batch and copies it over the
+# complete table.
+_PUBLISHED_RUN_LABEL_KEY = "posthog_sync_run"
+
+
+class BigQueryDestinationConfigurationError(ValueError):
+    """The destination's config cannot produce a valid BigQuery write."""
+
 
 class UnrelatedTableExistsError(RuntimeError):
     """A sync would have overwritten, merged into or appended to a table it never created."""
 
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
-    return f"{ctx.table_name}__ph_stage_{ctx.run_uuid.replace('-', '')[:12]}"
+    return f"{ctx.table_name}__ph_stage_{run_scope(ctx.run_uuid)}"
 
 
 def _backtick(name: str) -> str:
@@ -74,6 +90,20 @@ class BigQueryDestinationWriter:
         self._dataset = config.get("dataset") or config.get("dataset_id") or ""
         self._client: bigquery.Client | None = None
         self._project: str = config.get("project") or config.get("project_id") or ""
+
+        self._validate_config()
+
+    def _validate_config(self) -> None:
+        """Reject a config that cannot write, before a batch is read.
+
+        Left to fail later, a missing dataset fails inside a load job, hundreds of MiB into the
+        batch, and reports itself as a table-reference error rather than as missing config.
+        """
+        if not self._dataset:
+            raise BigQueryDestinationConfigurationError(
+                f"Destination {self._ctx.destination_name} has no dataset. Add a dataset to the destination, "
+                "then run the sync again."
+            )
 
     def _get_client(self) -> bigquery.Client:
         """The underlying BigQuery client, resolved the way the batch export resolves it.
@@ -122,6 +152,11 @@ class BigQueryDestinationWriter:
         # entropy left to stay collision-free for this many schemas.
         return hashlib.sha256(self._ctx.schema_id.encode()).hexdigest()[:63]
 
+    def _run_label(self) -> str:
+        # Hashed for the same reason as `_schema_label`: `run_uuid` carries no guarantee that it
+        # only holds characters a BigQuery label value accepts.
+        return hashlib.sha256(self._ctx.run_uuid.encode()).hexdigest()[:63]
+
     def _check_owned_or_absent(self, client: bigquery.Client, table_ref: str, action: str) -> bool:
         """Whether `table_ref` does not exist yet.
 
@@ -139,10 +174,36 @@ class BigQueryDestinationWriter:
             )
         return False
 
-    def _mark_owned(self, client: bigquery.Client, table_ref: str) -> None:
+    def _set_labels(self, client: bigquery.Client, table_ref: str, labels: dict[str, str]) -> None:
         existing = client.get_table(table_ref)
-        existing.labels = {**(existing.labels or {}), _OWNERSHIP_LABEL_KEY: self._schema_label()}
+        existing.labels = {**(existing.labels or {}), **labels}
         client.update_table(existing, ["labels"])
+
+    def _mark_owned(self, client: bigquery.Client, table_ref: str) -> None:
+        self._set_labels(client, table_ref, {_OWNERSHIP_LABEL_KEY: self._schema_label()})
+
+    def _mark_published(self, client: bigquery.Client, table_ref: str) -> None:
+        self._set_labels(
+            client,
+            table_ref,
+            {_OWNERSHIP_LABEL_KEY: self._schema_label(), _PUBLISHED_RUN_LABEL_KEY: self._run_label()},
+        )
+
+    def _already_published(self, ctx: DestinationRunContext) -> bool:
+        """Whether this run already copied its staging table over the live table."""
+        client = self._get_client()
+        try:
+            client.get_table(self._table_ref(staging_table_name(ctx)))
+        except NotFound:
+            pass
+        else:
+            return False
+
+        try:
+            live = client.get_table(self._table_ref(ctx.table_name))
+        except NotFound:
+            return False
+        return (live.labels or {}).get(_PUBLISHED_RUN_LABEL_KEY) == self._run_label()
 
     async def prepare_run(self, ctx: DestinationRunContext) -> None:
         def ensure_dataset() -> None:
@@ -154,6 +215,12 @@ class BigQueryDestinationWriter:
     async def write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
+        if ctx.run.is_full_refresh and await sync_to_async(self._already_published, thread_sensitive=False)(ctx.run):
+            # This run's staging table is gone and the live table carries this run's publish
+            # label, so the run finished. Rebuilding a staging table from this one batch and
+            # copying it over the live table would replace the whole table with it.
+            return BatchWriteOutcome(rows_written=0)
+
         rows_written = 0
         chunk = 0
 
@@ -170,59 +237,93 @@ class BigQueryDestinationWriter:
     async def _write_one(self, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, chunk: int) -> int:
         run = ctx.run
         full_refresh = run.is_full_refresh
-        # pq.write_table needs a Table, and one record batch is one load job.
-        table = pa.Table.from_batches([record_batch])
-
-        is_first_write = ctx.batch_index == 0 and chunk == 0
+        is_first_chunk = chunk == 0
 
         def write() -> int:
             client = self._get_client()
 
             if full_refresh:
-                staging = staging_table_name(run)
-                # Batch 0 truncates so a re-run of the whole batch sequence starts clean; later
-                # batches append. Re-applying one batch is covered by the apply marker.
-                # Only the very first chunk of the very first batch truncates; every later
-                # chunk appends, or it would wipe what the chunk before it just loaded.
-                disposition = (
-                    bigquery.WriteDisposition.WRITE_TRUNCATE
-                    if is_first_write
-                    else bigquery.WriteDisposition.WRITE_APPEND
-                )
-                staging_ref = self._table_ref(staging)
-                if is_first_write:
-                    # The staging name is unique to this run, so a genuine collision is remote,
-                    # but refusing to reuse an unrelated table costs one read and closes the gap.
-                    self._check_owned_or_absent(client, staging_ref, "reuse it as a staging table")
-                self._load(client, staging, table, disposition)
-                if is_first_write:
-                    self._mark_owned(client, staging_ref)
-                return table.num_rows
+                return self._write_full_refresh_chunk(client, record_batch, ctx, first_chunk=is_first_chunk)
 
             if run.is_incremental and run.primary_keys:
-                temp = f"{run.table_name}__ph_tmp_{run.run_uuid.replace('-', '')[:8]}_{ctx.batch_index}_{chunk}"
-                target_ref = self._table_ref(run.table_name)
-                if is_first_write:
-                    # A merge target BigQuery rejects outright if it does not already exist, so
-                    # this only ever narrows an existing failure to a clearer one; it never
-                    # creates or marks a table that was never there to check.
-                    self._check_owned_or_absent(client, target_ref, "merge into it")
-                self._load(client, temp, table, bigquery.WriteDisposition.WRITE_TRUNCATE)
-                self._merge(client, run.table_name, temp, list(table.schema.names), list(run.primary_keys))
-                client.delete_table(self._table_ref(temp), not_found_ok=True)
-                if is_first_write:
-                    self._mark_owned(client, target_ref)
-                return table.num_rows
+                return self._merge_chunk(client, record_batch, ctx, chunk)
 
+            # pq.write_table needs a Table, and one record batch is one load job.
+            table = pa.Table.from_batches([record_batch])
             target_ref = self._table_ref(run.table_name)
-            if is_first_write:
-                self._check_owned_or_absent(client, target_ref, "append to it")
+            target_absent = self._check_owned_or_absent(client, target_ref, "append to it")
             self._load(client, run.table_name, table, bigquery.WriteDisposition.WRITE_APPEND)
-            if is_first_write:
+            if target_absent:
                 self._mark_owned(client, target_ref)
             return table.num_rows
 
         return await sync_to_async(write, thread_sensitive=False)()
+
+    def _write_full_refresh_chunk(
+        self, client: bigquery.Client, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, *, first_chunk: bool
+    ) -> int:
+        """Append one chunk to the run's staging table, having cleared this batch's own rows.
+
+        Every staged row carries the batch that wrote it, and the first chunk of a batch deletes
+        the rows its previous attempt left. Without that, a re-applied batch appends a second
+        copy of its rows: the consumer re-claims any batch whose outcome it could not confirm,
+        and the staging table lives for the whole run, so nothing else removes them.
+        """
+        staging = staging_table_name(ctx.run)
+        staging_ref = self._table_ref(staging)
+        table = pa.Table.from_batches([stamp_batch_index(record_batch, ctx.batch_index)])
+
+        if first_chunk:
+            # The staging name is unique to this run, so a genuine collision is remote, but
+            # refusing to reuse an unrelated table costs one read and closes the gap.
+            staging_absent = self._check_owned_or_absent(client, staging_ref, "reuse it as a staging table")
+            if not staging_absent:
+                self._delete_batch_rows(client, staging, ctx.batch_index)
+
+            self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
+            if staging_absent:
+                self._mark_owned(client, staging_ref)
+            return table.num_rows
+
+        self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
+        return table.num_rows
+
+    def _delete_batch_rows(self, client: bigquery.Client, table: str, batch_index: int) -> None:
+        client.query(
+            f"DELETE FROM {self._quoted_table(table)} WHERE {_backtick(BATCH_INDEX_COLUMN)} = {int(batch_index)}"
+        ).result()
+
+    def _merge_chunk(
+        self, client: bigquery.Client, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, chunk: int
+    ) -> int:
+        """Upsert one chunk on the primary keys, staging it in a scratch table first."""
+        run = ctx.run
+        primary_keys = list(run.primary_keys)
+        # BigQuery rejects a `MERGE` whose source matches one target row more than once, and it
+        # rejects it again on every retry.
+        table = pa.Table.from_batches([dedupe_merge_source(record_batch, primary_keys)])
+
+        temp = f"{run.table_name}__ph_tmp_{run_scope(run.run_uuid, 8)}_{ctx.batch_index}_{chunk}"
+        target_ref = self._table_ref(run.table_name)
+        target_absent = self._check_owned_or_absent(client, target_ref, "merge into it")
+
+        self._load(client, temp, table, bigquery.WriteDisposition.WRITE_TRUNCATE)
+        try:
+            if target_absent:
+                # `MERGE` fails outright against a target that does not exist, and an
+                # incremental schema is on `sync_type` "incremental" from its very first run,
+                # so nothing else ever creates it. Take the schema BigQuery just derived for the
+                # scratch table rather than mapping Arrow types a second time.
+                self._create_like(client, target_ref, temp)
+                self._mark_owned(client, target_ref)
+            self._merge(client, run.table_name, temp, list(table.schema.names), primary_keys)
+        finally:
+            client.delete_table(self._table_ref(temp), not_found_ok=True)
+        return table.num_rows
+
+    def _create_like(self, client: bigquery.Client, table_ref: str, model: str) -> None:
+        """Create an empty table carrying another table's schema."""
+        client.create_table(bigquery.Table(table_ref, schema=client.get_table(self._table_ref(model)).schema))
 
     def _load(self, client: bigquery.Client, table: str, data: pa.Table, disposition: str) -> None:
         """Load an Arrow table as parquet, letting BigQuery derive and evolve the schema."""
@@ -275,18 +376,27 @@ class BigQueryDestinationWriter:
             # that cannot be skipped on the strength of `write_batch`'s: a table sharing the
             # generated name could have appeared, or lost its label, between the two calls.
             self._check_owned_or_absent(client, target_ref, "replace it with the full refresh's staging table")
+            # The batch-index column belongs to the staging table's own bookkeeping, so it is
+            # dropped before the copy rather than published as part of the synced table.
+            client.query(
+                f"ALTER TABLE {self._quoted_table(staging)} DROP COLUMN IF EXISTS {_backtick(BATCH_INDEX_COLUMN)}"
+            ).result()
             client.copy_table(
                 self._table_ref(staging),
                 target_ref,
                 job_config=bigquery.CopyJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE),
             ).result()
-            self._mark_owned(client, target_ref)
+            # Stamp the run that published, so a redelivery of the final batch can tell "already
+            # published" from "never started" and refuse to rebuild the table.
+            self._mark_published(client, target_ref)
             client.delete_table(self._table_ref(staging), not_found_ok=True)
 
         await sync_to_async(publish, thread_sensitive=False)()
 
     async def abort_run(self, ctx: DestinationRunContext) -> None:
-        if not ctx.is_full_refresh or self._client is None:
+        # No `self._client is None` guard: `abort_destinations` builds a fresh writer for this
+        # call, so the client is always unset here and the cleanup would never run.
+        if not ctx.is_full_refresh:
             return
 
         def drop() -> None:

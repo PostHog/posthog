@@ -12,6 +12,11 @@ They do not change with the selected judge model.
 
 ## Trace and session formatting
 
+Trace evaluations skip the LLM judge when a trace has no child events and no readable trace-level input or output.
+Message role headers, empty OpenTelemetry parts, and whitespace-only message bodies do not count as readable content.
+Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
+Root-only traces with readable state still reach the judge, and Hog evaluations can grade root-only traces from their metadata.
+
 Trace and session evaluations first render a text representation with message truncation and line sampling disabled.
 This attempt stops when the text exceeds the budget, before assembling the complete oversized transcript in memory.
 If the complete rendered transcript fits its budget, the evaluation uses that text.
@@ -33,3 +38,84 @@ Generation evaluations extract message text without the per-message character cu
 They sample the combined input, tool definitions, and output only when that text exceeds 150,000 characters, with a final character slice enforcing the limit.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
+
+## Model output limits
+
+When the judge reply reaches the model's output limit, the evaluation skips that item with `output_limit_exceeded`.
+For Anthropic structured replies, `stop_reason="max_tokens"` triggers this skip before JSON parsing.
+Historical runs still include these items, as they do for `unparsable_response`, because neither skip produces a verdict.
+Users do not need to include items that already have a result to retry them.
+
+A provider rejection of an invalid token setting does not count as a truncated reply.
+The playground keeps the provider's explanation so users can correct the setting before trying again.
+
+## Result encoding
+
+Boolean online evaluations write their raw verdict to `$ai_evaluation_result`.
+Numeric evaluations write their score to `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max` bounds.
+`$ai_evaluation_result_type` identifies the output type; events without it are legacy boolean results.
+Categorical evaluations write a list of category keys to `$ai_evaluation_categorical_result`, including for single selection.
+Sentiment evaluations keep their `$ai_sentiment_*` properties.
+N/A and skipped numeric runs omit the score, while zero remains a graded result.
+
+Separate properties preserve the existing boolean property's type and saved queries.
+The numeric property uses normal numeric inference and can be aggregated in Insights.
+Numeric queries use `toFloat(properties.$ai_evaluation_numeric_result)` to also handle properties whose metadata has not been registered yet.
+No property-definition migration is required before enabling `llm-analytics-numeric-evaluations`.
+
+## Categorical outputs
+
+Hog and LLM judge evaluations support categorical output for generation, trace, and session targets.
+Creation is gated by `llm-analytics-categorical-evaluations`, disabled by default, in the API and frontend.
+Existing evaluations remain editable and continue running when the flag is off.
+
+The output configuration defines `options` as `{key, label}` pairs, `selection_mode` as `single` or `multiple`, and optional `allows_na`.
+Each evaluation supports 1 to 100 categories, enforced by the API and editor.
+Keys must be unique lowercase identifiers; labels are for display.
+Keep keys stable when changing labels so historical results retain their meaning.
+In the editor, **Categories per result** controls the number of returned categories independently of the passing rule.
+Category errors appear below the category table; passing-rule errors appear below the passing categories.
+
+Hog returns a list of keys, or a single key string for single selection.
+The editor updates the untouched Hog example when its category key changes, is removed, or the draft's output type changes.
+Custom code is preserved.
+The LLM judge returns `categories` and `reasoning`.
+Single selection requires exactly one key; multiple selection accepts `[]` as an applicable result.
+Categorical events always set `$ai_evaluation_applicable`, because native JSON property reads treat empty arrays as absent.
+`null` means N/A only when `allows_na` is enabled.
+Unknown or duplicate keys are invalid results.
+Invalid model responses and Hog results with unknown keys, duplicate keys, or the wrong number of selections skip the run without disabling the evaluation.
+Wrong Hog return types follow the existing return-contract error path.
+
+An optional `passing_rule: {categories: [key]}` marks the passing categories.
+With passing categories selected, a result passes only when it contains at least one category and every returned category is marked as passing.
+Single selection requires at least one passing category when a rule is enabled.
+Multiple selection allows an empty passing-categories list; only `[]` passes that rule.
+N/A and skipped runs are excluded from pass rates.
+Run details, text representations, and report-agent generation details distinguish skipped runs from N/A, even when N/A is disabled.
+Without a rule, results stay ungraded and new reports are unavailable.
+Rule edits reclassify stored results, while each report retains its own configuration snapshot.
+
+The new result property leaves boolean and numeric properties unchanged and needs no property-definition backfill.
+Evaluation clustering excludes numeric and categorical results because its embedding format requires boolean verdicts.
+Deploy all evaluation workers before enabling the flag.
+
+## Run history and reports
+
+The evaluation's Runs tab defaults to the last seven days.
+Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.
+Opening a specific backfill shows all runs from that backfill, regardless of the date filter.
+Backfilled results use the original generation's timestamp.
+
+Removing a numeric or categorical evaluation's passing rule stops new report generation and scheduled delivery.
+Existing reports remain accessible through the Reports tab and the report list, detail, and history API endpoints.
+
+The report agent's `list_all_eval_results` and `sample_eval_results` tools cap each response at 30,000 characters.
+Large results reduce the number of examples returned; each returned example keeps its complete category list.
+The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
+
+## Browser compatibility
+
+The evaluations list keeps supported rows visible if the API returns an output type the browser cannot display.
+A refresh message explains that some evaluations are omitted.
+Deploy this compatibility behavior before enabling creation of a new evaluation output type.

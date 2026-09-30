@@ -30,9 +30,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
-import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -40,6 +39,7 @@ import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
+import { CategoricalEvaluationConfig } from './components/CategoricalEvaluationConfig'
 import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
@@ -48,9 +48,16 @@ import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { EVALUATION_RUNS_QUERY_LIMIT, evaluationPassedHogQL, evaluationPassRateHogQL } from './constants'
+import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
+import {
+    EVALUATION_RUNS_QUERY_LIMIT,
+    formatNumericEvaluationScore,
+    numericOutputConfigError,
+    categoricalOutputConfigError,
+} from './constants'
 import {
     evaluationOffersSessionTarget,
+    evaluationSupportsReportHistory,
     evaluationSupportsReports,
     evaluationSupportsRunOutcomes,
     evaluationTypeHasEditableCriteria,
@@ -77,6 +84,9 @@ const RUNS_BACKFILL_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:m
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
+        originalEvaluation,
+        isReportableEvaluation,
+        trendInsightUrl,
         evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
@@ -86,6 +96,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         runsSummary,
         runsBackfillId,
         runsBackfill,
+        runsDateRange,
         evaluationProviderKeyIssue,
         activeTab,
         canEnable,
@@ -94,6 +105,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
+    const numericEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_NUMERIC_EVALS]
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
     const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
@@ -105,11 +117,14 @@ export function AIObservabilityEvaluation(): JSX.Element {
         saveEvaluation,
         resetEvaluation,
         setEvaluationType,
+        setOutputType,
+        patchOutputConfig,
         setEvaluationTarget,
         setSettleStrategy,
         patchTargetConfig,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
+    const categoricalEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CATEGORICAL_EVALS]
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), { ...searchParams, tab: 'settings' }).url
@@ -140,65 +155,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
     // here rendered a "wait 30 minutes" field holding a default the config never had.
     const effectiveStrategy: EvaluationSettleStrategy =
         evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
-    const isReportableEvaluation = evaluationSupportsReports(evaluation)
-    const supportsRunOutcomes = evaluationSupportsRunOutcomes(evaluation)
+    const supportsRunOutcomes = evaluationSupportsRunOutcomes(originalEvaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
-
-    const trendInsightUrl =
-        supportsRunOutcomes && !isNewEvaluation && evaluation.id
-            ? urls.insightNew({
-                  query: {
-                      kind: NodeKind.InsightVizNode,
-                      source: {
-                          kind: NodeKind.TrendsQuery,
-                          series: [
-                              {
-                                  kind: NodeKind.EventsNode,
-                                  event: '$ai_evaluation',
-                                  custom_name: `${evaluation.name} — Pass rate`,
-                                  math: HogQLMathType.HogQL,
-                                  math_hogql: evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
-                                  properties: [
-                                      {
-                                          key: '$ai_evaluation_id',
-                                          value: evaluation.id,
-                                          operator: 'exact',
-                                          type: 'event',
-                                      },
-                                  ],
-                              },
-                              ...(evaluation.output_config.allows_na
-                                  ? [
-                                        {
-                                            kind: NodeKind.EventsNode as const,
-                                            event: '$ai_evaluation',
-                                            custom_name: `${evaluation.name} — N/A rate`,
-                                            math: HogQLMathType.HogQL as const,
-                                            math_hogql: `if(count() > 0, countIf(properties.$ai_evaluation_result IS NULL) / count() * 100, 0)`,
-                                            properties: [
-                                                {
-                                                    key: '$ai_evaluation_id',
-                                                    value: evaluation.id,
-                                                    operator: 'exact' as const,
-                                                    type: 'event' as const,
-                                                },
-                                            ],
-                                        },
-                                    ]
-                                  : []),
-                          ],
-                          trendsFilter: {
-                              display: ChartDisplayType.ActionsLineGraph,
-                          },
-                          dateRange: {
-                              date_from: '-7d',
-                          },
-                          interval: 'day',
-                      },
-                  } as InsightVizNode,
-              })
-            : null
 
     const configValid = isHog
         ? evaluation.evaluation_config.source.trim().length > 0
@@ -225,7 +184,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
               : 'Add an evaluation prompt before saving'
           : !hasSelectedJudgeModel
             ? 'Select a judge model before saving'
-            : undefined
+            : evaluation.output_type === 'categorical'
+              ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
+              : evaluation.output_type === 'numeric'
+                ? (numericOutputConfigError(evaluation.output_config) ?? undefined)
+                : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -254,7 +217,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         }
 
         const reportLogic = evaluationReportLogic({ evaluationId: isNewEvaluation ? 'new' : evaluation.id })
-        if (isReportableEvaluation && reportLogic.isMounted() && reportLogic.values.configError) {
+        if (evaluationSupportsReports(evaluation) && reportLogic.isMounted() && reportLogic.values.configError) {
             lemonToast.error(reportLogic.values.configError)
             return
         }
@@ -405,7 +368,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         'data-attr': 'llma-evaluation-runs-tab',
                         content: (
                             <div className="max-w-6xl">
-                                <div className="flex justify-between items-center mb-4">
+                                <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
                                     <div className="min-w-0">
                                         <p className="text-muted text-sm m-0">
                                             History of when this evaluation has been executed.
@@ -426,20 +389,32 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     </div>
                                     {runsSummary && (
                                         <div className="flex flex-col items-end gap-1">
-                                            <div className="flex gap-4 text-sm">
+                                            <div className="flex flex-wrap gap-4 text-sm">
                                                 <div className="text-center">
                                                     <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                     <div className="text-muted">Total runs</div>
                                                 </div>
+                                                {evaluation.output_type === 'numeric' && (
+                                                    <div className="text-center">
+                                                        <div className="font-semibold text-lg">
+                                                            {runsSummary.scoreMean == null
+                                                                ? '–'
+                                                                : formatNumericEvaluationScore(runsSummary.scoreMean)}
+                                                        </div>
+                                                        <div className="text-muted">Mean score</div>
+                                                    </div>
+                                                )}
                                                 {supportsRunOutcomes && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg text-success">
-                                                            {runsSummary.successRate}%
+                                                            {runsSummary.successRate == null
+                                                                ? '–'
+                                                                : `${runsSummary.successRate}%`}
                                                         </div>
                                                         <div className="text-muted">Success rate</div>
                                                     </div>
                                                 )}
-                                                {supportsRunOutcomes && evaluation.output_config.allows_na && (
+                                                {supportsRunOutcomes && originalEvaluation?.output_config.allows_na && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg">
                                                             {runsSummary.applicabilityRate}%
@@ -455,7 +430,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </div>
                                             </div>
                                             <div className="text-muted text-xs">
-                                                {runsBackfillId ? 'From this backfill' : 'Across all runs, all time'}
+                                                {runsBackfillId
+                                                    ? 'From this backfill'
+                                                    : runsDateRange.date_from === 'all'
+                                                      ? 'Across all runs, all time'
+                                                      : 'In the selected date range'}
                                             </div>
                                         </div>
                                     )}
@@ -504,13 +483,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         ),
                     },
                     !isNewEvaluation &&
-                        isReportableEvaluation && {
+                        evaluationSupportsReportHistory(originalEvaluation) && {
                             key: 'reports',
                             label: 'Reports',
                             'data-attr': 'llma-evaluation-reports-tab',
                             content: (
                                 <EvaluationReportsTab
                                     evaluationId={evaluation.id}
+                                    generationDisabledReason={
+                                        isReportableEvaluation
+                                            ? undefined
+                                            : 'Add a passing rule to generate new reports.'
+                                    }
                                     userAccessLevel={evaluation.user_access_level ?? undefined}
                                     onConfigureClick={() => setActiveTab('configuration')}
                                 />
@@ -555,7 +539,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <LemonSelect
                                                         value={evaluation.evaluation_type}
                                                         onChange={(value) => setEvaluationType(value as EvaluationType)}
-                                                        options={evaluationMethodOptions}
+                                                        options={evaluationMethodOptions.map((option) => ({
+                                                            ...option,
+                                                            disabledReason:
+                                                                !isNewEvaluation &&
+                                                                ['numeric', 'categorical'].includes(
+                                                                    evaluation.output_type
+                                                                ) &&
+                                                                option.value === 'sentiment'
+                                                                    ? 'Create a new evaluation to change its output type.'
+                                                                    : undefined,
+                                                        }))}
                                                         fullWidth
                                                     />
                                                 </LemonField.Pure>
@@ -730,6 +724,55 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </>
                                             )}
 
+                                            {!isSentiment && (
+                                                <LemonField.Pure label="Output type">
+                                                    <LemonSelect
+                                                        value={evaluation.output_type}
+                                                        options={[
+                                                            { value: 'boolean', label: 'Boolean' },
+                                                            {
+                                                                value: 'categorical',
+                                                                label: 'Categorical',
+                                                                disabledReason:
+                                                                    isNewEvaluation && !categoricalEvaluationsEnabled
+                                                                        ? 'Categorical evaluations are not enabled for this project.'
+                                                                        : undefined,
+                                                            },
+                                                            {
+                                                                value: 'numeric',
+                                                                label: 'Numeric score',
+                                                                disabledReason:
+                                                                    isNewEvaluation && !numericEvaluationsEnabled
+                                                                        ? 'Numeric evaluations are not enabled for this project.'
+                                                                        : undefined,
+                                                            },
+                                                        ]}
+                                                        onChange={(value) =>
+                                                            setOutputType(
+                                                                value as 'boolean' | 'numeric' | 'categorical'
+                                                            )
+                                                        }
+                                                        disabledReason={
+                                                            !isNewEvaluation
+                                                                ? 'Create a new evaluation to change its output type.'
+                                                                : undefined
+                                                        }
+                                                        data-attr="llma-evaluation-output-type"
+                                                    />
+                                                </LemonField.Pure>
+                                            )}
+                                            {evaluation.output_type === 'categorical' && (
+                                                <CategoricalEvaluationConfig
+                                                    config={evaluation.output_config}
+                                                    onChange={patchOutputConfig}
+                                                />
+                                            )}
+                                            {evaluation.output_type === 'numeric' && (
+                                                <NumericEvaluationConfig
+                                                    config={evaluation.output_config}
+                                                    onChange={patchOutputConfig}
+                                                />
+                                            )}
                                             <LemonField.Pure label="Description (optional)">
                                                 <LemonTextArea
                                                     value={evaluation.description || ''}

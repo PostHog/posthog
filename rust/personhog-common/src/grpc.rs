@@ -34,6 +34,9 @@ pub const CLIENT_NAME_HEADER: &str = "x-client-name";
 /// observability.
 pub const SEMANTIC_REFUSAL_METADATA_KEY: &str = "x-semantic-refusal";
 
+/// Never set where the request may have been applied.
+pub const NOT_APPLIED_HEADER: &str = "x-not-applied";
+
 /// Build a semantic refusal. The reason is a short slug used as a metric
 /// label.
 pub fn semantic_refusal(message: impl Into<String>, reason: &'static str) -> tonic::Status {
@@ -582,6 +585,7 @@ where
                 .header("content-type", "application/grpc")
                 .header("grpc-status", "14") // UNAVAILABLE
                 .header("grpc-message", "Server at capacity")
+                .header(NOT_APPLIED_HEADER, "load_shed")
                 .body(ResBody::default())
                 .unwrap();
 
@@ -736,6 +740,7 @@ mod tests {
             resp.headers().get("grpc-message").unwrap(),
             "Server at capacity"
         );
+        assert_eq!(resp.headers().get(NOT_APPLIED_HEADER).unwrap(), "load_shed");
         // Shed path: increment then immediate decrement, net zero change
         assert_eq!(in_flight.load(Ordering::Relaxed), 2);
     }

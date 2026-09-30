@@ -52,6 +52,10 @@ SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
 # somebody should look at it.
 SHIFT_ABSORB_MAX_ROWS = 2
 
+# The CLI uploads only .png files, so the backend decodes snapshots as PNG and nothing else.
+# Image.open without formats= tries every format Pillow can parse.
+SNAPSHOT_IMAGE_FORMATS = ("PNG",)
+
 # --- Input DTOs ---
 
 
@@ -507,8 +511,9 @@ class Repo:
 # Hard cap on entries returned by the baselines overview endpoint. Above this,
 # truncate (newest by run completion) and surface `truncated: True` so the UI
 # can flag it. The whole flow is sized for this — the FE filters/sorts client-
-# side and ships ~600 KB gzipped at the cap.
-BASELINE_OVERVIEW_MAX_ENTRIES = 5000
+# side and ships ~900 KB gzipped at the cap. Sized above the largest repo's
+# universe, so the cap is a backstop rather than a filter that hides stories.
+BASELINE_OVERVIEW_MAX_ENTRIES = 7500
 
 # Number of most-recent default-branch completed runs that feed the
 # `recent_drift_avg` smoothing window. Bounded by run count rather than time
@@ -520,6 +525,11 @@ BASELINE_DRIFT_RECENT_RUN_COUNT = 10
 # rendering and starts describing a set. Three is the point where a reader can no longer hold what
 # "the baseline" means for that snapshot, and the same floor the frequently-tolerated stat uses.
 VARIANT_PILEUP_MIN = 3
+
+# Rolling window for counting a snapshot's tolerations across baselines. The debt digest flags
+# `VARIANT_PILEUP_MIN` intentional tolerations in this window. The Tolerate dialog's quarantine
+# suggestion in the frontend (`lib/quarantineNudge.ts`) uses the same window and floor.
+TOLERATION_PILEUP_WINDOW_DAYS = 30
 
 
 @dataclass(frozen=True)
@@ -747,5 +757,37 @@ class FlakinessOverview:
 
     entries: list[FlakinessEntry]
     totals: FlakinessTotals
+    truncated: bool
+    generated_at: datetime
+
+
+@dataclass(frozen=True)
+class RunScope:
+    """Where a run's snapshots live: its repo and run type."""
+
+    repo_id: UUID
+    run_type: str
+
+
+@dataclass(frozen=True)
+class TolerationPileupEntry:
+    """One snapshot identity that keeps getting tolerated."""
+
+    identifier: str
+    run_type: str
+    intentional_count: int
+    automatic_count: int
+    is_quarantined: bool
+
+
+@dataclass(frozen=True)
+class TolerationPileups:
+    """Result of the toleration pile-ups endpoint, with the rule it applied."""
+
+    entries: list[TolerationPileupEntry]
+    window_days: int
+    min_tolerations: int
+    min_automatic_tolerations: int | None
+    total: int
     truncated: bool
     generated_at: datetime

@@ -475,6 +475,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Resolve a channel's wiki page",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path=r"channel-pages/(?P<channel_id>[^/.]+)")
     def channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
         return _read_channel_page(self.organization.id, channel_id)
@@ -673,6 +674,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "path to create it at and `exists: false`."
         ),
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path=r"channel-pages/(?P<channel_id>[^/.]+)")
     def channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
         # Unlike the organization route, a miss proposes a create path: a loop

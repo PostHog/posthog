@@ -47,10 +47,12 @@ from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
+    ArtefactContentValidationError,
     ImplementationDecision,
     ImplementationDispatch,
     NoteArtefact,
     PriorityAssessment,
+    ReportLink,
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
@@ -58,6 +60,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
+from products.signals.backend.enums import ReportLinkWritePath
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
@@ -134,7 +137,7 @@ class ScoutReportSignal:
 
     description: str
     source_id: str
-    weight: float = SCOUT_SIGNAL_WEIGHT
+    weight: float
     timestamp: datetime | None = None
     extra: dict = field(default_factory=dict)
     document_id: str | None = None
@@ -167,6 +170,7 @@ def create_scout_report(
     charts: Sequence[ReportChart] = (),
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
+    links: Sequence[ReportLink] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
     idempotency_key: str | None = None,
@@ -199,6 +203,11 @@ def create_scout_report(
     `suggested_prompts`, when supplied, become the prompts (questions or next-step actions) the
     inbox offers above the report's "Ask AI" box. Written on the same terms as `charts`, and for
     the same reason.
+
+    `links`, when supplied, become the report's typed `report_link` rows. They are written in the
+    same transaction as the report, so the link gates in `auto_start` see them when the caller
+    fires autostart. A link that `add_log` rejects rolls back the whole report and raises
+    `InvalidScoutReportError`.
 
     `idempotency_key`, when supplied, is stored on the report under a per-team unique index, so one
     key can only ever author one report. A call whose key a report already holds raises
@@ -294,6 +303,17 @@ def create_scout_report(
                 SignalReportArtefact.append_status(
                     team_id=team_id, report_id=report_id, content=priority, attribution=attribution
                 )
+            for link in links:
+                try:
+                    SignalReportArtefact.add_log(
+                        team_id=team_id,
+                        report_id=report_id,
+                        content=link,
+                        attribution=attribution,
+                        write_path=ReportLinkWritePath.EMIT,
+                    )
+                except ArtefactContentValidationError as err:
+                    raise InvalidScoutReportError(str(err))
             if suggested_reviewers is not None and len(suggested_reviewers.root) > 0:
                 SignalReportArtefact.append_status(
                     team_id=team_id,
@@ -389,6 +409,24 @@ def scout_report_exists(*, team_id: int, report_id: str) -> bool:
     only — the write paths keep their own fail-closed resolution under their transactions."""
     _validate_report_id(report_id)
     return SignalReport.objects.filter(team_id=team_id, id=report_id).exists()
+
+
+def missing_link_targets(*, team_id: int, links: Sequence[ReportLink]) -> list[str]:
+    """The link targets that name no live report in this team, in the order the caller gave them.
+
+    For the emit path's pre-judge gate: a new report has no incoming links, so a dead or foreign target
+    is the only link check the write can fail. A cost gate only — `add_log` re-checks every link under
+    the team's link lock."""
+    target_ids = list(dict.fromkeys(link.report_id for link in links))
+    if not target_ids:
+        return []
+    live = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(team_id=team_id, id__in=target_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("id", flat=True)
+    }
+    return [target_id for target_id in target_ids if target_id not in live]
 
 
 def get_scout_report_signal_count(*, team_id: int, report_id: str) -> int | None:
@@ -585,6 +623,47 @@ def append_report_note(
         },
     )
     return AppendedNote(report_id=report_id, corroboration_count=corroboration_count, collapsed=collapsed)
+
+
+def append_report_links(
+    *,
+    team_id: int,
+    report_id: str,
+    links: Sequence[ReportLink],
+    attribution: ArtefactAttribution,
+) -> int:
+    """Write typed, directed `report_link` artefacts on an existing report, returning how many landed.
+
+    Team-scoped fail-closed like every other edit path: a `report_id` the team does not own raises.
+    `add_log` enforces the link's own invariants (no self-link, a live target in the same team, no
+    cycle of one kind) and raises `ArtefactContentValidationError`, which is re-raised as an
+    `InvalidScoutReportError` so the scout tool answers with its own error shape.
+
+    Written one at a time rather than in bulk, because the cycle check has to see each link the
+    previous one added. A batch that links A to B and B to A is rejected on the second link.
+    """
+    _validate_report_id(report_id)
+    if not links:
+        return 0
+    with transaction.atomic():
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        for link in links:
+            try:
+                SignalReportArtefact.add_log(
+                    team_id=team_id,
+                    report_id=report_id,
+                    content=link,
+                    attribution=attribution,
+                    write_path=ReportLinkWritePath.EDIT,
+                )
+            except ArtefactContentValidationError as err:
+                raise InvalidScoutReportError(str(err))
+    logger.info(
+        "signals_scout.edit_report: links appended",
+        extra={"team_id": team_id, "report_id": report_id, "link_count": len(links)},
+    )
+    return len(links)
 
 
 def record_content_revision(*, team_id: int, report_id: str) -> int:

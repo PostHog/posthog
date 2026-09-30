@@ -66,6 +66,7 @@ interface ExportedLog {
 
 interface ExportedSpan {
   name: string;
+  resource: { attributes: Record<string, unknown> };
   kind: number;
   status: { code: number; message?: string };
   attributes: Record<string, unknown>;
@@ -429,6 +430,28 @@ describe("OtelRunTelemetry", () => {
       // Without a traces URL, no spans are built and logs carry no trace ids.
       expect(mockSpanExport).not.toHaveBeenCalled();
       expect(record.spanContext).toBeUndefined();
+      expect(telemetry.getRunSpanContext()).toBeUndefined();
+    });
+
+    it("omits correlation context when the run span is sampled out", async () => {
+      vi.stubEnv("OTEL_TRACES_SAMPLER", "always_off");
+      const unsampled = new OtelRunTelemetry(
+        {
+          url: "https://us.i.posthog.com/i/v1/logs",
+          token: "phc_test_key",
+          tracesUrl: "https://us.i.posthog.com/i/v1/traces",
+        },
+        RESOURCE,
+      );
+      try {
+        expect(unsampled.getRunSpanContext()).toBeUndefined();
+        unsampled.append(RUN_ID, makeEntry("session/prompt", {}));
+        await unsampled.shutdown();
+        expect(mockSpanExport).not.toHaveBeenCalled();
+      } finally {
+        await unsampled.shutdown();
+        vi.unstubAllEnvs();
+      }
     });
 
     it("never exports tool arguments, titles, or output content", async () => {
@@ -487,6 +510,7 @@ describe("OtelRunTelemetry", () => {
     let telemetry: OtelRunTelemetry;
 
     beforeEach(() => {
+      vi.stubEnv("OTEL_TRACES_SAMPLER", "always_on");
       telemetry = new OtelRunTelemetry(
         {
           url: "https://us.i.posthog.com/i/v1/logs",
@@ -496,6 +520,11 @@ describe("OtelRunTelemetry", () => {
         },
         RESOURCE,
       );
+    });
+
+    afterEach(async () => {
+      await telemetry.shutdown();
+      vi.unstubAllEnvs();
     });
 
     function driveSuccessfulRun(): void {
@@ -541,15 +570,19 @@ describe("OtelRunTelemetry", () => {
     }
 
     it("builds a run trace: root span, turn span, tool span", async () => {
+      const runContext = telemetry.getRunSpanContext();
       driveSuccessfulRun();
+      expect(telemetry.getRunSpanContext()).toEqual(runContext);
 
       await telemetry.shutdown();
+      expect(telemetry.getRunSpanContext()).toBeUndefined();
 
       const root = spanByName("task_run");
       const turn = spanByName("turn");
       const tool = spanByName("tool_call:execute");
 
       expect(root.kind).toBe(SpanKind.SERVER);
+      expect(runContext).toEqual(root.spanContext());
       expect(root.parentSpanContext).toBeUndefined();
       expect(turn.parentSpanContext?.spanId).toBe(root.spanContext().spanId);
       expect(tool.parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
@@ -581,6 +614,54 @@ describe("OtelRunTelemetry", () => {
       );
       expect(surface).not.toContain("SECRET");
       expect(surface).not.toContain(".env");
+    });
+
+    it("keeps correlation context attached to its run during concurrent turns", async () => {
+      const otherRunId = "run-other";
+      const other = new OtelRunTelemetry(
+        {
+          url: "https://us.i.posthog.com/i/v1/logs",
+          token: "phc_test_key",
+          tracesUrl: "https://us.i.posthog.com/i/v1/traces",
+        },
+        { ...RESOURCE, runId: otherRunId },
+      );
+      try {
+        const runContext = telemetry.getRunSpanContext();
+        const otherContext = other.getRunSpanContext();
+        expect(runContext?.traceId).not.toBe(otherContext?.traceId);
+        telemetry.append(RUN_ID, makeEntry("session/prompt", {}));
+        other.append(otherRunId, makeEntry("session/prompt", {}));
+        telemetry.append(
+          RUN_ID,
+          makeEntry("_posthog/turn_complete", { stopReason: "end_turn" }),
+        );
+        telemetry.append(RUN_ID, makeEntry("session/prompt", {}));
+        expect(telemetry.getRunSpanContext()).toEqual(runContext);
+        expect(other.getRunSpanContext()).toEqual(otherContext);
+
+        await Promise.all([telemetry.shutdown(), other.shutdown()]);
+
+        for (const [runId, context] of [
+          [RUN_ID, runContext],
+          [otherRunId, otherContext],
+        ] as const) {
+          expect(context).toBeDefined();
+          const runSpans = exportedSpans().filter(
+            (span) => span.resource.attributes.run_id === runId,
+          );
+          expect(
+            runSpans.find((span) => span.name === "task_run")?.spanContext(),
+          ).toEqual(context);
+          expect(
+            runSpans.every(
+              (span) => span.spanContext().traceId === context?.traceId,
+            ),
+          ).toBe(true);
+        }
+      } finally {
+        await Promise.all([telemetry.shutdown(), other.shutdown()]);
+      }
     });
 
     it("does not leave root OK when a later turn ends non-clean", async () => {
@@ -696,6 +777,23 @@ describe("OtelRunTelemetry", () => {
         ]),
       );
       expect(surface).not.toContain("SECRET");
+    });
+
+    it("makes a concurrent shutdown wait for the same flush", async () => {
+      const order: string[] = [];
+      mockLogShutdown.mockImplementationOnce(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        order.push("flushed");
+      });
+
+      await Promise.all([
+        telemetry.shutdown().then(() => order.push("first")),
+        telemetry.shutdown().then(() => order.push("second")),
+      ]);
+
+      expect(mockLogShutdown).toHaveBeenCalledOnce();
+      expect(order[0]).toBe("flushed");
+      expect(order).toContain("second");
     });
 
     it("shuts down logs even when the traces endpoint fails", async () => {

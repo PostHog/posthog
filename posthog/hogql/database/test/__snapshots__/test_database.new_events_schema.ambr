@@ -1,0 +1,31 @@
+# serializer version: 1
+# name: TestDatabase.test_database_warehouse_joins_persons_poe_v2[new_events_schema]
+  '''
+  
+  SELECT events__some_field.key AS key 
+  FROM events_json AS events LEFT JOIN (
+    SELECT groups.key AS key, key AS events__some_field___key 
+    FROM (
+      SELECT groups.group_type_index AS index, groups.group_key AS key 
+      FROM groups 
+      WHERE equals(groups.team_id, 420) 
+      GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), events__some_field.events__some_field___key) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestDatabase.test_database_warehouse_joins_persons_poe_v2_source_key_ast_call[new_events_schema]
+  '''
+  
+  SELECT events__some_field.key AS key 
+  FROM events_json AS events LEFT JOIN (
+    SELECT groups.key AS key, key AS events__some_field___key 
+    FROM (
+      SELECT groups.group_type_index AS index, groups.group_key AS key 
+      FROM groups 
+      WHERE equals(groups.team_id, 420) 
+      GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email)))))), events__some_field.events__some_field___key) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---

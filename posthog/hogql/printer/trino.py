@@ -9,6 +9,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
+from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.printer.postgres import PostgresPrinter
@@ -777,15 +778,14 @@ class TrinoPrinter(PostgresPrinter):
         if name in {"toint", "tointorzero", "tointordefault", "_touint64"} and node.args:
             arg = node.args[0]
             arg_type = arg.type.resolve_constant_type(self.context) if arg.type is not None else None
-            rendered = self.visit(arg)
             if isinstance(arg_type, ast.DateType):
-                return f"date_diff('day', DATE '1970-01-01', {rendered})"
+                return f"date_diff('day', DATE '1970-01-01', {self.visit(arg)})"
             if isinstance(arg_type, ast.DateTimeType):
-                return f"CAST(to_unixtime({rendered}) AS BIGINT)"
+                return f"CAST(to_unixtime({self.visit(arg)}) AS BIGINT)"
             if isinstance(arg_type, ast.BooleanType):
-                return f"CASE WHEN {rendered} THEN 1 ELSE 0 END"
+                return f"CASE WHEN {self.visit(arg)} THEN 1 ELSE 0 END"
             if name == "toint" and isinstance(arg_type, ast.StringType):
-                return f"TRY_CAST({rendered} AS BIGINT)"
+                return f"TRY_CAST({self.visit(arg)} AS BIGINT)"
         if name in {"tofloat", "tofloatorzero", "tofloatordefault"} and node.args:
             arg = node.args[0]
             arg_type = self._resolve_type(arg)
@@ -919,9 +919,15 @@ class TrinoPrinter(PostgresPrinter):
         if name == "arraydistinct":
             return self._visit_unary_function(node, "array_distinct")
         if name == "extractall":
-            if len(node.args) != 2:
-                self._invalid_function_arguments(node, "extractAll expects exactly 2 arguments in Trino mode.")
-            return f"regexp_extract_all({self.visit(node.args[0])}, {self.visit(node.args[1])}, 1)"
+            binary_args = self._visit_binary_args(node)
+            pattern = node.args[1]
+            if isinstance(pattern, ast.Constant) and isinstance(pattern.value, str):
+                group = self._first_regex_capture_group(pattern.value)
+                return f"regexp_extract_all({binary_args.left}, {binary_args.right}, {group})"
+            return (
+                f"coalesce(TRY(regexp_extract_all({binary_args.left}, {binary_args.right}, 1)), "
+                f"regexp_extract_all({binary_args.left}, {binary_args.right}, 0))"
+            )
         if name == "arraysort":
             if len(node.args) == 2 and isinstance(node.args[0], ast.Lambda):
                 return self._visit_array_sort_key(node)
@@ -968,9 +974,11 @@ class TrinoPrinter(PostgresPrinter):
         if name in {"argmaxif", "argminif"}:
             if len(node.args) != 3:
                 self._invalid_function_arguments(node, f"{node.name} expects exactly 3 arguments in Trino mode.")
-            rendered_args = [self.visit(arg) for arg in node.args]
+            rendered_args = [self.visit(arg) for arg in node.args[:2]]
             target = "max_by" if name == "argmaxif" else "min_by"
-            return f"{target}({rendered_args[0]}, {rendered_args[1]}) FILTER (WHERE {rendered_args[2]})"
+            return (
+                f"{target}({rendered_args[0]}, {rendered_args[1]}) FILTER (WHERE {self._visit_predicate(node.args[2])})"
+            )
         if name == "groupuniqarray":
             if len(node.args) != 1:
                 self._invalid_function_arguments(node, "groupUniqArray expects exactly 1 argument in Trino mode.")
@@ -978,11 +986,13 @@ class TrinoPrinter(PostgresPrinter):
         if name == "grouparrayif":
             if len(node.args) != 2:
                 self._invalid_function_arguments(node, "groupArrayIf expects exactly 2 arguments in Trino mode.")
-            return f"array_agg({self.visit(node.args[0])}) FILTER (WHERE {self.visit(node.args[1])})"
+            return f"array_agg({self.visit(node.args[0])}) FILTER (WHERE {self._visit_predicate(node.args[1])})"
         if name == "groupuniqarrayif":
             if len(node.args) != 2:
                 self._invalid_function_arguments(node, "groupUniqArrayIf expects exactly 2 arguments in Trino mode.")
-            return f"array_agg(DISTINCT {self.visit(node.args[0])}) FILTER (WHERE {self.visit(node.args[1])})"
+            return (
+                f"array_agg(DISTINCT {self.visit(node.args[0])}) FILTER (WHERE {self._visit_predicate(node.args[1])})"
+            )
         if name == "countdistinct":
             return self._visit_count_distinct(node)
         if name == "first_value":
@@ -1253,9 +1263,12 @@ class TrinoPrinter(PostgresPrinter):
             ast.ArithmeticOperationOp.Mod: "%",
         }
         operator = operators.get(node.op)
-        if operator is not None and lowered:
+        # Rendering operands again doubles work at each level and retains discarded bind values.
+        if operator is not None:
+            if node.op == ast.ArithmeticOperationOp.Mod and not lowered:
+                return f"MOD({left}, {right})"
             return f"({left} {operator} {right})"
-        return super().visit_arithmetic_operation(node)
+        raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
     def _resolve_type(self, node: ast.Expr) -> ast.ConstantType | None:
         if isinstance(node, ast.Call) and node.name.lower() in TRINO_TUPLE_OPERATORS:
@@ -3086,7 +3099,7 @@ class TrinoPrinter(PostgresPrinter):
             self._invalid_function_arguments(node, f"{node.name} expects one percentile parameter in Trino mode.")
         aggregate = f"approx_percentile({self.visit(node.args[0])}, {self.visit(node.params[0])})"
         if filtered:
-            aggregate += f" FILTER (WHERE {self.visit(node.args[1])})"
+            aggregate += f" FILTER (WHERE {self._visit_predicate(node.args[1])})"
         return aggregate
 
     def _visit_quantiles(self, node: ast.Call, *, over: str = "") -> str:
@@ -3940,7 +3953,11 @@ class TrinoPrinter(PostgresPrinter):
                 filtered=name.endswith("if"),
                 over=f" OVER {over}",
             )
-        exprs = [self.visit(expr) for expr in node.exprs or []]
+        conditional = name in _TRINO_CONDITIONAL_WINDOW_FUNCTIONS or name in {"uniqif", "uniqexactif"}
+        exprs = [
+            self._visit_predicate(expr) if conditional and index == len(node.exprs or []) - 1 else self.visit(expr)
+            for index, expr in enumerate(node.exprs or [])
+        ]
         if name in {"quantile", "quantileif"}:
             filtered = name.endswith("if")
             expected_args = 2 if filtered else 1
@@ -3950,9 +3967,10 @@ class TrinoPrinter(PostgresPrinter):
                     f"Window function '{node.name}' has unsupported arguments in Trino mode.",
                     node,
                 )
-            call = f"approx_percentile({self.visit(node.args[0])}, {self.visit(node.exprs[0])})"
+            value = self.visit(node.args[0])
             if filtered:
-                call += f" FILTER (WHERE {self.visit(node.args[1])})"
+                value = f"IF({self._visit_predicate(node.args[1])}, {value}, NULL)"
+            call = f"approx_percentile({value}, {exprs[0]})"
         elif node.args:
             self._unsupported(
                 "TRINO_WINDOW_FUNCTION_PARAMETERS_UNSUPPORTED",
@@ -3972,7 +3990,7 @@ class TrinoPrinter(PostgresPrinter):
                 )
             value = values[0] if len(values) == 1 else f"ROW({', '.join(values)})"
             if filtered:
-                value = f"IF({self._visit_predicate((node.exprs or [])[-1])}, {value}, NULL)"
+                value = f"IF({exprs[-1]}, {value}, NULL)"
             call = f"count(DISTINCT {value})"
         elif name in _TRINO_CONDITIONAL_WINDOW_FUNCTIONS:
             if not exprs:

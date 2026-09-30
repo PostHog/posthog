@@ -29,6 +29,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
+from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
@@ -47,6 +48,7 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     EvaluationBackfillInputs,
     backfill_workflow_id,
     cancel_backfill,
+    report_backfill_finished,
     settle_horizon,
 )
 from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS
@@ -55,7 +57,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.ai_observability.backend.api.evaluations import EvaluationConditionSerializer
-from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
+from products.ai_observability.backend.backfill_candidates import BackfillScope, count_backfill_candidates
 from products.ai_observability.backend.models.evaluation_backfill import ACTIVE_BACKFILL_STATUSES, EvaluationBackfill
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 
@@ -169,6 +171,12 @@ class EvaluationBackfillRequestSerializer(serializers.Serializer):
 
 class EvaluationBackfillEstimateSerializer(serializers.Serializer):
     total_units = serializers.IntegerField(help_text="Units that would be evaluated.")
+    already_evaluated_units = serializers.IntegerField(
+        help_text=(
+            "Units in the range this evaluation has already judged. They are excluded from "
+            "total_units unless rerun_existing is set."
+        )
+    )
     unit = serializers.ChoiceField(
         choices=EvaluationTarget.choices,
         help_text="What one unit is: a generation, a trace, or a session.",
@@ -219,6 +227,8 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "total_count",
             "dispatched_count",
             "skipped_count",
+            "failed_count",
+            "remaining_count",
             "created_by",
             "created_at",
             "finished_at",
@@ -230,9 +240,20 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "window_start": {"help_text": "Inclusive start of the window, by unit timestamp."},
             "window_end": {"help_text": "Exclusive end of the window."},
             "rerun_existing": {"help_text": "Whether units with an existing result are evaluated again."},
-            "total_count": {"help_text": "Units matched at creation; the ceiling on dispatched_count."},
+            "total_count": {
+                "help_text": "Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it."
+            },
             "dispatched_count": {"help_text": "Units the backfill has started an evaluation for so far."},
             "skipped_count": {"help_text": "Units the live path had already covered, so nothing was dispatched."},
+            "failed_count": {
+                "help_text": "Units whose evaluation failed to start. They have no result and count toward remaining_count."
+            },
+            "remaining_count": {
+                "help_text": (
+                    "Units still holding no result when the run finished, counted at that moment. "
+                    "Zero means the window is covered, whoever graded it."
+                )
+            },
             "created_at": {"help_text": "When the backfill was created."},
             "finished_at": {"help_text": "When the backfill reached a terminal status; null while it runs."},
         }
@@ -300,7 +321,7 @@ class EvaluationBackfillViewSet(
         return (
             queryset.filter(team_id=self.team_id, evaluation=self._evaluation_for_url())
             .select_related("created_by")
-            .order_by("-created_at")
+            .order_by("-created_at", "id")
         )
 
     def _validated_request(self, request: Request) -> dict[str, Any]:
@@ -311,7 +332,10 @@ class EvaluationBackfillViewSet(
     def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> BackfillWindow:
         """The requested window, bounded to the span whose verdicts can be read back."""
         now = timezone.now()
-        window_end: datetime = min(data["window_end"], now)
+        # Candidates come from `events`, but each generation is read back from `ai_events`, which a
+        # separate pipeline fills later. A generation that has not reached `ai_events` yet fails its
+        # run for good, so the window stops short of the newest events.
+        window_end: datetime = min(data["window_end"], now - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))
         settle_hold = settle_horizon(evaluation.target, evaluation.target_config)
         if settle_hold:
             # A trace or session is graded over `settle_hold` from its first event, so a unit any
@@ -428,7 +452,7 @@ class EvaluationBackfillViewSet(
         window_start: datetime,
         window_end: datetime,
         rerun_existing: bool,
-    ) -> int:
+    ) -> BackfillScope:
         try:
             return count_backfill_candidates(
                 team=self.team,
@@ -443,6 +467,25 @@ class EvaluationBackfillViewSet(
         except BaseHogQLError as error:
             raise self._condition_rejected(evaluation, error)
 
+    def _report(self, event: str, properties: dict[str, Any]) -> None:
+        try:
+            report_user_action(self.request.user, event, properties, team=self.team, request=self.request)
+        except Exception:
+            logger.exception("llma.evaluation_backfill_capture_failed", analytics_event=event)
+
+    def _scope_properties(
+        self, evaluation: Evaluation, window: BackfillWindow, rerun_existing: bool, scope: BackfillScope
+    ) -> dict[str, Any]:
+        return {
+            "evaluation_id": str(evaluation.id),
+            "target": evaluation.target,
+            "evaluation_type": evaluation.evaluation_type,
+            "units_to_evaluate": scope.to_evaluate,
+            "units_already_evaluated": scope.already_judged,
+            "window_days": round((window.end - window.start).total_seconds() / 86400, 2),
+            "rerun_existing": rerun_existing,
+        }
+
     @extend_schema(
         request=EvaluationBackfillRequestSerializer,
         responses={200: EvaluationBackfillEstimateSerializer},
@@ -455,14 +498,19 @@ class EvaluationBackfillViewSet(
         data = self._validated_request(request)
         window = self._clamped_window(evaluation, data)
         conditions = self._conditions(evaluation, data)
-        total = self._count(evaluation, conditions, window.start, window.end, data["rerun_existing"])
+        scope = self._count(evaluation, conditions, window.start, window.end, data["rerun_existing"])
         response = EvaluationBackfillEstimateSerializer(
             {
-                "total_units": total,
+                "total_units": scope.to_evaluate,
+                "already_evaluated_units": scope.already_judged,
                 "unit": evaluation.target,
                 "window_start": window.start,
                 "window_end": window.end,
             }
+        )
+        self._report(
+            "llma evaluation backfill estimated",
+            self._scope_properties(evaluation, window, data["rerun_existing"], scope),
         )
         return Response(response.data)
 
@@ -492,7 +540,10 @@ class EvaluationBackfillViewSet(
             team_id=self.team_id,
             workflow_id=workflow_id,
         )
-        cancel_backfill(self.team_id, backfill.pk)
+        if cancel_backfill(self.team_id, backfill.pk):
+            report_backfill_finished(
+                self.team_id, str(backfill.pk), status="failed", stop_reason="workflow_not_running"
+            )
         return False
 
     def _probe_reads_alive(self, backfill: EvaluationBackfill, workflow_id: str) -> bool:
@@ -543,9 +594,13 @@ class EvaluationBackfillViewSet(
 
         conditions = self._conditions(evaluation, data)
         rerun_existing = data["rerun_existing"]
-        total = self._count(evaluation, conditions, window.start, window.end, rerun_existing)
-        if total == 0:
-            raise ValidationError(f"No {evaluation.target}s in this range match these conditions. Try a wider range.")
+        scope = self._count(evaluation, conditions, window.start, window.end, rerun_existing)
+        if scope.to_evaluate == 0:
+            raise ValidationError(
+                f"Every {evaluation.target} in this range already has a result."
+                if scope.already_judged
+                else f"No {evaluation.target}s in this range match these conditions. Try a wider range."
+            )
 
         try:
             backfill = EvaluationBackfill.objects.for_team(self.team_id).create(
@@ -556,7 +611,7 @@ class EvaluationBackfillViewSet(
                 target=evaluation.target,
                 conditions=conditions,
                 rerun_existing=rerun_existing,
-                total_count=total,
+                total_count=scope.to_evaluate,
                 created_by=cast(User, request.user),
             )
         except IntegrityError:
@@ -592,6 +647,14 @@ class EvaluationBackfillViewSet(
             logger.exception("llma.evaluation_backfill_start_failed", backfill_id=str(backfill.pk))
             raise APIException("Couldn't confirm the backfill started. Check the list before starting another one.")
 
+        self._report(
+            "llma evaluation backfill started",
+            {
+                **self._scope_properties(evaluation, window, rerun_existing, scope),
+                "backfill_id": str(backfill.id),
+                "total_count": backfill.total_count,
+            },
+        )
         return Response(self.get_serializer(backfill).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses={200: EvaluationBackfillSerializer})
@@ -609,4 +672,15 @@ class EvaluationBackfillViewSet(
                 logger.warning("llma.evaluation_backfill_cancel_failed", backfill_id=str(backfill.pk), error=str(error))
             # The status and finished_at were written by the update, not on this instance.
             backfill.refresh_from_db()
+            self._report(
+                "llma evaluation backfill cancelled",
+                {
+                    "backfill_id": str(backfill.pk),
+                    "evaluation_id": str(backfill.evaluation_id),
+                    "target": backfill.target,
+                    "dispatched_count": backfill.dispatched_count,
+                    "skipped_count": backfill.skipped_count,
+                    "total_count": backfill.total_count,
+                },
+            )
         return Response(self.get_serializer(backfill).data)

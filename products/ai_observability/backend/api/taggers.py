@@ -1,5 +1,5 @@
 import json
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.core.validators import EMPTY_VALUES
 from django.db import transaction
@@ -42,6 +42,9 @@ from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..models.taggers import Tagger, TaggerType, validate_tagger_config
 from .metrics import llma_track_latency
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -604,7 +607,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         )
 
         tag_queries(product=Product.LLM_ANALYTICS, feature=QueryFeature.QUERY)
-        response = execute_hogql_query(query=query, team=team, limit_context=None)
+        response = execute_hogql_query(query=query, team=team, user=cast("User", request.user), limit_context=None)
 
         if not response.results:
             return Response({"results": [], "message": "No recent AI events found in the last 7 days"})

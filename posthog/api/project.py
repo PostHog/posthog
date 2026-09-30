@@ -122,6 +122,8 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -602,6 +604,12 @@ class ProjectBackwardCompatSerializer(
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
+        help_text=(
+            "Which table this project's feature flag usage data is read from. PostHog sets it for the "
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+        )
+    )
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
@@ -651,6 +659,16 @@ class ProjectBackwardCompatSerializer(
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
             validate_authorized_url_wildcards(value["widget_domains"])
+        from products.conversations.backend.api.ai_context import validate_ai_context_conversations_settings
+        from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+
+        # conversations_settings lives on the passthrough Team, not on Project, so a partial
+        # update that omits docs_source still normalizes against the saved source.
+        existing = self.instance.passthrough_team.conversations_settings if self.instance is not None else None
+        validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
+        validate_ai_context_conversations_settings(
+            value, team_id=self.instance.passthrough_team.id if self.instance is not None else None
+        )
         return value
 
     class Meta:
@@ -732,6 +750,7 @@ class ProjectBackwardCompatSerializer(
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
+            "flag_evaluations_mode",  # Compat with TeamSerializer
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
@@ -773,6 +792,7 @@ class ProjectBackwardCompatSerializer(
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "flag_evaluations_mode",
         )
 
         team_passthrough_fields = {
@@ -950,6 +970,10 @@ class ProjectBackwardCompatSerializer(
             DataWarehouseManagedViewSet.objects.filter(team=obj.passthrough_team).values_list("kind", flat=True)
         )
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
+
+    @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
+    def get_flag_evaluations_mode(self, obj: Project) -> int:
+        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1689,6 +1713,7 @@ class ProjectViewSet(
         request=None,
         responses={200: ProjectSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=True,
@@ -1792,7 +1817,7 @@ class ProjectViewSet(
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        validate_secret_token_generation(project.passthrough_team, cast(User, request.user))
+        validate_secret_token_generation(project.passthrough_team)
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
