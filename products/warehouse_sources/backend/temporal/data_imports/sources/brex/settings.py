@@ -5,6 +5,20 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 
 @dataclass(frozen=True)
+class BrexFanOutConfig:
+    """Pages a child endpoint once per row of a parent endpoint that is also its own table."""
+
+    # Endpoint name of the parent, whose `path` is paged to drive the fan-out.
+    parent_name: str
+    # Placeholder in the child's `path`, bound from `parent_field` on each parent row.
+    resolve_param: str
+    parent_field: str
+    # Parent field -> the key it lands under on child rows. Empty when the child response
+    # already carries the parent identifier, so nothing needs injecting.
+    parent_field_renames: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class BrexEndpointConfig:
     name: str
     path: str
@@ -15,9 +29,9 @@ class BrexEndpointConfig:
     # Stable datetime field used for partitioning. Never an updated_at-style field, which
     # would rewrite partitions on every sync.
     partition_key: Optional[str] = None
-    # When True, the endpoint is paged once per cash account listed from /v2/accounts/cash,
-    # with `{account_id}` in the path resolved per account.
-    fan_out_cash_accounts: bool = False
+    # Set when the endpoint is paged once per row of a parent endpoint, with the parent's
+    # identifier resolved into the child `path`.
+    fan_out: Optional[BrexFanOutConfig] = None
     # Response envelope key holding the rows. None when the endpoint returns a bare JSON array.
     data_selector: Optional[str] = "items"
     # False for the endpoints Brex documents no `cursor`/`limit` params on — the whole
@@ -62,7 +76,12 @@ BREX_ENDPOINTS: dict[str, BrexEndpointConfig] = {
         primary_keys=["account_id", "id"],
         incremental_param="posted_at_start",
         partition_key="posted_at_date",
-        fan_out_cash_accounts=True,
+        fan_out=BrexFanOutConfig(
+            parent_name="cash_accounts",
+            resolve_param="account_id",
+            parent_field="id",
+            parent_field_renames={"id": "account_id"},
+        ),
         incremental_fields=[
             {
                 "label": "posted_at_date",
@@ -112,11 +131,35 @@ BREX_ENDPOINTS: dict[str, BrexEndpointConfig] = {
         name="locations",
         path="/v2/locations",
     ),
+    "titles": BrexEndpointConfig(
+        name="titles",
+        path="/v2/titles",
+    ),
     "cards": BrexEndpointConfig(
         name="cards",
         path="/v2/cards",
         # `user_id` is an optional filter; omitting it lists every card on the account.
         partition_key="created_at",
+    ),
+    "fields": BrexEndpointConfig(
+        name="fields",
+        path="/v1/fields",
+        # The Fields API keys both fields and field values on `brex_id`, not `id`.
+        primary_keys=["brex_id"],
+        # No partition key: `updated_at` is the only datetime on the field object, and it
+        # moves whenever the field is edited.
+    ),
+    "field_values": BrexEndpointConfig(
+        name="field_values",
+        path="/v1/fields/{field_id}/values",
+        # Brex documents no uniqueness for `brex_id` across fields, so the parent field id is
+        # part of the key. Field value rows already carry `field_id`, so nothing is injected.
+        primary_keys=["field_id", "brex_id"],
+        fan_out=BrexFanOutConfig(
+            parent_name="fields",
+            resolve_param="field_id",
+            parent_field="brex_id",
+        ),
     ),
     "vendors": BrexEndpointConfig(
         name="vendors",
@@ -131,6 +174,11 @@ BREX_ENDPOINTS: dict[str, BrexEndpointConfig] = {
         name="budgets",
         path="/v2/budgets",
         primary_keys=["budget_id"],
+    ),
+    "budget_programs": BrexEndpointConfig(
+        name="budget_programs",
+        path="/v1/budget_programs",
+        partition_key="created_at",
     ),
     "spend_limits": BrexEndpointConfig(
         name="spend_limits",

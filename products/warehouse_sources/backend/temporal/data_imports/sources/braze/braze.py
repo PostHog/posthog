@@ -10,10 +10,12 @@ from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
     BRAZE_DATA_SERIES_ENDPOINTS,
+    BRAZE_DETAILS_ENDPOINTS,
     BRAZE_ENDPOINTS,
     DATA_SERIES_HISTORY_DAYS,
     DEFAULT_PROBE_TARGET,
     BrazeDataSeriesConfig,
+    BrazeDetailsConfig,
     BrazeEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
@@ -291,15 +293,22 @@ def _series_rows(config: BrazeDataSeriesConfig, parent_id: Optional[str], body: 
 
 
 def _iter_parent_ids(
-    api_key: str, base_url: str, config: BrazeDataSeriesConfig, team_id: int, job_id: str
+    api_key: str,
+    base_url: str,
+    parent: str,
+    parent_id_field: str,
+    team_id: int,
+    job_id: str,
+    parent_filter_field: Optional[str] = None,
 ) -> Iterator[str]:
-    assert config.parent is not None and config.parent_id_field is not None
-    parent_config = BRAZE_ENDPOINTS[config.parent]
+    parent_config = BRAZE_ENDPOINTS[parent]
     paginator, _ = _paginator_for(parent_config)
     resource = _list_resource(api_key, base_url, parent_config, team_id, job_id, paginator)
     for page in resource:
         for item in _normalize_items(parent_config, page):
-            value = item.get(config.parent_id_field)
+            if parent_filter_field is not None and not item.get(parent_filter_field):
+                continue
+            value = item.get(parent_id_field)
             if isinstance(value, str) and value:
                 yield value
 
@@ -326,9 +335,18 @@ def _data_series_rows(
     )
     url = f"{normalize_base_url(base_url)}{config.path}"
 
-    parent_ids: Iterable[Optional[str]] = (
-        _iter_parent_ids(api_key, base_url, config, team_id, job_id) if config.parent else [None]
-    )
+    parent_ids: Iterable[Optional[str]] = [None]
+    if config.parent is not None:
+        assert config.parent_id_field is not None
+        parent_ids = _iter_parent_ids(
+            api_key,
+            base_url,
+            config.parent,
+            config.parent_id_field,
+            team_id,
+            job_id,
+            config.parent_filter_field,
+        )
     for parent_id in parent_ids:
         for ending_at, length in windows:
             params: dict[str, Any] = {"length": length, "ending_at": ending_at.isoformat(), **config.params}
@@ -386,6 +404,65 @@ def _braze_data_series_source(
     )
 
 
+def _details_row(config: BrazeDetailsConfig, parent_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    # `message` only carries the request's own status ("success"), so it is not part of the object.
+    row = {key: value for key, value in body.items() if key != "message"}
+    row[config.parent_id_column] = parent_id
+    _encode_json_fields(row, config.json_object_fields)
+    for name in config.json_array_fields:
+        # Braze documents these as arrays, so an omitted one has to read as an empty array.
+        row[name] = json.dumps(row.get(name) or [])
+    return row
+
+
+def _details_rows(
+    api_key: str, base_url: str, config: BrazeDetailsConfig, team_id: int, job_id: str
+) -> Iterator[list[dict[str, Any]]]:
+    session = make_tracked_session(
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        # No redirects: the base URL is customer-supplied, so keep traffic pinned
+        # to the validated host (SSRF hardening).
+        allow_redirects=False,
+        redact_values=(api_key,),
+    )
+    url = f"{normalize_base_url(base_url)}{config.path}"
+
+    for parent_id in _iter_parent_ids(api_key, base_url, config.parent, config.parent_id_field, team_id, job_id):
+        response = session.get(url, params={config.parent_id_param: parent_id})
+        response.raise_for_status()
+        body = response.json()
+        if isinstance(body, dict):
+            yield [_details_row(config, parent_id, body)]
+
+
+def _braze_details_source(api_key: str, base_url: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
+    config = BRAZE_DETAILS_ENDPOINTS[endpoint]
+
+    def get_rows() -> Iterator[list[dict[str, Any]]]:
+        # Re-check at run time (not just at source-create) in case the URL was edited or now
+        # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+        host_ok, host_err = _is_host_safe(_host_from_url(base_url), team_id)
+        if not host_ok:
+            raise BrazeHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+
+        # No resume checkpoint: a fan-out is only resumable from a stable parent ordering, and
+        # Braze's list endpoints order by last edit time, which moves between pages.
+        yield from _details_rows(api_key, base_url, config, team_id, job_id)
+
+    return SourceResponse(
+        name=endpoint,
+        items=get_rows,
+        primary_keys=[config.parent_id_column],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        # The parent list is ordered by last edit time, so `created_at` does not run monotonically.
+        sort_mode=None,
+    )
+
+
 def braze_source(
     api_key: str,
     base_url: str,
@@ -396,6 +473,9 @@ def braze_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
+    if endpoint in BRAZE_DETAILS_ENDPOINTS:
+        return _braze_details_source(api_key, base_url, endpoint, team_id, job_id)
+
     if endpoint in BRAZE_DATA_SERIES_ENDPOINTS:
         return _braze_data_series_source(
             api_key,

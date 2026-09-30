@@ -34,10 +34,19 @@ const FeatureFlagSchema = z.object({
     updated_at: z.string().nullish(),
 })
 
+// `kind` and `properties` are optional on write (the backend defaults both), so stored
+// configs can lack them. Parsing here is on the read path of the results tool: a schema
+// stricter than what the API stores blocks every metric read for that experiment.
 const ExperimentEventExposureConfigSchema = z.object({
-    kind: z.literal('ExperimentEventExposureConfig'),
+    kind: z
+        .literal('ExperimentEventExposureConfig')
+        .nullish()
+        .transform(() => 'ExperimentEventExposureConfig' as const),
     event: z.string(),
-    properties: z.array(z.any()),
+    properties: z
+        .array(z.any())
+        .nullish()
+        .transform((properties) => properties ?? []),
 })
 
 // Action-based exposure: the experiment counts a user as exposed when they match a
@@ -57,10 +66,11 @@ const ExperimentExposureConfigSchema = z.union([
 
 const ExperimentExposureCriteriaSchema = z.object({
     filterTestAccounts: z.boolean().optional(),
-    exposure_config: ExperimentExposureConfigSchema.optional(),
+    // Explicit null is how API clients clear a config, so stored criteria carry it.
+    exposure_config: ExperimentExposureConfigSchema.nullish(),
     // Zod 4 z.object strips unknown keys on parse, and getExposures round-trips the stored
     // criteria through this schema, so omitting a field here silently degrades the query.
-    activation_config: ExperimentExposureConfigSchema.optional(),
+    activation_config: ExperimentExposureConfigSchema.nullish(),
     multiple_variant_handling: z.enum(['exclude', 'first_seen']).optional(),
 })
 

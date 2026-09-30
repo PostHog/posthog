@@ -23,7 +23,7 @@ class TestPrivacyTaskScheduling(SimpleTestCase):
     @parameterized.expand([("disabled", "", 0), ("enabled", "test-table", 1)])
     def test_privacy_schedule_requires_configured_worker(self, _name: str, table: str, expected_count: int) -> None:
         sender = MagicMock()
-        with self.settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE=table):
+        with self.settings(AI_RESEARCH_REPLAY_KEY_TABLE=table):
             setup_periodic_tasks(sender)
         calls = [
             call

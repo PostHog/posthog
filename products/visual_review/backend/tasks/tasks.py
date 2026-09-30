@@ -8,8 +8,6 @@ NOTE: Imports are done inside functions to avoid circular imports
 when Celery loads this module at startup.
 """
 
-import time
-from datetime import date
 from uuid import UUID
 
 from django.core.cache import cache
@@ -19,11 +17,9 @@ from celery import shared_task
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import with_team_scope
 from posthog.scoping_audit import skip_team_scope_audit
 
-from ..db import READER_DB
 from ..logic.errors import HashIntegrityError
 from ..models import Repo
 
@@ -38,6 +34,11 @@ _DEBT_DIGEST_LOCK_SECONDS = 900
 # A child task worth running is a child task worth running today. A worker draining a backlog past
 # this drops it, and the next morning's run recomputes what is still owed.
 _DEBT_DIGEST_EXPIRY_SECONDS = 60 * 60
+
+# Past the sweep budget in logic/retention.py and below the grace period a deploy gives a busy
+# worker. A sweep that overruns its budget then fails with a logged error. Without the limit the
+# deploy kills the worker, and nothing records that the sweep stopped.
+_RETENTION_SWEEP_SOFT_TIME_LIMIT_SECONDS = 18 * 60
 
 
 @shared_task(
@@ -174,53 +175,27 @@ def post_approval_comment(self, team_id: int, run_id: str, add_images: bool = Fa
 
 
 @shared_task(
-    name="products.visual_review.backend.tasks.sweep_visual_review_retention",
+    name="products.visual_review.backend.tasks.sweep_visual_review_runs",
     ignore_result=True,
+    soft_time_limit=_RETENTION_SWEEP_SOFT_TIME_LIMIT_SECONDS,
 )
-@skip_team_scope_audit  # cross-team housekeeping; sweep_repo scopes every query to the repo's team
-def sweep_visual_review_retention() -> None:
-    """Apply the retention policy to every repo.
-
-    One repo's failure must not stop the rest, so each repo is swept on its
-    own and the next daily run retries whatever failed.
-    """
+@skip_team_scope_audit  # cross-team housekeeping; sweep_repo_runs scopes every query to the repo's team
+def sweep_visual_review_runs() -> None:
     from ..logic import retention  # noqa: PLC0415 — avoids the logic/tasks circular import
 
-    deadline = time.monotonic() + retention.SWEEP_TIME_BUDGET_SECONDS
-    # A handful of rows, materialized so the sweep does not hold a reader cursor
-    # open for its whole run.
-    # nosemgrep: idor-lookup-without-team — cross-team retention sweep, no user input
-    repos = list(Repo.objects.unscoped().using(READER_DB).order_by("created_at"))
-    repos = retention.rotate_for_day(repos, date.today())
-    for swept, repo in enumerate(repos):
-        if time.monotonic() >= deadline:
-            logger.warning(
-                "visual_review.retention_sweep_budget_exhausted",
-                repos_swept=swept,
-                repos_total=len(repos),
-            )
-            break
-        started = time.monotonic()
-        try:
-            result = retention.sweep_repo(repo, deadline=deadline)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception(
-                "visual_review.retention_sweep_failed",
-                repo_id=str(repo.id),
-                team_id=repo.team_id,
-            )
-            continue
+    retention.sweep_every_repo("runs", retention.sweep_repo_runs)
 
-        logger.info(
-            "visual_review.retention_sweep_completed",
-            repo_id=str(repo.id),
-            team_id=repo.team_id,
-            runs_deleted=result.runs_deleted,
-            artifacts_deleted=result.artifacts_deleted,
-            objects_leaked=result.objects_leaked,
-            duration_seconds=round(time.monotonic() - started, 1),
-        )
+
+@shared_task(
+    name="products.visual_review.backend.tasks.sweep_visual_review_artifacts",
+    ignore_result=True,
+    soft_time_limit=_RETENTION_SWEEP_SOFT_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # cross-team housekeeping; sweep_repo_artifacts scopes every query to the repo's team
+def sweep_visual_review_artifacts() -> None:
+    from ..logic import retention  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    retention.sweep_every_repo("artifacts", retention.sweep_repo_artifacts)
 
 
 @shared_task(

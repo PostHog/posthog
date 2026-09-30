@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
-import { BatchExportConfiguration } from '~/types'
+import { BatchExportConfiguration, BatchExportServiceSnowflake } from '~/types'
 
 import {
     BatchExportConfigFormLogicProps,
@@ -71,6 +71,12 @@ const AWS_S3_GZIP_BATCH_EXPORT = fixture('test-aws-s3-gzip-id', 'AWS S3 gzip Exp
     config: { ...AWS_S3_CONFIG, compression: 'gzip' },
 })
 
+const AWS_S3_LEGACY_EXTENSION_BATCH_EXPORT = fixture('test-aws-s3-legacy-ext-id', 'AWS S3 legacy extension Export', {
+    type: 'AwsS3',
+    integration: 31,
+    config: { ...AWS_S3_CONFIG, legacy_parquet_extension: true },
+})
+
 const S3_COMPATIBLE_BATCH_EXPORT = fixture('test-s3-compatible-id', 'S3-compatible Export', {
     type: 'S3Compatible',
     integration: 32,
@@ -84,6 +90,7 @@ const S3_COMPATIBLE_BATCH_EXPORT = fixture('test-s3-compatible-id', 'S3-compatib
         use_virtual_style_addressing: false,
         file_format: 'Parquet',
         max_file_size_mb: null,
+        legacy_parquet_extension: false,
     },
 })
 
@@ -135,42 +142,43 @@ const POSTGRES_BATCH_EXPORT = fixture('fixture-postgres', 'Postgres Export', {
     },
 })
 
-const SNOWFLAKE_PASSWORD_BATCH_EXPORT = fixture('fixture-snowflake-password', 'Snowflake Password Export', {
+const SNOWFLAKE_BATCH_EXPORT = fixture('fixture-snowflake', 'Snowflake Export', {
     type: 'Snowflake',
+    integration: 51,
     config: {
-        account: 'sf-account',
         database: 'sf-db',
         warehouse: 'sf-wh',
-        user: 'sf-user',
-        authentication_type: 'password',
-        password: 'sf-pass',
-        private_key: null,
-        private_key_passphrase: null,
         schema: 'public',
         table_name: 'events',
-        role: null,
+        role: 'sf-role',
         exclude_events: [],
         include_events: [],
     },
 })
 
-const SNOWFLAKE_KEYPAIR_BATCH_EXPORT = fixture('fixture-snowflake-keypair', 'Snowflake Keypair Export', {
+// A migrated export: credentials moved to the integration, but the account and authentication
+// values they came with are still in the stored config. The stale keys are deliberate.
+const SNOWFLAKE_STALE_CONFIG = {
+    database: 'sf-db',
+    warehouse: 'sf-wh',
+    schema: 'public',
+    table_name: 'events',
+    role: null,
+    exclude_events: [],
+    include_events: [],
+    account: 'sf-account',
+    user: 'sf-user',
+    authentication_type: 'password',
+    password: 'sf-pass',
+    private_key: null,
+    private_key_passphrase: null,
+    // `satisfies` keeps the real fields checked; the index signature admits the stale keys.
+} satisfies BatchExportServiceSnowflake['config'] & Record<string, unknown>
+
+const SNOWFLAKE_STALE_BATCH_EXPORT = fixture('fixture-snowflake-stale', 'Snowflake Stale Export', {
     type: 'Snowflake',
-    config: {
-        account: 'sf-account',
-        database: 'sf-db',
-        warehouse: 'sf-wh',
-        user: 'sf-user',
-        authentication_type: 'keypair',
-        password: null,
-        private_key: 'priv-key',
-        private_key_passphrase: 'priv-pass',
-        schema: 'public',
-        table_name: 'events',
-        role: null,
-        exclude_events: [],
-        include_events: [],
-    },
+    integration: 51,
+    config: SNOWFLAKE_STALE_CONFIG,
 })
 
 // Note: `authorization_mode` is intentionally absent from these Redshift fixtures' config —
@@ -304,6 +312,7 @@ const AZUREBLOB_BATCH_EXPORT = fixture('fixture-azureblob', 'Azure Blob Export',
         compression: 'zstd',
         file_format: 'Parquet',
         max_file_size_mb: null,
+        legacy_parquet_extension: false,
         exclude_events: [],
         include_events: [],
     },
@@ -376,12 +385,13 @@ const REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT = fixture(
 const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     AWS_S3_BATCH_EXPORT,
     AWS_S3_GZIP_BATCH_EXPORT,
+    AWS_S3_LEGACY_EXTENSION_BATCH_EXPORT,
     S3_COMPATIBLE_BATCH_EXPORT,
     BIGQUERY_BATCH_EXPORT,
     BIGQUERY_STALE_BATCH_EXPORT,
     POSTGRES_BATCH_EXPORT,
-    SNOWFLAKE_PASSWORD_BATCH_EXPORT,
-    SNOWFLAKE_KEYPAIR_BATCH_EXPORT,
+    SNOWFLAKE_BATCH_EXPORT,
+    SNOWFLAKE_STALE_BATCH_EXPORT,
     REDSHIFT_INSERT_BATCH_EXPORT,
     REDSHIFT_NO_MODE_BATCH_EXPORT,
     REDSHIFT_COPY_IAM_BATCH_EXPORT,
@@ -1294,8 +1304,7 @@ describe('batchExportConfigFormLogic', () => {
             { name: 'S3Compatible', fixture: S3_COMPATIBLE_BATCH_EXPORT },
             { name: 'BigQuery', fixture: BIGQUERY_BATCH_EXPORT },
             { name: 'Postgres', fixture: POSTGRES_BATCH_EXPORT },
-            { name: 'Snowflake (password)', fixture: SNOWFLAKE_PASSWORD_BATCH_EXPORT },
-            { name: 'Snowflake (keypair)', fixture: SNOWFLAKE_KEYPAIR_BATCH_EXPORT },
+            { name: 'Snowflake', fixture: SNOWFLAKE_BATCH_EXPORT },
             { name: 'Redshift (INSERT)', fixture: REDSHIFT_INSERT_BATCH_EXPORT },
             { name: 'Redshift (COPY + IAM)', fixture: REDSHIFT_COPY_IAM_BATCH_EXPORT },
             { name: 'Redshift (COPY + Credentials)', fixture: REDSHIFT_COPY_CREDENTIALS_BATCH_EXPORT },
@@ -1319,12 +1328,62 @@ describe('batchExportConfigFormLogic', () => {
         })
     })
 
+    describe('Parquet extension opt-in', () => {
+        it('sends the switched-off value so new files drop the codec suffix', async () => {
+            await initLogic({ service: null, id: AWS_S3_LEGACY_EXTENSION_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                legacy_parquet_extension: false,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+
+            expect(lastPatchBody!.destination.config.legacy_parquet_extension).toBe(false)
+        })
+    })
+
     describe('strips stale/legacy config fields not in the destination allowlist', () => {
-        // Pre-Integration BigQuery configs can still hold json_config_file + credential fields.
+        // Pre-Integration configs can still hold credential fields that now live on the integration.
         // Editing such an export must not re-send them, or the backend rejects the PATCH with
         // "Configuration has unknown field/s".
-        it('drops pre-Integration BigQuery fields from the PATCH payload', async () => {
-            await initLogic({ service: null, id: BIGQUERY_STALE_BATCH_EXPORT.id })
+        it.each([
+            {
+                name: 'BigQuery drops json_config_file and inline credentials',
+                fixture: BIGQUERY_STALE_BATCH_EXPORT,
+                expectedDestination: {
+                    type: 'BigQuery',
+                    integration: 7,
+                    config: {
+                        dataset_id: 'test_dataset',
+                        table_id: 'events',
+                        use_json_type: false,
+                        exclude_events: [],
+                        include_events: [],
+                    },
+                },
+            },
+            {
+                name: 'Snowflake drops the account and credentials left behind by the migration',
+                fixture: SNOWFLAKE_STALE_BATCH_EXPORT,
+                expectedDestination: {
+                    type: 'Snowflake',
+                    integration: 51,
+                    config: {
+                        database: 'sf-db',
+                        warehouse: 'sf-wh',
+                        schema: 'public',
+                        table_name: 'events',
+                        role: null,
+                        exclude_events: [],
+                        include_events: [],
+                    },
+                },
+            },
+        ])('$name', async ({ fixture, expectedDestination }) => {
+            await initLogic({ service: null, id: fixture.id })
 
             await expectLogic(logic, () => {
                 logic.actions.submitConfiguration()
@@ -1332,15 +1391,9 @@ describe('batchExportConfigFormLogic', () => {
                 .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
                 .toFinishAllListeners()
 
-            const body = patchBodiesById[BIGQUERY_STALE_BATCH_EXPORT.id]
+            const body = patchBodiesById[fixture.id]
             expect(body).not.toBeUndefined()
-            expect(body.destination.config).toEqual({
-                dataset_id: 'test_dataset',
-                table_id: 'events',
-                use_json_type: false,
-                exclude_events: [],
-                include_events: [],
-            })
+            expect(body.destination).toEqual(expectedDestination)
         })
     })
 })

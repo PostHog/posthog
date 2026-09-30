@@ -174,3 +174,52 @@ export const GrowthAiEnrichmentSaveCreateBody = /* @__PURE__ */ zod.object({
             "Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields."
         ),
 })
+
+/**
+ * Called by a PostHog realtime destination, not by API clients. Requires the X-PostHog-Webhook-Secret header to match the GROWTH_RESCORE_WEBHOOK_SECRET instance setting.
+ * @summary Re-score an organization's ICP fit after its wizard AI-SDK stamp lands.
+ */
+export const GrowthEnrichmentRescoreCreateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod
+        .uuid()
+        .describe("Organization to re-score, from the $group_key of the wizard's $groupidentify event."),
+})
+
+export const GrowthEnrichmentScoringActivateCreateBody = /* @__PURE__ */ zod.object({
+    config_id: zod.uuid().describe('Saved scoring version to activate for subsequent evaluations.'),
+})
+
+export const growthEnrichmentScoringPreviewCreateBodySourceMax = 30000
+
+export const growthEnrichmentScoringPreviewCreateBodySampleDefault = 10
+export const growthEnrichmentScoringPreviewCreateBodySampleMax = 10
+
+export const GrowthEnrichmentScoringPreviewCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .string()
+        .max(growthEnrichmentScoringPreviewCreateBodySourceMax)
+        .describe('Hog formula to compile and execute.'),
+    base_config_id: zod.uuid().describe('Configuration whose curated tags and investors to use for the draft.'),
+    sample: zod
+        .number()
+        .min(1)
+        .max(growthEnrichmentScoringPreviewCreateBodySampleMax)
+        .default(growthEnrichmentScoringPreviewCreateBodySampleDefault)
+        .describe('Number of recent companies to preview.'),
+})
+
+export const growthEnrichmentScoringSaveCreateBodySourceMax = 30000
+
+export const growthEnrichmentScoringSaveCreateBodyVersionMax = 128
+
+export const GrowthEnrichmentScoringSaveCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .string()
+        .max(growthEnrichmentScoringSaveCreateBodySourceMax)
+        .describe('Hog formula to compile and execute.'),
+    version: zod
+        .string()
+        .max(growthEnrichmentScoringSaveCreateBodyVersionMax)
+        .describe('Unique name for the new scoring version.'),
+    base_config_id: zod.uuid().describe('Configuration whose curated tags and investors to retain.'),
+})

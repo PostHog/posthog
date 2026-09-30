@@ -28,12 +28,15 @@ export function TaskAssigneeFilterMenu(): JSX.Element {
                 }
             />
             <DropdownMenuContent align="start" side="bottom" sideOffset={6} className="min-w-fit">
-                <MenuLabel>Show tasks</MenuLabel>
+                <MenuLabel>Show chats</MenuLabel>
                 <DropdownMenuRadioGroup
                     value={assigneeFilter}
                     onValueChange={(value) => setAssigneeFilter(value as TaskAssigneeFilter)}
                 >
                     <DropdownMenuRadioItem value="for_you">For you</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="posthog_ai">PostHog AI</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="slack">Slack</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="desktop">Desktop</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="my_scouts">My scouts</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="team_scouts">Team scouts</DropdownMenuRadioItem>
                     {isStaffUser && (

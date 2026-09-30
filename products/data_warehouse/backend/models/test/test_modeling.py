@@ -129,6 +129,34 @@ GET_PARENTS_TEST_CASES = [
         """,
         set(),
     ),
+    (
+        "select event from events where person_id in (select id from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "select event, (select count() from persons) as total from events",
+        {"events", "persons"},
+    ),
+    (
+        "select event, count() as c from events group by event having count() > (select count() from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "select event from events order by (select count() from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "with cte as (select id from persons) select event from events where person_id in (select id from cte)",
+        {"events", "persons"},
+    ),
+    (
+        "select event from events prewhere person_id in (select id from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "select a.event from events a join events b on a.person_id in (select id from persons)",
+        {"events", "persons"},
+    ),
 ]
 
 
@@ -540,6 +568,21 @@ class TestBoundedResolver(BaseTest):
         ],
     )
     def test_sibling_view_joins_resolve_without_cycle(self, _name: str, query: str, expected_parents: set[str]):
+        self._make_diamond()
+
+        assert get_parents_from_model_query(self.team, "caller", query) == expected_parents
+
+    @parameterized.expand(
+        [
+            ("where", "select * from shared where event in (select event from mid)", {"shared", "mid"}),
+            (
+                "nested_in_from_subquery",
+                "select * from (select * from shared where event in (select event from mid))",
+                {"shared", "mid"},
+            ),
+        ],
+    )
+    def test_view_read_from_a_subquery_is_a_parent(self, _name: str, query: str, expected_parents: set[str]):
         self._make_diamond()
 
         assert get_parents_from_model_query(self.team, "caller", query) == expected_parents

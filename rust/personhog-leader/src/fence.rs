@@ -8,11 +8,10 @@
 //! in-process copy, and on the write path it is authoritative: a fenced
 //! write is rejected from memory alone, never a database read.
 //!
-//! Postgres is read in exactly one place — the takeover scan, once per
-//! partition acquisition, before the partition accepts writes. That plus
-//! the `FencePerson` RPC are the only two ways an entry gets in, and
-//! together they cover every mark. Entries leave in exactly two ways: a
-//! `ReleaseFence`, or dropping the whole partition.
+//! Postgres is read off the write path only: the takeover scan before a
+//! partition serves, the heal below, and a release's mark check. The scan
+//! and the `FencePerson` RPC are the only ways an entry gets in; a
+//! `ReleaseFence`, a partition drop, or the heal takes it out.
 //!
 //! The leader never reclaims a fence on its own, and deliberately so.
 //! personhog-identity owns lifecycle correctness: every op is driven to a
@@ -40,12 +39,16 @@
 //! dropped, so the next write goes through instead of waiting for the
 //! partition to change hands.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use dashmap::DashMap;
 use metrics::{counter, gauge, histogram};
-use sqlx::Row;
+use sqlx::{PgPool, Row};
+use tokio::sync::OnceCell;
 use tonic::Status;
 use uuid::Uuid;
 
@@ -55,11 +58,13 @@ use personhog_proto::personhog::types::v1::LifecycleOpType;
 use crate::cache::PersonCacheKey;
 use crate::pg::PgFallback;
 
-/// A person's live fence: the operation that froze it.
+/// A person's live fence: the operation that froze it, and when this pod
+/// sealed it. A takeover fence, rebuilt from the rows, has no seal time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FenceState {
     pub op_id: Uuid,
     pub op_type: LifecycleOpType,
+    pub sealed_at: Option<Instant>,
 }
 
 pub type FenceMap = Arc<DashMap<PersonCacheKey, FenceState>>;
@@ -141,7 +146,7 @@ pub async fn rebuild_partition_fences(
         SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
         FROM {op_person} lop
         JOIN {op} o ON o.op_id = lop.op_id
-        WHERE lop.status IN ('marked', 'sealed')
+        WHERE lop.mark_active
           AND lop.role <> 'target'
         "#,
         op_person = tables.op_person,
@@ -185,6 +190,7 @@ pub async fn rebuild_partition_fences(
             FenceState {
                 op_id: row.get("op_id"),
                 op_type: LifecycleOpType::from_op_type_str(&op_type),
+                sealed_at: None,
             },
         );
         installed += 1;
@@ -369,4 +375,339 @@ pub async fn target_mark_status(
         .bind(person_id)
         .fetch_optional(&mut *conn)
         .await
+}
+
+/// A memory bound only; what a snapshot may vouch for does not depend on its age.
+const MARK_SNAPSHOT_TTL: Duration = Duration::from_secs(30);
+
+/// Keeps the snapshot map bounded without a sweeper task.
+const MARK_SNAPSHOT_PRUNE_THRESHOLD: usize = 1_000;
+
+/// Paces the prune scan under a burst of fresh snapshots.
+const MARK_SNAPSHOT_PRUNE_INTERVAL: Duration = Duration::from_secs(5);
+
+const MARK_SNAPSHOTS_TOTAL: &str = "personhog_leader_mark_snapshots_total";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkRow {
+    pub team_id: i64,
+    pub person_id: i64,
+    pub status: String,
+}
+
+#[async_trait]
+pub trait MarkSource: Send + Sync {
+    async fn load_op(&self, op_id: Uuid) -> Result<Vec<MarkRow>, sqlx::Error>;
+}
+
+/// Merge targets are excluded because targets are never destroyed.
+pub struct PgMarkSource {
+    pool: PgPool,
+    op_person_table: String,
+}
+
+#[async_trait]
+impl MarkSource for PgMarkSource {
+    async fn load_op(&self, op_id: Uuid) -> Result<Vec<MarkRow>, sqlx::Error> {
+        let mut conn = crate::pg::acquire_timed(&self.pool, "mark_snapshot").await?;
+        let sql = format!(
+            "SELECT team_id, person_id, status FROM {} \
+             WHERE op_id = $1 AND role <> 'target'",
+            self.op_person_table
+        );
+        let rows = sqlx::query(&sql).bind(op_id).fetch_all(&mut *conn).await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| MarkRow {
+                team_id: i64::from(row.get::<i32, _>("team_id")),
+                person_id: row.get("person_id"),
+                status: row.get("status"),
+            })
+            .collect())
+    }
+}
+
+/// The op's mark rows as of one read.
+#[derive(Debug)]
+pub struct MarkSnapshot {
+    fetched_at: Instant,
+    rows: HashMap<(i64, i64), String>,
+}
+
+impl MarkSnapshot {
+    /// A fence this pod sealed before the read and that still stands; a
+    /// takeover fence never qualifies.
+    pub fn vouches_for(&self, fence: &FenceState) -> bool {
+        fence
+            .sealed_at
+            .is_some_and(|sealed_at| sealed_at < self.fetched_at)
+    }
+
+    pub fn status(&self, team_id: i64, person_id: i64) -> Option<&str> {
+        self.rows.get(&(team_id, person_id)).map(String::as_str)
+    }
+}
+
+/// The op's mark rows, read once per op per pod. The row still has to
+/// vouch for the (op, person) pair.
+pub struct MarkVerifier {
+    source: Arc<dyn MarkSource>,
+    ttl: Duration,
+    snapshots: DashMap<Uuid, Arc<OnceCell<Arc<MarkSnapshot>>>>,
+    last_prune: Mutex<Instant>,
+}
+
+impl MarkVerifier {
+    pub fn new(fallback: &PgFallback) -> Self {
+        let source = PgMarkSource {
+            pool: fallback.pool.clone(),
+            op_person_table: fallback.lifecycle.op_person.clone(),
+        };
+        Self::with_source(Arc::new(source), MARK_SNAPSHOT_TTL)
+    }
+
+    pub fn with_source(source: Arc<dyn MarkSource>, ttl: Duration) -> Self {
+        Self {
+            source,
+            ttl,
+            snapshots: DashMap::new(),
+            last_prune: Mutex::new(Instant::now()),
+        }
+    }
+
+    /// The op's snapshot, shared by every release that arrives while it is
+    /// fresh. A failed load leaves the cell empty for the next call to retry.
+    pub async fn snapshot(&self, op_id: Uuid) -> Result<Arc<MarkSnapshot>, sqlx::Error> {
+        loop {
+            let cell = self.cell(op_id);
+            let loaded_now = AtomicBool::new(false);
+            let snapshot = cell
+                .get_or_try_init(|| async {
+                    loaded_now.store(true, Ordering::Relaxed);
+                    counter!(MARK_SNAPSHOTS_TOTAL, "outcome" => "load").increment(1);
+                    // Taken before the read, so a fence sealed earlier predates every row.
+                    let fetched_at = Instant::now();
+                    let rows = self.source.load_op(op_id).await?;
+                    Ok::<_, sqlx::Error>(Arc::new(MarkSnapshot {
+                        fetched_at,
+                        rows: rows
+                            .into_iter()
+                            .map(|row| ((row.team_id, row.person_id), row.status))
+                            .collect(),
+                    }))
+                })
+                .await?;
+            if loaded_now.load(Ordering::Relaxed) {
+                return Ok(Arc::clone(snapshot));
+            }
+            // Only a snapshot someone else loaded can expire here, so a TTL
+            // shorter than one load cannot make this loop spin.
+            if snapshot.fetched_at.elapsed() > self.ttl {
+                counter!(MARK_SNAPSHOTS_TOTAL, "outcome" => "expired").increment(1);
+                self.snapshots
+                    .remove_if(&op_id, |_, current| Arc::ptr_eq(current, &cell));
+                continue;
+            }
+            counter!(MARK_SNAPSHOTS_TOTAL, "outcome" => "hit").increment(1);
+            return Ok(Arc::clone(snapshot));
+        }
+    }
+
+    fn cell(&self, op_id: Uuid) -> Arc<OnceCell<Arc<MarkSnapshot>>> {
+        if let Some(cell) = self.snapshots.get(&op_id) {
+            return Arc::clone(&cell);
+        }
+        if self.snapshots.len() >= MARK_SNAPSHOT_PRUNE_THRESHOLD {
+            let mut last_prune = self
+                .last_prune
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if last_prune.elapsed() >= MARK_SNAPSHOT_PRUNE_INTERVAL {
+                let ttl = self.ttl;
+                // A cell still loading goes too; its waiters hold their own handle.
+                self.snapshots.retain(|_, cell| {
+                    cell.get()
+                        .is_some_and(|snapshot| snapshot.fetched_at.elapsed() <= ttl)
+                });
+                *last_prune = Instant::now();
+            }
+        }
+        Arc::clone(&self.snapshots.entry(op_id).or_default())
+    }
+}
+
+#[cfg(test)]
+mod mark_verifier_tests {
+    use std::sync::atomic::AtomicUsize;
+
+    use super::*;
+
+    struct CountingSource {
+        rows: Vec<MarkRow>,
+        loads: AtomicUsize,
+        fail_next_load: AtomicBool,
+    }
+
+    impl CountingSource {
+        fn sealed(persons: i64) -> Arc<Self> {
+            Arc::new(Self {
+                rows: (1..=persons)
+                    .map(|person_id| MarkRow {
+                        team_id: 1,
+                        person_id,
+                        status: "sealed".to_string(),
+                    })
+                    .collect(),
+                loads: AtomicUsize::new(0),
+                fail_next_load: AtomicBool::new(false),
+            })
+        }
+
+        fn loads(&self) -> usize {
+            self.loads.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl MarkSource for CountingSource {
+        async fn load_op(&self, _op_id: Uuid) -> Result<Vec<MarkRow>, sqlx::Error> {
+            self.loads.fetch_add(1, Ordering::SeqCst);
+            if self.fail_next_load.swap(false, Ordering::SeqCst) {
+                return Err(sqlx::Error::PoolTimedOut);
+            }
+            Ok(self.rows.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn releases_of_one_op_share_one_load_and_unknown_persons_stay_unverified() {
+        let source = CountingSource::sealed(50);
+        let verifier = Arc::new(MarkVerifier::with_source(source.clone(), MARK_SNAPSHOT_TTL));
+        let op = Uuid::now_v7();
+
+        let mut releases = tokio::task::JoinSet::new();
+        for person_id in 1..=50 {
+            let verifier = Arc::clone(&verifier);
+            releases.spawn(async move {
+                verifier
+                    .snapshot(op)
+                    .await
+                    .map(|snapshot| snapshot.status(1, person_id).map(str::to_owned))
+            });
+        }
+        while let Some(joined) = releases.join_next().await {
+            let status = joined.expect("lookup task").expect("lookup succeeds");
+            assert_eq!(status.as_deref(), Some("sealed"));
+        }
+        assert_eq!(source.loads(), 1, "one load serves every victim of the op");
+
+        let snapshot = verifier.snapshot(op).await.expect("lookup succeeds");
+        assert_eq!(
+            snapshot.status(1, 51),
+            None,
+            "a person the op never claimed is unverified"
+        );
+        assert_eq!(
+            snapshot.status(2, 1),
+            None,
+            "the row must match the team too"
+        );
+        assert_eq!(source.loads(), 1);
+    }
+
+    #[test]
+    fn a_snapshot_vouches_only_for_a_fence_sealed_before_its_read() {
+        let read = Instant::now();
+        let snapshot = MarkSnapshot {
+            fetched_at: read,
+            rows: HashMap::new(),
+        };
+        let fence = |sealed_at| FenceState {
+            op_id: Uuid::nil(),
+            op_type: LifecycleOpType::Delete,
+            sealed_at,
+        };
+        assert!(snapshot.vouches_for(&fence(Some(read - Duration::from_millis(1)))));
+        assert!(!snapshot.vouches_for(&fence(Some(read + Duration::from_millis(1)))));
+        assert!(!snapshot.vouches_for(&fence(None)));
+    }
+
+    #[tokio::test]
+    async fn an_expired_snapshot_is_read_again() {
+        let source = CountingSource::sealed(1);
+        let verifier = MarkVerifier::with_source(source.clone(), Duration::ZERO);
+        let op = Uuid::now_v7();
+
+        verifier.snapshot(op).await.expect("first lookup");
+        assert_eq!(source.loads(), 1, "the loader keeps its own snapshot");
+        let snapshot = verifier.snapshot(op).await.expect("second lookup");
+        assert_eq!(snapshot.status(1, 1), Some("sealed"));
+        assert_eq!(source.loads(), 2, "an expired snapshot is replaced");
+    }
+
+    #[tokio::test]
+    async fn a_failed_load_is_retried_by_the_next_release() {
+        let source = CountingSource::sealed(1);
+        source.fail_next_load.store(true, Ordering::SeqCst);
+        let verifier = MarkVerifier::with_source(source.clone(), MARK_SNAPSHOT_TTL);
+        let op = Uuid::now_v7();
+
+        verifier
+            .snapshot(op)
+            .await
+            .expect_err("the failed load surfaces to the release");
+        let snapshot = verifier.snapshot(op).await.expect("second lookup");
+        assert_eq!(snapshot.status(1, 1), Some("sealed"));
+        assert_eq!(source.loads(), 2, "nothing from the failed load is trusted");
+    }
+
+    #[tokio::test]
+    async fn a_fence_sealed_during_the_read_is_not_vouched_for() {
+        struct RecordingSource(Mutex<Option<Instant>>);
+
+        #[async_trait]
+        impl MarkSource for RecordingSource {
+            async fn load_op(&self, _op_id: Uuid) -> Result<Vec<MarkRow>, sqlx::Error> {
+                *self.0.lock().unwrap() = Some(Instant::now());
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                Ok(Vec::new())
+            }
+        }
+
+        let source = Arc::new(RecordingSource(Mutex::new(None)));
+        let verifier = MarkVerifier::with_source(source.clone(), MARK_SNAPSHOT_TTL);
+        let snapshot = verifier.snapshot(Uuid::now_v7()).await.expect("load");
+        let sealed_during_read = source.0.lock().unwrap().expect("the source was read");
+        assert!(!snapshot.vouches_for(&FenceState {
+            op_id: Uuid::nil(),
+            op_type: LifecycleOpType::Delete,
+            sealed_at: Some(sealed_during_read),
+        }));
+    }
+
+    #[tokio::test]
+    async fn the_prune_runs_on_an_interval_and_drops_cells_that_never_loaded() {
+        let source = CountingSource::sealed(1);
+        let verifier = MarkVerifier::with_source(source, Duration::ZERO);
+        for _ in 0..MARK_SNAPSHOT_PRUNE_THRESHOLD {
+            verifier.snapshot(Uuid::now_v7()).await.expect("load");
+        }
+        verifier.cell(Uuid::now_v7());
+        assert_eq!(verifier.snapshots.len(), MARK_SNAPSHOT_PRUNE_THRESHOLD + 1);
+
+        verifier.snapshot(Uuid::now_v7()).await.expect("load");
+        assert_eq!(
+            verifier.snapshots.len(),
+            MARK_SNAPSHOT_PRUNE_THRESHOLD + 2,
+            "no scan inside the interval"
+        );
+
+        *verifier.last_prune.lock().unwrap() = Instant::now() - MARK_SNAPSHOT_PRUNE_INTERVAL;
+        verifier.snapshot(Uuid::now_v7()).await.expect("load");
+        assert_eq!(
+            verifier.snapshots.len(),
+            1,
+            "expired snapshots and the cell that never loaded go; the new op's stays"
+        );
+    }
 }

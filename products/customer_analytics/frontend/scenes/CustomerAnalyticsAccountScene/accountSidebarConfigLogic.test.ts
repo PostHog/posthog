@@ -52,14 +52,17 @@ const buildRelationship = (
     name: 'CSM',
     description: null,
     is_single_holder: true,
+    is_controlled: false,
     ...overrides,
 })
 
-const defaultMocks = (
-    config: UserCustomerAnalyticsConfigApi = { pinned_properties: [] }
-): Parameters<typeof useMocks>[0] => ({
+const defaultMocks = (config: Partial<UserCustomerAnalyticsConfigApi> = {}): Parameters<typeof useMocks>[0] => ({
     get: {
-        [CONFIG_URL]: config,
+        [CONFIG_URL]: {
+            pinned_properties: [],
+            task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
+            ...config,
+        },
         [CUSTOM_PROPERTIES_URL]: { count: 1, results: [buildCustomProperty()] },
         [RELATIONSHIPS_URL]: { count: 1, results: [buildRelationship()] },
     },

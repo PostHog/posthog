@@ -7,7 +7,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { ActionsNode, EventsNode } from '~/queries/schema/schema-general'
 import { ActionFilter as ActionFilterType, EntityTypes, FilterType } from '~/types'
 

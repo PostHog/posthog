@@ -11,7 +11,8 @@ from rest_framework.serializers import ValidationError as DRFValidationError
 from posthog.egress.github.transport import github_request
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
-from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
+from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillKind, CommunitySkillTrustTier
+from .community_scout_config import validate_shareable_scout_config
 from .skill_serializers import validate_skill_file_path
 from .skill_services import (
     MAX_SKILL_BODY_BYTES,
@@ -19,11 +20,13 @@ from .skill_services import (
     MAX_SKILL_FILE_COUNT,
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
+    bundled_skill_names,
 )
 
 logger = structlog.get_logger(__name__)
 
 _VALID_TRUST_TIERS = set(CommunitySkillTrustTier.values)
+_VALID_KINDS = set(CommunitySkillKind.values)
 DEFAULT_FILE_CONTENT_TYPE = "text/plain"
 # CharField columns that raise DataError past their max_length — checked before persisting.
 _CHECKED_CHAR_FIELDS = (
@@ -80,9 +83,11 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
     """
     slug = entry.get("slug", "")
     # The slug is both the catalog URL segment and the default installed-skill name, so it must
-    # satisfy the skill-name rules — lowercase alnum + single hyphens, not reserved. This also
-    # keeps DRF's default lookup regex (which rejects '.'/'/') able to route detail/install URLs,
-    # and means the default-name install can never raise an uncaught name ValidationError.
+    # satisfy the skill-name rules — lowercase alnum + single hyphens, neither reserved nor a name
+    # PostHog bundles (an entry under a bundled name would install to a name the agent host cannot
+    # tell from the bundled skill). This also keeps DRF's default lookup regex (which rejects
+    # '.'/'/') able to route detail/install URLs, and means the default-name install can never
+    # raise an uncaught name ValidationError.
     # fullmatch, not match: `$` also matches just before a trailing newline, so `match` would
     # accept "valid-skill\n" and persist the newline into the URL segment and install name.
     if (
@@ -90,6 +95,7 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
         or not SKILL_NAME_PATTERN.fullmatch(slug)
         or "--" in slug
         or slug.lower() in RESERVED_SKILL_NAMES
+        or slug.lower() in bundled_skill_names()
     ):
         raise ValueError(f"slug '{slug}' is not a valid, routable skill identifier")
 
@@ -124,6 +130,26 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
         # with whitespace would silently fracture into multiple tools on export/round-trip.
         if any(any(ch.isspace() for ch in t) for t in allowed_tools):
             raise ValueError("allowed_tools names cannot contain whitespace")
+
+    kind = entry.get("kind")
+    if kind is None:
+        kind = CommunitySkillKind.SKILL.value
+    if not isinstance(kind, str) or kind not in _VALID_KINDS:
+        raise ValueError(f"kind '{kind}' is not one of {sorted(_VALID_KINDS)}")
+
+    scout_config = entry.get("scout_config")
+    if kind != CommunitySkillKind.SCOUT.value:
+        # A plain skill carrying scout settings is a mis-typed entry, and the store would show it as
+        # a skill while its author expected a scout. Reject it rather than dropping the settings.
+        if scout_config:
+            raise ValueError("scout_config is only valid on a 'scout' entry")
+    else:
+        validate_shareable_scout_config(scout_config)
+        # The store hands a scout to the scout-create form, which takes instructions but no bundled
+        # files. A scout that shipped them would arrive missing the references its body cites, so it
+        # is refused here rather than travelling half-complete.
+        if entry.get("files"):
+            raise ValueError("a 'scout' entry cannot bundle files")
 
 
 def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
@@ -185,8 +211,20 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
     # value persisted below) is the same coerced string the caps check approved.
     source_sha = _text(entry, "source_sha", "'source_sha'")
 
+    kind = entry.get("kind")
+    if kind is None:
+        kind = CommunitySkillKind.SKILL.value
+    scout_config = validate_shareable_scout_config(entry.get("scout_config"))
+
     existing = CommunitySkill.objects.filter(slug=slug).first()
-    if existing is not None and existing.source_sha and existing.source_sha == source_sha and not existing.deleted:
+    if (
+        existing is not None
+        and existing.source_sha
+        and existing.source_sha == source_sha
+        and not existing.deleted
+        and existing.kind == kind
+        and existing.scout_config == scout_config
+    ):
         return False
 
     # Model choices aren't DB-enforced, so an unknown tier would persist raw and break consumers
@@ -212,6 +250,8 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
         # capitalized them in frontmatter (_validate_entry_shape guarantees a list of strings).
         "tags": [t.lower() for t in (entry.get("tags") or [])],
         "trust_tier": trust_tier,
+        "kind": kind,
+        "scout_config": scout_config,
         "author_handle": _text(entry, "author_handle", "'author_handle'"),
         "github_url": _text(entry, "github_url", "'github_url'"),
         "source_sha": source_sha,

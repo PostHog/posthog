@@ -110,11 +110,18 @@ def _execute_query(
     return payload
 
 
+def _nested_items(nested: BuildBetterNestedConfig, parent: dict) -> list[dict]:
+    value = parent.get(nested.nested_field)
+    if not nested.single:
+        return value or []
+    return [{f"{nested.unwrap_prefix}{key}": item for key, item in value.items()}] if value else []
+
+
 def _flatten_nested_rows(nested: BuildBetterNestedConfig, parent_rows: list[dict]) -> list[dict]:
     rows: list[dict] = []
     for parent in parent_rows:
         parent_columns = {column: parent.get(parent_field) for parent_field, column in nested.parent_columns.items()}
-        for index, child in enumerate(parent.get(nested.nested_field) or []):
+        for index, child in enumerate(_nested_items(nested, parent)):
             row = dict(child)
             if nested.unwrap_field:
                 inner = row.pop(nested.unwrap_field, None)

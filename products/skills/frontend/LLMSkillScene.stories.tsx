@@ -2,6 +2,7 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -160,6 +161,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2025-01-28',
+        featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS],
         pageUrl: urls.skill(SKILL_NAME),
         testOptions: {
             waitForLoadersToDisappear: true,
@@ -170,6 +172,8 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/llm_skills/': toPaginatedResponse([SKILL_LIST_ENTRY, UNOWNED_SKILL_LIST_ENTRY]),
                 '/api/projects/:team_id/llm_skills/resolve/name/:name/': RESOLVE_RESPONSE,
+                // Backs the share dialog's file manifest.
+                '/api/projects/:team_id/llm_skills/name/:name/': SKILL,
             },
         }),
     ],

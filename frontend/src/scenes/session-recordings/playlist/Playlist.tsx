@@ -452,11 +452,7 @@ const CollectionEmptyState = ({
             ) : (
                 <div className="flex flex-col gap-2">
                     <h3 className="title text-secondary mb-0">No recordings in this collection</h3>
-                    <p>
-                        To add recordings to this collection, go to the{' '}
-                        <Link to={urls.replay(ReplayTabs.Home)}>Recordings</Link> tab, click on a recording, then click
-                        "+ Add to collection" and select this collection from the list.
-                    </p>
+                    <p>Use "Add recordings" above to browse recordings and add them to this collection.</p>
                 </div>
             )}
         </div>

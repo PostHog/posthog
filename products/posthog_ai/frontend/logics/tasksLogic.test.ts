@@ -105,6 +105,9 @@ describe('tasksLogic', () => {
             ],
             ['my_scouts' as const, { created_by: MOCK_DEFAULT_USER.id, origin_product: OriginProduct.SIGNALS_SCOUT }],
             ['team_scouts' as const, { origin_product: OriginProduct.SIGNALS_SCOUT }],
+            ['posthog_ai' as const, { created_by: MOCK_DEFAULT_USER.id, origin_product: OriginProduct.POSTHOG_AI }],
+            ['slack' as const, { created_by: MOCK_DEFAULT_USER.id, origin_product: OriginProduct.SLACK }],
+            ['desktop' as const, { created_by: MOCK_DEFAULT_USER.id, client_provenance: 'posthog_desktop' }],
         ])('maps the %s filter to its query params', (assigneeFilter, expected) => {
             logic.actions.setAssigneeFilter(assigneeFilter)
 
@@ -157,6 +160,66 @@ describe('tasksLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(listRequestUrls).toHaveLength(1)
+        })
+
+        // Regression coverage: `created_by` is the current user's id, and a filter picked before the
+        // user had loaded sent the request without it. The server then answered with every task the
+        // caller can read, so an origin filter showed other people's shared tasks.
+        it.each([
+            ['posthog_ai', 'checkout bug'],
+            ['slack', ''],
+            ['desktop', 'checkout bug'],
+        ] as const)(
+            'holds the %s filter and search until the user has loaded after a team request',
+            async (filter, search) => {
+                userLogic.actions.loadUserSuccess(null)
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+
+                logic.actions.setAssigneeFilter('team_scouts')
+                await expectLogic(logic).toFinishAllListeners()
+                expect(listRequestUrls).toHaveLength(1)
+                listRequestUrls = []
+
+                logic.actions.setAssigneeFilter(filter)
+                if (search) {
+                    logic.actions.setSearchQuery(search)
+                }
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(listRequestUrls).toHaveLength(0)
+
+                userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(listRequestUrls).toHaveLength(1)
+                expect(
+                    listRequestUrls[0].searchParams.get(filter === 'desktop' ? 'client_provenance' : 'origin_product')
+                ).toBe(filter === 'desktop' ? 'posthog_desktop' : filter)
+                expect(listRequestUrls[0].searchParams.get('created_by')).toBe(String(MOCK_DEFAULT_USER.id))
+                expect(listRequestUrls[0].searchParams.get('search')).toBe(search || null)
+            }
+        )
+
+        it('holds the initial load and a direct refresh until the user has loaded', async () => {
+            logic.unmount()
+            userLogic.actions.loadUserSuccess(null)
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+            logic = tasksLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listRequestUrls).toHaveLength(0)
+
+            logic.actions.loadTasks(logic.values.taskListParams)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listRequestUrls).toHaveLength(0)
+
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listRequestUrls).toHaveLength(1)
+            expect(listRequestUrls[0].searchParams.get('created_by')).toBe(String(MOCK_DEFAULT_USER.id))
         })
 
         // Regression coverage: the loader reached `breakpoint` only after a resolved response, so a
@@ -311,6 +374,22 @@ describe('tasksLogic', () => {
 
             expect(historyLogic.values.history.map((t) => t.id)).toEqual(['task-2'])
             historyLogic.unmount()
+        })
+    })
+
+    describe('renameTask', () => {
+        // The loader next to this one archives by filtering the task out of the list. Renaming
+        // through the same shape would drop the row instead of relabelling it.
+        it('keeps the task in the list under its new title', async () => {
+            const renamed = { ...createMockTask('task-1'), title: 'Investigate slow dashboard load' }
+            useMocks({ patch: { '/api/projects/:team_id/tasks/:id/': () => [200, renamed] } })
+            logic.actions.loadTasksSuccess([createMockTask('task-1'), createMockTask('task-2')])
+
+            logic.actions.renameTask({ taskId: 'task-1', title: 'Investigate slow dashboard load' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasks.map((t) => t.id)).toEqual(['task-1', 'task-2'])
+            expect(logic.values.tasks[0].title).toBe('Investigate slow dashboard load')
         })
     })
 })

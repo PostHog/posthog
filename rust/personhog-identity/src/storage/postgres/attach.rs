@@ -3,12 +3,13 @@
 
 use std::collections::HashMap;
 
-use sqlx::postgres::PgPool;
 use sqlx::Row;
 
 use crate::config::IdentityTables;
+use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::types::AttachOutcome;
+use personhog_common::query_tag;
 
 /// Fresh inserts get version 1, like a stub's extra distinct ids: with no
 /// personless table there is no proof the id never sent events, and 1 is
@@ -21,7 +22,7 @@ use crate::storage::types::AttachOutcome;
 /// check rejects persons held by a live op. The rare statement that slips
 /// both leaves an orphaned mapping the next resolve treats as absent.
 pub(super) async fn attach_distinct_ids(
-    pool: &PgPool,
+    pools: &IdentityPools,
     tables: &IdentityTables,
     team_id: i64,
     person_id: i64,
@@ -43,7 +44,7 @@ pub(super) async fn attach_distinct_ids(
         WHERE NOT EXISTS (
             SELECT 1 FROM {lop} m
             WHERE m.team_id = p.team_id AND m.person_id = p.id
-              AND m.status IN ('marked', 'sealed')
+              AND m.mark_active
         )
         ON CONFLICT (team_id, distinct_id) DO UPDATE SET
             person_id = EXCLUDED.person_id,
@@ -56,8 +57,8 @@ pub(super) async fn attach_distinct_ids(
         person = tables.person,
         lop = tables.lifecycle_op_person,
     );
-    let mut conn = super::acquire_timed(pool).await?;
-    let written = sqlx::query(&insert_sql)
+    let mut conn = pools.acquire(Lane::Heavy).await?;
+    let written = sqlx::query(&query_tag!("attach_mappings", insert_sql))
         .bind(&sorted)
         .bind(person_id)
         .bind(team_id as i32)
@@ -89,7 +90,7 @@ pub(super) async fn attach_distinct_ids(
         "#,
         pdi = tables.person_distinct_id,
     );
-    let rows = sqlx::query(&losers_sql)
+    let rows = sqlx::query(&query_tag!("attach_losers", losers_sql))
         .bind(team_id as i32)
         .bind(&losers)
         .fetch_all(&mut *conn)

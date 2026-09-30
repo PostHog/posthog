@@ -60,6 +60,22 @@ _INCIDENT_SHARED_FIELDS = """
     updatedAt
 """
 
+# Anomaly and log incidents carry no `namespace` or `actionNames`, so they cannot share
+# `_INCIDENT_SHARED_FIELDS`. These are the fields the Incident interface holds for every type.
+_INCIDENT_COMMON_FIELDS = """
+    id
+    number
+    count
+    state
+    severity
+    notificationFrequency
+    description
+    digests
+    lastOccurredAt
+    createdAt
+    updatedAt
+"""
+
 APPSIGNAL_ENDPOINTS: dict[str, AppsignalEndpointConfig] = {
     # Exception incidents are mutable aggregates (count, state, lastOccurredAt keep changing)
     # and the GraphQL list has no server-side timestamp filter, so they sync full refresh only.
@@ -88,6 +104,58 @@ APPSIGNAL_ENDPOINTS: dict[str, AppsignalEndpointConfig] = {
 """,
         partition_key="createdAt",
     ),
+    # The remaining two incident types. `anomalyIncidents` and `logIncidents` sit beside
+    # `exceptionIncidents` on the App type, and each has the same `paginated*` companion, so they
+    # are walked with the documented limit/offset/order arguments. AppSignal publishes no argument
+    # list for either field, so that is read from the resolver family rather than from the docs.
+    "anomaly_incidents": AppsignalEndpointConfig(
+        name="anomaly_incidents",
+        api="graphql",
+        graphql_field="anomalyIncidents",
+        graphql_selection=_INCIDENT_COMMON_FIELDS
+        + """
+    alertState
+    tags {
+      key
+      value
+    }
+    trigger {
+      id
+      name
+      kind
+      description
+      metricName
+      field
+    }
+""",
+        partition_key="createdAt",
+    ),
+    "log_incidents": AppsignalEndpointConfig(
+        name="log_incidents",
+        api="graphql",
+        graphql_field="logIncidents",
+        graphql_selection=_INCIDENT_COMMON_FIELDS
+        + """
+    trigger {
+      id
+      name
+      description
+      query
+      severities
+      sourceIds
+      actionType
+    }
+    logLine {
+      id
+      timestamp
+      severity
+      hostname
+      group
+      message
+    }
+""",
+        partition_key="createdAt",
+    ),
     # Deploy markers keep mutating after creation (closed_at, exception_count, exception_rate
     # accumulate until the next deploy), so incremental syncs merge rather than append.
     "deploy_markers": AppsignalEndpointConfig(
@@ -98,6 +166,25 @@ APPSIGNAL_ENDPOINTS: dict[str, AppsignalEndpointConfig] = {
         extra_params={"kind": "deploy"},
         since_param="from",
         before_param="to",
+        cursor_field="created_at",
+        partition_key="created_at",
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Per-revision throughput, mean and error rate. `/api/v2/deploys/stats` answers for one
+    # revision at a time and AppSignal publishes no revision listing, so the deploy markers are
+    # the only enumeration of them — one row per marker, which joins onto `deploy_markers.id`.
+    "deploy_stats": AppsignalEndpointConfig(
+        name="deploy_stats",
+        api="custom",
+        walker="deploy_stats",
+        primary_keys=["marker_id"],
         cursor_field="created_at",
         partition_key="created_at",
         incremental_fields=[
@@ -234,6 +321,79 @@ APPSIGNAL_ENDPOINTS: dict[str, AppsignalEndpointConfig] = {
                 "label": "trace_time",
                 "type": IncrementalFieldType.DateTime,
                 "field": "trace_time",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Every table below aggregates over the time range it is asked for, so a row is a fixed
+    # bucket rather than an event. Buckets are aligned to the epoch: a re-read of a range lands
+    # on the same `timestamp` and merges onto the same rows instead of seeding shifted ones.
+    # The newest bucket is still filling when it syncs, and settles on the next sync.
+    "performance_actions": AppsignalEndpointConfig(
+        name="performance_actions",
+        api="custom",
+        walker="performance_actions",
+        primary_keys=["timestamp", "namespace", "action"],
+        cursor_field="timestamp",
+        partition_key="timestamp",
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Service dependency edges for the app, from `/api/v2/tracing/site_edges`. The per-action
+    # `action_edges` endpoint is not synced: its `namespace` argument takes a "<service>/<namespace>"
+    # pair, and no endpoint we sync reports the service half of it.
+    "service_edges": AppsignalEndpointConfig(
+        name="service_edges",
+        api="custom",
+        walker="service_edges",
+        primary_keys=["timestamp", "direction", "service"],
+        cursor_field="timestamp",
+        partition_key="timestamp",
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "slow_events": AppsignalEndpointConfig(
+        name="slow_events",
+        api="custom",
+        walker="slow_events",
+        primary_keys=["timestamp", "digest"],
+        cursor_field="timestamp",
+        partition_key="timestamp",
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # The actions each slow event appears in, fanned out per digest over the same buckets as
+    # `slow_events`.
+    "slow_event_actions": AppsignalEndpointConfig(
+        name="slow_event_actions",
+        api="custom",
+        walker="slow_event_actions",
+        primary_keys=["timestamp", "digest", "namespace", "action_name"],
+        cursor_field="timestamp",
+        partition_key="timestamp",
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],

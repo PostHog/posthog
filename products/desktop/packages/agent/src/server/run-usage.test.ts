@@ -131,14 +131,19 @@ describe("RunUsageAccumulator", () => {
     acc.add({ inputTokens: 1, outputTokens: 1, totalTokens: 2 });
     const first = reportRunUsage(acc, api, "task-1", "run-1", logger);
     acc.add({ inputTokens: 1, outputTokens: 1, totalTokens: 2 });
-    const second = reportRunUsage(acc, api, "task-1", "run-1", logger);
+    const second = reportRunUsage(acc, api, "task-1", "run-1", logger, {
+      budget_guard: { stage: "warn" },
+    });
 
     expect(updateTaskRun).toHaveBeenCalledTimes(1);
     settle[0]();
     await first;
     expect(updateTaskRun).toHaveBeenCalledTimes(2);
     expect(updateTaskRun.mock.calls[1][2]).toEqual({
-      state: { token_usage: expect.objectContaining({ turns: 2 }) },
+      state: {
+        token_usage: expect.objectContaining({ turns: 2 }),
+        budget_guard: { stage: "warn" },
+      },
     });
     settle[1]();
     await second;

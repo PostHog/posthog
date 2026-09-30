@@ -45,6 +45,11 @@ MAX_CONTRIBUTORS_PER_AREA = 50
 REPO_WIDE_AREA = "*"
 
 
+def days_since(moment: datetime, now: datetime) -> float:
+    """Days between ``moment`` and ``now``, clamped at zero so a clock-skewed future date reads as today."""
+    return max(0.0, (now - moment).total_seconds() / 86400)
+
+
 @dataclass(frozen=True)
 class ContributorActivity:
     login: str

@@ -131,6 +131,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "whoCanReply": "IDs of the space roles allowed to reply to posts of this type.",
         },
     },
+    "post_reaction_participants": {
+        "description": "Join table of the members who reacted to posts, one row per member, post, and reaction key.",
+        "docs_url": "https://developers.bettermode.com/docs/operations/reaction/queries/post-reaction-participants/",
+        "columns": {
+            "postId": "ID of the post that was reacted to.",
+            "reaction": "Reaction key the member left on the post (e.g. the emoji or reaction name).",
+            "memberId": "ID of the member who left the reaction.",
+        },
+    },
     "post_types": {
         "description": "Post types available in the community, resolving the postTypeId carried on every post.",
         "docs_url": "https://developers.bettermode.com/docs/graphql/objects/post-type/",

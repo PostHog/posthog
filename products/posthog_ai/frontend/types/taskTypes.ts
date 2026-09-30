@@ -3,6 +3,7 @@ import { Optional } from 'lib/utils/types'
 import {
     type TaskRunDetailDTOApi,
     TaskRuntimeEnumApi,
+    type TasksListClientProvenance,
     type TasksListOrdering,
 } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -30,15 +31,22 @@ export enum OriginProduct {
     // Tasks created autonomously by the headless Signals Scout — team-scoped, visible to everyone.
     SIGNALS_SCOUT = 'signals_scout',
     POSTHOG_AI = 'posthog_ai',
+    SLACK = 'slack',
     // "Create fix task" on the MCP analytics tool-quality failure drill-down.
     MCP_ANALYTICS = 'mcp_analytics',
 }
 
 /**
- * TaskTracker list filter: the current user's own non-scout tasks, their own scout tasks, every
- * team scout task, or — staff only — every task on the team.
+ * Origin filters stay scoped to the current user, like "for you".
  */
-export type TaskAssigneeFilter = 'for_you' | 'my_scouts' | 'team_scouts' | 'all_team'
+export type TaskAssigneeFilter =
+    | 'for_you'
+    | 'posthog_ai'
+    | 'slack'
+    | 'desktop'
+    | 'my_scouts'
+    | 'team_scouts'
+    | 'all_team'
 
 export enum TaskRunStatus {
     NOT_STARTED = 'not_started',
@@ -102,6 +110,7 @@ export interface TaskListParams {
     organization?: string
     stage?: string
     origin_product?: string
+    client_provenance?: TasksListClientProvenance
     exclude_origin_product?: string
     /** `all` includes internal tasks (shown-by-default flag, not an access gate); `true` narrows to only-internal tasks. */
     internal?: 'true' | 'false' | 'all'

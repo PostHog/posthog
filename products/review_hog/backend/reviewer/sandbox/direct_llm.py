@@ -7,7 +7,7 @@ from anthropic.types import OutputConfigParam
 from pydantic import BaseModel
 from temporalio.exceptions import ApplicationError
 
-from posthog.llm.gateway_client import get_async_anthropic_gateway_client
+from posthog.llm.gateway_client import build_async_anthropic_client
 
 from products.review_hog.backend.reviewer.constants import ONESHOT_MODEL, ONESHOT_REASONING_EFFORT
 
@@ -44,9 +44,11 @@ async def run_oneshot_review(
     through the LLM gateway pinned to ``model`` at ``reasoning_effort`` (defaulting to the one-shot
     pins), with the response schema-constrained to ``model_to_validate`` via structured outputs (so
     the bare-JSON failure class the sandbox path retried on cannot occur). Callers that judge on a
-    different model family (the outcome classifier) pass ``model`` explicitly. Bedrock fallback is
-    deliberately off: the gateway's Bedrock path forwards only allowlisted params and would strip
-    ``output_config``, silently losing both the effort pin and the schema constraint.
+    different model family (the outcome classifier) pass ``model`` explicitly. Bedrock fallback
+    stays off: the Python gateway's Bedrock path forwards only allowlisted params and would strip
+    ``output_config``, losing both the effort pin and the schema constraint. The Go gateway drops
+    Bedrock targets that cannot serve structured outputs itself, so it needs no opt-out. It streams
+    because the Go gateway's public path cuts a buffered response at 290s, which chunking can exceed.
 
     Raises on failure so the calling Temporal activity retries, mirroring the sandbox contract.
     Anthropic ``APIError``s are re-raised as compact ``ApplicationError``s — a raw ``APIError``
@@ -54,10 +56,13 @@ async def run_oneshot_review(
     non-retryable. ``step_name`` is stamped on the captured ``$ai_generation`` event as ``ai_stage``
     so dumps and cost queries can attribute the call to its pipeline stage.
     """
-    client = get_async_anthropic_gateway_client(product="review_hog", team_id=team_id)
+    # The Go gateway reads ai_stage from the builder; the Python fallback reads the per-call header below.
+    client = build_async_anthropic_client(
+        product="review_hog", ai_product="review_hog", ai_stage=step_name, team_id=team_id
+    )
     async with client:
         try:
-            response = await client.messages.parse(
+            async with client.messages.stream(
                 model=model,
                 max_tokens=_MAX_OUTPUT_TOKENS,
                 system=system_prompt,
@@ -70,7 +75,8 @@ async def run_oneshot_review(
                 metadata={"user_id": f"user-{user_id}"},
                 extra_headers={"x-posthog-property-ai_stage": step_name},
                 timeout=_TIMEOUT_SECONDS,
-            )
+            ) as stream:
+                response = await stream.get_final_message()
         except APIError as e:
             status = getattr(e, "status_code", None)
             non_retryable = status is not None and 400 <= status < 500 and status not in _RETRYABLE_CLIENT_STATUSES

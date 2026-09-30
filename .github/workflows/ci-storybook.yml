@@ -7,8 +7,10 @@ on:
         # label. Force it also to give a story back a baseline entry it lost: the narrowed
         # matrix renders only the stories the diff affects, so a story the diff does not
         # touch is never captured, and a reviewer has nothing to approve into
-        # `frontend/snapshots.yml`. The `no-ci` label does the opposite: it silences
-        # this workflow on a draft entirely (prototypes).
+        # `frontend/snapshots.yml`. The label widens a run that happens anyway: a PR that
+        # changes no path the `changes` job watches builds no Storybook, label or not.
+        # The `no-ci` label does the opposite: it silences this workflow on a draft
+        # entirely (prototypes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
         # so every unrelated label re-ran the full chromium matrix against a commit CI
         # had already covered. A label here takes effect from the next push, or from
@@ -32,10 +34,33 @@ env:
     NPM_CONFIG_FUND: 'false'
 
 jobs:
+    # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
+    # Fork and Dependabot runs get no secret; the queue always runs everything anyway.
+    # The step fails open, because this telemetry must not turn a passing workflow red.
+    dynamic-ci-filter:
+        name: Trunk Dynamic CI (Learning Mode)
+        if: >-
+            github.event_name == 'pull_request' &&
+            github.repository == 'PostHog/posthog' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            (github.event.pull_request.draft != true ||
+            !contains(github.event.pull_request.labels.*.name, 'no-ci'))
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Ask Trunk which jobs this diff needs
+              continue-on-error: true
+              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              with:
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
     # Job to decide if we should run storybook ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
@@ -104,6 +129,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       frontend:
+                        - 'patches/jest-junit@16.0.0.patch'
                         - 'frontend/**'
                         - 'products/**/*.{ts,tsx}'
                         - 'products/**/frontend/**'
@@ -316,7 +342,7 @@ jobs:
 
     vr-setup:
         name: Create Visual Review run
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # The VR CLI build dominates this job whenever the cache misses, and it then
         # downloads the whole dependency tree. vr-complete allows the same budget for the
         # same build.
@@ -457,7 +483,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
-        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
+        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         needs: [changes, build-storybook, vr-setup, select-stories]
         # A status function is required because select-stories is skipped on forced-full
         # PRs and master pushes. !cancelled() rather than always() so a superseded run's
@@ -622,10 +648,14 @@ jobs:
                       pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
                   fi
 
-            # Upload snapshots to Visual Review (runs in parallel across shards).
-            # Build the CLI from the base branch (see vr-setup for the rationale).
+            # Upload snapshots to Visual Review (runs in parallel across shards), or verify
+            # them offline on a fork PR. Fork PRs get no VR_API_TOKEN, so vr-setup skips and
+            # leaves run_id empty. The fork arm reads the event, not env, because the fork's
+            # test code runs earlier in this job and can write to $GITHUB_ENV. Build the CLI
+            # from the base branch (see vr-setup for the rationale), which also keeps fork
+            # code out of the CLI.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              if: always() && needs.vr-setup.outputs.run_id != ''
+              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository))
               with:
                   ref: ${{ github.event.pull_request.base.ref || github.sha }}
                   path: vr-cli
@@ -639,7 +669,7 @@ jobs:
             # the cache version. The save below writes the container version.
             - name: Restore VR CLI build
               id: restore-vr-cli
-              if: always() && needs.vr-setup.outputs.run_id != ''
+              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository))
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -650,7 +680,7 @@ jobs:
             # Runs only on a miss, and retries the install for the reason given at vr-setup.
             - name: Build VR CLI
               id: build-vr-cli
-              if: always() && needs.vr-setup.outputs.run_id != '' && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && steps.restore-vr-cli.outputs.cache-hit != 'true'
               timeout-minutes: 8
               shell: bash
               working-directory: vr-cli/products/visual_review/cli
@@ -684,6 +714,45 @@ jobs:
                       set -- "$@" --storybook-index common/storybook/dist/index.json --storybook-root common/storybook
                   fi
                   node "$VR_CLI" run upload "$@"
+
+            # Without this step a fork PR's gate reads the skipped Visual Review jobs as a pass,
+            # and the merge queue is the first run to compare its screenshots. verify compares
+            # exact pixel hashes with no API call. It does not know the tolerated alternate hashes
+            # or the quarantine that Visual Review applies, so a flaky story can fail a fork PR
+            # that changes nothing visible. --partial because a shard renders only part of the
+            # baseline, so a baseline missing from the shard is not a removal.
+            # The PR controls frontend/snapshots.yml and verify cannot check the HMAC offline, so
+            # this catches honest drift, not a forged baseline. Visual Review drops entries with a
+            # bad signature, so the merge queue still catches a forged one.
+            # !cancelled() keeps the check after a test-runner failure. A failed CLI build
+            # fails this step too, so a fork PR never passes unverified.
+            - name: Verify snapshots against the baseline offline
+              if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
+              shell: bash
+              run: |
+                  set +e
+                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js verify --partial \
+                    --dir frontend/__snapshots__/ \
+                    --baseline frontend/snapshots.yml > /tmp/vr-verify.log 2>&1
+                  status=$?
+                  set -e
+                  cat /tmp/vr-verify.log
+                  {
+                      echo "### Offline snapshot check (${{ matrix.browser }} ${{ matrix.shard }}/${{ matrix.shard_count }})"
+                      echo
+                      echo "Fork PRs get no Visual Review run, so this shard compares its screenshots with \`frontend/snapshots.yml\` offline."
+                      echo "This fallback accepts only an exact pixel match. It does not know the tolerated hashes or the quarantine of Visual Review, so a flaky story can also fail it."
+                      echo
+                      echo '```'
+                      cat /tmp/vr-verify.log
+                      echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+                  if [ "$status" -ne 0 ] && grep -q 'Baseline mismatch' /tmp/vr-verify.log; then
+                      echo "::error title=Snapshots differ from the baseline::This shard's screenshots do not match frontend/snapshots.yml. Fork PRs get no Visual Review run, so this offline fallback accepts only an exact pixel match, without the tolerated hashes or the quarantine of Visual Review. A maintainer must review the change and update the baseline before this PR can merge. The job log lists the snapshots that differ."
+                  elif [ "$status" -ne 0 ]; then
+                      echo "::error title=Offline snapshot check failed::The offline snapshot check could not compare this shard's screenshots. The job log shows the error."
+                  fi
+                  exit "$status"
 
             # Saves the container version of the entry from one shard, master only. Runs
             # after the upload so packing never delays a snapshot. !cancelled() because the
@@ -748,7 +817,7 @@ jobs:
     # Catches flaky snapshots before they land on master.
     flake-verification:
         name: Storybook flake verification
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         needs: [changes, build-storybook]
         # Skipped on trunk-merge/**: the job diffs against base.sha to find changed stories,
         # which on a queue branch is the same set the PR's own run already re-ran three times.
@@ -842,7 +911,7 @@ jobs:
     visual_regression_tests:
         needs: [changes, build-storybook, select-stories, visual-regression, vr-setup, vr-complete]
         name: Visual regression tests pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:
@@ -891,7 +960,7 @@ jobs:
 
     vr-complete:
         name: Complete Visual Review run
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 15
         needs: [changes, visual-regression, vr-setup]
         # Intentional always(), not !cancelled(): this job finalizes external state,
@@ -998,7 +1067,7 @@ jobs:
     calculate-running-time:
         name: Calculate running time
         needs: [visual-regression, visual_regression_tests, changes]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
@@ -1043,7 +1112,7 @@ jobs:
     capture-story-selection:
         name: Capture story selection
         needs: [select-stories]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # select-stories skips merge-queue and forced-full runs. Fire only when it
         # produced a decision. DevEx project only; continue-on-error so telemetry never reds CI.
@@ -1082,7 +1151,7 @@ jobs:
     # uncertainty also falls back to the full matrix.
     select-stories:
         name: Story selection
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: [changes, build-storybook]
         if: |

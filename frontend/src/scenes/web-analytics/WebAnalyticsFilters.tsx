@@ -581,7 +581,7 @@ const ShareButton = (): JSX.Element => {
 
 function FiltersPopover(): JSX.Element {
     const [displayFilters, setDisplayFilters] = useState(false)
-    const { rawWebAnalyticsFilters, conversionGoal, preAggregatedEnabled, productTab } = useValues(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters, conversionGoal, restrictedUiEnabled, productTab } = useValues(webAnalyticsLogic)
 
     const { setWebAnalyticsFilters, setConversionGoal } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -598,11 +598,11 @@ function FiltersPopover(): JSX.Element {
 
     const showConversionGoal =
         productTab === ProductTab.ANALYTICS &&
-        (!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG])
+        (!restrictedUiEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG])
 
     const cohortFilterEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]
-    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false, cohortFilterEnabled)
-    const propertyAllowList = preAggregatedEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
+    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(restrictedUiEnabled ?? false, cohortFilterEnabled)
+    const propertyAllowList = restrictedUiEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
 
     const activeFilterCount = rawWebAnalyticsFilters.length + (conversionGoal ? 1 : 0)
 
@@ -733,10 +733,10 @@ const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
 }
 
 const IncompatibleFiltersWarning = (): JSX.Element | null => {
-    const { hasIncompatibleFilters, incompatibleFilters, preAggregatedEnabled } = useValues(webAnalyticsLogic)
+    const { hasIncompatibleFilters, incompatibleFilters, restrictedUiEnabled } = useValues(webAnalyticsLogic)
     const { removeIncompatibleFilters } = useActions(webAnalyticsLogic)
 
-    if (!preAggregatedEnabled || !hasIncompatibleFilters) {
+    if (!restrictedUiEnabled || !hasIncompatibleFilters) {
         return null
     }
 

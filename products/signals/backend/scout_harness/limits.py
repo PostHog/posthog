@@ -149,6 +149,11 @@ AUTO_PAUSE_PROBE_INTERVAL_S = 24 * 60 * 60
 TRIGGERED_BY_SCHEDULE = "schedule"
 TRIGGERED_BY_MANUAL = "manual"
 TRIGGERED_BY_WORKFLOW = "workflow"
+# A report check the coordinator dispatched (`report_check_agent`). It is a fourth source rather
+# than a flavour of `schedule` because the check owns the clock: the scout's own cadence decides
+# nothing about it, so it must not stamp `last_run_at` and its failures must not size a breaker
+# threshold derived from that cadence.
+TRIGGERED_BY_CHECK = "check"
 
 # Minimum gap between two workflow-triggered runs of the same (team, skill), enforced scout-side.
 # The workflow layer has its own first line of defence (trigger masking), but that lives in
@@ -165,4 +170,10 @@ WORKFLOW_RUN_COOLDOWN_S = 30 * 60
 # spend, not a routine limit (the canonical fleet is ~16 scouts). Enforced at the write
 # surfaces (config create/update) and in auto-registration, which falls back to registering
 # new scouts disabled once the team is at the cap.
+#
+# This is the LAST-RESORT default, like the run budgets beside it. The effective ceiling
+# resolves most-specific-first through `team_limits.resolve_max_enabled_scouts`: a project's
+# `team_configs` entry → the fleet-wide `default_team_config` → this constant, all under the
+# `max_enabled_scouts` key of the `signals-scout` flag payload. A project that needs more
+# capacity gets it in the flag UI, with no deploy.
 MAX_ENABLED_SCOUTS_PER_TEAM = 250

@@ -9,13 +9,13 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 import { projectHomepageLogic } from './projectHomepageLogic'
 
 interface InsightRowProps {
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     dataAttr?: string
     /** When true, text wraps instead of truncating and the row height grows to fit. */
     allowWrap?: boolean
@@ -57,7 +57,7 @@ export function RecentInsights(): JSX.Element {
                     buttonTo: urls.savedInsights(),
                 }}
                 items={recentInsights.slice(0, 5)}
-                renderRow={(insight: QueryBasedInsightModel, index) => (
+                renderRow={(insight: InsightModel, index) => (
                     <InsightRow key={index} insight={insight} dataAttr="recent-insight-item" />
                 )}
             />

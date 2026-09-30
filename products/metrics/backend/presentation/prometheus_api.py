@@ -1,9 +1,6 @@
 import re
 
 from posthog.api.snuffle_proxy import SnuffleProxyViewSet
-from posthog.permissions import PostHogFeatureFlagPermission
-
-from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG
 
 _LABEL_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 
@@ -17,9 +14,6 @@ class PrometheusQueryViewSet(SnuffleProxyViewSet):
     """
 
     scope_object = "metrics"
-    # Same private-alpha gate as MetricsViewSet.
-    posthog_feature_flag = METRICS_FEATURE_FLAG
-    permission_classes = [PostHogFeatureFlagPermission]
     upstream_prefix = "/api/v1"
     allowed_paths = (
         re.compile(r"query"),

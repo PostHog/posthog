@@ -27,6 +27,32 @@ pub use prime::prime_zero_series;
 pub use settings::{OrchestratorSettings, PersonSettings};
 pub use watch::{MarkerWatchTask, PgMarkerFlush, WatchDirectives, MARKER_WATCH_LIVENESS_DEADLINE};
 
+/// Discover and prepare every run the poll arm would work on, and report the claim-eligible ids.
+///
+/// A test that calls `discover_runs` and `establish_boundary` directly proves nothing about
+/// `prepare`, which is private to this module and is where a resumed run can silently drop out of
+/// the claim loop.
+#[cfg(feature = "pg-test-support")]
+#[doc(hidden)]
+pub async fn eligible_run_ids(
+    pool: &sqlx::PgPool,
+    store: &crate::store::chunks::PgChunkStore,
+    allowlist: &common_types::cohort::TeamAllowlist,
+    kinds: &[crate::store::runs::RunKind],
+) -> Vec<crate::domain::RunId> {
+    let mut reported_runs = std::collections::HashSet::new();
+    let outcome = prepare::refresh_runs(
+        pool,
+        store,
+        allowlist,
+        kinds,
+        crate::domain::PlanCaps::default(),
+        &mut reported_runs,
+    )
+    .await;
+    outcome.eligible.keys().cloned().collect()
+}
+
 /// Fail a claimed chunk through the executor's recovery path, and report the wait it drew.
 ///
 /// The store's `fail` takes the delay as an argument, so a test that calls it directly pins nothing

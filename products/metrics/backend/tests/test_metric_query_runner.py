@@ -46,13 +46,13 @@ class TestPickInterval:
         ]
     )
     def test_pick_interval(self, _name: str, delta: dt.timedelta, expected: str) -> None:
-        start = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+        start = dt.datetime(2026, 9, 15, 0, 0, 0, tzinfo=dt.UTC)
         assert _pick_interval(start, start + delta) == expected
 
 
 class TestActiveSinceExpr:
     def test_keeps_series_within_the_last_seen_buffer(self) -> None:
-        date_from = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
+        date_from = dt.datetime(2026, 9, 15, 12, tzinfo=dt.UTC)
 
         expr = _active_since_expr(date_from)
 
@@ -287,7 +287,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # In a half-hour time zone, a UTC floor can drop the first bucket.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
-        bucket_start = dt.datetime(2026, 3, 17, 7, 30, tzinfo=dt.UTC)
+        bucket_start = dt.datetime(2026, 9, 17, 7, 30, tzinfo=dt.UTC)
         seed_metric(
             team_id=self.team.id,
             metric_name="m1",
@@ -579,6 +579,171 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(series[0].metric_name, "m1")
         self.assertEqual(series[0].clause, "a")
         self.assertEqual(sum(p.value for p in series[0].points), 4.0)
+
+    def test_attaches_ingested_unit_to_series(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].unit, "ms")
+
+    def test_inconsistent_units_across_merged_series_leave_unit_unset(self):
+        """An ungrouped query merges series; if they disagree on the unit there
+        is no correct single unit, so the series carries none rather than an
+        arbitrary one."""
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            service_name="svc-a",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="s",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            service_name="svc-b",
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertIsNone(series[0].unit)
+
+    def test_mixed_unit_and_unitless_merge_leaves_unit_unset(self):
+        """A unitless series merged with a unit-carrying one is still a mixed
+        result: the unit only applies when every contributing series agrees."""
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            service_name="svc-a",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            service_name="svc-b",
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertIsNone(series[0].unit)
+
+    def test_consistent_units_across_merged_series_attach(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            service_name="svc-a",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            service_name="svc-b",
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].unit, "ms")
+
+    def test_grouped_series_attach_their_own_unit(self):
+        """Grouped series each get the unit of their underlying series, so two
+        groups of one metric can carry different units."""
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="s",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            labels={"pod": "b"},
+        )
+
+        series = run_metric_query(
+            team=self.team,
+            request=self._request(
+                clauses=(
+                    MetricQueryClause(
+                        name="a",
+                        metric_name="m1",
+                        aggregation=MetricAggregation.SUM,
+                        group_by=(MetricGroupBy(key="pod"),),
+                    ),
+                )
+            ),
+        )
+
+        self.assertEqual(len(series), 2)
+        by_pod = {s.labels["pod"]: s for s in series}
+        self.assertEqual(by_pod["a"].unit, "ms")
+        self.assertEqual(by_pod["b"].unit, "s")
+
+    def test_series_without_unit_has_none(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertIsNone(series[0].unit)
+
+    def test_formula_series_carries_no_unit(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 2.0)],
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m2",
+            unit="s",
+            points=[(anchor - dt.timedelta(minutes=10), 4.0)],
+        )
+
+        series = run_metric_query(
+            team=self.team,
+            request=self._request(
+                clauses=(
+                    MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
+                    MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
+                ),
+                formula="a / b",
+            ),
+        )
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].clause, "formula")
+        self.assertIsNone(series[0].unit)
 
     def test_quantile_095_maps_to_p95(self):
         anchor = timezone.now().replace(microsecond=0)

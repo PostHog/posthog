@@ -6,7 +6,7 @@ use std::num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use crate::config::Config;
-use crate::domain::{BackoffPolicyError, PlanCaps, RetryBackoffPolicy};
+use crate::domain::{BackoffPolicyError, PersonEmissionPolicy, PlanCaps, RetryBackoffPolicy};
 use crate::store::runs::RunKind;
 use crate::store::{LeaseDuration, LeaseDurationError, MaxAttempts, MaxAttemptsError};
 
@@ -22,7 +22,8 @@ pub struct PersonSettings {
     /// The person path's own slot budget: a person chunk never occupies a behavioral slot, so a
     /// long person scan cannot stall live behavioral seeding.
     pub max_concurrent_chunks: NonZeroUsize,
-    pub emit_nonmatchers: bool,
+    /// Which scanned persons a chunk emits. `SEEDER_PERSON_EMIT_NONMATCHERS` names the choice.
+    pub emission: PersonEmissionPolicy,
     /// Whether completion discovery may surface person runs. Separate from the seed gate so the
     /// reconcile half can be staged after the processor fleet decodes `reconcile_person` tiles —
     /// seeding a person run is inert, dispatching its tiles to an old processor is not.
@@ -76,6 +77,8 @@ impl OrchestratorSettings {
         retry_backoff: RetryBackoffPolicy,
         max_lookback_days: u32,
         bands_per_day: u16,
+        live_tracking_lag: Duration,
+        trailing_day_grace: Duration,
         producer: ProducerSettings,
         person: Option<PersonSettings>,
     ) -> Result<Self, OrchestratorSettingsError> {
@@ -109,6 +112,8 @@ impl OrchestratorSettings {
             plan_caps: PlanCaps {
                 max_lookback_days,
                 bands_per_day,
+                live_tracking_lag,
+                trailing_day_grace,
             },
             producer,
             person,
@@ -160,7 +165,9 @@ impl TryFrom<&Config> for OrchestratorSettings {
                         config.seeder_person_max_concurrent_chunks,
                     )
                     .ok_or(OrchestratorSettingsError::ZeroPersonConcurrency)?,
-                    emit_nonmatchers: config.seeder_person_emit_nonmatchers,
+                    emission: PersonEmissionPolicy::from_emit_nonmatchers(
+                        config.seeder_person_emit_nonmatchers,
+                    ),
                     reconcile_dispatch: config.seeder_person_reconcile_dispatch_enabled,
                 };
                 person.validate_scan_budget(config.seeder_ch_max_execution_time_secs)?;
@@ -180,6 +187,8 @@ impl TryFrom<&Config> for OrchestratorSettings {
             retry_backoff,
             config.seeder_max_lookback_days,
             config.seeder_bands_per_day,
+            Duration::from_secs(config.seeder_live_tracking_lag_secs),
+            Duration::from_secs(config.seeder_trailing_day_grace_secs),
             producer,
             person,
         )?)
@@ -312,6 +321,8 @@ mod tests {
                     backoff(),
                     400,
                     1,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -326,6 +337,8 @@ mod tests {
                     backoff(),
                     400,
                     1,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -340,6 +353,8 @@ mod tests {
                     backoff(),
                     400,
                     1,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -354,6 +369,8 @@ mod tests {
                     backoff(),
                     400,
                     1,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -368,6 +385,8 @@ mod tests {
                     backoff(),
                     400,
                     1,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -382,6 +401,8 @@ mod tests {
                     backoff(),
                     400,
                     0,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -396,6 +417,8 @@ mod tests {
                     backoff(),
                     400,
                     u16::MAX,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -508,6 +531,14 @@ mod tests {
         let settings = OrchestratorSettings::try_from(&config).unwrap();
         assert_eq!(settings.retry_backoff.base(), Duration::from_secs(30));
         assert_eq!(settings.retry_backoff.cap(), Duration::from_secs(1800));
+        assert_eq!(
+            settings.plan_caps.live_tracking_lag,
+            Duration::from_secs(420)
+        );
+        assert_eq!(
+            settings.plan_caps.trailing_day_grace,
+            Duration::from_secs(1800)
+        );
 
         let mut zero_base = config.clone();
         zero_base.seeder_retry_backoff_base_secs = 0;

@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -69,21 +69,27 @@ const CatalogCard = ({ item }: { item: MetricCatalogItem }): JSX.Element => {
     }, [catalogItemsLoading, detail, failed, item, loadSparkline, loading])
 
     return (
-        <div className="flex flex-col border rounded hover:border-accent-primary focus-within:border-accent-primary transition-colors bg-bg-3000">
+        <div className="relative border rounded bg-bg-3000 hover:border-accent-primary focus-within:border-accent-primary transition-colors">
             <button
                 ref={cardRef}
                 type="button"
                 onClick={() => openMetric(item)}
                 data-attr={`metrics-catalog-card-${item.name}`}
-                className="flex flex-col gap-2 p-3 text-left"
-            >
+                aria-label={`Open ${item.name} chart`}
+                className="absolute inset-0 rounded focus:outline-none"
+            />
+            <div className="relative z-10 flex flex-col gap-2 p-3 text-left pointer-events-none">
                 <div className="flex items-start justify-between gap-2 min-w-0">
                     <span className="font-mono text-sm truncate" title={item.name}>
                         {item.name}
                     </span>
-                    <LemonTag type="muted" size="small">
-                        {typeTagLabel(item.metric_type)}
-                    </LemonTag>
+                    <span className="pointer-events-auto" onClick={(event) => event.stopPropagation()}>
+                        <Tooltip title={describeMetric(item, detail?.unit)} openOnClick>
+                            <LemonTag type="muted" size="small" forceClickable tabIndex={0}>
+                                {typeTagLabel(item.metric_type)}
+                            </LemonTag>
+                        </Tooltip>
+                    </span>
                 </div>
                 <div className="h-10 w-full">
                     {detail?.sparkline && detail.sparkline.length > 1 ? (
@@ -96,15 +102,14 @@ const CatalogCard = ({ item }: { item: MetricCatalogItem }): JSX.Element => {
                         <div className="h-full flex items-center text-xs text-muted">No recent data to draw</div>
                     )}
                 </div>
-                <p className="text-xs text-secondary mb-0">{describeMetric(item, detail?.unit)}</p>
                 {detail?.last_seen && (
                     <span className="text-xs text-muted">
                         Last seen <TZLabel time={detail.last_seen} />
                     </span>
                 )}
-            </button>
+            </div>
             {failed && (
-                <div className="px-3 pb-3">
+                <div className="relative z-10 px-3 pb-3">
                     <LemonButton size="xsmall" type="secondary" onClick={() => retrySparkline(item)}>
                         Retry
                     </LemonButton>
@@ -124,10 +129,7 @@ export const MetricsCatalog = (): JSX.Element => {
 
     return (
         <div className="@container flex flex-col gap-3 overflow-y-auto">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-                <p className="text-secondary mb-0">
-                    Every metric you are collecting, as a card. Click one to open its chart.
-                </p>
+            <div className="flex justify-end">
                 <LemonInput
                     size="small"
                     prefix={<IconSearch />}

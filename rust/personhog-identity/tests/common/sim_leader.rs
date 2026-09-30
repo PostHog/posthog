@@ -22,6 +22,7 @@
 //! as authoritative not-found exactly like the real cache's tombstones.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -34,9 +35,10 @@ use personhog_common::grpc::semantic_refusal;
 use personhog_identity::config::IdentityTables;
 use personhog_identity::leader::{LifecycleLeader, PropertyWriter};
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
-    LifecycleOpType, Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseOutcome,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
+    FencedPersonSeal, FoldPersonDocumentRequest, FoldPersonDocumentResponse, LifecycleOpType,
+    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
+    ReleaseOutcome, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Which RPC a scripted failure applies to.
@@ -70,6 +72,10 @@ pub enum LeaderCall {
         person_id: i64,
         op_type: LifecycleOpType,
     },
+    /// A `FencePersons` call, recorded before its per-person fences.
+    FenceBatch {
+        person_ids: Vec<i64>,
+    },
     Fold {
         target_person_id: i64,
         snapshot_versions: Vec<i64>,
@@ -86,6 +92,10 @@ pub enum LeaderCall {
     },
     ReleaseAborted {
         person_id: i64,
+    },
+    /// A `ReleaseFences` call, recorded before its per-person releases.
+    ReleaseBatch {
+        person_ids: Vec<i64>,
     },
     PropertyPush {
         person_id: i64,
@@ -133,6 +143,9 @@ pub struct SimLeader {
     /// Injected `last_seen_at` per person: leader-side state with no
     /// Postgres column.
     last_seen: Mutex<HashMap<i64, i64>>,
+    /// Whether the batch RPCs are served; off, they answer UNIMPLEMENTED
+    /// like a router or leader that predates them.
+    batch_rpcs_supported: AtomicBool,
 }
 
 impl SimLeader {
@@ -146,11 +159,16 @@ impl SimLeader {
             scripted: Mutex::new(HashMap::new()),
             sealed_identified: Mutex::new(HashMap::new()),
             last_seen: Mutex::new(HashMap::new()),
+            batch_rpcs_supported: AtomicBool::new(true),
         }
     }
 
     pub fn calls(&self) -> Vec<LeaderCall> {
         self.calls.lock().unwrap().clone()
+    }
+
+    pub fn disable_batch_rpcs(&self) {
+        self.batch_rpcs_supported.store(false, Ordering::SeqCst);
     }
 
     /// Script the next matching call for `person_id` (the fold matches on
@@ -339,6 +357,85 @@ impl LifecycleLeader for SimLeader {
         Ok(FencePersonResponse {
             sealed: Some(person),
         })
+    }
+
+    async fn fence_persons(
+        &self,
+        request: FencePersonsRequest,
+    ) -> Result<FencePersonsResponse, Status> {
+        if !self.batch_rpcs_supported.load(Ordering::SeqCst) {
+            return Err(Status::unimplemented("unknown method: FencePersons"));
+        }
+        if request.person_ids.is_empty() {
+            return Err(Status::invalid_argument(
+                "FencePersons needs at least one person",
+            ));
+        }
+        self.record(LeaderCall::FenceBatch {
+            person_ids: request.person_ids.clone(),
+        });
+        let mut response = FencePersonsResponse::default();
+        for person_id in request.person_ids {
+            let single = self
+                .fence_person(FencePersonRequest {
+                    team_id: request.team_id,
+                    person_id,
+                    op_id: request.op_id.clone(),
+                    op_type: request.op_type,
+                })
+                .await;
+            match single {
+                Ok(fenced) => {
+                    let sealed = fenced.sealed.expect("the sim always seals");
+                    response.sealed.push(FencedPersonSeal {
+                        person_id,
+                        version: sealed.version,
+                        created_at: sealed.created_at,
+                    });
+                }
+                Err(status) if status.code() == tonic::Code::NotFound => {
+                    response.not_found.push(person_id);
+                }
+                Err(status) => return Err(status),
+            }
+        }
+        Ok(response)
+    }
+
+    async fn release_fences(
+        &self,
+        request: ReleaseFencesRequest,
+    ) -> Result<ReleaseFencesResponse, Status> {
+        if !self.batch_rpcs_supported.load(Ordering::SeqCst) {
+            return Err(Status::unimplemented("unknown method: ReleaseFences"));
+        }
+        let ReleaseFencesRequest {
+            team_id,
+            op_id,
+            outcome,
+            persons,
+        } = request;
+        if persons.is_empty() {
+            return Err(Status::invalid_argument(
+                "ReleaseFences needs at least one person",
+            ));
+        }
+        self.record(LeaderCall::ReleaseBatch {
+            person_ids: persons.iter().map(|p| p.person_id).collect(),
+        });
+        for person in persons {
+            self.release_fence(ReleaseFenceRequest {
+                team_id,
+                person_id: person.person_id,
+                person_uuid: person.person_uuid,
+                op_id: op_id.clone(),
+                outcome,
+                sealed_version: person.sealed_version,
+                created_at: person.created_at,
+            })
+            .await?;
+        }
+        Ok(ReleaseFencesResponse {})
     }
 
     async fn release_fence(

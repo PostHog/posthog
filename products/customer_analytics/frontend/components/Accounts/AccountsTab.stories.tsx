@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo, Mocks } from '~/mocks/utils'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type {
     CustomPropertyDefinitionApi,
@@ -463,6 +464,54 @@ export const ManyColumns: Story = {
             }
             scrollContainer.scrollLeft = 0
         })
+
+        for (const definitionIndex of [2, 4]) {
+            const header = canvasElement
+                .querySelector(
+                    `[data-attr="accounts-table-sort-${customPropertyAlias(ADDITIONAL_COLUMN_DEFINITIONS[definitionIndex].id)}"]`
+                )
+                ?.closest('th')
+            const cell = header?.closest('table')?.querySelector('tbody tr')?.children[header.cellIndex]
+            const editButton = cell?.querySelector<HTMLElement>('[data-attr="accounts-custom-property-value-edit"]')
+            if (!cell || !editButton) {
+                throw new Error('Editable custom property cell is missing')
+            }
+            const originalWidth = cell.getBoundingClientRect().width
+            await userEvent.click(editButton)
+            await waitFor(() => {
+                const input = cell.querySelector('[data-attr="accounts-custom-property-value-input"]')
+                const save = cell.querySelector('[data-attr="accounts-custom-property-value-save"]')
+                const cancel = cell.querySelector('[data-attr="accounts-custom-property-value-cancel"]')
+                if (!input || !save || !cancel) {
+                    throw new Error('Inline editor controls are missing')
+                }
+                const cellBounds = cell.getBoundingClientRect()
+                for (const control of [input, save, cancel]) {
+                    const bounds = control.getBoundingClientRect()
+                    if (
+                        bounds.left < cellBounds.left ||
+                        bounds.right > cellBounds.right ||
+                        bounds.top < cellBounds.top ||
+                        bounds.bottom > cellBounds.bottom
+                    ) {
+                        throw new Error('Inline editor controls must stay inside the cell')
+                    }
+                }
+                const inputBounds = input.getBoundingClientRect()
+                const saveBounds = save.getBoundingClientRect()
+                const cancelBounds = cancel.getBoundingClientRect()
+                if (saveBounds.top < inputBounds.bottom || saveBounds.top !== cancelBounds.top) {
+                    throw new Error('Save and Cancel must wrap together below the input in narrow columns')
+                }
+                if (cancelBounds.right <= inputBounds.right) {
+                    throw new Error('Save and Cancel must align to the right of the available cell space')
+                }
+                if (cellBounds.width !== originalWidth) {
+                    throw new Error('Inline editing must not widen the column')
+                }
+            })
+        }
+        canvasElement.querySelector('[data-attr="accounts-custom-property-value-save"]')?.scrollIntoView()
     },
 }
 
@@ -531,6 +580,7 @@ const PINNED_PROPERTY_VALUES: CustomPropertyValueApi[] = PINNED_PROPERTY_FIXTURE
     created_by_id: 1,
 }))
 const PINNED_PROPERTIES_CONFIG: UserCustomerAnalyticsConfigApi = {
+    task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
     pinned_properties: [
         { kind: 'custom_property', id: 'seats' },
         { kind: 'relationship', id: RELATIONSHIP_DEFINITIONS.results[0].id },
@@ -690,7 +740,7 @@ export const RowExpandedPinnedPropertiesError: Story = {
     render: () => <App />,
     parameters: {
         ...PINNED_ROW_PARAMETERS,
-        testOptions: { waitForSelector: `${PINNED_EXPANSION_SELECTOR} button` },
+        testOptions: { waitForSelector: `${PINNED_EXPANSION_SELECTOR} .LemonBanner--error` },
     },
     decorators: pinnedRowDecorators({
         [ACCOUNT_PROPERTY_VALUES_ENDPOINT]: [500, { detail: 'Could not load pinned properties.' }],
@@ -986,4 +1036,64 @@ export const RowExpandedUsageNotFound: Story = {
         await userEvent.click(await canvas.findByRole('tab', { name: 'Usage' }, { timeout: 15000 }))
         await canvas.findByText('No billing usage insight here', {}, { timeout: 15000 })
     },
+}
+
+export const FilterGroupsCollapsed: Story = {
+    ...Default,
+    parameters: {
+        pageUrl: `${urls.customerAnalyticsAccounts()}#view=${encodeURIComponent(
+            JSON.stringify({
+                customProperties: [
+                    {
+                        type: PropertyFilterType.Account,
+                        key: 'name',
+                        label: 'Name',
+                        operator: PropertyOperator.IContains,
+                        value: 'Acme',
+                    },
+                    {
+                        type: PropertyFilterType.Account,
+                        key: 'external_id',
+                        label: 'External ID',
+                        operator: PropertyOperator.IsSet,
+                    },
+                ],
+                filterGroups: [
+                    [
+                        {
+                            type: PropertyFilterType.Account,
+                            key: 'name',
+                            label: 'Name',
+                            operator: PropertyOperator.IContains,
+                            value: 'Globex',
+                        },
+                    ],
+                ],
+            })
+        )}`,
+        testOptions: { waitForSelector: '[data-attr="accounts-toggle-filter-groups"]' },
+    },
+}
+
+export const FilterGroupsExpanded: Story = {
+    ...FilterGroupsCollapsed,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Filters'))
+        await canvas.findByText('Add OR group')
+    },
+}
+
+export const FilterGroupsNarrow: Story = {
+    ...FilterGroupsExpanded,
+    decorators: [
+        mswDecorator({
+            post: { [QUERY_ENDPOINT]: mockAccountsTableQuery(SAMPLE_ROWS) },
+        }),
+        (Story) => (
+            <div className="max-w-3xl">
+                <Story />
+            </div>
+        ),
+    ],
 }

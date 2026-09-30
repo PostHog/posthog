@@ -1,15 +1,17 @@
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Max, QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH
+from ..bundled_skills import bundled_skill_names
+from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH, compute_plugin_version
 from ..models.skills import (
     CATEGORY_BY_NAME_PREFIX,
     LLMSkill,
@@ -41,6 +43,24 @@ MAX_SKILL_NAME_LENGTH = 64
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
+
+
+def bundled_skill_name_error(value: str) -> str | None:
+    """Why `value` cannot name a new store skill, or None when it can.
+
+    An agent host loads the skills PostHog bundles (products/*/skills, shipped as dist/skills.zip)
+    next to the team's store skills under one flat name space, so a store skill that repeats a
+    bundled name leaves two skills under one name and the host no way to tell which one an agent
+    asked for. The rule holds a name a team claims, not a name that points at a skill the project
+    already holds: the scout harness seeds the canonical `signals-scout-*` skills into every
+    project, so those bundled names are legitimately in use there.
+
+    Returns the message rather than raising it so the REST, MCP tool, community publish and
+    community sync paths can each raise their own error type from the one rule.
+    """
+    if value.lower() not in bundled_skill_names():
+        return None
+    return f"PostHog already ships a skill named '{value}'. Pick a different name."
 
 
 def skill_name_is_well_formed(value: str) -> bool:
@@ -340,6 +360,20 @@ def get_latest_skills_queryset(team: Team) -> QuerySet[LLMSkill]:
     return get_active_skill_queryset(team).filter(is_latest=True)
 
 
+def team_skills_version(team: Team) -> str:
+    """Keep archived rows in the version so an archive does not expose an older timestamp.
+
+    This is a marketplace version, not a validator for the access-filtered list.
+    In-place writers must update updated_at because QuerySet.update() skips auto_now.
+    """
+    latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
+    if latest is None:
+        return "1.0.0"
+    elapsed = latest - datetime(1970, 1, 1, tzinfo=UTC)
+    epoch_microseconds = (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
+    return compute_plugin_version(epoch_microseconds)
+
+
 def get_skill_by_name_from_db(
     team: Team,
     skill_name: str,
@@ -397,6 +431,24 @@ def resolve_versions_page(
 
 def _carry_forward(payload_value: Any, current_value: Any) -> Any:
     return payload_value if payload_value is not None else current_value
+
+
+# Provenance keys a PostHog harness stamps on the rows it seeds, and reads back as proof that a row
+# is still the content it shipped. `metadata` is a free-form dict any project editor can send, so a
+# caller-supplied value for one of these is a forged attestation: dropping `canonical_hash` from a
+# seeded Signals scout, or writing a hash of the caller's own content, makes an edited scout read as
+# PostHog-shipped and mints a permanent billing exemption for its reports.
+HARNESS_OWNED_METADATA_KEYS = frozenset({"seeded_by", "canonical_hash", "source"})
+
+
+def _resolve_published_metadata(payload_value: dict[str, Any] | None, current_value: dict | None) -> dict[str, Any]:
+    """Caller metadata for a new version, with the harness-owned provenance pinned to the current row."""
+    current = dict(current_value or {})
+    if payload_value is None:
+        return current
+    resolved = {k: v for k, v in payload_value.items() if k not in HARNESS_OWNED_METADATA_KEYS}
+    resolved.update({k: v for k, v in current.items() if k in HARNESS_OWNED_METADATA_KEYS})
+    return resolved
 
 
 def apply_skill_file_edits(file_content: str, edits: list[dict[str, str]], *, file_path: str) -> str:
@@ -490,7 +542,7 @@ def publish_skill_version(
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
             allowed_tools=_carry_forward(allowed_tools, current_latest.allowed_tools),
-            metadata=_carry_forward(metadata, current_latest.metadata),
+            metadata=_resolve_published_metadata(metadata, current_latest.metadata),
             # Categorization is a property of the skill, not the version — carry it forward so editing
             # a scout (or any categorized skill) doesn't drop it out of its tab.
             category=current_latest.category,

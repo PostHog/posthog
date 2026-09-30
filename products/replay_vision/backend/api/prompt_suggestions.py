@@ -22,6 +22,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import User
+from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
@@ -42,6 +43,7 @@ from products.replay_vision.backend.prompt_evaluation import (
     evaluation_in_flight,
     evaluation_supported,
 )
+from products.replay_vision.backend.prompt_questions import question_fields_for_save
 from products.replay_vision.backend.prompt_suggestions import (
     PromptSuggestionError,
     generate_prompt_suggestion,
@@ -49,6 +51,7 @@ from products.replay_vision.backend.prompt_suggestions import (
 )
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
+from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.temporal.constants import (
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
     build_evaluate_prompt_suggestion_workflow_id,
@@ -421,6 +424,19 @@ class ReplayScannerPromptSuggestionViewSet(
             suggestion.applied_at = timezone.now()
             suggestion.applied_by = cast(User, request.user)
             suggestion.save(update_fields=["status", "applied_at", "applied_by"])
+        # A model call, so it waits until the row locks above are released. Conditional on the version this apply
+        # saved, so an edit that lands meanwhile keeps its own question.
+        question = question_fields_for_save(
+            team_id=self.team_id,
+            scanner_type=scanner.scanner_type,
+            scanner_config=config,
+            current_source=scanner.prompt_question_source,
+        )
+        if question:
+            ReplayScanner.objects.filter(pk=scanner.pk, scanner_version=scanner.scanner_version).update(
+                prompt_question=question["prompt_question"],
+                prompt_question_source=question["prompt_question_source"],
+            )
         user = cast(User, request.user)
         properties = {
             **_suggestion_properties(suggestion),
@@ -465,6 +481,7 @@ class ReplayScannerPromptSuggestionViewSet(
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def evaluate(self, request: Request, **kwargs: Any) -> Response:
+        refuse_scout_scanner_scan(is_scout_sandbox_request(request))
         scanner = self._scanner_for_url()
         self._require_editor(scanner)
         suggestion = self.get_object()

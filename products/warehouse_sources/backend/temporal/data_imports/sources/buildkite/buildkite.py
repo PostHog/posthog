@@ -35,6 +35,48 @@ PAGE_SIZE = 100
 # Test Engine suites are the fan-out parent for both Test Engine child tables.
 SUITE_CHILD_ENDPOINTS = ("test_suite_runs", "test_suite_tests")
 
+# Clusters are only a fan-out parent, so the cluster list has no entry in the endpoint catalog and
+# is not offered as a table of its own.
+CLUSTERS_PATH = "/v2/organizations/{organization}/clusters"
+
+
+@frozen
+class BuildkiteFanoutConfig:
+    parent_name: str
+    parent_path: str
+    # Parent field bound into the child path placeholder of the same name.
+    resolve_param: str
+    resolve_field: str
+    # Parent fields copied onto each child row, as {parent field: child column}.
+    parent_field_renames: dict[str, str]
+
+
+# Single-hop fan-outs over a plain organization-level listing. The Test Engine children and jobs
+# stay hand-built below because their parents need extra request or resume handling.
+FANOUT_ENDPOINTS: dict[str, BuildkiteFanoutConfig] = {
+    "cluster_queues": BuildkiteFanoutConfig(
+        parent_name="clusters",
+        parent_path=CLUSTERS_PATH,
+        resolve_param="cluster_id",
+        resolve_field="id",
+        parent_field_renames={"id": "cluster_id"},
+    ),
+    "pipeline_schedules": BuildkiteFanoutConfig(
+        parent_name="pipelines",
+        parent_path=BUILDKITE_ENDPOINTS["pipelines"].path,
+        resolve_param="pipeline_slug",
+        resolve_field="slug",
+        parent_field_renames={"slug": "pipeline_slug"},
+    ),
+    "team_pipelines": BuildkiteFanoutConfig(
+        parent_name="teams",
+        parent_path=BUILDKITE_ENDPOINTS["teams"].path,
+        resolve_param="team_id",
+        resolve_field="id",
+        parent_field_renames={"id": "team_id", "slug": "team_slug"},
+    ),
+}
+
 
 @frozen
 class BuildkiteResumeConfig:
@@ -149,6 +191,41 @@ def _suite_child_resource(endpoint: str, organization: str) -> EndpointResource:
             "response_actions": [{"status_code": 404, "action": "ignore"}],
         },
         "data_map": rename_parent_fields("test_suites", {"id": "suite_id", "slug": "suite_slug"}),
+    }
+
+
+def _fanout_parent_resource(fanout: BuildkiteFanoutConfig, organization: str) -> EndpointResource:
+    return {
+        "name": fanout.parent_name,
+        "endpoint": {
+            "path": _bind_organization(fanout.parent_path, organization),
+            "params": {"per_page": PAGE_SIZE},
+            "data_selector_required": True,
+        },
+    }
+
+
+def _fanout_child_resource(endpoint: str, organization: str) -> EndpointResource:
+    fanout = FANOUT_ENDPOINTS[endpoint]
+    return {
+        "name": endpoint,
+        "include_from_parent": list(fanout.parent_field_renames),
+        "endpoint": {
+            "path": _bind_organization(BUILDKITE_ENDPOINTS[endpoint].path, organization),
+            "params": {
+                fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": fanout.parent_name,
+                    "field": fanout.resolve_field,
+                },
+                "per_page": PAGE_SIZE,
+            },
+            "data_selector_required": True,
+            # A parent deleted between the listing and this fetch 404s; treat it as an empty page
+            # and move to the next parent rather than failing the whole sync.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+        "data_map": rename_parent_fields(fanout.parent_name, fanout.parent_field_renames),
     }
 
 
@@ -306,6 +383,11 @@ def buildkite_source(
 
     if endpoint in SUITE_CHILD_ENDPOINTS:
         resources = [_test_suites_resource(organization), _suite_child_resource(endpoint, organization)]
+    elif endpoint in FANOUT_ENDPOINTS:
+        resources = [
+            _fanout_parent_resource(FANOUT_ENDPOINTS[endpoint], organization),
+            _fanout_child_resource(endpoint, organization),
+        ]
     elif endpoint == "jobs":
         created_from = _build_created_from(should_use_incremental_field, db_incremental_field_last_value)
         resources = [_builds_parent_resource(organization, created_from), _jobs_child_resource(organization)]

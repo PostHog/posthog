@@ -6,6 +6,8 @@ from parameterized import parameterized
 from posthog.models.integration import Integration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.temporal.ai.slack_app.activities.classifiers import (
+    CLASSIFIER_MODEL,
+    CLASSIFIER_PROPERTY,
     classify_posthog_code_task_needs_repo_activity,
     classify_task_needs_repo,
     team_routing_rule_lines,
@@ -13,6 +15,14 @@ from posthog.temporal.ai.slack_app.activities.classifiers import (
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+
+
+def _fake_messages_client(content: str) -> MagicMock:
+    response = MagicMock()
+    response.content = [MagicMock(type="text", text=content)]
+    client = MagicMock()
+    client.messages.create.return_value = response
+    return client
 
 
 class TestClassifyTaskNeedsRepo:
@@ -130,6 +140,21 @@ class TestClassifyTaskNeedsRepo:
         assert result is True
         assert rule in self._last_llm_prompt
 
+    def test_prompt_snapshot_matches(self, snapshot):
+        """The prompt is the whole classifier — where it draws the line between work in a
+        team's repo and an analytics ask. Pinning it means a reworded rule shows up as a
+        reviewable diff rather than a silent behaviour change. Update with
+        ``--snapshot-update`` after auditing the diff.
+        """
+        text = "ambiguous ask the heuristic does not catch"
+        self._run_with_llm_content(text, '{"needs_repo": true}', routing_rules=["- billing questions → acme/billing"])
+        assert self._last_llm_prompt == snapshot
+
+        # The rules block carries the paragraph break to the next section, so a team
+        # without rules must get one blank line here rather than two.
+        self._run_with_llm_content(text, '{"needs_repo": true}')
+        assert "not our product.\n\nWhen in doubt" in self._last_llm_prompt
+
     def _run_with_llm_content(
         self,
         text: str,
@@ -137,12 +162,9 @@ class TestClassifyTaskNeedsRepo:
         thread_messages: list[SlackThreadMessage] | None = None,
         routing_rules: list[str] | None = None,
     ) -> bool:
-        fake_response = MagicMock()
-        fake_response.choices = [MagicMock(message=MagicMock(content=content))]
-        fake_client = MagicMock()
-        fake_client.chat.completions.create.return_value = fake_response
+        fake_client = _fake_messages_client(content)
         with patch(
-            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_anthropic_client",
             return_value=fake_client,
         ):
             result = classify_task_needs_repo(
@@ -150,7 +172,7 @@ class TestClassifyTaskNeedsRepo:
                 thread_messages or [SlackThreadMessage(user="Alessandro", text=text)],
                 routing_rules=routing_rules,
             )
-        create_call = fake_client.chat.completions.create.call_args
+        create_call = fake_client.messages.create.call_args
         self._last_llm_prompt = create_call.kwargs["messages"][0]["content"] if create_call else ""
         return result
 
@@ -158,11 +180,50 @@ class TestClassifyTaskNeedsRepo:
         """A flaky LLM call must not wall users behind the Connect-GitHub gate."""
         text = "something the heuristic can't classify on its own"
         with patch(
-            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_anthropic_client",
             side_effect=RuntimeError("boom"),
         ):
             result = classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)])
         assert result is False
+
+    def test_llm_call_uses_the_messages_shape_on_the_routing_product(self):
+        # The classifier reads a gateway refusal as "no repo", so a wrong shape fails silently.
+        text = "ambiguous ask the heuristic does not catch"
+        fake_client = _fake_messages_client('{"needs_repo": true}')
+        with patch(
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_anthropic_client",
+            return_value=fake_client,
+        ) as build_client:
+            assert classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)]) is True
+
+        build_client.assert_called_once_with(
+            product="slack_app_routing",
+            ai_product="slack_app_routing",
+            properties={CLASSIFIER_PROPERTY: "task_needs_repo"},
+        )
+        kwargs = fake_client.messages.create.call_args.kwargs
+        assert kwargs["model"] == CLASSIFIER_MODEL
+        assert kwargs["max_tokens"] == 64
+        assert kwargs["temperature"] == 0
+        assert kwargs["messages"] == [{"role": "user", "content": self._prompt_of(fake_client)}]
+        fake_client.chat.completions.create.assert_not_called()
+
+    def test_reply_reads_only_text_blocks(self):
+        text = "ambiguous ask the heuristic does not catch"
+        fake_client = _fake_messages_client('{"needs_repo": true}')
+        fake_client.messages.create.return_value.content = [
+            MagicMock(type="thinking", text='{"needs_repo": false}'),
+            MagicMock(type="text", text='{"needs_repo": true}'),
+        ]
+        with patch(
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_anthropic_client",
+            return_value=fake_client,
+        ):
+            assert classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)]) is True
+
+    @staticmethod
+    def _prompt_of(fake_client: MagicMock) -> str:
+        return fake_client.messages.create.call_args.kwargs["messages"][0]["content"]
 
 
 @pytest.mark.django_db
@@ -178,12 +239,9 @@ def test_needs_repo_activity_feeds_team_rules_to_the_classifier(team):
         event={"text": text}, integration_id=integration.id, slack_team_id="T123", user_id=1
     )
 
-    fake_response = MagicMock()
-    fake_response.choices = [MagicMock(message=MagicMock(content='{"needs_repo": true}'))]
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.return_value = fake_response
+    fake_client = _fake_messages_client('{"needs_repo": true}')
     with patch(
-        "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+        "posthog.temporal.ai.slack_app.activities.classifiers.build_anthropic_client",
         return_value=fake_client,
     ):
         result = classify_posthog_code_task_needs_repo_activity(
@@ -192,7 +250,7 @@ def test_needs_repo_activity_feeds_team_rules_to_the_classifier(team):
 
     # Without the team's rules the product-term heuristic answers no-repo before the LLM.
     assert result is True
-    prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    prompt = fake_client.messages.create.call_args.kwargs["messages"][0]["content"]
     assert "The internal metrics dashboard → acme/internal-tools" in prompt
 
 

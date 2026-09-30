@@ -25,6 +25,7 @@ interface LogsIngestionInstruments {
     messagesDropped: Counter
     messagesDlq: Counter
     processingDuration: Histogram
+    jsonEnrichmentSkipped: Counter
 }
 
 /** Keep in lockstep with the logs_ingestion_processing_duration_seconds prom buckets. */
@@ -39,6 +40,9 @@ function getInstruments(): LogsIngestionInstruments {
             bytesReceived: createCounterWithExemplars(meter, 'logs_ingestion_bytes_received_total', {
                 description: 'Total uncompressed bytes received for logs ingestion',
                 unit: 'By',
+            }),
+            jsonEnrichmentSkipped: createCounterWithExemplars(meter, 'logs_ingestion_json_enrichment_skipped_total', {
+                description: 'Log JSON enrichment skipped because a size or traversal budget was exceeded',
             }),
             recordsReceived: createCounterWithExemplars(meter, 'logs_ingestion_records_received_total', {
                 description: 'Total log records received',
@@ -85,6 +89,10 @@ export const recordLogsReceived = swallowing((bytes: number, records: number): v
     addPositive(recordsReceived, records)
 })
 
+export const recordJsonEnrichmentSkipped = swallowing((reason: string, source: string): void => {
+    getInstruments().jsonEnrichmentSkipped.add(1, { reason, source })
+})
+
 export const recordLogsAllowed = swallowing((bytes: number, records: number): void => {
     const { bytesAllowed, recordsAllowed } = getInstruments()
     addPositive(bytesAllowed, bytes)
@@ -109,7 +117,12 @@ export const recordLogMessageDlq = swallowing((reason: string, teamId: string): 
 export const recordLogProcessingDuration = swallowing(
     (
         seconds: number,
-        attributes: { json_parse_enabled: string; pii_scrub_enabled: string; compression_codec: string }
+        attributes: {
+            json_parse_enabled: string
+            pii_scrub_enabled: string
+            attribute_extraction_enabled: string
+            compression_codec: string
+        }
     ): void => {
         getInstruments().processingDuration.record(seconds, attributes)
     }

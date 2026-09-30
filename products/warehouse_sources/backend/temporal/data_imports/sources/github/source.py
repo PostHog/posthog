@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-from posthog.schema import (
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -19,9 +20,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
-
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -187,7 +185,7 @@ class GithubSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GITHUB,
+            name=ExternalDataSourceType.GITHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             featured=True,
             label="GitHub",
@@ -370,18 +368,26 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
         # the source can fix.
         #
-        # A TLS session cut at the socket while minting the installation access token
-        # (``GitHubIntegrationBase.client_request``, called from ``_get_access_token``) has no
-        # in-process retry of its own — unlike ``_fetch_page``'s data requests, whose tenacity retry
-        # already covers ``requests.ConnectionError`` (the base class ``SSLError`` subclasses).
-        # Either way it's a dropped connection, not a GitHub or customer problem, so once Temporal
-        # retries the activity the failure is transient and self-recovering. Mirrors ClickHouse's
-        # equivalent classification of the same urllib3/OpenSSL wording.
+        # A TLS session cut at the socket, or a read that outran its 10s deadline, while minting the
+        # installation access token (``GitHubIntegrationBase.client_request``, called from
+        # ``_get_access_token``) has no in-process retry of its own — unlike ``_fetch_page``'s data
+        # requests, whose tenacity retry already covers ``requests.ConnectionError`` (the base class
+        # ``SSLError`` subclasses) and ``requests.ReadTimeout`` directly. Either way it's a transient
+        # network blip, not a GitHub or customer problem, so once Temporal retries the activity the
+        # failure is self-recovering. Mirrors ClickHouse's equivalent classification of the same
+        # urllib3/OpenSSL wording.
+        #
+        # A GitHubEgressBudgetExhausted gets the same treatment as the GitHub-side rate limit it is
+        # the twin of. It is our own limiter shedding a deferrable call on purpose, so it is the
+        # least surprising failure the source has; tracking it as an exception put a self-inflicted,
+        # self-healing condition at the top of the pipeline-error groups.
         return {
             "GitHub API rate limit exceeded",
+            "GitHub egress budget exhausted",
             "Github API error (retryable)",
             "UNEXPECTED_EOF_WHILE_READING",
             "EOF occurred in violation of protocol",
+            "Read timed out",
         }
 
     def get_oauth_accounts(
@@ -660,11 +666,15 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     ) -> tuple[bool, str | None]:
         try:
             access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
             repositories = self.effective_repositories(config)
             failures: list[str] = []
             for repository in repositories[: self.MAX_VALIDATED_REPOSITORIES]:
                 is_valid, message = validate_github_credentials(
-                    access_token, repository, api_version=self.resolve_api_version(api_version)
+                    access_token,
+                    repository,
+                    egress_identity=egress_identity,
+                    api_version=self.resolve_api_version(api_version),
                 )
                 if is_valid:
                     continue

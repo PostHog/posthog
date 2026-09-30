@@ -162,6 +162,8 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
+The session replay video export worker builds a Docker image on its first start, then reuses the cached image. It runs in development mode to accept Django's default development key. The launcher translates HTTP loopback storage URLs to `host.docker.internal`, preserving optional ports and paths. It maps that hostname to Docker's host gateway so the container can reach host object storage on native Linux too. A worker startup failure returns a nonzero exit code.
+
 ### Setting environment variables
 
 Three env files come into play when `hogli start` runs:
@@ -263,6 +265,11 @@ The first time you run typegen, it may get stuck. Cancel it (`Ctrl+C`), run `git
 
 **"layout.html is not defined" error**
 This happens on first startup. Wait for the frontend to finish compiling and try accessing the app again.
+
+**Vite cannot resolve an installed Tiptap package**
+Files under `products/*/frontend` cannot resolve packages installed only in `frontend/node_modules` through their parent directories.
+Shared Tiptap packages, including `@tiptap/extension-image`, have individual aliases in `frontend/vite.config.mts`.
+Check those aliases if an installed package fails to resolve from a product directory.
 
 **Kafka segfaults on ARM**
 Kafka is an x86 container and may segfault randomly on ARM machines. Simply restart it when that happens.
@@ -554,6 +561,8 @@ The AI assistant uses the MCP tools to query phrocs directly and provide you wit
 ## Extra: Developing paid features (PostHog employees only)
 
 If you're a PostHog employee, you can get access to paid features on your local instance to make development easier. [Learn how to do so in our internal billing guide](https://github.com/PostHog/billing?tab=readme-ov-file#licensing-your-local-instance).
+
+Instance licenses are configured through `PATCH /api/billing/license/`. The legacy `/api/license/` activation and deactivation endpoints are no longer available.
 
 ## Extra: Resetting your local database
 

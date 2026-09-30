@@ -243,7 +243,19 @@ class TestGetRows:
 
     @pytest.mark.parametrize(
         "endpoint",
-        ["users", "departments", "locations", "cards", "vendors", "transfers", "budgets", "spend_limits"],
+        [
+            "users",
+            "departments",
+            "locations",
+            "titles",
+            "cards",
+            "fields",
+            "vendors",
+            "transfers",
+            "budgets",
+            "budget_programs",
+            "spend_limits",
+        ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_value_ignored_for_full_refresh_endpoints(self, MockSession, endpoint):
@@ -529,6 +541,47 @@ class TestGetRowsCashFanOut:
         assert snapshots[1]["params"]["posted_at_start"] == "2024-01-02T00:00:00Z"
 
 
+class TestGetRowsFieldValuesFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_fields_resolving_brex_id(self, MockSession):
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response(_page([{"brex_id": "ef_1"}, {"brex_id": "ef_2"}], None)),
+                _response(_page([{"brex_id": "efo_1", "field_id": "ef_1", "value": "Marketing"}], None)),
+                _response(_page([{"brex_id": "efo_2", "field_id": "ef_2", "value": "R&D"}], None)),
+            ],
+        )
+
+        rows = _rows(_source("field_values", _make_manager()))
+
+        assert [(row["brex_id"], row["field_id"]) for row in rows] == [("efo_1", "ef_1"), ("efo_2", "ef_2")]
+        urls = [snapshot["url"] for snapshot in snapshots]
+        assert urls == [
+            "https://api.brex.com/v1/fields",
+            "https://api.brex.com/v1/fields/ef_1/values",
+            "https://api.brex.com/v1/fields/ef_2/values",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_no_parent_field_is_injected(self, MockSession):
+        # Field value rows already carry field_id, so nothing is included from the parent.
+        # An include_from_parent here would add a stray `_fields_brex_id` column.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response(_page([{"brex_id": "ef_1"}], None)),
+                _response(_page([{"brex_id": "efo_1", "field_id": "ef_1"}], None)),
+            ],
+        )
+
+        rows = _rows(_source("field_values", _make_manager()))
+
+        assert rows == [{"brex_id": "efo_1", "field_id": "ef_1"}]
+
+
 @mock.patch(CLIENT_SESSION_PATCH)
 class TestBrexSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
@@ -574,13 +627,18 @@ class TestPathResolution:
         "endpoint, expected_path",
         [
             ("users", "/v2/users"),
+            ("titles", "/v2/titles"),
             ("cards", "/v2/cards"),
+            ("fields", "/v1/fields"),
+            ("field_values", "/v1/fields/{field_id}/values"),
             ("expenses", "/v1/expenses"),
             ("card_accounts", "/v2/accounts/card"),
             ("cash_accounts", "/v2/accounts/cash"),
             ("vendors", "/v1/vendors"),
             ("transfers", "/v1/transfers"),
             ("budgets", "/v2/budgets"),
+            # Brex keeps budget programs on v1 while budgets themselves moved to v2.
+            ("budget_programs", "/v1/budget_programs"),
             ("spend_limits", "/v2/spend_limits"),
         ],
     )

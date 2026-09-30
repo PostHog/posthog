@@ -29,8 +29,9 @@ import type { IndexedTrendResult } from 'products/product_analytics/frontend/ins
 import { datasetToActorsQuery } from 'products/product_analytics/frontend/insights/trends/viz/datasetToActorsQuery'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { getSeriesIdentification } from '../../shared/seriesIdentification'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
-import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { DonutCenterLabel } from './DonutCenterLabel'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
@@ -80,9 +81,14 @@ export function TrendsPieChart({
         labelGroupType,
         getTrendsColor,
         getTrendsHidden,
+        isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
+    const seriesIdentification = useMemo(
+        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
+        [indexedResults]
+    )
 
     const resolvedGroupTypeLabel =
         context?.groupTypeLabel ??
@@ -104,8 +110,16 @@ export function TrendsPieChart({
                 breakdownFilter,
                 cohorts: allCohorts.results,
                 formatPropertyValueForDisplay,
+                isSingleSeriesDefinition,
+                seriesIdentification,
             }),
-        [breakdownFilter, allCohorts.results, formatPropertyValueForDisplay]
+        [
+            breakdownFilter,
+            allCohorts.results,
+            formatPropertyValueForDisplay,
+            isSingleSeriesDefinition,
+            seriesIdentification,
+        ]
     )
 
     const series: Series<TrendsSeriesMeta>[] = useMemo(

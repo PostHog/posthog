@@ -3,7 +3,7 @@
 Each team has a token bucket in Redis measured in bytes read. The rate comes from the team's
 organization, since the subscription belongs to the organization: teams of a paying organization
 refill API_QUERIES_BUDGET_PAID_MULTIPLIER times faster. The ClickHouse client debits what every
-chargeable query read after it runs (posthog/clickhouse/client/execute.py) and the query runner
+budgeted query read after it runs (posthog/clickhouse/client/execute.py) and the query runner
 reads the balance before admitting one. Refill is lazy: the balance is only brought up to date
 when it is read, so a debit never needs to know the team's rate. The balance floors at minus one
 hour of refill, so the query that crosses the line can never lock a team out for longer than an
@@ -32,6 +32,9 @@ from posthog.redis import get_client
 BUDGET_KEY_PREFIX = "@posthog/api-queries-budget/"
 # A bucket nobody touches for a week is rebuilt full on the next read, so the key can expire.
 BUDGET_TTL_SECONDS = 7 * 24 * 3600
+# Budget checks run on request paths and fail open, so they must not inherit the longer timeout
+# used by Redis callers that can safely wait for blocking commands.
+BUDGET_REDIS_TIMEOUT_SECONDS = 1.0
 
 API_QUERIES_BUDGET_ERRORS_COUNTER = Counter(
     "posthog_api_queries_budget_errors_total",
@@ -83,6 +86,13 @@ def _bucket_key(team_id: str) -> str:
     return f"{BUDGET_KEY_PREFIX}team/{team_id}"
 
 
+def _budget_redis_client():
+    return get_client(
+        socket_timeout=BUDGET_REDIS_TIMEOUT_SECONDS,
+        socket_connect_timeout=BUDGET_REDIS_TIMEOUT_SECONDS,
+    )
+
+
 # KEYS[1] bucket, ARGV[1] now in seconds, ARGV[2] bytes per hour, ARGV[3] capacity, ARGV[4] ttl.
 # A missing bucket starts full. The floor is one hour of refill. Capacity and floor are stored so
 # a debit that arrives before any read (a chargeable query that did not go through the query
@@ -119,7 +129,7 @@ return tostring(tokens)
 
 def refill_and_read(team_id: str, spec: BudgetSpec, now: Optional[float] = None) -> Optional[float]:
     try:
-        result = get_client().eval(
+        result = _budget_redis_client().eval(
             _REFILL_AND_READ,
             1,
             _bucket_key(team_id),
@@ -142,7 +152,7 @@ def debit(team_id: str, bytes_read: int) -> Optional[float]:
         return None
     free = _free_spec()
     try:
-        result = get_client().eval(
+        result = _budget_redis_client().eval(
             _DEBIT,
             1,
             _bucket_key(team_id),
@@ -164,7 +174,7 @@ LIMITED_EVENT_INTERVAL_SECONDS = 3600
 def claim_limited_event(team_id: str) -> bool:
     try:
         return bool(
-            get_client().set(
+            _budget_redis_client().set(
                 f"{BUDGET_KEY_PREFIX}limited-event/{team_id}", "1", nx=True, ex=LIMITED_EVENT_INTERVAL_SECONDS
             )
         )

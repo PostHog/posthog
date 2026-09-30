@@ -375,6 +375,27 @@ describe('metricsViewerLogic', () => {
         expect(insightsApi.create).toHaveBeenCalledTimes(2)
     })
 
+    // A group-by-requiring panel must not stay selected once nothing is grouped anymore:
+    // the bar gauge would otherwise render a single bar for an ungrouped result.
+    it('falls back to the default display when the last group-by is removed', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setDisplayType('bargauge')
+        expect(logic.values.displayType).toBe('bargauge')
+
+        logic.actions.setGroupByKeys([])
+        expect(logic.values.displayType).toBe('line')
+    })
+
+    it('keeps a group-by panel when a group-by is still present', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setDisplayType('bargauge')
+
+        logic.actions.setGroupByKeys(['namespace'])
+        expect(logic.values.displayType).toBe('bargauge')
+    })
+
     it('carries the configured chart settings onto the saved node', () => {
         logic.actions.setMetricName('queue_depth')
         logic.actions.setDisplayType('bar')
@@ -646,8 +667,8 @@ describe('metricsViewerLogic', () => {
     it('group-by search keeps the series counts and order from the selected metric API response', async () => {
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
             results: [
-                { name: 'service_name', series_count: 20 },
-                { name: 'env', series_count: 2 },
+                { name: 'service_name', value_count: 20 },
+                { name: 'env', value_count: 2 },
             ],
             count: 2,
         })
@@ -660,8 +681,8 @@ describe('metricsViewerLogic', () => {
             expect.objectContaining({ search: 'e', metricName: 'requests_total' })
         )
         expect(logic.values.attributeKeyOptions).toEqual([
-            { key: 'service_name', label: 'service_name', seriesCount: 20 },
-            { key: 'env', label: 'env', seriesCount: 2 },
+            { key: 'service_name', label: 'service_name', valueCount: 20 },
+            { key: 'env', label: 'env', valueCount: 2 },
         ])
     })
 

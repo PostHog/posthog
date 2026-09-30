@@ -25,6 +25,10 @@ except ImportError:
 
 DEFAULT_LIMIT = 500
 
+# How far back the event counts reach. Every surface that reports taxonomy freshness reads this,
+# so the window the query measures and the window the caller is told about cannot drift apart.
+LOOKBACK_DAYS = 30
+
 
 class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxonomyQueryResponse]):
     """
@@ -64,7 +68,12 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
             TeamTaxonomyItem(event=event, count=count) for event, count in self.paginator.results
         ]
 
-        if not self.paginator.has_more():
+        # Pad with the well-known events the project never sent, so a caller can tell "this project
+        # does not use it" apart from "the tool did not list it". Only a response that covers the
+        # whole taxonomy can make that claim: on a later page `found_events` holds that page alone,
+        # so padding there re-emits a high-volume event from an earlier page at count 0, and the
+        # caller reads a live event as stale.
+        if not self.paginator.has_more() and not self.paginator.offset:
             found_events = {item.event for item in results}
             results.extend(
                 TeamTaxonomyItem(event=name, count=0) for name in WELL_KNOWN_EVENT_NAMES if name not in found_events
@@ -78,6 +87,15 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
             **self.paginator.response_params(),
         )
 
+    def get_cache_payload(self) -> dict:
+        return {
+            **super().get_cache_payload(),
+            # When the shape of the results changes, increment this version to invalidate the cache.
+            # A cached response outlives the deploy that changed how it is built, so without this a
+            # caller keeps reading the old shape until the entry goes stale.
+            "schema_version": 2,
+        }
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         query = parse_select(
             """
@@ -86,13 +104,14 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
                     count() as count
                 FROM events
                 WHERE
-                    timestamp >= now () - INTERVAL 30 DAY
+                    timestamp >= now () - INTERVAL {lookback_days} DAY
                 GROUP BY
                     event
                 ORDER BY
                     count DESC,
                     event ASC
-            """
+            """,
+            placeholders={"lookback_days": ast.Constant(value=LOOKBACK_DAYS)},
         )
 
         if IGNORED_EVENT_NAMES:

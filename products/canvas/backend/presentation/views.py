@@ -1,5 +1,7 @@
 import json
 import hashlib
+from collections import Counter
+from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
@@ -15,7 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
@@ -35,7 +37,9 @@ from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, 
 from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
+    CanvasStateReader,
     apply_layout_ops,
+    apply_source_edits,
     call_connector_tool,
     canvas_connectors_enabled,
     connector_listings,
@@ -57,6 +61,10 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
     CanvasCapabilityWideningSerializer,
+    CanvasCommentDetailQuerySerializer,
+    CanvasCommentDetailSerializer,
+    CanvasCommentsQuerySerializer,
+    CanvasCommentsResponseSerializer,
     CanvasConnectorCallResultSerializer,
     CanvasConnectorCallSerializer,
     CanvasConnectorsResponseSerializer,
@@ -77,14 +85,18 @@ from products.canvas.backend.presentation.serializers import (
     CanvasSerializer,
     CanvasSourceDraftResponseSerializer,
     CanvasSourceDraftSerializer,
+    CanvasSourceEditOp,
     CanvasSourceEditSerializer,
     CanvasSourceInvalidSerializer,
     CanvasSourcePublishResponseSerializer,
     CanvasSourcePublishSerializer,
     CanvasSourceResponseSerializer,
     CanvasStateEntrySerializer,
+    CanvasStateQuerySerializer,
     CanvasStateResponseSerializer,
     CanvasStateSetSerializer,
+    CanvasStateValueQuerySerializer,
+    CanvasStateValueResponseSerializer,
     CanvasSummarySerializer,
     CanvasUpdateSerializer,
     CanvasValidateRequestSerializer,
@@ -93,7 +105,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasViewResponseSerializer,
     canvas_url,
 )
-from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
+from products.canvas.backend.source import has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
 
@@ -116,6 +128,14 @@ def _capacity_response() -> Response:
         {"detail": "Canvas build capacity is temporarily exhausted. Try again shortly."},
         status=status.HTTP_429_TOO_MANY_REQUESTS,
     )
+
+
+def _edit_operation_properties(operations: Sequence[dict[str, Any]]) -> dict[str, int]:
+    counts = Counter(operation["op"] for operation in operations)
+    return {
+        "operation_count": len(operations),
+        **{f"{op}_operation_count": counts[op] for op in CanvasSourceEditOp.values},
+    }
 
 
 def _conflict_response(error: build_service.CanvasVersionConflict) -> Response:
@@ -443,9 +463,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         "builds",
         "validate",
         "state",
+        "state_value",
         "layout",
         "connectors",
         "view",
+        "comments",
+        "comment",
     ]
     scope_object_write_actions = [
         "create",
@@ -825,6 +848,70 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         return Response(CanvasVersionSerializer(versions, many=True).data)
 
     @extend_schema(
+        operation_id="canvases_comments_list",
+        parameters=[CanvasCommentsQuerySerializer],
+        responses=CanvasCommentsResponseSerializer,
+    )
+    @action(methods=["GET"], detail=True, url_path="comments", required_scopes=["canvas:read", "comment:read"])
+    def comments(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """The comment threads on this canvas, newest first. Open threads only unless include_resolved is set."""
+        params = CanvasCommentsQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        canvas = self.get_object()
+        try:
+            page = tasks_facade.list_canvas_comments(
+                team_id=self.team_id,
+                canvas_id=canvas.id,
+                canvas_name=canvas.name,
+                include_resolved=params.validated_data["include_resolved"],
+                limit=params.validated_data["limit"],
+                cursor=params.validated_data.get("cursor"),
+            )
+        except ValueError:
+            raise ValidationError({"cursor": "Invalid cursor."}) from None
+        return Response(CanvasCommentsResponseSerializer(page).data)
+
+    @extend_schema(
+        operation_id="canvases_comments_retrieve",
+        parameters=[
+            OpenApiParameter("root_comment_id", UUID, OpenApiParameter.PATH),
+            CanvasCommentDetailQuerySerializer,
+        ],
+        responses=CanvasCommentDetailSerializer,
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"comments/(?P<root_comment_id>[^/.]+)",
+        required_scopes=["canvas:read", "comment:read"],
+    )
+    def comment(self, request: Request, *args: Any, root_comment_id: str | None = None, **kwargs: Any) -> Response:
+        """One comment thread on this canvas: the root comment and its replies, oldest first."""
+        params = CanvasCommentDetailQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        canvas = self.get_object()
+        try:
+            parsed_comment_id = UUID(str(root_comment_id))
+        except ValueError:
+            raise NotFound()
+        try:
+            thread = tasks_facade.retrieve_canvas_comment(
+                team_id=self.team_id,
+                canvas_id=canvas.id,
+                canvas_name=canvas.name,
+                comment_id=parsed_comment_id,
+                limit=params.validated_data["limit"],
+                cursor=params.validated_data.get("cursor"),
+                content_comment_id=params.validated_data.get("comment_id"),
+                content_offset=params.validated_data["content_offset"],
+            )
+        except ValueError:
+            raise ValidationError({"cursor": "Invalid cursor."}) from None
+        if thread is None:
+            raise NotFound()
+        return Response(CanvasCommentDetailSerializer(thread).data)
+
+    @extend_schema(
         operation_id="canvases_validate_create",
         request=CanvasValidateRequestSerializer,
         responses={200: CanvasValidateResponseSerializer},
@@ -850,6 +937,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=True, url_path="publish-current-version")
     def publish_current_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Queue a build for the current source version without changing source or metadata."""
@@ -928,7 +1016,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             403: OpenApiResponse(description="Only the canvas creator can supply a name when editing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
-                description="An edit targeted a missing file, or the edited project failed validation.",
+                description="An operation did not apply (a missing file, or old_string matched no place or several), or the edited project failed validation.",
             ),
             409: OpenApiResponse(
                 response=CanvasPublishConflictSerializer,
@@ -939,11 +1027,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def edit(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Publish per-file edits against the canvas's current source project.
+        """Publish file edits against the canvas's current source project.
 
-        Diff-aware alternative to sending the complete project: each operation
-        sets a file's content or (content null) deletes it, applied to the head
-        the caller read. `expected_current_version_id` is mandatory here —
+        Diff-aware alternative to sending the complete project: operations
+        replace text inside a file, write, delete, or rename files, applied in
+        order to the head the caller read. `expected_current_version_id` is mandatory here —
         relative edits against an unverified base could silently merge into
         someone else's newer work.
         """
@@ -955,14 +1043,25 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         payload.is_valid(raise_exception=True)
 
         try:
-            project, _ = build_service.current_source_project(canvas)
+            project, head_version_id = build_service.current_source_project(canvas)
         except ObjectStorageError:
             return Response(
                 {"detail": "The canvas's source is temporarily unavailable."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        project, diagnostics = apply_source_edits(project, payload.validated_data["operations"])
+        if (payload.validated_data["expected_current_version_id"] or None) != head_version_id:
+            return _conflict_response(build_service.CanvasVersionConflict(head_version_id))
+        operations = payload.validated_data["operations"]
+        project, diagnostics = apply_source_edits(project, operations)
+        if "capabilities" in payload.validated_data:
+            project = {**project, "capabilities": payload.validated_data["capabilities"]}
         if diagnostics:
+            self._report_canvas_action(
+                "canvas edit rejected",
+                canvas,
+                error_codes=sorted({entry["code"] for entry in diagnostics}),
+                **_edit_operation_properties(operations),
+            )
             return Response(
                 {
                     "detail": "The edit could not be applied to the canvas's current source.",
@@ -980,6 +1079,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             name=payload.validated_data.get("name"),
             has_expected_version=True,
             expected_version_id=payload.validated_data["expected_current_version_id"],
+            edit_operations=operations,
         )
 
     def _publish(
@@ -992,6 +1092,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         name: str | None,
         has_expected_version: bool,
         expected_version_id: str | None,
+        edit_operations: Sequence[dict[str, Any]] | None = None,
     ) -> Response:
         user = self._request_user()
         if name is not None and (user is None or canvas.created_by_id != user.id):
@@ -1003,7 +1104,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
 
         task_id = self._sandbox_task_id(request)
         try:
-            canvas, version, _build, first_publish = build_service.publish_source_project(
+            canvas, version, build, first_publish = build_service.publish_source_project(
                 canvas,
                 project=project,
                 prompt=prompt,
@@ -1040,14 +1141,16 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             inline_queries_capability=bool(posthog_capabilities.get("inlineQueries")),
             agent_requests_capability=bool(posthog_capabilities.get("agentRequests")),
             is_sandbox_publish=task_id is not None,
+            save_method="publish" if edit_operations is None else "edit",
+            **(_edit_operation_properties(edit_operations) if edit_operations is not None else {}),
         )
 
+        build = build_service.wait_for_build_result(build)
+        canvas.refresh_from_db()
         return Response(
-            {
-                "canvas": CanvasSummarySerializer(canvas).data,
-                "current_version_id": str(version.id),
-                "diagnostics": diagnostics,
-            }
+            CanvasSourcePublishResponseSerializer(
+                {"canvas": canvas, "current_version_id": str(version.id), "diagnostics": diagnostics, "build": build}
+            ).data
         )
 
     @extend_schema(
@@ -2115,17 +2218,15 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         )
         return Response(CanvasConnectorCallResultSerializer(instance=result).data)
 
+    def _readable_state_entries(self, canvas: Canvas, user: User) -> QuerySet[CanvasState]:
+        version = canvas.current_source_version
+        declared = declared_state_scopes(version.capabilities if version else None)
+        readable = Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(scope=CanvasState.SCOPE_USER, user=user)
+        return CanvasState.objects.for_team(self.team_id).filter(readable, canvas=canvas, scope__in=declared)
+
     @extend_schema(
         operation_id="canvases_state_retrieve",
-        parameters=[
-            OpenApiParameter(
-                "scope",
-                OpenApiTypes.STR,
-                required=False,
-                enum=CanvasState.SCOPES,
-                description="Only return entries in this scope.",
-            )
-        ],
+        parameters=[CanvasStateQuerySerializer],
         responses={
             200: CanvasStateResponseSerializer,
             403: OpenApiResponse(description="Canvas state requires an authenticated user."),
@@ -2145,18 +2246,44 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         # Reads honor the same reviewed boundary as writes: a canvas only sees
         # the scopes its head version declares, so narrowing capabilities also
         # stops reads of previously written entries.
-        version = canvas.current_source_version
-        declared = declared_state_scopes(version.capabilities if version else None)
-        readable_entries = Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(
-            scope=CanvasState.SCOPE_USER, user=user
-        )
-        entries = CanvasState.objects.for_team(self.team_id).filter(readable_entries, canvas=canvas, scope__in=declared)
-        scope = request.query_params.get("scope")
-        if scope:
-            if scope not in CanvasState.SCOPES:
-                return Response({"detail": "scope must be 'user' or 'shared'."}, status=status.HTTP_400_BAD_REQUEST)
-            entries = entries.filter(scope=scope)
-        return Response(CanvasStateResponseSerializer(instance={"entries": entries.order_by("scope", "key")}).data)
+        query = CanvasStateQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        result = CanvasStateReader.entries(self._readable_state_entries(canvas, user), **query.validated_data)
+        return Response(CanvasStateResponseSerializer(result).data)
+
+    @extend_schema(
+        operation_id="canvases_state_value_retrieve",
+        parameters=[CanvasStateValueQuerySerializer],
+        responses={
+            200: CanvasStateValueResponseSerializer,
+            400: OpenApiResponse(description="Invalid query, or the offset exceeds the value length."),
+            404: OpenApiResponse(description="No readable value for this scope and key."),
+            409: OpenApiResponse(description="The value changed. Restart from offset zero."),
+        },
+    )
+    @action(methods=["GET"], detail=True, url_path="state/value")
+    def state_value(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        canvas = self.get_object()
+        user = self._state_actor(request)
+        if user is None:
+            return _state_rejection()
+        query = CanvasStateValueQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+        entry = self._readable_state_entries(canvas, user).filter(scope=params["scope"], key=params["key"]).first()
+        if entry is None:
+            raise NotFound("No readable value for this scope and key. Read the key inventory first.")
+        result = CanvasStateReader.value(entry, offset=params["offset"], limit=params["limit"])
+        if params.get("revision") and params["revision"] != result["revision"]:
+            return Response(
+                {"detail": "The value changed. Read again from offset zero."}, status=status.HTTP_409_CONFLICT
+            )
+        if params["offset"] > result["total_length"]:
+            return Response(
+                {"detail": "Offset exceeds the value length. Read again from offset zero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(CanvasStateValueResponseSerializer(result).data)
 
     @extend_schema(
         operation_id="canvases_state_set",
@@ -2248,7 +2375,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             report_user_action(
                 user,
                 event,
-                {"canvas_id": str(canvas.id), "channel_id": str(canvas.channel_id), **extra},
+                {
+                    "canvas_id": str(canvas.id),
+                    "channel_id": str(canvas.channel_id),
+                    "canvas_kind": canvas.kind,
+                    **extra,
+                },
                 team=self.team,
                 request=self.request,
             )

@@ -1,5 +1,5 @@
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { memo, useState } from 'react'
 
 import { IconFilter, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, Link } from '@posthog/lemon-ui'
@@ -12,7 +12,6 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import type { HogQLFilters, HogQLQuery } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 
-import { filtersPlaceholderBindings, queryUsesFiltersPlaceholder } from './sql-utils'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 const hasDateRange = (filters?: HogQLFilters): boolean => {
@@ -48,9 +47,12 @@ const filtersTooltip = ({
     return undefined
 }
 
-export function QueryFiltersMenu(): JSX.Element | null {
-    const { sourceQuery, queryInput } = useValues(sqlEditorLogic)
+// QueryWindow subscribes to queryInput, so it renders on every keystroke. memo stops that render from
+// reaching this menu, and the selectors below keep the menu's own subscriptions off the keystroke path.
+export const QueryFiltersMenu = memo(function QueryFiltersMenu(): JSX.Element | null {
+    const { sourceQuery, hasFiltersPlaceholder, filtersPlaceholderBindings } = useValues(sqlEditorLogic)
     const { setSourceQuery, runQuery, insertTextAtCursor } = useActions(sqlEditorLogic)
+    const logic = useMountedLogic(sqlEditorLogic)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     if (!isHogQLQuery(sourceQuery.source)) {
@@ -60,11 +62,10 @@ export function QueryFiltersMenu(): JSX.Element | null {
     const source = sourceQuery.source
     const filters = source.filters
     const hasFilters = hasActiveFilters(filters)
-    const queryText = queryInput ?? source.query
-    const usesFiltersPlaceholder = queryUsesFiltersPlaceholder(queryText)
+    const usesFiltersPlaceholder = hasFiltersPlaceholder
     const filtersMissingPlaceholder = hasFilters && !usesFiltersPlaceholder
-    const bindings = filtersPlaceholderBindings(queryText)
-    const bindingsMissingTimestamp = bindings !== null && !bindings.includes('timestamp')
+    const bindingsMissingTimestamp =
+        filtersPlaceholderBindings !== null && !filtersPlaceholderBindings.includes('timestamp')
 
     const setHogQLQuery = (query: HogQLQuery): void => {
         const nextSourceQuery = {
@@ -75,7 +76,7 @@ export function QueryFiltersMenu(): JSX.Element | null {
         setSourceQuery(nextSourceQuery)
 
         if (usesFiltersPlaceholder) {
-            runQuery(queryInput ?? query.query)
+            runQuery(logic.values.queryInput ?? query.query)
         }
     }
 
@@ -200,4 +201,4 @@ export function QueryFiltersMenu(): JSX.Element | null {
             </LemonButton>
         </LemonMenu>
     )
-}
+})

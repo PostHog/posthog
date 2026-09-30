@@ -119,6 +119,11 @@ class NotebookSQLV2NodeType(models.TextChoices):
 
 
 class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
+    reuse_results = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Reuse the requesting user's running or completed HogQL run with the same cell and resolved query from the last hour. Does not apply to token-only callers, kernel runs, or connection runs.",
+    )
     node_id = serializers.CharField(help_text="ProseMirror node id of the SQLV2 node being run.")
     node_type = serializers.ChoiceField(
         choices=NotebookSQLV2NodeType.choices,
@@ -420,7 +425,7 @@ class NotebookCellStateSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="Durable cell identity, used by the cell run and edit endpoints.")
     cell_type = serializers.CharField(
         help_text=(
-            "Cell kind: 'sql', 'python', 'saved_insight' (embedded insight, never runs), or "
+            "Cell kind: 'sql', 'python', 'saved_insight' (an insight with an optional prepared dataframe), or "
             "'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph)."
         )
     )
@@ -478,7 +483,9 @@ class NotebookKernelStateSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Memory in GB the notebook's sandbox is configured with."
     )
     idle_timeout_seconds = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
+        required=False,
+        allow_null=True,
+        help_text="Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.",
     )
 
 
@@ -550,7 +557,9 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Disk size in GB the sandbox is configured with."
     )
     idle_timeout_seconds = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
+        required=False,
+        allow_null=True,
+        help_text="Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.",
     )
     hourly_price = serializers.FloatField(
         help_text=(
@@ -593,7 +602,8 @@ class NotebookComputeOptionsResponseSerializer(serializers.Serializer):
         child=serializers.FloatField(), help_text="Memory sizes in GB the kernel config endpoint accepts."
     )
     allowed_idle_timeout_seconds = serializers.ListField(
-        child=serializers.IntegerField(), help_text="Idle timeouts in seconds the kernel config endpoint accepts."
+        child=serializers.IntegerField(),
+        help_text="Maximum sandbox lifetimes in seconds that the kernel config endpoint accepts.",
     )
 
 
@@ -605,7 +615,9 @@ class NotebookKernelConfigResponseSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Configured memory in GB; null means the default applies."
     )
     idle_timeout_seconds = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Configured idle timeout in seconds; null means the default."
+        required=False,
+        allow_null=True,
+        help_text="Configured maximum sandbox lifetime in seconds; null means the default.",
     )
     restarted = serializers.BooleanField(
         help_text=(
@@ -647,3 +659,99 @@ class NotebookSQLV2InterruptResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Present when the interrupt could not take effect yet, e.g. the run has not reached the kernel.",
     )
+
+
+class NotebookRunStartRequestSerializer(serializers.Serializer):
+    include_prepared_insights = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled.",
+    )
+    variables = NotebookVariableSerializer(
+        many=True,
+        required=False,
+        # DRF forwards this to the ListSerializer (LIST_SERIALIZER_KWARGS); the stubs only
+        # type Serializer.__init__, so mypy cannot see it.
+        max_length=MAX_VARIABLES_PER_NOTEBOOK,  # type: ignore[call-arg]
+        help_text=(
+            "Replace the notebook's variables with this list before the run starts, so the results "
+            "match what the document declares. Omit it to run with the variables already saved."
+        ),
+    )
+
+
+class NotebookRunStartResponseSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(
+        help_text="Identifier of the whole-notebook run. Poll the run status endpoint with it until the status is terminal."
+    )
+    cell_count = serializers.IntegerField(help_text="How many cells the run will execute, frozen when it started.")
+    starts_sandbox = serializers.BooleanField(
+        help_text=(
+            "True when this run has to provision a sandbox because it holds a Python cell and none is "
+            "live for the caller. Tell the user what that costs."
+        )
+    )
+    sandbox_hourly_price = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What the sandbox this run provisions costs per hour in USD. Null when the run needs no new "
+            "sandbox, or when the backend is not charged."
+        ),
+    )
+
+
+class NotebookRunCellSerializer(serializers.Serializer):
+    node_id = serializers.CharField(help_text="Durable cell identity, the same id the cell run endpoints take.")
+    cell_type = serializers.CharField(help_text="Cell kind: 'sql' or 'python'.")
+    dataframe_name = serializers.CharField(
+        allow_blank=True, help_text="Name other cells reference this cell's result by; blank means display-only."
+    )
+    run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="This cell's run in the whole-notebook run; null until the run reaches the cell.",
+    )
+    # CharField, not ChoiceField: a `status` enum collides with other generated enums.
+    status = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The cell's own state: 'running', 'done', 'failed', or 'interrupted'; null before it starts.",
+    )
+    error = serializers.CharField(required=False, allow_null=True, help_text="Why this cell failed, when it did.")
+
+
+class NotebookRunStatusResponseSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(help_text="Identifier of the whole-notebook run.")
+    status = serializers.CharField(
+        help_text="Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'."
+    )
+    trigger = serializers.CharField(help_text="Which surface started the run: 'ui' or 'mcp'.")
+    variables = NotebookVariableSerializer(
+        many=True, help_text="The variable values this run bound, snapshotted when it started."
+    )
+    cell_count = serializers.IntegerField(help_text="How many cells the run executes.")
+    current_index = serializers.IntegerField(help_text="Position in the plan the run has reached, counting from 0.")
+    current_node_id = serializers.CharField(
+        required=False, allow_null=True, help_text="The cell the run is on; null once the plan is finished."
+    )
+    failed_node_id = serializers.CharField(
+        required=False, allow_null=True, help_text="The cell that stopped the run, when one did."
+    )
+    error = serializers.CharField(
+        required=False, allow_null=True, help_text="Why the run stopped, in one sentence a person can read."
+    )
+    cells = NotebookRunCellSerializer(
+        many=True, help_text="Every planned cell in run order, with the state of its run in this notebook run."
+    )
+    created_at = serializers.DateTimeField(help_text="When the run started.")
+    finished_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="When the run reached a terminal state; null while running."
+    )
+
+
+class NotebookRunInterruptResponseSerializer(serializers.Serializer):
+    interrupted = serializers.BooleanField(
+        help_text="True when this call stopped the run. False when it had already finished, which is not an error."
+    )
+    status = serializers.CharField(help_text="The run's state after the call: 'done', 'failed', or 'interrupted'.")

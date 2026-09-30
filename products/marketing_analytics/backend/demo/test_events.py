@@ -1,5 +1,7 @@
 import datetime as dt
 from collections import Counter, defaultdict
+from collections.abc import Mapping
+from typing import Any
 
 from unittest.mock import patch
 
@@ -20,14 +22,27 @@ class TestMarketingDemoTraffic(SimpleTestCase):
         pageviews = [call.kwargs for call in capture.call_args_list if call.kwargs["event"] == EVENT_PAGEVIEW]
         visitors = {event["distinct_id"] for event in pageviews}
         sessions = Counter(event["properties"]["$session_id"] for event in pageviews)
+        session_entries: dict[str, Mapping[str, Any]] = {}
         visitor_days: dict[str, set[dt.date]] = defaultdict(set)
         for event in pageviews:
             visitor_days[event["distinct_id"]].add(event["timestamp"].date())
+            session_entries.setdefault(event["properties"]["$session_id"], event)
 
         assert len(visitors) < len(sessions) < len(pageviews)
         assert any(len(days) > 1 for days in visitor_days.values())
         assert any(count == 1 for count in sessions.values())
         assert any(count > 1 for count in sessions.values())
+        assert len({event["properties"]["$pathname"] for event in session_entries.values()}) > 1
+        assert (
+            len(
+                {
+                    event["properties"]["utm_term"]
+                    for event in session_entries.values()
+                    if "utm_term" in event["properties"]
+                }
+            )
+            > 1
+        )
         assert all(event["timestamp"] < now for event in pageviews)
 
         for start, end in [

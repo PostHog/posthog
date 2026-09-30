@@ -43,6 +43,8 @@ export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport 
                           overrides.implementation_pr_state ??
                           (overrides.implementation_pr_merged ? 'merged' : 'unknown'),
                       merged: overrides.implementation_pr_merged ?? false,
+                      review_decision: null,
+                      merged_at: null,
                       claim_id: null,
                       attached_at: BASE_DATE,
                       attached_by: {
@@ -266,6 +268,26 @@ export const allReports: SignalReport[] = [...reportTabReports, ...pullRequestRe
 
 // ── Detail-endpoint payloads ────────────────────────────────────────────────
 
+/** Answers `POST signals/reports/source_metadata/` from the given reports, as the inbox list loads its source line. */
+export function mockSourceMetadata(
+    reports: SignalReport[]
+): ({ request }: { request: Request }) => Promise<[number, { reports: object[] }]> {
+    return async ({ request }) => {
+        const { report_ids } = (await request.json()) as { report_ids: string[] }
+        const byId = new Map(reports.map((report) => [report.id, report]))
+        return [
+            200,
+            {
+                reports: report_ids.map((id) => ({
+                    id,
+                    source_products: byId.get(id)?.source_products ?? [],
+                    scout_name: byId.get(id)?.scout_name ?? null,
+                })),
+            },
+        ]
+    }
+}
+
 export function mockSignals(reportId: string, count = 4): SignalNode[] {
     return Array.from({ length: count }).map((_, i) => ({
         signal_id: `${reportId}-sig-${i}`,
@@ -402,6 +424,16 @@ export function mockArtefacts(reportId: string): { results: any[]; count: number
             },
             created_at: BASE_DATE,
             created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        },
+        {
+            id: `${reportId}-impl-decision`,
+            type: 'implementation_decision',
+            content: {
+                supersede: true,
+                reason: 'The crash is in the serializer, not the form, so the fix moves to the API layer.',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-research`,
         },
     ]
     return { results, count: results.length }

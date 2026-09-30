@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 
+import sys
+import tempfile
+import subprocess
+from pathlib import Path
+
 import unittest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -8,10 +14,12 @@ from bin.lint_duplication import (
     APP_MAX_NEW_CLONE_TOKENS,
     TEST_MAX_NEW_CLONE_TOKENS,
     build_findings,
+    changed_files_between,
     clone_key,
     clone_language,
     find_gate_failures,
     is_test_file,
+    main,
     mark_new_clones,
 )
 
@@ -198,6 +206,52 @@ class TestMarkNewClones(unittest.TestCase):
         current = [make_clone("a.py", "b.py", 100)]
         mark_new_clones(current, baseline, changed_files)
         self.assertEqual(current[0]["isNew"], expected_is_new)
+
+
+class TestChangedFilesBetween(unittest.TestCase):
+    def test_ignores_untracked_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run(["git", "init", "--quiet"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True, cwd=repo)
+            (repo / "tracked.py").write_text("before\n")
+            subprocess.run(["git", "add", "tracked.py"], check=True, cwd=repo)
+            subprocess.run(["git", "commit", "--quiet", "-m", "base"], check=True, cwd=repo)
+            baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=repo).strip()
+            (repo / "tracked.py").write_text("after\n")
+            subprocess.run(["git", "commit", "--quiet", "-am", "change tracked file"], check=True, cwd=repo)
+            (repo / "untracked.py").write_text("generated\n")
+
+            self.assertEqual(changed_files_between(baseline, "HEAD", repo), {"tracked.py"})
+
+
+class TestCommittedScanTree(unittest.TestCase):
+    def test_scans_head_without_worktree_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run(["git", "init", "--quiet"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True, cwd=repo)
+            (repo / "tracked.py").write_text("before\n")
+            subprocess.run(["git", "add", "tracked.py"], check=True, cwd=repo)
+            subprocess.run(["git", "commit", "--quiet", "-m", "base"], check=True, cwd=repo)
+            baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=repo).strip()
+            (repo / "tracked.py").write_text("committed\n")
+            subprocess.run(["git", "commit", "--quiet", "-am", "change tracked file"], check=True, cwd=repo)
+            (repo / "tracked.py").write_text("worktree\n")
+            (repo / "untracked.py").write_text("untracked\n")
+            scans: list[dict[str, str]] = []
+
+            def record_scan(scan_root: Path, _out_dir: Path) -> list[dict]:
+                scans.append({path.name: path.read_text() for path in scan_root.glob("*.py")})
+                return []
+
+            with patch("bin.lint_duplication.run_jscpd", side_effect=record_scan):
+                with patch.object(sys, "argv", ["lint_duplication.py", "--base", baseline, "--path", str(repo)]):
+                    self.assertEqual(main(), 0)
+
+            self.assertEqual(scans, [{"tracked.py": "committed\n"}, {"tracked.py": "before\n"}])
 
 
 if __name__ == "__main__":

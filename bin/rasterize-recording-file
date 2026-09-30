@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# Renders one recording file (`[windowId, event]` JSONL, optionally zstd) to video in the rasterizer
+# image, without Temporal, recording-api or S3. Writes <out-dir>/video.mp4 and <out-dir>/rasterize.json.
+#
+#   bin/rasterize-recording-file <events.jsonl[.zst]> <out-dir> ['<RasterizeRecordingInput json>']
+
+set -e
+set -o pipefail
+
+if [ $# -lt 2 ]; then
+    echo "usage: $0 <events.jsonl[.zst]> <out-dir> ['<options json>']" >&2
+    exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+IMAGE_NAME="recording-rasterizer:local"
+
+INPUT="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+mkdir -p "$2"
+OUT_DIR="$(cd "$2" && pwd)"
+OPTIONS="${3:-{\}}"
+
+case "$(uname -m)" in
+arm64 | aarch64) PLATFORM="linux/arm64" ;;
+*) PLATFORM="linux/amd64" ;;
+esac
+
+if [ -z "$SKIP_BUILD" ]; then
+    "$SCRIPT_DIR/build-recording-rasterizer-image" >&2
+fi
+
+# Chromium needs the relaxed seccomp/apparmor profile, as in bin/temporal-recording-rasterizer-worker.
+# nosemgrep: trailofbits.generic.container-privileged.container-privileged
+docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+    --platform "$PLATFORM" \
+    -e NODE_ENV=development \
+    -e LOG_LEVEL="${LOG_LEVEL:-warn}" \
+    -e DISABLE_BROWSER_SECURITY=1 \
+    -v "$ROOT_DIR/nodejs/dist/session-replay/recording-rasterizer:/code/nodejs/dist/session-replay/recording-rasterizer" \
+    -v "$ROOT_DIR/common/replay-headless/dist:/code/common/replay-headless/dist" \
+    -v "$INPUT:/input/$(basename "$INPUT"):ro" \
+    -v "$OUT_DIR:/output" \
+    --user "$(id -u):$(id -g)" \
+    "$IMAGE_NAME" \
+    node nodejs/dist/session-replay/recording-rasterizer/rasterize-file.js \
+    --input "/input/$(basename "$INPUT")" --out /output --options "$OPTIONS"

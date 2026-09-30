@@ -15,7 +15,7 @@ import { ItemMode } from '~/types'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 export function InsightScene(): JSX.Element {
-    const { insightId, insight, insightLogicRef, insightMode, dashboardId } = useValues(insightSceneLogic)
+    const { insightId, insight, insightLoading, insightMode, dashboardId } = useValues(insightSceneLogic)
 
     useAttachedContext(
         insight?.short_id && insight?.query
@@ -46,7 +46,7 @@ export function InsightScene(): JSX.Element {
         return <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
     }
 
-    if (insightLogicRef?.logic?.values?.insightLoading) {
+    if (insightLoading) {
         return <InsightSkeleton />
     }
 
