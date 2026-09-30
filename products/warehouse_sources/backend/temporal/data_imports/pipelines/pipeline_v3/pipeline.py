@@ -563,10 +563,10 @@ class PipelineV3(Generic[ResumableData]):
             # See the PipelineResult docstring for the full ownership contract.
             consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 
-            result = {
-                "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),
-                "consumer_manages_job_status": consumer_will_hear_about_this_run,
-            }
+            result = PipelineResult(
+                should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run(),
+                consumer_manages_job_status=consumer_will_hear_about_this_run,
+            )
             if self._resource.on_complete is not None:
                 await asyncio.to_thread(self._resource.on_complete)
             return result
