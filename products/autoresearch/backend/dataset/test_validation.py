@@ -5,6 +5,8 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+
 from products.autoresearch.backend.dataset.labeling import LABELER_QUERY_MODIFIERS, PREDICTION_EVENT_NAME
 from products.autoresearch.backend.dataset.validation import (
     ValidationResult,
@@ -104,6 +106,12 @@ class TestValidationWarnings(BaseTest):
                 "Validation could not run",
             ),
             ("query_error_reaches_the_caller", QueryError("Field not found: nope"), "Field not found: nope"),
+            ("timeout_asks_to_narrow_the_definition", ClickHouseQueryTimeOut(), "Narrow the population"),
+            (
+                "memory_limit_asks_to_narrow_the_definition",
+                ClickHouseQueryMemoryLimitExceeded(),
+                "Narrow the population",
+            ),
         ]
     )
     def test_error_in_query_returns_error_result(self, _name: str, exc: Exception, expected: str) -> None:

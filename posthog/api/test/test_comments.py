@@ -531,6 +531,87 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand(
+        [
+            ("sandbox_on_teammate_canvas", True, False, False),
+            ("sandbox_on_own_canvas", True, True, True),
+            ("session_on_teammate_canvas", False, False, True),
+        ]
+    )
+    def test_private_canvas_comments_limit_sandbox_tokens_like_the_canvas_api(
+        self, _name: str, sandbox: bool, own_canvas: bool, visible: bool
+    ) -> None:
+        teammate = User.objects.create_and_join(self.organization, "canvas-teammate@posthog.com", None)
+        channel = (
+            apps.get_model("tasks", "Channel")
+            .objects.unscoped()
+            .create(team=self.team, name="shared-private-space", channel_type="private", created_by=teammate)
+        )
+        membership_model = apps.get_model("tasks", "ChannelMembership")
+        membership_model.objects.unscoped().bulk_create(
+            [
+                membership_model(team=self.team, channel=channel, user=self.user),
+                membership_model(team=self.team, channel=channel, user=teammate),
+            ]
+        )
+        canvas = (
+            apps.get_model("canvas", "Canvas")
+            .objects.unscoped()
+            .create(
+                team=self.team,
+                channel=channel,
+                name="Private canvas",
+                created_by=self.user if own_canvas else teammate,
+            )
+        )
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=teammate,
+            scope="desktop_canvas",
+            item_id=str(canvas.id),
+            item_context={"anchor": {"kind": "document"}},
+            content="Private feedback",
+        )
+        client = self._sandbox_task_comment_client(self._task_artifact_target().id) if sandbox else self.client
+
+        listed = client.get(f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}")
+        detail = client.get(f"/api/projects/{self.team.id}/comments/{root.id}")
+
+        assert [row["id"] for row in listed.json()["results"]] == ([str(root.id)] if visible else [])
+        assert detail.status_code == (status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand([("public_space", "public", True), ("another_users_personal_space", "personal", False)])
+    def test_task_comments_include_canvas_comments_only_from_visible_spaces(
+        self, _name: str, channel_type: str, visible: bool
+    ) -> None:
+        task = self._task_artifact_target()
+        owner = User.objects.create_and_join(self.organization, f"canvas-owner-{channel_type}@posthog.com", None)
+        channel = (
+            apps.get_model("tasks", "Channel")
+            .objects.unscoped()
+            .create(team=self.team, name=f"{channel_type}-canvas-space", channel_type=channel_type, created_by=owner)
+        )
+        canvas = (
+            apps.get_model("canvas", "Canvas")
+            .objects.unscoped()
+            .create(team=self.team, channel=channel, name="Space canvas", created_by=owner, generation_task_id=task.id)
+        )
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=owner,
+            scope="desktop_canvas",
+            item_id=str(canvas.id),
+            item_context={"taskId": str(task.id), "anchor": {"kind": "document"}},
+            content="Feedback on the canvas",
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        listed = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/")
+        detail = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/")
+
+        assert [row["id"] for row in listed.json()["comments"]] == ([str(root.id)] if visible else [])
+        assert detail.status_code == (status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
+
     def test_task_comments_require_the_sandbox_task_binding(self) -> None:
         task = self._task_artifact_target()
 
@@ -642,7 +723,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         mentioned = User.objects.create_and_join(self.organization, "canvas-mentioned@posthog.com", "password")
         payload: dict[str, Any] = {
             "content": "Review this canvas",
-            "scope": "desktop_canvas",
+            "scope": "canvas",
             "item_id": str(canvas.id),
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
             "mentions": [mentioned.id],
@@ -652,7 +733,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert created.status_code == status.HTTP_201_CREATED
         with_task = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}&task_id={task.id}"
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
         task_activity_model = apps.get_model("tasks", "TaskCommentActivity")
@@ -695,7 +776,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         payload = {
             "content": "Nice canvas",
-            "scope": "desktop_canvas",
+            "scope": "canvas",
             "item_id": str(canvas.id),
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
         }
@@ -704,7 +785,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert created.status_code == status.HTTP_201_CREATED
         listed = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}&task_id={task.id}"
         )
         assert [row["id"] for row in listed.json()["results"]] == [created.json()["id"]]
 
@@ -714,14 +795,76 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         canvas.generation_task_id = regenerated_by.id
         canvas.save(update_fields=["generation_task_id"])
         relisted = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={regenerated_by.id}"
+            f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}&task_id={regenerated_by.id}"
         )
         assert [row["id"] for row in relisted.json()["results"]] == [created.json()["id"]]
+        reply = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Still relevant",
+                "scope": "canvas",
+                "item_id": str(canvas.id),
+                "source_comment": created.json()["id"],
+            },
+        )
+        assert reply.status_code == status.HTTP_201_CREATED
+        assert not ActivityLog.objects.filter(
+            team_id=self.team.id, item_id__in=[str(canvas.id), created.json()["id"]]
+        ).exists()
+        other_canvas = canvas_model.objects.unscoped().create(
+            team=self.team, channel=shared, name="Other canvas", created_by=author
+        )
+        root_url = f"/api/projects/{self.team.id}/comments/{created.json()['id']}"
+        reply_url = f"/api/projects/{self.team.id}/comments/{reply.json()['id']}"
+        unrelated = task_model.objects.create(
+            team=self.team, title="Unrelated task", created_by=author, channel=author_personal
+        )
+        unrelated_context = {"anchor": {"kind": "document"}, "taskId": str(unrelated.id)}
+        assert self.client.patch(root_url, {"content": "Edited after a new run"}).status_code == status.HTTP_200_OK
+        assert self.client.patch(root_url, {"item_id": str(other_canvas.id)}).status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            self.client.patch(reply_url, {"item_context": unrelated_context}, format="json").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
 
+    def test_canvas_scope_names_are_one_protected_scope(self) -> None:
+        channel_model = apps.get_model("tasks", "Channel")
+        canvas_model = apps.get_model("canvas", "Canvas")
+        channel = channel_model.objects.unscoped().create(
+            team=self.team, name="canvas-scope-space", channel_type="public", created_by=self.user
+        )
+        canvas = canvas_model.objects.unscoped().create(
+            team=self.team, channel=channel, name="Scoped canvas", created_by=self.user
+        )
+        earlier = Comment.objects.create(
+            team=self.team, scope="desktop_canvas", item_id=str(canvas.id), content="Earlier", created_by=self.user
+        )
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "New build",
+                "scope": "canvas",
+                "item_id": str(canvas.id),
+                "item_context": {"anchor": {"kind": "document"}},
+            },
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED
+        assert created.json()["scope"] == "canvas"
+        assert Comment.objects.get(id=created.json()["id"]).scope == "canvas"
+        expected = sorted([(created.json()["id"], "canvas"), (str(earlier.id), "canvas")])
+        for scope in ("canvas", "desktop_canvas"):
+            listed = self.client.get(f"/api/projects/{self.team.id}/comments?scope={scope}&item_id={canvas.id}")
+            assert sorted((row["id"], row["scope"]) for row in listed.json()["results"]) == expected
+        unscoped = self.client.get(f"/api/projects/{self.team.id}/comments?item_id={canvas.id}")
+        assert unscoped.json()["results"] == []
+
+    @parameterized.expand([("with_task", True), ("without_task", False)])
     @mock.patch("posthog.api.comments.send_mention_notifications")
     @mock.patch("posthog.api.comments.produce_discussion_mention_events")
     def test_private_canvas_comments_follow_space_membership(
-        self, produce_events: mock.Mock, send_notifications: mock.Mock
+        self, _name: str, with_task: bool, produce_events: mock.Mock, send_notifications: mock.Mock
     ) -> None:
         channel_model = apps.get_model("tasks", "Channel")
         membership_model = apps.get_model("tasks", "ChannelMembership")
@@ -746,13 +889,13 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             channel=channel,
             name="Private canvas",
             created_by=self.user,
-            generation_task_id=task.id,
+            generation_task_id=task.id if with_task else None,
         )
         payload = {
             "content": "Review this canvas",
-            "scope": "desktop_canvas",
+            "scope": "canvas",
             "item_id": str(canvas.id),
-            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            "item_context": {"anchor": {"kind": "document"}, **({"taskId": str(task.id)} if with_task else {})},
             "mentions": [invited.id, non_member.id],
         }
 
@@ -773,6 +916,8 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             .exists()
         )
 
+        assert not ActivityLog.objects.filter(team_id=self.team.id, item_id=str(canvas.id)).exists()
+
         self.client.force_login(invited)
         assert (
             self.client.post(
@@ -786,7 +931,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == status.HTTP_403_FORBIDDEN
         )
         response = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}&task_id={task.id}"
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
@@ -811,14 +956,14 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         payload = {
             "content": "Should not land",
-            "scope": "desktop_canvas",
+            "scope": "canvas",
             "item_id": str(canvas.id),
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
         }
 
         assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
         response = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}&task_id={task.id}"
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
@@ -2459,20 +2604,36 @@ class TestCommentTasks(APIBaseTest, QueryMatchingTest):
         response = self.client.post(f"/api/projects/{self.team.id}/comments/{comment['id']}/{endpoint}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_complete_writes_activity_log_entry(self) -> None:
-        recording_id = "01964c81-1234-5678-90ab-cdef01234567"
-        task = self._create_task({"item_id": recording_id})
-        self.client.post(f"/api/projects/{self.team.id}/comments/{task['id']}/complete")
-        self.client.post(f"/api/projects/{self.team.id}/comments/{task['id']}/reopen")
+    @parameterized.expand([("replay", False), ("canvas", True)])
+    def test_complete_writes_activity_log_entry(self, _name: str, on_canvas: bool) -> None:
+        item_id = "01964c81-1234-5678-90ab-cdef01234567"
+        data: dict[str, Any] = {"item_id": item_id}
+        if on_canvas:
+            channel = (
+                apps.get_model("tasks", "Channel")
+                .objects.unscoped()
+                .create(team=self.team, name="task-canvas-space", channel_type="public", created_by=self.user)
+            )
+            canvas = (
+                apps.get_model("canvas", "Canvas")
+                .objects.unscoped()
+                .create(team=self.team, channel=channel, name="Task canvas", created_by=self.user)
+            )
+            item_id = str(canvas.id)
+            data = {"scope": "canvas", "item_id": item_id, "item_context": {"anchor": {"kind": "document"}}}
+        task = self._create_task(data)
+        completed = self.client.post(f"/api/projects/{self.team.id}/comments/{task['id']}/complete")
+        reopened = self.client.post(f"/api/projects/{self.team.id}/comments/{task['id']}/reopen")
 
+        assert (completed.status_code, reopened.status_code) == (status.HTTP_200_OK, status.HTTP_200_OK)
         activities = list(
             ActivityLog.objects.filter(
                 team_id=self.team.id,
-                item_id=recording_id,
+                item_id=item_id,
                 activity__in=["completed task", "reopened task"],
             ).order_by("created_at")
         )
-        assert [a.activity for a in activities] == ["completed task", "reopened task"]
+        assert [a.activity for a in activities] == ([] if on_canvas else ["completed task", "reopened task"])
         assert all(a.scope == "Replay" for a in activities)
 
     @parameterized.expand(

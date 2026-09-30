@@ -1,11 +1,12 @@
-"""Test-only metric row seeder for the metrics2 chain.
+"""Test-only metric row seeder for the metrics2 and metrics4 chains.
 
-Inserts rows into `metrics2_input` via `sync_execute` rather than driving the
+Inserts rows into `metrics2_input` and `metrics4_input` via `sync_execute` rather than driving the
 OTLP pipe, so tests don't depend on capture-logs + metrics-ingestion-consumer
 running. `metrics2_input` is the Null-engine table the Kafka MV writes to, so one
 insert fans out through the same MVs production uses: `metrics2` (data points),
 `metric_series2` (labels, one row per series) and `metric_attributes2` (the
-attribute rollups).
+attribute rollups). The `metrics4_input` insert fills the metrics4 tables that
+HogQL reads.
 
 The shape mirrors what `rust/capture-logs/src/metric_record.rs` emits — every
 query-runner test (filters, group-by, rate, histogram_quantile) leans on this
@@ -59,7 +60,15 @@ def _series_fingerprint(
 def truncate_metrics_tables() -> None:
     """Clear every table the seeder's inserts fan out into, so leftovers can't
     leak between tests."""
-    for table in ("metrics2", "metric_series2", "metric_attributes2"):
+    for table in (
+        "metrics2",
+        "metric_series2",
+        "metric_attributes2",
+        "metrics4_samples",
+        "metrics4_series",
+        "metrics4_names",
+        "metrics4_attributes",
+    ):
         sync_execute(f"TRUNCATE TABLE IF EXISTS {table}")
 
 
@@ -142,7 +151,9 @@ def seed_metric(
         )
 
     payload = "\n".join(json.dumps(row) for row in rows)
-    sync_execute(f"INSERT INTO metrics2_input FORMAT JSONEachRow {payload}")
+    # HogQL reads the metrics4 tables. The metrics2 chain stays seeded for the readers that still use it.
+    for input_table in ("metrics2_input", "metrics4_input"):
+        sync_execute(f"INSERT INTO {input_table} FORMAT JSONEachRow {payload}")
 
 
 def seed_metric_event(

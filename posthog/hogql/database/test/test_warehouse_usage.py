@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.contrib.auth.models import AnonymousUser
 
@@ -8,7 +9,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.warehouse_usage import WarehouseSourceUsage, extract_warehouse_sources
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
 
@@ -104,6 +105,21 @@ class TestWarehouseUsage(BaseTest):
         )
 
         assert sources == []
+
+    def test_prompt_jev_source_reads_are_attributed(self):
+        source = self._create_stripe_table()
+
+        with (
+            patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [("label", "Nullable(String)")])),
+        ):
+            response = execute_hogql_query(
+                "SELECT label FROM (SELECT jev(id, 'Refund?') AS label FROM stripe_table_1 LIMIT 10)",
+                self.team,
+                user=self.user,
+            )
+
+        assert [s.id for s in response.used_data_warehouse_sources or []] == [str(source.id)]
 
     def test_deduplicates_by_source(self):
         source = self._create_stripe_table()

@@ -1026,7 +1026,7 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         summary="Get account sidebar configuration",
         description=(
             "Get the requesting user's account sidebar and task digest configuration for this project. "
-            "The first read creates an empty configuration row."
+            "Project defaults are returned until the user saves a personal pinned-property selection."
         ),
     )
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
