@@ -56,13 +56,29 @@ def test_managed_prompt_keeps_policy_model_question_and_threshold_together() -> 
     )
 
 
-def test_malformed_managed_actionability_policy_is_rejected() -> None:
+@pytest.mark.parametrize(
+    "policy",
+    [
+        "Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE",
+        (
+            "- When in doubt, classify as ACTIONABLE.\n"
+            "<issue>{description}</issue>\n"
+            "Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"
+        ),
+        (
+            "When in doubt, classify as ACTIONABLE.\n"
+            "<issue>{description}</issue>\n"
+            "**Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE**"
+        ),
+    ],
+)
+def test_malformed_managed_actionability_policy_is_rejected(policy: str) -> None:
     fallback = bundled_prompt("signals-actionability-issue", "old {description}", "old question", 0.85)
     result = PromptResult(
         source="api",
         name=fallback.name,
         version=3,
-        prompt="Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE",
+        prompt=policy,
         config={"model": DEFAULT_SYSTEM_ONE_MODEL, "question": "new question", "threshold": 0.85},
     )
 

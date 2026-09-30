@@ -46,9 +46,13 @@ def bundled_prompt(name: str, policy: str, question: str, threshold: float) -> S
 
 
 def _valid_actionability_policy(policy: str) -> bool:
-    if "{description}" not in policy or "When in doubt, classify as ACTIONABLE" not in policy:
+    if "{description}" not in policy:
         return False
-    if "Respond with exactly one word" not in policy:
+    # apply_steering finds these markers only at the start of a line, so a marker elsewhere cannot anchor steering.
+    lines = policy.split("\n")
+    if not any(line.startswith("When in doubt, classify as ACTIONABLE") for line in lines):
+        return False
+    if not any(line.startswith("Respond with exactly one word") for line in lines):
         return False
     try:
         policy.format(description="record")
