@@ -62,6 +62,7 @@ export interface toolbarConfigLogicValues {
     refreshToken: string | null
     toolbarFlagsKey: string | undefined
     uiHost: string
+    uiHostBlockedByCsp: boolean
     uiHostConfigModalVisible: boolean
     userIntent: ToolbarUserIntent | null
 }
@@ -100,6 +101,9 @@ export interface toolbarConfigLogicActions {
     }
     setAuthStatus: (status: 'authenticating' | 'checking' | 'error' | 'idle') => {
         status: 'authenticating' | 'checking' | 'error' | 'idle'
+    }
+    setUiHostBlockedByCsp: (blocked: boolean) => {
+        blocked: boolean
     }
     setOAuthTokens: (
         accessToken: string,
@@ -162,6 +166,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             clientId,
         }),
         setAuthStatus: (status: 'idle' | 'checking' | 'authenticating' | 'error') => ({ status }),
+        setUiHostBlockedByCsp: (blocked: boolean) => ({ blocked }),
         openUiHostConfigModal: true,
         closeUiHostConfigModal: true,
         openAuthConfirmModal: true,
@@ -204,6 +209,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             'idle' as 'idle' | 'checking' | 'authenticating' | 'error',
             { setAuthStatus: (_, { status }) => status },
         ],
+        uiHostBlockedByCsp: [false, { setUiHostBlockedByCsp: (_, { blocked }) => blocked }],
         uiHostConfigModalVisible: [false, { openUiHostConfigModal: () => true, closeUiHostConfigModal: () => false }],
         authConfirmModalVisible: [
             false,
@@ -590,6 +596,7 @@ type TokenActions = {
 }
 type CheckActions = TokenActions & {
     openUiHostConfigModal: () => void
+    setUiHostBlockedByCsp: (blocked: boolean) => void
 }
 
 /** Restore OAuth tokens from a separate localStorage key that survives posthog-js overwrites. */
@@ -725,12 +732,24 @@ function initInstrumentation(
     })
 }
 
-function classifyFetchError(error: unknown): string {
+// The browser can dispatch the violation event after the fetch promise rejects,
+// so wait briefly before we decide that a TypeError was not a CSP block.
+const CSP_VIOLATION_GRACE_MS = 100
+
+function isSameOrigin(url: string, otherUrl: string): boolean {
+    try {
+        return new URL(url).origin === new URL(otherUrl).origin
+    } catch {
+        return false
+    }
+}
+
+function classifyFetchError(error: unknown, blockedByCsp: boolean): string {
     if (error instanceof DOMException && error.name === 'AbortError') {
         return 'timeout'
     }
     if (error instanceof TypeError) {
-        return 'network_or_cors'
+        return blockedByCsp ? 'csp_blocked' : 'network_or_cors'
     }
     if (error instanceof Error && error.message.startsWith('HTTP ')) {
         return 'http_error'
@@ -766,6 +785,17 @@ function verifyUiHostReachability(
         is_authenticated: values.isAuthenticated,
     }
 
+    // A CSP connect-src block also rejects with a TypeError, the same as an ad blocker
+    // or a wrong ui_host. Only the securitypolicyviolation event tells them apart.
+    let blockedByCsp = false
+    const onCspViolation = (event: SecurityPolicyViolationEvent): void => {
+        if (event.disposition === 'enforce' && isSameOrigin(event.blockedURI, values.uiHost)) {
+            blockedByCsp = true
+        }
+    }
+    const cspEventTarget = document
+    cspEventTarget.addEventListener('securitypolicyviolation', onCspViolation)
+
     const checkStart = Date.now()
     void safeFetch(`${values.uiHost}/toolbar_oauth/check`, {
         method: 'HEAD',
@@ -787,11 +817,15 @@ function verifyUiHostReachability(
                 startCodeExchange(values.uiHost, authParams, actions)
             }
         })
-        .catch((error: unknown) => {
+        .catch(async (error: unknown) => {
+            if (error instanceof TypeError && !blockedByCsp) {
+                await new Promise((resolve) => setTimeout(resolve, CSP_VIOLATION_GRACE_MS))
+            }
+            const errorType = classifyFetchError(error, blockedByCsp)
+            actions.setUiHostBlockedByCsp(errorType === 'csp_blocked')
             actions.setAuthStatus('error')
-            const errorType = classifyFetchError(error)
-            // Timeouts, network/CORS failures, and HTTP errors are expected on customer
-            // pages (offline, ad blockers, CSP, misconfigured uiHost) - the capture event
+            // Timeouts, CSP blocks, network/CORS failures, and HTTP errors are expected on
+            // customer pages (offline, ad blockers, CSP, misconfigured uiHost) - the capture event
             // below tracks them. Only an unclassifiable error hints at a toolbar bug.
             if (errorType === 'unknown') {
                 captureToolbarException(error, 'ui_host_check', { error_type: errorType })
@@ -806,6 +840,9 @@ function verifyUiHostReachability(
             if (authParams) {
                 actions.openUiHostConfigModal()
             }
+        })
+        .finally(() => {
+            cspEventTarget.removeEventListener('securitypolicyviolation', onCspViolation)
         })
 }
 

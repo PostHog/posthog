@@ -4,6 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar logger mirrors intentional error/auth paths to the console (its job on
@@ -371,6 +372,65 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('CSP detection in the reachability check', () => {
+        const captureCheckEvents = (): jest.SpyInstance =>
+            jest.spyOn(toolbarPosthogJS, 'capture').mockImplementation(() => undefined)
+
+        const checkErrorTypes = (spy: jest.SpyInstance): unknown[] =>
+            spy.mock.calls.filter((c) => c[0] === 'toolbar ui host check').map((c) => c[1].error_type)
+
+        const dispatchCspViolation = (blockedURI: string): void => {
+            const event = new Event('securitypolicyviolation') as any
+            event.blockedURI = blockedURI
+            event.disposition = 'enforce'
+            document.dispatchEvent(event)
+        }
+
+        /** Reject only the HEAD check, and call onCheck when it starts. Other requests succeed. */
+        const mockBlockedCheck = (onCheck: () => void): void => {
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    onCheck()
+                    return Promise.reject(new TypeError('Failed to fetch'))
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+        }
+
+        it('reports csp_blocked when a CSP violation targets the uiHost', async () => {
+            const captureSpy = captureCheckEvents()
+            mockBlockedCheck(() => dispatchCspViolation('https://selfhosted.example.com/toolbar_oauth/check'))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error', uiHostBlockedByCsp: true })
+            expect(checkErrorTypes(captureSpy)).toEqual(['csp_blocked'])
+            captureSpy.mockRestore()
+        })
+
+        it('reports csp_blocked when the violation event arrives after the fetch rejects', async () => {
+            const captureSpy = captureCheckEvents()
+            mockBlockedCheck(() => setTimeout(() => dispatchCspViolation('https://selfhosted.example.com'), 10))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(200).toMatchValues({ authStatus: 'error', uiHostBlockedByCsp: true })
+            expect(checkErrorTypes(captureSpy)).toEqual(['csp_blocked'])
+            captureSpy.mockRestore()
+        })
+
+        it('keeps network_or_cors when the CSP violation targets a different host', async () => {
+            const captureSpy = captureCheckEvents()
+            mockBlockedCheck(() => dispatchCspViolation('https://other.example.com/script.js'))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(200).toMatchValues({ authStatus: 'error', uiHostBlockedByCsp: false })
+            expect(checkErrorTypes(captureSpy)).toEqual(['network_or_cors'])
+            captureSpy.mockRestore()
         })
     })
 
