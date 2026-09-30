@@ -289,11 +289,28 @@ class ChannelTypeTwoPhaseStrategy(ChannelTypeStrategy):
                 "event_where": self.runner.event_type_expr,
                 "all_properties": self.runner.all_properties(),
                 "inside_periods": self.runner._periods_expression(),
-                "sessions_in_periods": self.runner._periods_expression("$start_timestamp"),
+                "sessions_in_range": self._sessions_start_range(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
         return query
+
+    def _sessions_start_range(self) -> ast.Expr:
+        # Without a compare period the outer query counts every in-range event, so a
+        # session that started before the range still needs its channel. The lazy
+        # events↔sessions join pads its session pushdown by 3 days; pad the same way
+        # so both paths see the same sessions.
+        date_from = self.runner.query_date_range.date_from()
+        compare = self.runner.query_compare_to_date_range
+        if compare is not None:
+            date_from = min(date_from, compare.date_from())
+        return parse_expr(
+            "and(sessions.$start_timestamp >= {date_from} - toIntervalDay(3), sessions.$start_timestamp <= {date_to})",
+            placeholders={
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=self.runner.query_date_range.date_to()),
+            },
+        )
 
 
 class FirstPageviewAttributionStrategy(SimpleBreakdownStrategy):

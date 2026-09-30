@@ -2962,6 +2962,13 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
                 {"$referring_domain": "$direct"},
                 ["2025-01-12T12:00:00Z", "2025-01-12T12:01:00Z"],
             ),
+            # Starts before the queried range, with a pageview inside it.
+            (
+                "paid",
+                "2025-01-07T23:50:00Z",
+                {"utm_source": "google", "utm_medium": "cpc"},
+                ["2025-01-07T23:50:00Z", "2025-01-08T00:10:00Z"],
+            ),
         ]:
             session_id = str(uuid7(session_day))
             for index, ts in enumerate(timestamps):

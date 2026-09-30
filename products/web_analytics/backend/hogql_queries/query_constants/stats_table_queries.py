@@ -292,10 +292,9 @@ GROUP BY session_id, breakdown_value
 # sessions side cannot be dropped, but the lazy events↔sessions join re-runs the
 # sessions subquery on every events shard and probes it once per event. Here the
 # events are first reduced to one row per session with no join (same session key
-# as NO_JOIN_MAIN_INNER_QUERY), then joined once to the sessions that start in a
-# period. Sessions that start outside both periods never reach a period bucket in
-# the outer query, so filtering them out changes no result. The LEFT JOIN keeps
-# sessionless and non-UUIDv7 events under a NULL session, as the lazy join does.
+# as NO_JOIN_MAIN_INNER_QUERY), then joined once to the sessions that start in the
+# queried range. The LEFT JOIN keeps sessionless and non-UUIDv7 events under a
+# NULL session, as the lazy join does.
 CHANNEL_TYPE_TWO_PHASE_INNER_QUERY = """
 SELECT
     e.filtered_person_id AS filtered_person_id,
@@ -322,7 +321,7 @@ LEFT JOIN (
         sessions.$channel_type AS breakdown_value,
         sessions.$start_timestamp AS start_timestamp
     FROM sessions
-    WHERE {sessions_in_periods}
+    WHERE {sessions_in_range}
 ) AS s ON e.session_id = s.session_id
 """
 
