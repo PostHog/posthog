@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { notebooksKernelComputeOptionsRetrieve } from 'products/notebooks/frontend/generated/api'
@@ -674,6 +675,8 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         stopKernel: async () => {
             try {
                 await api.notebooks.kernelStop(props.shortId)
+            } catch (error) {
+                lemonToast.error((error as { detail?: string }).detail || 'Could not stop the kernel. Try again.')
             } finally {
                 actions.loadKernelInfo()
             }
@@ -681,6 +684,8 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         restartKernel: async () => {
             try {
                 await api.notebooks.kernelRestart(props.shortId)
+            } catch (error) {
+                lemonToast.error((error as { detail?: string }).detail || 'Could not restart the kernel. Try again.')
             } finally {
                 actions.loadKernelInfo()
             }
