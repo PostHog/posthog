@@ -142,6 +142,9 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
     return <Query query={query} uniqueKey={uniqueKey} readOnly embedded />
 }
 
+/** Lets a page that shows a report outside the inbox give its charts without binding `inboxReportDetailLogic`. */
+export const ReportChartsContext = createContext<Map<string, ReportChartApi> | null>(null)
+
 /**
  * One chart attached to a report, drawn from the query its author supplied.
  *
@@ -164,9 +167,6 @@ export function ReportChart({ chartId }: { chartId: string }): JSX.Element | nul
     }
     return <InboxReportChart chartId={chartId} />
 }
-
-/** Lets a page that shows a report outside the inbox give its charts without binding `inboxReportDetailLogic`. */
-export const ReportChartsContext = createContext<Map<string, ReportChartApi> | null>(null)
 
 function InboxReportChart({ chartId }: { chartId: string }): JSX.Element | null {
     const { chartsById } = useValues(inboxReportDetailLogic)
