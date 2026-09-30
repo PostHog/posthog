@@ -11,6 +11,7 @@ from unittest import mock
 from django.db import InterfaceError, InternalError, OperationalError
 
 import redis.exceptions as redis_exceptions
+import deltalake.exceptions
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError, ProxyError
@@ -22,6 +23,7 @@ from posthog.integration_secrets.errors import (
     SecretMissingError,
 )
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -66,6 +68,9 @@ class _FakeAsyncCM:
 
     async def __aexit__(self, *args):
         return False
+
+    def run_on_shutdown(self, callback):
+        pass
 
 
 def _passthrough(fn):
@@ -362,6 +367,28 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
 
     assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_worker_shutdown_is_reraised_unwrapped_as_a_handoff_not_an_exception():
+    error = WorkerShuttingDownError("5", "import_data_activity_sync", "data-warehouse-task-queue", 2, "wf", "wt")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = {"worker that is shutting down"}
+
+    logger = mock.MagicMock()
+    logger.ainfo = mock.AsyncMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(WorkerShuttingDownError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    logger.ainfo.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 
 
@@ -673,6 +700,34 @@ async def test_transient_object_store_error_reraised_as_non_reportable():
     # only skips reporting for NonReportableError — so it must be wrapped, not just logged at warning.
     error = OSError(
         "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_transient_delta_maintenance_error_reraised_as_non_reportable():
+    # A warehouse-parent fan-out reader pins a parent table to a version, then opens it lazily —
+    # if the parent resyncs and resets its table in between, the pinned version's `_delta_log`
+    # entry is gone by the time the read happens. Self-healing on retry (a fresh pin resolves
+    # against the post-reset table), so it must not be captured as a bug, same as the identical
+    # race already classified for the writer's own maintenance path.
+    error = deltalake.exceptions.DeltaError(
+        "Kernel error: File not found: dlt/team_1_stripe_source/customer/_delta_log/00000000000000000017.json"
     )
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
