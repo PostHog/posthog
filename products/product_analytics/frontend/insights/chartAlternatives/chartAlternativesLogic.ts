@@ -140,8 +140,7 @@ export interface chartAlternativesLogicMeta {
             isTrends: boolean,
             isSingleSeriesOutput: boolean,
             trendsSource: TrendsQuery | null,
-            series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
-            featureFlags: FeatureFlagsSet
+            series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
         ) => ChartDisplayOptionGroup[]
         alternatives: (options: ChartDisplayOptionGroup[], trendsSource: TrendsQuery | null) => ChartDisplayOption[]
         currentOption: (
