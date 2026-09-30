@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { urls } from 'scenes/urls'
-
 import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
@@ -62,6 +60,7 @@ export function TraceScene(): JSX.Element {
     const {
         status,
         errorMessage,
+        backLink,
         header,
         summary,
         mode,
@@ -97,7 +96,7 @@ export function TraceScene(): JSX.Element {
     const props: TraceViewProps = readyProps
         ? { status: 'ready', ...readyProps }
         : status === 'error'
-          ? { status: 'error', errorMessage, backHref: urls.aiObservabilityTraces() }
+          ? { status: 'error', errorMessage, backLink }
           : { status: 'loading' }
 
     return <TraceView {...props} />

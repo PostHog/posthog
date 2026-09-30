@@ -6,6 +6,7 @@ import { LLMTrace } from '~/queries/schema/schema-general'
 
 import { sanitizeTraceUrlSearchParams } from '../../../utils'
 import { TraceHeaderProps } from '../components/TraceHeader'
+import { LabeledLink } from '../types'
 import { hasTraceError } from './toTraceTree'
 
 export interface TraceNeighbours {
@@ -35,13 +36,18 @@ function reviewsBackHref(searchParams: SearchParams): string {
     }).url
 }
 
-function backHref(searchParams: SearchParams): string {
+export function toBackLink(searchParams: SearchParams): LabeledLink {
     if (searchParams.back_to === 'reviews') {
-        return reviewsBackHref(searchParams)
+        return { label: 'Back to reviews', href: reviewsBackHref(searchParams) }
     }
-    const list =
-        searchParams.back_to === 'generations' ? urls.aiObservabilityGenerations() : urls.aiObservabilityTraces()
-    return combineUrl(list, sanitizeTraceUrlSearchParams(searchParams)).url
+    const listParams = sanitizeTraceUrlSearchParams(searchParams)
+    if (searchParams.back_to === 'generations') {
+        return {
+            label: 'Back to generations',
+            href: combineUrl(urls.aiObservabilityGenerations(), listParams).url,
+        }
+    }
+    return { label: 'Back to traces', href: combineUrl(urls.aiObservabilityTraces(), listParams).url }
 }
 
 export function toHeader(trace: LLMTrace, neighbours: TraceNeighbours, searchParams: SearchParams): TraceHeaderProps {
@@ -50,6 +56,6 @@ export function toHeader(trace: LLMTrace, neighbours: TraceNeighbours, searchPar
         hasError: hasTraceError(trace),
         olderHref: neighbourHref(neighbours.olderTraceId, neighbours.olderTimestamp, searchParams),
         newerHref: neighbourHref(neighbours.newerTraceId, neighbours.newerTimestamp, searchParams),
-        backHref: backHref(searchParams),
+        backLink: toBackLink(searchParams),
     }
 }

@@ -43,7 +43,7 @@ describe('toHeader', () => {
             '/ai-observability/reviews?queue_id=queue-1',
         ],
     ])('goes back to %s', (_name, searchParams, expected) => {
-        expect(toHeader(makeTrace(), noNeighbours, searchParams).backHref).toBe(expected)
+        expect(toHeader(makeTrace(), noNeighbours, searchParams).backLink.href).toBe(expected)
     })
 
     it.each([

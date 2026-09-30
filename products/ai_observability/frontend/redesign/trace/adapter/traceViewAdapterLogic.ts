@@ -32,9 +32,9 @@ import { llmPersonsLazyLoaderLogic } from '../../../llmPersonsLazyLoaderLogic'
 import { isLLMEvent } from '../../../utils'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
-import { ConversationState, NodeDetailTab, TimelineRowData, TraceMode, TraceTreeNode } from '../types'
+import { ConversationState, LabeledLink, NodeDetailTab, TimelineRowData, TraceMode, TraceTreeNode } from '../types'
 import { heavyDataLookup } from './eventIO'
-import { toHeader } from './toHeader'
+import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
 import { toSummary } from './toSummary'
 import { toThread } from './toThread'
@@ -82,6 +82,7 @@ export interface traceViewAdapterLogicValues {
     personsCache: Record<string, LLMTracePerson | null> // llmPersonsLazyLoaderLogic
     searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
+    backLink: LabeledLink
     canViewInThread: boolean
     detailData: NodeDetailData | null
     detailTab: NodeDetailTab
@@ -155,6 +156,7 @@ export interface traceViewAdapterLogicMeta {
         tree: (trace: LLMTrace | undefined, enrichedTree: EnrichedTraceTreeNode[]) => TraceTreeNode[]
         selectedNodeId: (event: LLMTrace | LLMTraceEvent | null, traceId: string) => string | null
         selectedTreeNode: (tree: TraceTreeNode[], selectedNodeId: string | null) => TraceTreeNode | null
+        backLink: (searchParams: Record<string, any>) => LabeledLink
         header: (
             trace: LLMTrace | undefined,
             olderTraceId: string | null,
@@ -289,6 +291,10 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             (s) => [s.tree, s.selectedNodeId],
             (tree: TraceTreeNode[], selectedNodeId: string | null): TraceTreeNode | null =>
                 selectedNodeId ? findTreeNode(tree, selectedNodeId) : null,
+        ],
+        backLink: [
+            (s) => [s.searchParams],
+            (searchParams: Record<string, unknown>): LabeledLink => toBackLink(searchParams),
         ],
         header: [
             (s) => [s.trace, s.olderTraceId, s.olderTimestamp, s.newerTraceId, s.newerTimestamp, s.searchParams],
