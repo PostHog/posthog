@@ -185,6 +185,8 @@ class CuratedGitHubSource:
         self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
         self._depot_job_attempts_resolved = False
         self._database: Database | None = None
+        # Concurrent reads (see concurrent_reads) share the query budget, the catalog and the lazily
+        # resolved sources, so they take and build each of them under this lock.
         self._lock = threading.Lock()
 
     @property
@@ -253,11 +255,12 @@ class CuratedGitHubSource:
     def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
         """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
         Trunk tables, so a read that never touches CI pays no lookup."""
-        if not self._depot_job_attempts_resolved:
-            depot_tables = resolve_depot_job_attempts_tables(self._team, self._user_access_control)
-            self._depot_job_attempts_table = depot_tables.get(self.repository.casefold())
-            self._depot_job_attempts_resolved = True
-        return self._depot_job_attempts_table
+        with self._lock:
+            if not self._depot_job_attempts_resolved:
+                depot_tables = resolve_depot_job_attempts_tables(self._team, self._user_access_control)
+                self._depot_job_attempts_table = depot_tables.get(self.repository.casefold())
+                self._depot_job_attempts_resolved = True
+            return self._depot_job_attempts_table
 
     def _runs_table(self) -> str:
         return depot_ci.with_depot_runs(
@@ -272,20 +275,22 @@ class CuratedGitHubSource:
         opt-in merge-queue endpoint synced (the normal state) or the requesting user can't access
         one; either way consumers degrade to the GitHub-derived proxy. Resolved lazily on first
         call and cached, so probing stays as cheap as the sibling sources."""
-        if not self._trunk_table_resolved:
-            self._trunk_table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
-            self._trunk_table_resolved = True
+        with self._lock:
+            if not self._trunk_table_resolved:
+                self._trunk_table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
+                self._trunk_table_resolved = True
         if self._trunk_table is None:
             return None
         return f"({trunk_merge_queue.build_query(self._trunk_table)})"
 
     def _trunk_quarantine(self) -> "TrunkQuarantineSource | None":
-        if not self._trunk_quarantine_resolved:
-            self._trunk_quarantine_source = resolve_trunk_quarantined_tests_source(
-                self._team, self.repository, self._user_access_control
-            )
-            self._trunk_quarantine_resolved = True
-        return self._trunk_quarantine_source
+        with self._lock:
+            if not self._trunk_quarantine_resolved:
+                self._trunk_quarantine_source = resolve_trunk_quarantined_tests_source(
+                    self._team, self.repository, self._user_access_control
+                )
+                self._trunk_quarantine_resolved = True
+            return self._trunk_quarantine_source
 
     def trunk_quarantined_tests_source(self) -> str | None:
         """Curated Trunk quarantined-tests ``SELECT`` subquery, or None when no TrunkIo source has
