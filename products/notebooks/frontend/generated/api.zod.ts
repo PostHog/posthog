@@ -633,6 +633,49 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Run every SQL and Python cell of a markdown notebook, in document order, stopping at the first cell that does not finish. Returns as soon as the run starts; poll the run status endpoint until the status is terminal. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksRunsCreateBodyIncludePreparedInsightsDefault = false
+export const notebooksRunsCreateBodyVariablesItemNameMax = 200
+
+export const NotebooksRunsCreateBody = /* @__PURE__ */ zod.object({
+    include_prepared_insights: zod
+        .boolean()
+        .default(notebooksRunsCreateBodyIncludePreparedInsightsDefault)
+        .describe(
+            'Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled.'
+        ),
+    variables: zod
+        .array(
+            zod
+                .object({
+                    name: zod
+                        .string()
+                        .max(notebooksRunsCreateBodyVariablesItemNameMax)
+                        .describe(
+                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
+                        ),
+                    type: zod
+                        .string()
+                        .describe(
+                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                        ),
+                    value: zod
+                        .unknown()
+                        .optional()
+                        .describe(
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
+                        ),
+                })
+                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
+        )
+        .optional()
+        .describe(
+            "Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved."
+        ),
+})
+
+/**
  * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Python notebooks enable all run types. Generated widgets enable HogQL runs without a connection or kernel.
  */
 export const notebooksSqlV2RunCreateBodyReuseResultsDefault = false
@@ -725,6 +768,58 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Send the code to the selected connection verbatim instead of compiling it from HogQL first. Ignored without connection_id, and incompatible with references to other cells.'
         ),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotCreateBodyNodeIdMax = 128
+
+export const NotebooksWidgetSnapshotCreateBody = /* @__PURE__ */ zod.object({
+    node_id: zod
+        .string()
+        .max(notebooksWidgetSnapshotCreateBodyNodeIdMax)
+        .describe('Notebook widget node to add to a dashboard.'),
+    version_id: zod.uuid().describe('Immutable widget version to keep on the dashboard.'),
+    notebook_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Completed whole-notebook run supplying every input after refresh.'),
+    previous_snapshot_id: zod
+        .uuid()
+        .optional()
+        .describe('Snapshot being refreshed; its version and input mappings must match.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotPublishBodyNodeIdMax = 128
+
+export const notebooksWidgetSnapshotPublishBodyNameDefault = ``
+export const notebooksWidgetSnapshotPublishBodyNameMax = 400
+
+export const NotebooksWidgetSnapshotPublishBody = /* @__PURE__ */ zod.object({
+    node_id: zod
+        .string()
+        .max(notebooksWidgetSnapshotPublishBodyNodeIdMax)
+        .describe('Notebook widget node to add to a dashboard.'),
+    version_id: zod.uuid().describe('Immutable widget version to keep on the dashboard.'),
+    notebook_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Completed whole-notebook run supplying every input after refresh.'),
+    previous_snapshot_id: zod
+        .uuid()
+        .optional()
+        .describe('Snapshot being refreshed; its version and input mappings must match.'),
+    dashboard_id: zod.number().min(1).optional().describe('Dashboard to add the widget to.'),
+    tile_id: zod.number().min(1).optional().describe('Existing dashboard tile to refresh.'),
+    name: zod
+        .string()
+        .max(notebooksWidgetSnapshotPublishBodyNameMax)
+        .default(notebooksWidgetSnapshotPublishBodyNameDefault)
+        .describe('Title for a new dashboard widget.'),
 })
 
 /**

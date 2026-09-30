@@ -26,8 +26,8 @@ from ..facade.hub import (
     INTERNAL_PURPOSE,
     count_accounts,
     count_org_members,
-    mfa_bypasses,
     posthog_account_exists,
+    radar_bypasses,
     record_call,
     resolve,
     token_allows,
@@ -36,11 +36,11 @@ from ..facade.temporal import start_sync_now
 from .serializers import (
     CountAccountsRequestSerializer,
     CountResponseSerializer,
-    MfaExportResponseSerializer,
     OrgMemberCountRequestSerializer,
     OrgMemberCountResponseSerializer,
     PosthogMembershipRequestSerializer,
     PosthogMembershipResponseSerializer,
+    RadarBypassExportResponseSerializer,
     ResolveRequestSerializer,
     ResolveResponseSerializer,
 )
@@ -143,6 +143,22 @@ class PosthogMembershipView(_HubView):
         return Response(PosthogMembershipResponseSerializer({"has_posthog_account": found}).data)
 
 
+class RadarBypassExportView(_HubView):
+    op = "radar_bypass:export"
+
+    @extend_schema(exclude=True)
+    def post(self, request: Request) -> Response:
+        try:
+            emails = radar_bypasses()
+        except Exception:
+            # A 503 tells the hub to retry the import. A 500 reads as a bug and stops it.
+            logger.exception("security_hub_radar_export_failed")
+            return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        # One call returns every address, so the export leaves a record of who read it.
+        logger.info("security_hub_radar_export", count=len(emails))
+        return Response(RadarBypassExportResponseSerializer({"emails": emails}).data)
+
+
 class SyncNowView(_HubView):
     op = "rules:sync_now"
 
@@ -157,20 +173,11 @@ class SyncNowView(_HubView):
         return Response(status=status.HTTP_202_ACCEPTED)
 
 
-class MfaBypassExportView(_HubView):
-    op = "mfa_bypass:export"
-
-    @extend_schema(exclude=True)
-    def post(self, request: Request) -> Response:
-        exported = mfa_bypasses()
-        return Response(MfaExportResponseSerializer(exported).data)
-
-
 urlpatterns = [
     path("resolve/", csrf_exempt(ResolveView.as_view())),
     path("count-accounts/", csrf_exempt(CountAccountsView.as_view())),
     path("org-member-count/", csrf_exempt(OrgMemberCountView.as_view())),
     path("posthog-membership/", csrf_exempt(PosthogMembershipView.as_view())),
+    path("radar-bypass-export/", csrf_exempt(RadarBypassExportView.as_view())),
     path("sync-now/", csrf_exempt(SyncNowView.as_view())),
-    path("mfa-bypass-export/", csrf_exempt(MfaBypassExportView.as_view())),
 ]

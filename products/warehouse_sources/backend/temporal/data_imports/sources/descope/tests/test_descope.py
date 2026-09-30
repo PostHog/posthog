@@ -7,7 +7,9 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.descope.descope import (
+    DAY_MS,
     DescopeResumeConfig,
+    _analytics_body,
     _audit_body,
     _audit_row_id,
     _users_body,
@@ -17,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.descope.de
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.descope.settings import (
+    ANALYTICS_LOOKBACK_DAYS,
     ENDPOINTS,
     PARTITION_KEYS,
     PRIMARY_KEYS,
@@ -28,6 +31,19 @@ CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports
 DESCOPE_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.descope.descope.make_tracked_session"
 )
+
+
+SELECTORS = {
+    "Users": "users",
+    "Audit": "audits",
+    "Tenants": "tenants",
+    "Roles": "roles",
+    "AccessKeys": "keys",
+    "Permissions": "permissions",
+    "Analytics": "analytics",
+    "Groups": "groups",
+    "UserHistory": "users",
+}
 
 
 def _response(payload: dict[str, Any]) -> Response:
@@ -162,6 +178,47 @@ class TestAuditRowId:
         row = _audit_row_id({})
         assert isinstance(row["id"], str) and len(row["id"]) == 64
 
+    def test_hash_is_stable_across_releases(self):
+        # Audit rows already in customers' tables are keyed on this digest. Changing how it is
+        # built re-keys every row and duplicates the table on the next merge.
+        row = _audit_row_id(
+            {
+                "userId": "u1",
+                "action": "login",
+                "occurred": 1700000000000,
+                "device": "Desktop",
+                "method": "otp",
+                "remoteAddress": "1.2.3.4",
+            }
+        )
+        assert row["id"] == "9355be9401127bf98697c12f126210eb29af88dfe8a1eb6e7b665ff3d041acd0"
+
+
+class TestAnalyticsBody:
+    def test_window_starts_one_year_before_now(self):
+        now_ms = 1_700_000_000_000
+        body = _analytics_body(now_ms)
+
+        assert body["from"] == now_ms - ANALYTICS_LOOKBACK_DAYS * DAY_MS
+        assert "to" not in body
+
+    def test_groups_on_every_dimension(self):
+        # Dropping a groupBy collapses rows into counts we cannot split apart again.
+        body = _analytics_body(1_700_000_000_000)
+
+        assert body["groupByCreated"] == "d"
+        assert all(
+            body[key] is True
+            for key in (
+                "groupByAction",
+                "groupByDevice",
+                "groupByMethod",
+                "groupByGeo",
+                "groupByTenant",
+                "groupByReferrer",
+            )
+        )
+
 
 class TestGetResource:
     @pytest.mark.parametrize(
@@ -172,6 +229,8 @@ class TestGetResource:
             ("Tenants", "/v1/mgmt/tenant/all", None, "tenants"),
             ("Roles", "/v1/mgmt/role/search", "POST", "roles"),
             ("AccessKeys", "/v1/mgmt/accesskey/search", "POST", "keys"),
+            ("Permissions", "/v1/mgmt/permission/all", None, "permissions"),
+            ("Analytics", "/v1/mgmt/analytics/search", "POST", "analytics"),
         ],
     )
     def test_endpoint_shape(self, endpoint, expected_path, expected_method, expected_selector):
@@ -201,7 +260,7 @@ class TestGetResource:
         )
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
-    @pytest.mark.parametrize("endpoint", ["Tenants", "Roles", "AccessKeys"])
+    @pytest.mark.parametrize("endpoint", ["Tenants", "Roles", "AccessKeys", "Permissions", "Analytics"])
     def test_full_refresh_endpoints_always_replace(self, endpoint):
         resource = get_resource(
             endpoint, should_use_incremental_field=True, incremental_field=None, db_incremental_field_last_value=None
@@ -347,6 +406,7 @@ class TestFullRefreshEndpoints:
             ("Tenants", "tenants", "tenants"),
             ("Roles", "roles", "roles"),
             ("AccessKeys", "keys", "keys"),
+            ("Permissions", "permissions", "permissions"),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -365,14 +425,118 @@ class TestDescopeSourceResponse:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_response_metadata_per_endpoint(self, MockSession, endpoint):
         session = MockSession.return_value
-        selector = {"Users": "users", "Audit": "audits", "Tenants": "tenants", "Roles": "roles", "AccessKeys": "keys"}[
-            endpoint
-        ]
-        _wire(session, [_response({selector: []})])
+        _wire(session, [_response({selector: []}) for selector in SELECTORS.values()])
 
         response = _source(endpoint=endpoint)
 
+        assert response.name == endpoint
         assert response.primary_keys == PRIMARY_KEYS[endpoint]
         assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [PARTITION_KEYS[endpoint]]
+        # Permissions, Groups and Analytics carry no timestamp, so they sync unpartitioned;
+        # partitioning them on a field their rows lack would fail the write.
+        partition_key = PARTITION_KEYS.get(endpoint)
+        assert response.partition_mode == ("datetime" if partition_key else None)
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+
+
+class TestGroupsFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_loads_groups_per_tenant_and_stamps_the_tenant_id(self, MockSession):
+        session = MockSession.return_value
+        bodies = _wire(
+            session,
+            [
+                _response({"tenants": [{"id": "T1"}, {"id": "T2"}]}),
+                _response({"groups": [{"id": "g1", "display": "Engineering"}]}),
+                _response({"groups": [{"id": "g1", "display": "Support"}]}),
+            ],
+        )
+
+        rows = _rows(_source(endpoint="Groups"))
+
+        # The group id repeats across tenants, which is why the tenant has to ride on the row —
+        # the primary key is ["tenantId", "id"].
+        assert rows == [
+            {"id": "g1", "display": "Engineering", "tenantId": "T1"},
+            {"id": "g1", "display": "Support", "tenantId": "T2"},
+        ]
+        assert bodies[1] == {"tenantId": "T1"}
+        assert bodies[2] == {"tenantId": "T2"}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tenant_without_groups_yields_nothing(self, MockSession):
+        session = MockSession.return_value
+        # Descope omits the `groups` key entirely for a tenant with none.
+        _wire(session, [_response({"tenants": [{"id": "T1"}]}), _response({})])
+
+        assert _rows(_source(endpoint="Groups")) == []
+
+
+class TestUserHistoryFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_posts_each_user_page_and_checkpoints_after_it(self, MockSession):
+        session = MockSession.return_value
+        bodies = _wire(
+            session,
+            [
+                _response({"users": [{"userId": "u1"}, {"userId": "u2"}]}),
+                _response({"usersAuthHistory": [{"userId": "u1", "loginTime": 1700000000}]}),
+                _response({"users": []}),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source(endpoint="UserHistory", manager=manager))
+
+        assert bodies[0]["page"] == 0
+        assert bodies[1] == {"userIds": ["u1", "u2"]}
+        assert bodies[2]["page"] == 1
+        assert len(rows) == 1
+        assert len(rows[0]["id"]) == 64
+        # Saved only once the page's history rows were yielded, so a resume cannot skip them.
+        assert manager.save_state.call_args_list == [
+            mock.call(DescopeResumeConfig(page=1)),
+            mock.call(DescopeResumeConfig(page=2)),
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_the_saved_user_page(self, MockSession):
+        session = MockSession.return_value
+        bodies = _wire(session, [_response({"users": []})])
+
+        manager = _make_manager(DescopeResumeConfig(page=4))
+        _rows(_source(endpoint="UserHistory", manager=manager))
+
+        assert bodies[0]["page"] == 4
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_user_page_without_ids_skips_the_history_request(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response({"users": [{"loginIds": ["a@example.com"]}]}), _response({"users": []})])
+
+        assert _rows(_source(endpoint="UserHistory")) == []
+        assert session.send.call_count == 2
+
+
+class TestAnalyticsFetch:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_synthesizes_a_row_id_per_grouping_bucket(self, MockSession):
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response(
+                    {
+                        "analytics": [
+                            {"created": "2026-09-01", "action": "login", "method": "otp", "cnt": "12"},
+                            {"created": "2026-09-01", "action": "login", "method": "oauth", "cnt": "3"},
+                        ]
+                    }
+                )
+            ],
+        )
+
+        rows = _rows(_source(endpoint="Analytics"))
+
+        assert session.send.call_count == 1
+        assert rows[0]["id"] != rows[1]["id"]

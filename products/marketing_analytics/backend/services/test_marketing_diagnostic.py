@@ -1,10 +1,13 @@
 from typing import Any, cast
 
 import pytest
-from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
+
+from posthog.models.team.team import Team
 
 from products.marketing_analytics.backend.services.attribution_health import (
     AttributionHealthEntry,
@@ -68,7 +71,13 @@ _DIAGNOSE_ONE_CASES: list[tuple[str, dict | None, dict | None, str, str | None]]
     # name, ds_kwargs (None → no source), attr_kwargs (None → no attribution),
     # expected_status, expected_action_target_tool (None when no specific tool action)
     ("not_connected_no_signals", None, None, "not_connected", None),
-    ("events_only_when_matched_no_source", None, {"events_matched_last_7d": 200}, "events_only", None),
+    (
+        "events_only_when_paid_no_source",
+        None,
+        {"events_matched_last_7d": 200, "events_matched_paid_last_7d": 1},
+        "events_only",
+        None,
+    ),
     (
         "sync_broken_on_error",
         {"last_sync_status": "error", "last_error": "auth", "diagnosis": "Google Ads last sync failed."},
@@ -140,9 +149,10 @@ class TestComputeOverallStatus:
         assert _compute_overall_status(diags) == expected
 
 
-class TestGetMarketingDiagnostic(APIBaseTest):
+class TestGetMarketingDiagnostic(SimpleTestCase):
     def setUp(self):
         super().setUp()
+        self.team = Team(id=1)
         ds_patcher = patch(
             "products.marketing_analytics.backend.services.marketing_diagnostic.get_data_source_health",
             new_callable=AsyncMock,
@@ -183,16 +193,40 @@ class TestGetMarketingDiagnostic(APIBaseTest):
         # Encourages configuring goals when none exist.
         assert any(a.target_tool == "marketing_suggest_conversion_goals" for a in response.recommended_actions)
 
+    @parameterized.expand(
+        [
+            ("source_only", 100, 0, 0, 0, "not_connected"),
+            ("organic_medium", 100, 0, 100, 0, "not_connected"),
+            ("mostly_untagged", 100, 0, 10, 0, "not_connected"),
+            ("fuzzy_source_only", 0, 100, 0, 0, "not_connected"),
+            ("paid_medium", 100, 0, 100, 100, "events_only"),
+            ("mixed_traffic", 100, 0, 100, 1, "events_only"),
+            ("click_id_without_medium", 100, 0, 0, 1, "events_only"),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_events_only_corner_case_surfaced(self):
+    async def test_connect_recommendation_requires_paid_evidence(
+        self, _name: str, matched: int, unmatched: int, tagged: int, paid: int, expected_status: str
+    ) -> None:
         self.mock_attr.return_value = AttributionHealthResponse(
             lookback_days=7,
-            integrations=[_attr_entry(events_matched_last_7d=100)],
+            integrations=[
+                _attr_entry(
+                    events_matched_last_7d=matched,
+                    events_unmatched_likely_yours_last_7d=unmatched,
+                    events_matched_tagged_medium_last_7d=tagged,
+                    events_matched_paid_last_7d=paid,
+                )
+            ],
         )
 
-        response = await get_marketing_diagnostic(self.team)
+        response = await get_marketing_diagnostic(self.team, include_conversion_goals=False)
+
         google = next(i for i in response.integrations if i.integration_key == "google_ads")
-        assert google.overall_status == "events_only"
+        assert google.overall_status == expected_status
+        assert bool(google.recommended_actions) is (paid > 0)
+        assert bool(response.recommended_actions) is (paid > 0)
+        assert response.overall_status == ("degraded" if paid else "no_sources")
 
     @pytest.mark.asyncio
     async def test_sync_broken_propagates_to_overall(self):

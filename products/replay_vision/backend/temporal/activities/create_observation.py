@@ -16,6 +16,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.ph_client import get_feature_flag_or_none
 
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -32,7 +33,7 @@ from products.replay_vision.backend.quota import (
     current_period_bounds,
     quota_state,
 )
-from products.replay_vision.backend.temporal.constants import ADMISSION_BUDGET_TTL, replay_vision_distinct_id
+from products.replay_vision.backend.temporal.constants import ADMISSION_BUDGET_TTL
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import SCANNER_ADMISSION_BUSY_ERROR_TYPE
 from products.replay_vision.backend.temporal.metrics import (

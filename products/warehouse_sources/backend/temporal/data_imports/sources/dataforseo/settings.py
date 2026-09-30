@@ -10,7 +10,23 @@ from posthog.dataclasses import frozen
 #
 # No endpoint exposes a server-side updated-since filter, so every table is full refresh only.
 # The `kind` tells the transport how to turn tasks[].result[] into flat rows.
-ParseKind = Literal["items", "ranked_keywords", "monthly_items", "result_rows", "lookup_rows"]
+ParseKind = Literal[
+    "items",
+    "ranked_keywords",
+    "monthly_items",
+    "result_rows",
+    "lookup_rows",
+    "keyword_monthly_searches",
+    "serp_items",
+]
+
+# What an endpoint is scoped to, which decides what the transport fans out over and which field
+# carries that value in the request payload:
+#   target        — one request per configured target domain ("target")
+#   keyword       — one request per configured keyword ("keyword"); the SERP endpoints take one
+#   keyword_batch — a single request carrying every configured keyword ("keywords")
+#   global        — a single untargeted request; the free Labs reference lookups
+EndpointScope = Literal["target", "keyword", "keyword_batch", "global"]
 
 
 @frozen
@@ -19,14 +35,13 @@ class DataForSEOEndpointConfig:
     # Path under the API base (https://api.dataforseo.com/v3).
     path: str
     kind: ParseKind
-    # Unique across the whole table. Every endpoint fans out over the user's configured targets,
-    # so the injected `target` is always part of the key.
+    # Unique across the whole table. A target-scoped endpoint fans out over the user's configured
+    # targets, so the injected `target` is always part of its key; a keyword-scoped one keys on
+    # the keyword instead.
     primary_keys: list[str]
     # The Labs reference tables are free GET lookups; every other endpoint is a billed POST task.
     method: Literal["GET", "POST"] = "POST"
-    # Whether the endpoint is scoped to a target domain. Untargeted endpoints are global lookup
-    # tables: no fan-out, no injected `target`, no pagination.
-    targeted: bool = True
+    scope: EndpointScope = "target"
     # Whether the endpoint accepts `limit`/`offset` pagination (Labs list endpoints).
     paginated: bool = False
     # Whether the request payload carries location_name/language_name (Labs endpoints do; the
@@ -128,13 +143,62 @@ DATAFORSEO_ENDPOINTS: dict[str, DataForSEOEndpointConfig] = {
         description="Monthly trend of each target domain's link profile since January 2019: backlinks, referring domains, pages, IPs, and subnets, with nofollow splits. Requires an active DataForSEO Backlinks API subscription. Full refresh.",
         should_sync_default=False,
     ),
+    "backlinks": DataForSEOEndpointConfig(
+        name="backlinks",
+        path="/backlinks/backlinks/live",
+        kind="items",
+        # A page can link to the same URL more than once, with a different anchor or as an image,
+        # so the link endpoints are what identify a row rather than the page pair alone.
+        primary_keys=["target", "url_from", "url_to", "item_type", "anchor"],
+        paginated=True,
+        localized=False,
+        # A large domain has millions of backlinks and the transport keeps only the first few
+        # pages, so sort by rank to make that slice the highest-value links rather than an
+        # arbitrary window that shifts between syncs.
+        extra_payload={"include_subdomains": True, "order_by": ["rank,desc"]},
+        description="Individual backlinks pointing at each target domain, with the linking page, anchor, rank, spam score, and first- and last-seen dates (one row per backlink). Only the highest-ranking backlinks are synced. Requires an active DataForSEO Backlinks API subscription. Full refresh.",
+        should_sync_default=False,
+    ),
+    "backlinks_anchors": DataForSEOEndpointConfig(
+        name="backlinks_anchors",
+        path="/backlinks/anchors/live",
+        kind="items",
+        primary_keys=["target", "anchor"],
+        paginated=True,
+        localized=False,
+        extra_payload={"include_subdomains": True, "order_by": ["backlinks,desc"]},
+        description="Anchor text used to link to each target domain, with per-anchor backlink, referring domain, and spam score metrics (one row per anchor). Requires an active DataForSEO Backlinks API subscription. Full refresh.",
+        should_sync_default=False,
+    ),
+    "historical_search_volume": DataForSEOEndpointConfig(
+        name="historical_search_volume",
+        path="/dataforseo_labs/google/historical_search_volume/live",
+        kind="keyword_monthly_searches",
+        primary_keys=["keyword", "year", "month"],
+        # The endpoint takes up to 700 keywords per request, so every configured keyword fits in
+        # one billed request.
+        scope="keyword_batch",
+        partition_key="date",
+        description="Monthly Google search volume history for each configured keyword (one row per keyword per month). Needs keywords configured on the source. Full refresh.",
+        should_sync_default=False,
+    ),
+    "serp_organic": DataForSEOEndpointConfig(
+        name="serp_organic",
+        path="/serp/google/organic/live/advanced",
+        kind="serp_items",
+        # rank_absolute is the element's position among every element in the keyword's SERP.
+        primary_keys=["keyword", "type", "rank_absolute"],
+        scope="keyword",
+        description="A snapshot of the Google results page for each configured keyword, one row per SERP element with its type, rank, and URL. Covers the first page of results. Needs keywords configured on the source. Full refresh.",
+        should_sync_default=False,
+    ),
     "locations_and_languages": DataForSEOEndpointConfig(
         name="locations_and_languages",
         path="/dataforseo_labs/locations_and_languages",
         kind="lookup_rows",
         primary_keys=["location_code"],
         method="GET",
-        targeted=False,
+        scope="global",
         localized=False,
         description="Reference table of every location DataForSEO Labs supports, with the languages available for each. Resolves the location_code and language_code carried on the other Labs tables. Full refresh.",
     ),
@@ -144,10 +208,13 @@ DATAFORSEO_ENDPOINTS: dict[str, DataForSEOEndpointConfig] = {
         kind="lookup_rows",
         primary_keys=["category_code"],
         method="GET",
-        targeted=False,
+        scope="global",
         localized=False,
         description="Reference table of the DataForSEO Labs category taxonomy, with each category's parent code. Resolves the category codes carried on the other Labs tables. Full refresh.",
     ),
 }
+
+# The endpoint scopes that sync nothing until keywords are configured on the source.
+KEYWORD_SCOPES: tuple[EndpointScope, ...] = ("keyword", "keyword_batch")
 
 ENDPOINTS = tuple(DATAFORSEO_ENDPOINTS.keys())

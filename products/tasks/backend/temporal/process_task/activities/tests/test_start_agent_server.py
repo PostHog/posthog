@@ -8,6 +8,7 @@ from django.db import OperationalError
 
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
+    OrganizationExecutionError,
     ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
@@ -15,6 +16,7 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -38,6 +40,14 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     launch_agent_server,
     start_agent_server,
 )
+
+
+@pytest.fixture(autouse=True)
+def organization_state(mocker):
+    teams = mocker.patch("products.tasks.backend.temporal.process_task.organization.Team.objects.filter")
+    state = teams.return_value.values_list.return_value.first
+    state.return_value = (False, True)
+    return state
 
 
 @time_machine.travel("2026-08-06T12:01:30Z", tick=False)
@@ -77,6 +87,7 @@ def _context(
     use_modal_vm_sandbox: bool = False,
     use_modal_network_allowlist: bool = False,
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
+    codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -95,6 +106,7 @@ def _context(
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         claude_model_access=claude_model_access,
+        codex_model_access=codex_model_access,
         _branch=branch,
     )
 
@@ -143,7 +155,28 @@ def test_network_enforcement_observation_matches_completed_checks(
     assert _agentsh_domains_for(context) == expected_agentsh_domains
 
 
-async def test_start_failure_does_not_report_network_enforcement_observation(mocker) -> None:
+@pytest.mark.parametrize("activity_fn", [start_agent_server, launch_agent_server, await_agent_server_ready])
+async def test_pending_deletion_blocks_agent_start(mocker, organization_state, activity_fn) -> None:
+    organization_state.return_value = (True, True)
+    sandbox_class = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id"
+    )
+
+    with pytest.raises(OrganizationExecutionError) as error:
+        await activity_fn(
+            StartAgentServerInput(context=_context(), sandbox_id="sandbox-id", sandbox_url="https://sandbox.example")
+        )
+
+    assert error.value.non_retryable is True
+    assert error.value.context["reason"] == "organization_pending_deletion"
+    sandbox_class.return_value.get_by_id.assert_not_called()
+
+
+@pytest.mark.parametrize("pending_deletion", [False, True])
+async def test_start_failure_does_not_report_network_enforcement_observation(
+    mocker, organization_state, pending_deletion: bool
+) -> None:
+    organization_state.side_effect = [(False, True), (pending_deletion, True)]
     context = _context(
         allowed_domains=["example.com"],
         agentsh_domain_allowlist=["example.com", "api.posthog.com"],
@@ -171,7 +204,7 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_observation"
     )
 
-    with pytest.raises(RuntimeError, match="health check failed"):
+    with pytest.raises(OrganizationExecutionError if pending_deletion else RuntimeError) as error:
         await start_agent_server(
             StartAgentServerInput(
                 context=context,
@@ -180,6 +213,12 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
             )
         )
 
+    if pending_deletion:
+        assert isinstance(error.value, OrganizationExecutionError)
+        assert error.value.non_retryable is True
+        assert error.value.context["reason"] == "organization_pending_deletion"
+    else:
+        assert str(error.value) == "health check failed"
     record_observation.assert_not_called()
     sandbox.wait_for_agent_server_ready.assert_called_once()
     preparation_meter.return_value.with_additional_attributes.assert_called_once_with(
@@ -267,6 +306,27 @@ def test_invoke_start_agent_server_skips_log_tails_when_rate_limited(mocker) -> 
     assert raised.value is error
     emit_agentsh.assert_not_called()
     emit_agent_server.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "is_modal, use_modal_vm_sandbox, expected_runtime",
+    [(True, True, "vm"), (True, False, "gvisor"), (False, True, None)],
+    ids=["modal_vm", "modal_gvisor", "non_modal"],
+)
+def test_invoke_start_agent_server_forwards_sandbox_runtime(
+    mocker, is_modal: bool, use_modal_vm_sandbox: bool, expected_runtime: str | None
+) -> None:
+    sandbox = mocker.Mock(spec=ModalSandbox, id="sandbox-id") if is_modal else mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.return_value = None
+
+    _invoke_start_agent_server(
+        sandbox,
+        _context(use_modal_vm_sandbox=use_modal_vm_sandbox),
+        mocker.Mock(agentsh_domains=None),
+        repo_ready_file=None,
+    )
+
+    assert sandbox.start_agent_server.call_args.kwargs["sandbox_runtime"] == expected_runtime
 
 
 @pytest.mark.parametrize(
@@ -425,6 +485,7 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             protected_base_branch=None,
             event_ingest_token=None,
             task_run_session_token=None,
+            codex_run_token=None,
             event_ingest_url=None,
             event_ingest_keep_stream_open=False,
         ),
@@ -453,7 +514,7 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
     )
 
     assert result.sandbox_url == "https://sandbox.example"
-    sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
+    sandbox.wait_for_agent_server_ready.assert_called_once_with(None, claude_model_access="posthog-gateway")
     if expects_relaunch:
         preparation_meter.return_value.with_additional_attributes.assert_called_once_with(
             {
@@ -479,7 +540,11 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
         record_retry.assert_not_called()
 
 
-async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
+@pytest.mark.parametrize("pending_deletion", [False, True])
+async def test_await_agent_server_ready_records_failed_relaunch(
+    mocker, organization_state, pending_deletion: bool
+) -> None:
+    organization_state.side_effect = [(False, True), (pending_deletion, True)]
     context = _context()
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.start_agent_server.side_effect = RuntimeError("session did not initialize")
@@ -501,6 +566,7 @@ async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
             protected_base_branch=None,
             event_ingest_token=None,
             task_run_session_token=None,
+            codex_run_token=None,
             event_ingest_url=None,
             event_ingest_keep_stream_open=False,
         ),
@@ -514,7 +580,7 @@ async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.increment_agent_server_readiness_retry"
     )
 
-    with pytest.raises(SandboxExecutionError, match="Failed to start agent server in sandbox"):
+    with pytest.raises(OrganizationExecutionError if pending_deletion else SandboxExecutionError) as error:
         await await_agent_server_ready(
             StartAgentServerInput(
                 context=context,
@@ -523,6 +589,10 @@ async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
                 boot_path="overlap",
             )
         )
+
+    assert error.value.non_retryable is pending_deletion
+    if pending_deletion:
+        assert error.value.context["reason"] == "organization_pending_deletion"
 
     record_retry.assert_called_once_with(
         2,
@@ -617,6 +687,26 @@ def test_prepare_launch_relabels_only_non_transient_token_errors(mocker, raised,
 def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> None:
     _mock_github_integration(mocker, pr_base=pr_base)
     context = _context(github_integration_id=42, repository="PostHog/posthog", branch=branch)
+    assert _resolve_protected_base_branch(context) == expected
+
+
+@pytest.mark.parametrize(
+    "stack_base_branch,expected",
+    [
+        # A stacked run starts on the lower layer's head: protect that head as the PR base.
+        ("posthog-self-driving/layer-one-abc123", "posthog-self-driving/layer-one-abc123"),
+        # The marker names another branch, so the run moved on and the open PR lookup decides.
+        ("posthog-self-driving/other-def456", "master"),
+    ],
+)
+def test_resolve_protected_base_branch_for_stacked_run(mocker, stack_base_branch, expected) -> None:
+    _mock_github_integration(mocker, pr_base="master")
+    context = _context(
+        github_integration_id=42,
+        repository="PostHog/posthog",
+        branch="posthog-self-driving/layer-one-abc123",
+        state={"stack_base_branch": stack_base_branch},
+    )
     assert _resolve_protected_base_branch(context) == expected
 
 
@@ -756,6 +846,7 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         protected_base_branch=None,
         event_ingest_token=None,
         task_run_session_token=None,
+        codex_run_token=None,
         event_ingest_url=None,
         event_ingest_keep_stream_open=False,
     )
@@ -991,11 +1082,22 @@ async def test_collect_agent_shadow_result_reads_after_startup(mocker) -> None:
 
 
 @pytest.mark.django_db
-async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker) -> None:
-    context = _context(sandbox_event_ingest_enabled=True, state={"mcp_builtin_agent_key": "scout"})
+@pytest.mark.parametrize(
+    ("codex_model_access", "expected_codex_run_token"),
+    [("posthog-gateway", None), ("own-subscription", "codex-run-token")],
+)
+async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
+    mocker, codex_model_access, expected_codex_run_token
+) -> None:
+    context = _context(
+        sandbox_event_ingest_enabled=True,
+        state={"mcp_builtin_agent_key": "scout", "runtime_adapter": "codex"},
+        codex_model_access=codex_model_access,
+    )
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
+    sandbox.execute.return_value.exit_code = 0
     sandbox.start_agent_server.return_value = 125
     sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
@@ -1034,6 +1136,10 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     create_event_ingest_token = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_sandbox_event_ingest_token",
         return_value="event-ingest-token",
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_codex_subscription_run_token",
+        return_value="codex-run-token",
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._launch_agent_shadow",
@@ -1077,6 +1183,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is True
     assert result.health_poll_ms == 125
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
+    assert sandbox.start_agent_server.call_args.kwargs["codex_run_token"] == expected_codex_run_token
 
 
 async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mocker) -> None:

@@ -3,6 +3,7 @@ export type PosthogPropertyValue = string | number | boolean | null | undefined;
 export type PosthogProperties = Record<string, PosthogPropertyValue>;
 
 export const POSTHOG_PROJECT_ID_HEADER = "X-PostHog-Project-Id";
+export const POSTHOG_TASK_RUN_ID_HEADER = "X-PostHog-Task-Run-Id";
 
 /**
  * Make a value safe to embed in an HTTP header value. Only printable ASCII
@@ -33,6 +34,11 @@ function buildEntries(properties: PosthogProperties): Array<[string, string]> {
   return entries;
 }
 
+function taskRunIdHeader(properties: PosthogProperties): string | null {
+  const taskRunId = properties.task_run_id;
+  return typeof taskRunId === "string" ? sanitizeHeaderValue(taskRunId) : null;
+}
+
 /**
  * Build a `Record<string, string>` of `x-posthog-property-<name>` headers
  * suitable for `fetch()` init.headers. The LLM gateway lifts each header
@@ -44,7 +50,11 @@ function buildEntries(properties: PosthogProperties): Array<[string, string]> {
 export function buildPosthogPropertyHeaderRecord(
   properties: PosthogProperties,
 ): Record<string, string> {
-  return Object.fromEntries(buildEntries(properties));
+  const taskRunId = taskRunIdHeader(properties);
+  return {
+    ...Object.fromEntries(buildEntries(properties)),
+    ...(taskRunId ? { [POSTHOG_TASK_RUN_ID_HEADER]: taskRunId } : {}),
+  };
 }
 
 /**
@@ -56,7 +66,7 @@ export function buildPosthogPropertyHeaderRecord(
 export function buildPosthogPropertyHeaderLines(
   properties: PosthogProperties,
 ): string {
-  return buildEntries(properties)
+  return Object.entries(buildPosthogPropertyHeaderRecord(properties))
     .map(([key, value]) => `${key}: ${value}`)
     .join("\n");
 }
@@ -193,16 +203,101 @@ export function buildPosthogPropertiesHeaderRecord(
   properties: PosthogProperties,
 ): Record<string, string> {
   const blob = buildPosthogPropertiesBlob(properties);
-  return blob ? { [POSTHOG_PROPERTIES_HEADER]: blob } : {};
+  const taskRunId = taskRunIdHeader(properties);
+  return {
+    ...(blob ? { [POSTHOG_PROPERTIES_HEADER]: blob } : {}),
+    ...(taskRunId ? { [POSTHOG_TASK_RUN_ID_HEADER]: taskRunId } : {}),
+  };
 }
 
 /**
- * {@link buildPosthogPropertiesBlob} as a single `key: value` line for
+ * {@link buildPosthogPropertiesHeaderRecord} as `key: value` lines for
  * `ANTHROPIC_CUSTOM_HEADERS`, empty when there is nothing to send.
  */
 export function buildPosthogPropertiesHeaderLines(
   properties: PosthogProperties,
 ): string {
-  const blob = buildPosthogPropertiesBlob(properties);
-  return blob ? `${POSTHOG_PROPERTIES_HEADER}: ${blob}` : "";
+  return Object.entries(buildPosthogPropertiesHeaderRecord(properties))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+}
+
+/**
+ * Session id header the Go gateway reads; the blob cannot carry it because
+ * {@link buildPosthogPropertiesBlob} drops `$` keys.
+ */
+export const POSTHOG_SESSION_ID_HEADER = "X-PostHog-Session-Id";
+
+const PROPERTY_HEADER_PREFIX = "x-posthog-property-";
+
+function parsePropertiesBlob(raw: string): PosthogProperties {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const properties: PosthogProperties = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ) {
+        properties[key] = value;
+      }
+    }
+    return properties;
+  } catch {
+    return {};
+  }
+}
+
+export function collapsePropertyHeadersForAiGateway(
+  headers: Record<string, string>,
+  trusted: PosthogProperties,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const fromHeaders: PosthogProperties = {};
+  let fromBlob: PosthogProperties = {};
+  let sessionId: string | undefined;
+  for (const [key, value] of Object.entries(headers)) {
+    const lower = key.toLowerCase();
+    if (lower.startsWith(PROPERTY_HEADER_PREFIX)) {
+      fromHeaders[lower.slice(PROPERTY_HEADER_PREFIX.length)] = value;
+    } else if (lower === POSTHOG_PROPERTIES_HEADER.toLowerCase()) {
+      fromBlob = parsePropertiesBlob(value);
+    } else if (lower === POSTHOG_SESSION_ID_HEADER.toLowerCase()) {
+      sessionId = value;
+    } else {
+      out[key] = value;
+    }
+  }
+
+  // A client key that sanitizes to a trusted key would overwrite it inside
+  // the blob builder, so it is dropped here.
+  const trustedKeys = new Set(Object.keys(trusted).map(sanitizeHeaderValue));
+  const client = Object.fromEntries(
+    Object.entries({ ...fromBlob, ...fromHeaders }).filter(
+      ([key]) => !trustedKeys.has(sanitizeHeaderValue(key)),
+    ),
+  );
+  const merged = { ...client, ...trusted };
+  let blob = buildPosthogPropertiesBlob(merged);
+  const kept = blob ? parsePropertiesBlob(blob) : {};
+  const lostTrusted = Object.entries(trusted).some(
+    ([key, value]) =>
+      value !== null &&
+      value !== undefined &&
+      !key.startsWith("$") &&
+      !(key in kept),
+  );
+  if (lostTrusted) blob = buildPosthogPropertiesBlob(trusted);
+  if (blob) out[POSTHOG_PROPERTIES_HEADER] = blob;
+
+  const session = sessionId ?? merged.$ai_session_id;
+  if (session !== null && session !== undefined && session !== "") {
+    const value = sanitizeHeaderValue(String(session));
+    if (value) out[POSTHOG_SESSION_ID_HEADER] = value;
+  }
+  return out;
 }

@@ -4,6 +4,7 @@ import {
   mergePrUrls,
   readPrUrls,
 } from "@posthog/shared";
+import { isRetiredModel } from "@posthog/shared/model-catalog";
 import {
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
@@ -20,7 +21,6 @@ import {
   DEFAULT_CODEX_MODEL,
   DEFAULT_GATEWAY_MODEL,
   fetchModelsList,
-  isBlockedModelId,
   type ModelInfo,
 } from "./gateway-models";
 import { PostHogAPIClient, type TaskRunUpdate } from "./posthog-api";
@@ -65,7 +65,10 @@ export class Agent {
     }
   }
 
-  private async _resolveGatewayConfig(overrideUrl?: string): Promise<{
+  private async _resolveGatewayConfig(
+    overrideUrl?: string,
+    overrideApiKey?: string,
+  ): Promise<{
     gatewayUrl: string;
     apiKey: string;
   } | null> {
@@ -73,9 +76,13 @@ export class Agent {
       return null;
     }
 
+    // An override URL is the loopback proxy; the real token must never back it.
+    if (overrideUrl && !overrideApiKey) {
+      throw new Error("gatewayUrl override requires gatewayApiKey");
+    }
     try {
       const gatewayUrl = overrideUrl ?? this.posthogAPI.getLlmGatewayUrl();
-      const apiKey = await this.posthogAPI.getApiKey();
+      const apiKey = overrideApiKey ?? (await this.posthogAPI.getApiKey());
       return { gatewayUrl, apiKey };
     } catch (error) {
       this.logger.error("Failed to resolve LLM gateway config", error);
@@ -93,7 +100,10 @@ export class Agent {
       options.claudeModelAccess === "own-subscription";
     const gatewayConfig = claudeSubscription
       ? null
-      : await this._resolveGatewayConfig(options.gatewayUrl);
+      : await this._resolveGatewayConfig(
+          options.gatewayUrl,
+          options.gatewayUrl ? options.gatewayApiKey : undefined,
+        );
     this.taskRunId = taskRunId;
 
     const needsAttribution = !claudeSubscription && gatewayConfig !== null;
@@ -142,6 +152,7 @@ export class Agent {
       !codexSubscription && gatewayConfig
         ? {
             apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
+            apiBaseUrlInConfig: options.codexBaseUrlInConfig,
             apiKey: gatewayConfig.apiKey,
             httpHeaders: {
               ...buildPosthogPropertyHeaderRecord(
@@ -154,7 +165,7 @@ export class Agent {
 
     let codexModels: ModelInfo[] | undefined;
     let sanitizedModel =
-      options.model && !isBlockedModelId(options.model)
+      options.model && !isRetiredModel(options.model)
         ? options.model
         : undefined;
     if (codexSubscription) {
@@ -172,7 +183,6 @@ export class Agent {
         projectId: this.posthogApiConfig?.projectId,
       });
       const gatewayCodexModels = models.filter((model) => {
-        if (isBlockedModelId(model.id)) return false;
         if (model.owned_by) {
           return model.owned_by === "openai";
         }

@@ -3,12 +3,13 @@ import structlog
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
-from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
 from posthog.constants import GROUP_TYPES_LIMIT
 
 logger = structlog.get_logger(__name__)
@@ -20,6 +21,8 @@ RESTRICTABLE_JSON_BLOB_COLUMNS: frozenset[str] = frozenset(
     {
         "properties",  # events.properties, persons.properties, groups.group_properties reads via the HogQL name
         "person_properties",  # EventsPersonSubTable (PoE mode)
+        # Not in the catalog. The property resolver reads it as the masked document for a restricted moved property.
+        TEMPORARY_PROPERTIES_COLUMN,
         "group_properties",  # groups / raw_groups
         # EventsGroupSubTable (group-on-events mode) exposes each group type's blob on the events table.
         *(f"group{index}_properties" for index in range(GROUP_TYPES_LIMIT)),
@@ -37,6 +40,9 @@ _FLAG_EVALUATIONS_MIRRORED_COLUMNS: dict[str, str] = {
     "request_id": "$feature_flag_request_id",
     **{f"$group_{index}": f"$group_{index}" for index in range(GROUP_TYPES_LIMIT)},
 }
+
+
+_AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column in AI_PROPERTY_TO_COLUMN.items()}
 
 
 def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
@@ -57,6 +63,8 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
         logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
         return None
 
+    if isinstance(table, AiEventsTable):
+        return _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
     if isinstance(table, FlagEvaluationsTable):
         return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
     return None
@@ -98,7 +106,7 @@ def restricted_property_keys_for_table_type(
     elif isinstance(table, EventsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP
         group_type_index = table.group_index
-    elif isinstance(table, EventsTable | FlagEvaluationsTable):
+    elif isinstance(table, EventsTable | FlagEvaluationsTable | AiEventsTable):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON
@@ -124,6 +132,9 @@ def restricted_property_keys_for_table_type(
         )
     }
     if restricted_keys and context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable)):
+        # The native JSON columns store the flat key `a.b` under the path `a%2Eb`, and the printer reads a
+        # requested `a%2Eb` from that same path. Restrict both spellings, or the encoded one reads the value.
+        restricted_keys |= {key.replace(".", "%2E") for key in restricted_keys if "." in key}
         # Quarantine contains raw property values inside a string, beyond JSONDropKeys' reach.
         restricted_keys.add(UNPARSEABLE_PROPERTIES_KEY)
     return restricted_keys

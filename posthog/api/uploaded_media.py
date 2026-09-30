@@ -23,39 +23,19 @@ from statshog.defaults.django import statsd
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import UploadedMedia
-from posthog.models.uploaded_media import MEDIA_PURPOSES, PRIVATE_MEDIA_PURPOSES, ObjectStorageUnavailable
+from posthog.models.uploaded_media import (
+    MEDIA_PURPOSES,
+    PRIVATE_MEDIA_PURPOSES,
+    ObjectStorageUnavailable,
+    is_inline_safe_content_type,
+    sniff_image_content_type,
+)
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
 
-# Content types safe to render inline in a browser when served from the
-# unauthenticated /uploaded_media endpoint. Anything outside this set is
-# served as a download with a generic content type so stored HTML/SVG/etc.
-# cannot execute script in the application origin.
-_INLINE_SAFE_CONTENT_TYPES = frozenset(
-    {
-        "image/png",
-        "image/jpeg",
-        "image/jpg",
-        "image/gif",
-        "image/webp",
-        "image/avif",
-        "image/bmp",
-    }
-)
-
 logger = structlog.getLogger(__name__)
-
-
-def _normalize_content_type(value: str | None) -> str:
-    if not value:
-        return ""
-    return value.split(";", 1)[0].strip().lower()
-
-
-def _is_inline_safe_content_type(content_type: str | None) -> bool:
-    return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
 
 
 def _attachment_disposition(file_name: str | None) -> str:
@@ -85,7 +65,7 @@ def _attachment_disposition(file_name: str | None) -> str:
         return f"attachment; filename=\"{escaped}\"; filename*=UTF-8''{quote(cleaned, safe='')}"
 
 
-def validate_image_file(file: Optional[bytes], user: int) -> bool:
+def validate_image_file(file: Optional[bytes], user: int, *, formats: tuple[str, ...]) -> bool:
     """
     Django validates file content type by reading "magic bytes" from the start of the file.
     It doesn't then check that file really is the type it claims to be.
@@ -94,12 +74,13 @@ def validate_image_file(file: Optional[bytes], user: int) -> bool:
     We would store that and then serve it back to a dashboard. ☠️
 
     Here we check that the file is actually a valid image file by opening and transposing it.
+    `formats` names the Pillow formats the caller accepts; bytes in any other format fail the check.
     """
     if file is None:
         return False
 
     try:
-        im = Image.open(BytesIO(file))
+        im = Image.open(BytesIO(file), formats=formats)
         ImageOps.mirror(im)
         im.close()
         return True
@@ -111,33 +92,6 @@ def validate_image_file(file: Optional[bytes], user: int) -> bool:
             exc_info=True,
         )
         return False
-
-
-# Guards against a decompression bomb: a small, highly-compressed file that decodes to an
-# enormous bitmap. Checked from the header, before Pillow decodes the full image into memory.
-_MAX_IMAGE_PIXELS = 50_000_000
-
-
-def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
-    """Determine an image's real content type from its bytes — never trust a caller's claim.
-
-    Accepts only what `download` will serve inline: storing a format that always comes back
-    as an attachment gives the caller a URL no image tag can render. Returns None for
-    anything else, so the caller rejects rather than stores a type that misdescribes the
-    bytes.
-    """
-    if not data:
-        return None
-    try:
-        with Image.open(BytesIO(data)) as image:
-            width, height = image.size
-            if width * height > _MAX_IMAGE_PIXELS:
-                return None
-            image.load()
-            content_type = Image.MIME.get(image.format or "")
-    except Exception:
-        return None
-    return content_type if content_type in _INLINE_SAFE_CONTENT_TYPES else None
 
 
 def _try_delete_object(location: Optional[str]) -> bool:
@@ -214,7 +168,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
         "Cache-Control": "public, max-age=315360000, immutable",
     }
 
-    if _is_inline_safe_content_type(instance.content_type):
+    if is_inline_safe_content_type(instance.content_type):
         response_content_type = instance.content_type
     else:
         response_content_type = "application/octet-stream"

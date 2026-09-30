@@ -15,6 +15,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     confidence_field,
     notability_field,
     notability_reason_field,
+    thumbnail_field,
 )
 
 _MAX_FREEFORM_TAGS = 5
@@ -92,6 +93,7 @@ class ClassifierScanner(BaseScanner, frozen=True):
         fields["notability_reason"] = (str | None, notability_reason_field())
         fields["notability"] = (float | None, notability_field())
         fields["confidence"] = (float, confidence_field())
+        fields["thumbnail_t"] = (int | None, thumbnail_field())
         return create_model("ClassifierLlmResponse", **fields)
 
     @cached_property

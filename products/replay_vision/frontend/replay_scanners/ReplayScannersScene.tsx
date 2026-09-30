@@ -35,7 +35,6 @@ import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
-import { ScanningPausedBanner } from '../components/ScanningPausedBanner'
 import { replayVisionEmptyState } from '../emptyState/replayVisionEmptyState'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ObservationSearch } from '../search/ObservationSearch'
@@ -177,7 +176,10 @@ export function ReplayScannersScene(): JSX.Element {
                     <Link to={urls.replayVision(scanner.id)} className="font-semibold text-primary">
                         {scanner.name || '(untitled)'}
                     </Link>
-                    {scanner.description && <div className="text-muted text-sm">{scanner.description}</div>}
+                    {/* The creator's own description wins; the question fills in for scanners that have none. */}
+                    {(scanner.description || scanner.prompt_question) && (
+                        <div className="text-muted text-sm">{scanner.description || scanner.prompt_question}</div>
+                    )}
                 </div>
             ),
         },
@@ -317,9 +319,7 @@ export function ReplayScannersScene(): JSX.Element {
                 <VisionUsageTab />
             ) : (
                 <>
-                    {isRedesign ? (
-                        <ScanningPausedBanner />
-                    ) : (scannerStats?.total ?? 0) > 0 ? (
+                    {(scannerStats?.total ?? 0) > 0 ? (
                         <VisionMetrics />
                     ) : scannerStatsLoading ? (
                         <div className="flex items-center justify-center h-72 bg-bg-light rounded">

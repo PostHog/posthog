@@ -118,6 +118,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "total_lines_accepted": "Total lines across accepted completions.",
         },
     },
+    "dau": {
+        "description": "Daily count of team members who used at least one AI feature in Cursor.",
+        "docs_url": "https://cursor.com/docs/account/teams/analytics-api",
+        "columns": {
+            "date": "Day the counts are aggregated for.",
+            "dau": "Number of team members who used an AI feature on this day.",
+            "cli_dau": "Number of team members who used the Cursor CLI on this day.",
+            "cloud_agent_dau": "Number of team members who used a cloud agent on this day.",
+            "bugbot_dau": "Number of team members who used Bugbot on this day.",
+        },
+    },
+    "models": {
+        "description": "Daily model usage across the whole team.",
+        "docs_url": "https://cursor.com/docs/account/teams/analytics-api",
+        "columns": {
+            "date": "Day the metrics are aggregated for.",
+            "model": "Model the row covers. The API returns a map keyed by model name, which PostHog expands into one row per model.",
+            "messages": "Number of messages the team sent to this model on this day.",
+            "users": "Number of team members who used this model on this day.",
+        },
+    },
+    "top_file_extensions": {
+        "description": "Daily breakdown of AI-assisted edits by file extension, for the five busiest extensions of each day.",
+        "docs_url": "https://cursor.com/docs/account/teams/analytics-api",
+        "columns": {
+            "event_date": "Day the metrics are aggregated for.",
+            "file_extension": "File extension the row covers, without the leading dot.",
+            "total_files": "Number of files with this extension the team touched.",
+            "total_accepts": "Number of AI suggestions accepted in files with this extension.",
+            "total_rejects": "Number of AI suggestions rejected in files with this extension.",
+            "total_lines_suggested": "Lines suggested in files with this extension.",
+            "total_lines_accepted": "Lines accepted in files with this extension.",
+            "total_lines_rejected": "Lines rejected in files with this extension.",
+        },
+    },
     "by_user_agent_edits": {
         "description": "Daily agent edit metrics broken down by team member.",
         "docs_url": "https://cursor.com/docs/account/teams/analytics-api",
@@ -208,6 +243,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "message": "Commit message.",
             "commitTs": "When the commit was made.",
             "createdAt": "When Cursor ingested the commit metrics.",
+        },
+    },
+    "ai_code_changes": {
+        "description": "Individual accepted AI changes, grouped by change rather than by commit.",
+        "docs_url": "https://cursor.com/docs/account/teams/ai-code-tracking-api",
+        "columns": {
+            "changeId": "Deterministic identifier Cursor assigns to the change.",
+            "userId": "Public (encoded) Cursor user ID of the author.",
+            "userEmail": "Email address of the author.",
+            "source": "What produced the change: TAB or COMPOSER.",
+            "model": "Model that produced the change, when one is recorded.",
+            "totalLinesAdded": "Total lines added by the change.",
+            "totalLinesDeleted": "Total lines deleted by the change.",
+            "createdAt": "When Cursor ingested the change.",
+            "metadata": "Per-file breakdown of the change. The file name is omitted when the team has privacy mode on.",
         },
     },
 }

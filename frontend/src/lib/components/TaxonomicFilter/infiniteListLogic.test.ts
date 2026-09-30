@@ -886,11 +886,14 @@ describe('infiniteListLogic', () => {
             }
         })
 
-        it('clears the error state when a retry succeeds', async () => {
+        it.each([null, 'page_opened'])('clears the error state on retry after selecting %p', async (selectedEvent) => {
             let attempts = 0
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': () => {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        if (!new URL(request.url).searchParams.get('search')) {
+                            return [200, { results: [{ name: 'page_opened', id: 'uuid-2' }], count: 1 }]
+                        }
                         attempts += 1
                         return attempts === 1
                             ? [500, { detail: 'server error' }]
@@ -904,23 +907,41 @@ describe('infiniteListLogic', () => {
                 listGroupType: TaxonomicFilterGroupType.Events,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
                 showNumericalPropsOnly: false,
+                allowNonCapturedEvents: true,
+                groupType: TaxonomicFilterGroupType.Events,
+                value: selectedEvent,
             })
             retryingLogic.mount()
+            if (selectedEvent) {
+                await expectLogic(retryingLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+                expect(retryingLogic.values.results).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ name: selectedEvent })])
+                )
+            }
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.setSearchQuery('user_signed_up')
             })
                 .toDispatchActions(['loadRemoteItemsFailure'])
                 .toFinishAllListeners()
-                .toMatchValues({ showErrorState: true })
+                .toMatchValues({
+                    showErrorState: true,
+                    showEmptyState: false,
+                    showNonCapturedEventOption: false,
+                    results: [],
+                    value: selectedEvent,
+                })
 
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.retryRemoteItems()
+                expect(retryingLogic.values.results).toEqual([])
+                expect(retryingLogic.values.showNonCapturedEventOption).toBe(false)
             })
                 .toDispatchActions(['retryRemoteItems', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
                     showErrorState: false,
                     showEmptyState: false,
+                    value: selectedEvent,
                 })
             expect(retryingLogic.values.totalResultCount).toBeGreaterThan(0)
         })
@@ -1372,6 +1393,38 @@ describe('infiniteListLogic', () => {
                 showNumericalPropsOnly: false,
             })
             logic.mount()
+        })
+
+        it('shows a scoped search failure even when the full count succeeds', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (url.searchParams.get('search') === 'device') {
+                            return url.searchParams.has('filter_by_event_names')
+                                ? [500, { detail: 'server error' }]
+                                : [200, { results: [{ name: '$device_type' }], count: 9 }]
+                        }
+                        return [200, { results: [{ name: '$browser' }], count: 1 }]
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+            silenceKeaLoadersErrors()
+            try {
+                await expectLogic(logic, () => logic.actions.setSearchQuery('device'))
+                    .toDispatchActions(['loadRemoteItemsFailure'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        expandedCount: 9,
+                        isExpandable: false,
+                        results: [],
+                        showErrorState: true,
+                        showEmptyState: false,
+                    })
+            } finally {
+                resumeKeaLoadersErrors()
+            }
         })
 
         it.each([200, 500])('reveals scoped results before the full count returns %s', async (status) => {

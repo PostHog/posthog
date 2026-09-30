@@ -139,6 +139,8 @@ describe('ArtefactLogList', () => {
                         url,
                         state: 'unknown',
                         merged: false,
+                        review_decision: null,
+                        merged_at: null,
                         claim_id: null,
                         attached_at: null,
                         attached_by: { kind: 'task', user: null, agent: null, task_id: 'task-3' },
@@ -153,5 +155,37 @@ describe('ArtefactLogList', () => {
         expect(screen.getByText('Status unavailable')).toBeInTheDocument()
         expect(screen.queryByText('Unrelated implementation')).not.toBeInTheDocument()
         expect(screen.queryByText('Open')).not.toBeInTheDocument()
+    })
+
+    // Without a branch for this type the row falls through to the raw type name and the reader
+    // cannot tell why nothing started, which is the whole point of the entry.
+    it.each([
+        ['duplicate_of', 'Duplicate'],
+        ['blocked_by_dependency', 'Waiting on a dependency'],
+        ['plan_parent', 'Tracked by other reports'],
+    ])('says why automatic work was held back for %s', (skipReason, expectedTag) => {
+        render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        {
+                            skip_reason: skipReason,
+                            linked_report_id: '0198c0de-0000-7000-8000-000000000001',
+                            detail: 'No work started here because a report this one depends on has no pull request yet.',
+                        },
+                        'autostart_skip'
+                    ),
+                ]}
+            />
+        )
+
+        expect(screen.getByText('Work not started')).toBeInTheDocument()
+        expect(screen.queryByText('autostart_skip')).not.toBeInTheDocument()
+        expect(screen.getByText(expectedTag)).toBeInTheDocument()
+        expect(screen.getByText('Open that report').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringContaining('0198c0de-0000-7000-8000-000000000001')
+        )
     })
 })

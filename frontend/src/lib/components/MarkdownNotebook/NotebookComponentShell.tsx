@@ -6,7 +6,6 @@ import {
     ReactNode,
     memo,
     useCallback,
-    useEffect,
     useMemo,
     useRef,
     useState,
@@ -85,6 +84,8 @@ export type NotebookComponentShellProps = {
     rememberComponentPanels: (nodeId: string, panels: ComponentPanelVisibility) => void
     setBlockRef: (element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    onBtw?: () => void
+    askAIDisabledReason?: string
     deleteNode: () => void
     deleteSelectedNotebookBlocks: () => boolean
     insertParagraphAfterNode: () => void
@@ -106,6 +107,8 @@ export function NotebookComponentShell({
     rememberComponentPanels,
     setBlockRef,
     updateNode,
+    onBtw,
+    askAIDisabledReason,
     deleteNode,
     deleteSelectedNotebookBlocks,
     insertParagraphAfterNode,
@@ -127,7 +130,7 @@ export function NotebookComponentShell({
         ((mode === 'view' && !isViewModeCanvas) || componentPanels.results) &&
         !(showEditPanel && definition?.exclusiveEditPanel)
     const showModeActions = mode === 'edit' && !!definition && !definition.hideModeActions
-    // Edit mode already covers folding via the eye/title, so collapse only shows where those
+    // Edit mode already covers folding via the eye/type label, so collapse only shows where those
     // controls don't render: read-only canvases.
     const showCollapseToggle = isViewModeCanvas && !!definition && !definition.hideModeActions
     const canToggleComponentPanels = mode === 'edit'
@@ -164,6 +167,8 @@ export function NotebookComponentShell({
         }),
         [componentPanels, showEditPanel, showViewPanel]
     )
+    const [titleDraft, setTitleDraft] = useState<string | null>(null)
+    const [isEditingTitle, setIsEditingTitle] = useState(false)
     const toolbarMenuItems = withoutNotebookMenuIcons([
         showResourceLink
             ? {
@@ -178,6 +183,7 @@ export function NotebookComponentShell({
                   targetBlank: true,
               }
             : null,
+        mode === 'edit' && isTitleEditable ? { label: 'Edit title', onClick: () => setIsEditingTitle(true) } : null,
         ...(mode === 'edit'
             ? (toolbarExtras?.actions.map((action) => ({
                   label: action.text,
@@ -187,22 +193,9 @@ export function NotebookComponentShell({
             : []),
         ...(toolbarExtras?.menuItems ?? []),
         ...(mode === 'edit' ? (toolbarExtras?.editMenuItems ?? []) : []),
+        mode === 'edit' && onBtw ? { label: 'BTW', onClick: onBtw, disabledReason: askAIDisabledReason } : null,
     ])
     const hasToolbarMenu = toolbarMenuItems.some(Boolean)
-    const [titleDraft, setTitleDraft] = useState<string | null>(null)
-    const [isEditingTitle, setIsEditingTitle] = useState(false)
-    // A browser fires two `click`s before `dblclick`. Defer the title's collapse so a rename
-    // (double-click) can cancel it, otherwise renaming would collapse then restore the panels
-    // (a flicker) and persist the node twice.
-    const titleCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    useEffect(
-        () => () => {
-            if (titleCollapseTimerRef.current) {
-                clearTimeout(titleCollapseTimerRef.current)
-            }
-        },
-        []
-    )
     // Escape blurs the input, which fires commitTitle synchronously before the titleDraft
     // state update lands — this ref lets commitTitle see the cancel intent in that same tick
     const cancellingTitleRef = useRef(false)
@@ -448,18 +441,6 @@ export function NotebookComponentShell({
         event.preventDefault()
         event.stopPropagation()
     }
-    const handleTitleClick = (): void => {
-        if (!canToggleComponentPanels) {
-            return
-        }
-        if (titleCollapseTimerRef.current) {
-            clearTimeout(titleCollapseTimerRef.current)
-        }
-        titleCollapseTimerRef.current = setTimeout(() => {
-            titleCollapseTimerRef.current = null
-            toggleAllComponentPanels()
-        }, 250)
-    }
 
     return (
         <div
@@ -545,21 +526,11 @@ export function NotebookComponentShell({
                             onKeyDown={handleTitleKeyDown}
                         />
                     ) : isTitleEditable ? (
-                        // Clicking the title collapses the whole cell (same as hiding both panels);
-                        // double-click renames. No extra control is added to the toolbar.
                         <button
                             type="button"
                             className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--button"
                             title={resolvedTitle ?? titlePlaceholder}
-                            aria-expanded={hasOpenComponentPanel}
-                            onClick={handleTitleClick}
-                            onDoubleClick={() => {
-                                if (titleCollapseTimerRef.current) {
-                                    clearTimeout(titleCollapseTimerRef.current)
-                                    titleCollapseTimerRef.current = null
-                                }
-                                setIsEditingTitle(true)
-                            }}
+                            onClick={() => setIsEditingTitle(true)}
                         >
                             {resolvedTitle ?? (
                                 <span className="MarkdownNotebook__component-toolbar-title-placeholder">
@@ -574,7 +545,7 @@ export function NotebookComponentShell({
                                 className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--button"
                                 title={resolvedTitle ?? titlePlaceholder}
                                 aria-expanded={hasOpenComponentPanel}
-                                onClick={handleTitleClick}
+                                onClick={toggleAllComponentPanels}
                             >
                                 {resolvedTitle ?? titlePlaceholder}
                             </button>
