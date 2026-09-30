@@ -212,12 +212,13 @@ def test_webhook_batch_keeps_latest_object_and_ignores_invoice_preview() -> None
     ],
 )
 def test_signed_webhook_routing(kind: str, status: int, delivered: bool) -> None:
+    data: dict[str, Any] = {"id": "invoice_one", "object": "invoice"}
     body: dict[str, Any] = {
         "created_at": "2026-01-01T00:00:00Z",
-        "data": {"id": "invoice_one", "object": "invoice"},
+        "data": data,
     }
     if kind == "preview":
-        body["data"]["id"] = None
+        data["id"] = None
     payload = json.dumps(body)
     timestamp = str(int(time.time()) + {"expired": -1000, "future": 1000}.get(kind, 0))
     if kind == "malformed_timestamp":
