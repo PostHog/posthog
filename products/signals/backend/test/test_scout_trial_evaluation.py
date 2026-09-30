@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import asyncio
 from collections.abc import Callable
-from typing import Literal
+from datetime import timedelta
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
@@ -56,17 +57,21 @@ from products.signals.backend.scout_harness.trial_judge import parse_trial_judgm
 from products.signals.backend.scout_harness.trial_launch import ScoutTrialLaunchError, TrialContext, TrialLaunch
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader
-from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
+from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
 from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
     RunScoutTrialEvaluationWorkflow,
     TrialEvaluationInput,
     TrialEvaluationRunInput,
     finish_scout_trial_evaluation_activity,
     load_scout_trial_evaluation_activity,
+    start_trial_evaluation,
 )
 from products.signals.backend.test.test_scout_harness_api import _make_run
-from products.signals.backend.test.test_scout_trial_judge import _reference_context
+from products.signals.backend.test.test_scout_trial_judge import _opaque_trace_table, _reference_context
 from products.skills.backend.models.skills import LLMSkill
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue
 
 MODULE = "products.signals.backend.scout_harness.trial_evaluation"
 JUDGE_MODULE = "products.signals.backend.scout_harness.trial_judge"
@@ -210,11 +215,12 @@ class TestScoutTrialEvaluation(BaseTest):
             raise object_storage.ObjectStorageError("Object already exists")
         self.documents[key] = content
 
-    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",), ("7",), ("8",)])
+    @parameterized.expand([(str(version),) for version in range(1, 15)])
     def test_snapshot_is_frozen_and_reused_only_for_the_same_request(self, prompt_version: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
-        assert snapshot.judge_prompt_version == "8"
-        if prompt_version not in {"5", "6", "7", "8"}:
+        assert snapshot.judge_prompt_version == "14"
+        assert snapshot.judge_model == "gpt-6-astra"
+        if prompt_version not in {"5", "6", "7", "8", "9", "10", "11", "12", "13", "14"}:
             self.request = self.request.model_copy(update={"rubric_source": "mock"})
             snapshot = snapshot.model_copy(
                 update={
@@ -224,7 +230,12 @@ class TestScoutTrialEvaluation(BaseTest):
                     "rubric_reference_generation_id": None,
                 }
             )
-        snapshot = snapshot.model_copy(update={"judge_prompt_version": prompt_version})
+        snapshot = snapshot.model_copy(
+            update={
+                "judge_prompt_version": prompt_version,
+                "judge_model": "gpt-6-astra" if prompt_version in {"11", "12", "13", "14"} else "gpt-5.5",
+            }
+        )
         self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"] = (
             snapshot.model_dump_json(exclude_none=True)
         )
@@ -242,7 +253,7 @@ class TestScoutTrialEvaluation(BaseTest):
         )
         assert snapshot.runs[0].input_tokens == 120
         assert snapshot.criteria
-        if prompt_version in {"5", "6", "7", "8"}:
+        if prompt_version in {"5", "6", "7", "8", "9", "10", "11", "12", "13", "14"}:
             assert snapshot.rubric_reference_context == self.reference
         changed = self.request.model_copy(
             update={"variants": [self.request.variants[0].model_copy(update={"label": "Changed"})]}
@@ -250,7 +261,7 @@ class TestScoutTrialEvaluation(BaseTest):
         with self.assertRaisesMessage(TrialEvaluationError, "different request"):
             prepare_trial_evaluation(config=self.config, user=self.user, request=changed)
 
-    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",), ("7",), ("8",)])
+    @parameterized.expand([(str(version),) for version in range(1, 15)])
     def test_saved_report_remains_readable_when_launches_are_disabled(self, prompt_version: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         snapshot = snapshot.model_copy(update={"judge_prompt_version": prompt_version})
@@ -478,13 +489,49 @@ class TestScoutTrialEvaluation(BaseTest):
         assert not any(source.kind == "trace" for source in snapshot.runs[0].sources)
         assert any("trace" in limitation for limitation in snapshot.runs[0].limitations)
 
-    def test_truncated_evidence_is_explicit_and_snapshot_is_bounded(self) -> None:
+    @parameterized.expand(
+        [
+            ("tight_budget", 18_000, False),
+            ("complete_table", 30_000, True),
+            ("duplicated_report", 40_000, False, "duplicated"),
+            ("edited_report", 40_000, False, "edited"),
+        ]
+    )
+    def test_truncated_evidence_is_explicit_and_snapshot_is_bounded(
+        self, _name: str, max_characters: int, include_table: bool, report_kind: str | None = None
+    ) -> None:
         self.scout_run.summary = "Synthetic finding. " * MAX_SOURCE_CHARS
         self.scout_run.save(update_fields=["summary"])
-        updates = [
+        captured_report: TrialReport | None = None
+        final_summary = "Synthetic authored finding. " * (320 if report_kind == "duplicated" else 12)
+        original_summary = final_summary if report_kind == "duplicated" else "Earlier synthetic finding. " * 12
+        if report_kind is not None:
+            captured_report = TrialReport(
+                id=str(uuid4()),
+                document={"title": "Synthetic report", "summary": final_summary, "flag": True},
+                payload={"title": "Synthetic report", "summary": original_summary, "repository": "NO_REPO", "flag": 1},
+                edits=[{"summary": final_summary}] if report_kind == "edited" else [],
+                operator_metadata={"skipped_automatic_repository_selection": False},
+                artefacts=[{"type": "note", "content": "Synthetic diagnostic detail. " * 250}],
+            )
+            self.scout_run.task_run.state["scout_trial_private"] = {
+                "reports": {captured_report.id: captured_report.model_dump(mode="json")}
+            }
+            self.scout_run.task_run.save(update_fields=["state"])
+        updates: list[dict[str, JsonValue]] = [
             {"sessionUpdate": "tool_call_update", "toolCallId": f"call-{index}", "rawOutput": "x" * 6000}
             for index in range(20)
         ]
+        table = _opaque_trace_table() if include_table else None
+        if table is not None:
+            updates.append(
+                {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "table-call",
+                    "status": "completed",
+                    "rawOutput": {"content": [{"type": "text", "text": table}], "isError": False},
+                }
+            )
         updates.append(
             {
                 "sessionUpdate": "tool_call_update",
@@ -498,7 +545,7 @@ class TestScoutTrialEvaluation(BaseTest):
             for update in updates
         )
         with (
-            patch(f"{MODULE}.MAX_EVIDENCE_CHARS", 18_000),
+            patch(f"{MODULE}.MAX_EVIDENCE_CHARS", max_characters),
             patch(f"{MODULE}.get_task_run_log_urls", return_value=[self.scout_run.task_run.log_url]),
             patch(f"{MODULE}.get_task_run_log_size", return_value=len(log)),
             patch(f"{MODULE}.read_task_run_log_content", return_value=log),
@@ -508,10 +555,34 @@ class TestScoutTrialEvaluation(BaseTest):
         assert len(source.text) == MAX_SOURCE_CHARS
         assert source.text.endswith("[Evidence truncated]")
         assert any("summary was truncated" in value for value in snapshot.runs[0].limitations)
-        assert sum(len(source.text) for source in snapshot.runs[0].sources) <= 18_000
+        assert sum(len(source.text) for source in snapshot.runs[0].sources) <= max_characters
+        if captured_report is not None:
+            reports = [source for source in snapshot.runs[0].sources if source.kind == "report"]
+            assert [source.id for source in reports] == ["report:0"]
+            report_text = reports[0].text
+            assert len(report_text) <= MAX_SOURCE_CHARS
+            assert final_summary in report_text
+            assert '"repository": "NO_REPO"' in report_text
+            assert '"flag": 1' in report_text
+            assert "idempotency_key" not in report_text
+            if report_kind == "duplicated":
+                assert report_text.count(final_summary) == 1
+                assert report_text.endswith("[Evidence truncated]")
+                assert any("report:0 was truncated" in value for value in snapshot.runs[0].limitations)
+            else:
+                packed = json.loads(report_text)["report"]
+                assert packed["document"] == captured_report.document
+                assert packed["captured_submission_details"]["summary"] == original_summary
+                assert packed["edits"] == captured_report.edits
+                assert packed["operator_metadata"] == captured_report.operator_metadata
         traces = [source for source in snapshot.runs[0].sources if source.kind == "trace"]
         assert [source.id for source in traces] == [f"trace:{index + 1}" for index in range(len(updates))]
         assert "rawOutput (text):\nThe check failed." in traces[-1].text
+        if table is not None:
+            assert table in traces[-2].text
+            assert "status (text):\ncompleted" in traces[-2].text
+            assert 'rawOutput["isError"] (json):\nfalse' in traces[-2].text
+            assert not traces[-2].text.endswith("[Tool trace truncated]")
         assert any("Tool trace evidence was truncated" in value for value in snapshot.runs[0].limitations)
 
     @parameterized.expand([False, True])
@@ -630,6 +701,7 @@ class TestScoutTrialEvaluation(BaseTest):
             assert snapshot.rubric_document == rubric
             assert snapshot.rubric_reference_context == self.reference
             assert snapshot.judge_prompt_version == "8"
+            assert snapshot.judge_model == "gpt-5.5"
             if excluded_status is not None:
                 assert snapshot.runs[1].execution_status == excluded_status
                 assert snapshot.runs[1].exclusion_reason is not None
@@ -713,7 +785,8 @@ class TestScoutTrialEvaluation(BaseTest):
 
 
 class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
-    async def test_bounds_concurrency_and_finalizes_after_one_activity_fails(self) -> None:
+    @parameterized.expand([False, True])
+    async def test_bounds_concurrency_and_finalizes_after_one_activity_fails(self, grouped: bool) -> None:
         inputs = TrialEvaluationInput(team_id=2, evaluation_id=str(uuid4()))
         launch_ids = [str(uuid4()) for _ in range(7)]
         reached_limit = asyncio.Event()
@@ -734,6 +807,7 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
             assert isinstance(payload, TrialEvaluationRunInput)
             policy = options["retry_policy"]
             assert isinstance(policy, RetryPolicy) and policy.maximum_attempts == 1
+            assert options["start_to_close_timeout"] == timedelta(minutes=10 if grouped else 5)
             active += 1
             highest_active = max(highest_active, active)
             if active == 3:
@@ -753,7 +827,10 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
                 )
             return None
 
-        with patch(f"{WORKFLOW_MODULE}.workflow.execute_activity", side_effect=execute):
+        with (
+            patch(f"{WORKFLOW_MODULE}.workflow.execute_activity", side_effect=execute),
+            patch(f"{WORKFLOW_MODULE}.workflow.patched", return_value=grouped),
+        ):
             task = asyncio.create_task(RunScoutTrialEvaluationWorkflow().run(inputs))
             try:
                 await reached_limit.wait()
@@ -763,6 +840,16 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
             assert await task == inputs.evaluation_id
         assert highest_active == 3
         assert finalized
+
+    def test_new_evaluation_allows_all_bounded_judging_waves(self) -> None:
+        client = AsyncMock()
+        evaluation_id = uuid4()
+        with patch(f"{WORKFLOW_MODULE}.async_connect", AsyncMock(return_value=client)):
+            start_trial_evaluation(2, evaluation_id)
+        assert client.start_workflow.call_args.kwargs["execution_timeout"] == timedelta(minutes=80)
+        assert client.start_workflow.call_args.args[1] == TrialEvaluationInput(
+            team_id=2, evaluation_id=str(evaluation_id)
+        )
 
     async def test_activity_failure_does_not_put_evidence_in_temporal_history(self) -> None:
         with patch(f"{MODULE}.read_trial_evaluation", side_effect=ValueError("Private synthetic evidence")):

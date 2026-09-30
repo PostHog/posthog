@@ -69,6 +69,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             patch(f"{MODULE}.workflow.execute_activity", side_effect=execute),
             patch(f"{MODULE}.workflow.sleep", side_effect=sleep),
             patch(f"{MODULE}.workflow.now", side_effect=lambda: now),
+            patch(f"{MODULE}.workflow.patched", return_value=True),
         ):
             if times_out:
                 with self.assertRaisesMessage(ApplicationError, "scout runs did not finish"):
@@ -77,6 +78,44 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             else:
                 assert await RunScoutTrialComparisonWorkflow().run(inputs) == inputs.comparison_id
                 assert prepared and finished and not failed
+
+    @parameterized.expand([False, True])
+    async def test_judging_wait_preserves_old_histories_and_bounds_new_workflows(self, grouped: bool) -> None:
+        inputs = TrialComparisonInput(team_id=2, comparison_id=str(uuid4()))
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        started = now
+        waited = 0
+        failed = False
+
+        async def execute(function: Callable[..., object], payload: object, **options: object) -> object:
+            nonlocal failed
+            if function is dispatch_scout_trial_comparison_activity:
+                return None
+            if function is prepare_scout_trial_comparison_evaluation_activity:
+                return True
+            if function is finish_scout_trial_comparison_activity:
+                return False
+            if function is fail_scout_trial_comparison_activity:
+                failed = True
+                return None
+            raise AssertionError("Unexpected workflow activity")
+
+        async def sleep(seconds: int) -> None:
+            nonlocal now, waited
+            waited += 1
+            now += timedelta(minutes=1)
+
+        with (
+            patch(f"{MODULE}.workflow.execute_activity", side_effect=execute),
+            patch(f"{MODULE}.workflow.sleep", side_effect=sleep),
+            patch(f"{MODULE}.workflow.now", side_effect=lambda: now),
+            patch(f"{MODULE}.workflow.patched", return_value=grouped),
+        ):
+            with self.assertRaisesMessage(ApplicationError, "Judging did not finish in time"):
+                await RunScoutTrialComparisonWorkflow().run(inputs)
+        assert failed
+        assert waited == (85 if grouped else 45)
+        assert now - started == timedelta(minutes=85 if grouped else 45)
 
     def test_comparison_dispatch_reuses_existing_workflow_and_keeps_payload_small(self) -> None:
         comparison_id = uuid4()
@@ -87,6 +126,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             assert start_trial_comparison(2, comparison_id) == first
         for call in client.start_workflow.await_args_list:
             assert call.kwargs["id"] == first
+            assert call.kwargs["execution_timeout"] == timedelta(minutes=150)
             assert call.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
             assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
             assert call.args[1] == TrialComparisonInput(team_id=2, comparison_id=str(comparison_id))

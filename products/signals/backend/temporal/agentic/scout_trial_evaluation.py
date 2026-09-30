@@ -92,6 +92,7 @@ class RunScoutTrialEvaluationWorkflow:
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+        judge_timeout = timedelta(minutes=10 if workflow.patched("scout-trial-grouped-judge-deadline-v10") else 5)
         semaphore = asyncio.Semaphore(3)
 
         async def score(launch_id: str) -> None:
@@ -102,7 +103,7 @@ class RunScoutTrialEvaluationWorkflow:
                         TrialEvaluationRunInput(
                             team_id=inputs.team_id, evaluation_id=inputs.evaluation_id, launch_id=launch_id
                         ),
-                        start_to_close_timeout=timedelta(minutes=5),
+                        start_to_close_timeout=judge_timeout,
                         heartbeat_timeout=timedelta(seconds=30),
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
@@ -135,7 +136,7 @@ async def start_trial_evaluation(team_id: int, evaluation_id: UUID) -> str:
                 TrialEvaluationInput(team_id=team_id, evaluation_id=str(evaluation_id)),
                 id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                execution_timeout=timedelta(minutes=40),
+                execution_timeout=timedelta(minutes=80),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             )

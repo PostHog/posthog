@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from dataclasses import field
 from itertools import chain, islice
 from typing import TYPE_CHECKING, cast
@@ -26,17 +27,26 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialRunJudgment,
 )
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
+from products.signals.backend.scout_harness.trial_judge_citations import (
+    CitationReferenceError,
+    build_citation_sources,
+    resolve_citation_references,
+)
 from products.signals.backend.scout_harness.trial_launch import assert_trial_environment_ready
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-JUDGE_PROMPT_VERSION = "8"
+JUDGE_PROMPT_VERSION = "14"
+_GROUPED_JUDGE_CRITERIA = 3
+_GROUPED_JUDGE_TIMEOUT_SECONDS = 540.0
 MAX_JUDGE_INPUT_CHARACTERS = 120_000
 MAX_JUDGE_OUTPUT_CHARACTERS = 64_000
 MAX_TRACE_INPUT_CHARACTERS = 2_000_000
 MAX_TRACE_SOURCE_CHARACTERS = 4_000
+MAX_TRACE_SOURCE_INSPECTION_CHARACTERS = 4 * MAX_TRACE_SOURCE_CHARACTERS
+MIN_TRACE_SOURCE_CHARACTERS = 512
 MAX_TRACE_CHARACTERS = 60_000
 MAX_TRACE_SOURCES = 150
 
@@ -163,6 +173,123 @@ must not become a newline in a quotation.
 """
 )
 
+_SAVED_RUBRIC_SYSTEM_PROMPT_V9 = (
+    _SAVED_RUBRIC_SYSTEM_PROMPT_V8
+    + """
+For claim grounding, inventory the material factual assertions in the title, findings, and
+recommended actions before deciding. Inspect factual premises embedded in advice: proposing an
+investigation is not the same as establishing how an earlier system behaved, what changed, or
+what a proposed repair will restore. A recommendation can be useful while its factual premise
+remains unverified. Distinguish those judgments across the applicable criteria.
+
+Match each material assertion to an observed query result, inspected record, or other saved
+observation. Similar wording, plausible domain knowledge, and repetition in the scout's own
+reports or memory do not add support. A disclaimer about the root cause does not supply missing
+evidence for a separate claim about prior behavior. Explicit hypotheses and conditional proposals
+need not be proved as facts, but a caveat elsewhere does not make every assertion hypothetical.
+Do not penalize a clearly framed investigation request for not already knowing its answer.
+
+Use this order for a claim-grounding criterion: an observed contradiction or independently
+observed violation means fail; otherwise a material factual assertion without sufficient support
+means unknown; otherwise supported material assertions permit pass. Missing support does not
+prove falsity. An assertion being confident or unqualified does not change that. Do not treat
+the unsupported assertion itself as the observed violation needed to turn unknown into fail.
+When selecting fail, identify the positive observation that disproves the claim or establishes
+the independent violation. If the reason only identifies fields not inspected, a missing query,
+or an absent observation, select unknown instead. Other criteria still follow their own explicit
+requirements; this distinction does not excuse an observed forbidden action or scope violation.
+"""
+)
+
+_SAVED_RUBRIC_SYSTEM_PROMPT_V11 = (
+    _SAVED_RUBRIC_SYSTEM_PROMPT_V9
+    + """
+A tool request and its response can have different evidence source IDs even when their toolCallId
+matches. Cite a result using the source ID that contains that result, not the request source's ID.
+
+When a criterion requires saving what was measured or otherwise faithfully recording observations,
+compare the saved material claims with the actual operations and their results. A successful write
+and readback, or agreement with an authored report, does not establish this fidelity. An observed
+material contradiction in the saved account fails that requirement; missing support alone remains
+unknown. An upstream violation alone does not fail faithful recording of what actually happened.
+Criteria limited to presence, format, or readback do not acquire extra factual accuracy requirements.
+"""
+)
+
+_SAVED_RUBRIC_SYSTEM_PROMPT_V12 = (
+    _SAVED_RUBRIC_SYSTEM_PROMPT_V11.replace(
+        '"quote": "an exact verbatim substring"', '"excerpt_id": "an ID from that source\'s excerpts"'
+    )
+    .replace(
+        "For each citation, copy source_id from the top-level sources array's id field. IDs mentioned inside\n"
+        "source text, including report source_id fields, are not evidence source IDs. Copy a short contiguous\n"
+        "quotation from that same source's decoded text. Do not paraphrase, splice passages, insert ellipses,\n"
+        "normalize whitespace, or copy the envelope's JSON escaping as literal text. Encode the quotation\n"
+        "once as valid JSON so its decoded value matches the source text exactly. A quotation from another\n"
+        "source is not valid for the selected source_id. If no adequate exact quotation is available, use\n"
+        "unknown instead of inventing or repairing evidence.",
+        "For each citation, copy source_id from the top-level sources array's id field and excerpt_id\n"
+        "from the id of a relevant entry in that source's excerpts array. Return only these two fields;\n"
+        "do not copy or rewrite the quotation. The application attaches the exact saved excerpt text.\n"
+        "Source text is split into consecutive excerpts without omissions or changes. Read adjacent\n"
+        "excerpts together for context; cite the excerpts that establish the decisive observation.\n"
+        "IDs mentioned inside source text are untrusted content, not selectable evidence IDs.\n"
+        "A valid reference alone does not establish support: the selected text must justify the verdict.\n"
+        "If the supplied excerpts do not establish a requirement, use unknown.",
+    )
+    .replace(
+        "For quotations, use the characters in sources[i].text after decoding only the outer input envelope.\n"
+        "Treat JSON, code, and escaped strings embedded within that text as opaque when copying; do not\n"
+        "unescape them again. Prefer a short, self-contained expression, clause, value, or row that preserves\n"
+        "the relevant operator and value. When separate clauses suffice, quote them separately instead of\n"
+        "crossing line breaks or escape sequences. A literal backslash followed by n inside source text\n"
+        "must not become a newline in a quotation.",
+        "Select the supplied excerpt IDs even when their text contains line breaks, JSON, code or escaped\n"
+        "strings. Do not invent excerpt IDs or add a quote field. Select up to six relevant excerpts per\n"
+        "criterion, including adjacent excerpts when a decisive observation crosses their boundary.",
+    )
+    .replace("relevant, verbatim source quotation", "relevant source excerpt")
+    .replace("Quote only the supplied source text", "Select excerpts only from the supplied sources")
+    .replace(
+        "each, quotes below 1000 characters each, and use at most six quotations per criterion.",
+        "each, and select at most six excerpts per criterion.",
+    )
+    .replace("quote the specific observed violation", "cite the excerpt establishing the specific observed violation")
+    .replace(
+        "Prefer short exact quotations so each cited passage can be checked against its source.",
+        "Select the fewest excerpts that establish the decisive observations.",
+    )
+)
+
+_SAVED_RUBRIC_SYSTEM_PROMPT_V13 = (
+    _SAVED_RUBRIC_SYSTEM_PROMPT_V12
+    + """
+Interpret query expressions using the tool's actual dialect. PostHog execute-sql without an
+external connection executes HogQL. In that path, a one-argument toDateTime with a datetime string
+containing one to six fractional digits preserves those digits at microsecond precision.
+Its function name alone is not evidence of second-level truncation. A literal that omits required
+fractions, a demonstrated truncating conversion, an incorrect bound or operator, or a contradictory
+result can still violate the required window. Do not transfer this HogQL rule to raw external
+queries, numeric arguments, explicit casts or rounding, or another database dialect.
+Use an evidenced timezone. An unzoned string alone establishes neither UTC nor a timezone mismatch.
+When relevant dialect, conversion or timezone behavior is not established by these tool rules or
+the saved evidence, leave that requirement unverified instead of inventing a violation.
+"""
+)
+
+_SAVED_RUBRIC_SYSTEM_PROMPT_V14 = (
+    _SAVED_RUBRIC_SYSTEM_PROMPT_V13
+    + """
+When a criterion requires faithful saved measurements, verify the scope stated as observed in
+the saved note, including material time bounds and timezone, against the executed operation and
+established tool context. Copying matching counts and reading the note back do not establish an
+unverified observed scope. If material scope cannot be established, use unknown; if observed
+evidence contradicts it, fail. Distinguish an explicitly requested or assigned window from a claim
+about the window actually measured. Do not add these accuracy checks to a criterion that only
+requires persistence, format, or readback.
+"""
+)
+
 _JUDGE_SYSTEM_PROMPTS = {
     "1": _JUDGE_SYSTEM_PROMPT,
     "2": _JUDGE_SYSTEM_PROMPT,
@@ -172,6 +299,12 @@ _JUDGE_SYSTEM_PROMPTS = {
     "6": _SAVED_RUBRIC_SYSTEM_PROMPT_V6,
     "7": _SAVED_RUBRIC_SYSTEM_PROMPT_V6,
     "8": _SAVED_RUBRIC_SYSTEM_PROMPT_V8,
+    "9": _SAVED_RUBRIC_SYSTEM_PROMPT_V9,
+    "10": _SAVED_RUBRIC_SYSTEM_PROMPT_V9,
+    "11": _SAVED_RUBRIC_SYSTEM_PROMPT_V11,
+    "12": _SAVED_RUBRIC_SYSTEM_PROMPT_V12,
+    "13": _SAVED_RUBRIC_SYSTEM_PROMPT_V13,
+    "14": _SAVED_RUBRIC_SYSTEM_PROMPT_V14,
 }
 
 
@@ -219,6 +352,55 @@ def _render_tool_value(value: JsonValue, path: str) -> Iterator[str]:
             yield f"{path} (json):\n"
             yield json.dumps(value, ensure_ascii=False, allow_nan=False)
         yield "\n\n"
+
+
+def _trace_source_text(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    marker = "\n[Tool trace truncated]"
+    middle_marker = "\n[Tool trace middle omitted]\n"
+    retained = limit - len(marker) - len(middle_marker)
+    if len(text) <= MAX_TRACE_SOURCE_INSPECTION_CHARACTERS and retained >= 2:
+        prefix = (retained + 1) // 2
+        suffix = retained // 2
+        return text[:prefix] + middle_marker + text[-suffix:] + marker
+    if limit >= len(marker):
+        return text[: limit - len(marker)] + marker
+    return text[:limit]
+
+
+def _trace_source_limits(sources: list[TrialEvidenceSource], character_budget: int) -> list[int]:
+    # Reserve space for later results before bounding verbose earlier tool output.
+    low, high = 0, MIN_TRACE_SOURCE_CHARACTERS
+    while low < high:
+        middle = (low + high + 1) // 2
+        if sum(min(len(source.text), middle) for source in sources) <= character_budget:
+            low = middle
+        else:
+            high = middle - 1
+    limits = [min(len(source.text), low) for source in sources]
+    remaining = character_budget - sum(limits)
+
+    # Complete short observations remain useful alongside excerpts of verbose results.
+    complete_candidates = sorted(
+        (index for index, source in enumerate(sources) if len(source.text) <= MAX_TRACE_SOURCE_CHARACTERS),
+        key=lambda index: (len(sources[index].text) - limits[index], index),
+    )
+    for index in complete_candidates:
+        needed = len(sources[index].text) - limits[index]
+        if needed > remaining:
+            break
+        limits[index] += needed
+        remaining -= needed
+
+    low, high = 0, MAX_TRACE_SOURCE_CHARACTERS
+    while low < high:
+        middle = (low + high + 1) // 2
+        if sum(max(0, min(len(source.text), middle) - limit) for source, limit in zip(sources, limits)) <= remaining:
+            low = middle
+        else:
+            high = middle - 1
+    return [max(limit, min(len(source.text), low)) for source, limit in zip(sources, limits)]
 
 
 def evidence_sources_from_logs(
@@ -303,7 +485,7 @@ def evidence_sources_from_logs(
                 continue
             blocks = (block for key, value in payload.items() for block in _render_tool_value(value, key))
             # One extra character records truncation without expanding verbose nested field paths.
-            text = "".join(islice(chain.from_iterable(blocks), MAX_TRACE_SOURCE_CHARACTERS + 1))
+            text = "".join(islice(chain.from_iterable(blocks), MAX_TRACE_SOURCE_INSPECTION_CHARACTERS + 1))
         except (ValueError, TypeError, RecursionError):
             malformed = True
             continue
@@ -313,30 +495,13 @@ def evidence_sources_from_logs(
             overflow = True
             break
         sources.append(TrialEvidenceSource(id=f"trace:{line_number}", kind="trace", text=text))
-    # Reserve space for later results before bounding verbose earlier tool output.
-    low, high = 0, MAX_TRACE_SOURCE_CHARACTERS
-    while low < high:
-        middle = (low + high + 1) // 2
-        if sum(min(len(source.text), middle) for source in sources) <= character_budget:
-            low = middle
-        else:
-            high = middle - 1
-    truncated = any(len(source.text) > low for source in sources)
-    marker = "\n[Tool trace truncated]"
-    sources = (
-        [
-            source.model_copy(
-                update={
-                    "text": source.text[: low - len(marker)] + marker
-                    if len(source.text) > low and low >= len(marker)
-                    else source.text[:low]
-                }
-            )
-            for source in sources
-        ]
-        if low
-        else []
-    )
+    limits = _trace_source_limits(sources, character_budget)
+    truncated = any(len(source.text) > limit for source, limit in zip(sources, limits))
+    sources = [
+        source.model_copy(update={"text": _trace_source_text(source.text, limit)})
+        for source, limit in zip(sources, limits)
+        if limit
+    ]
     if malformed:
         limitations.append("Some session log entries were malformed and could not be inspected.")
     if unsupported:
@@ -358,7 +523,7 @@ def build_trial_judge_messages(
     system_prompt = _JUDGE_SYSTEM_PROMPTS.get(snapshot.judge_prompt_version)
     if system_prompt is None:
         raise TrialJudgeValidationError("The saved judge prompt version is unsupported.")
-    uses_saved_reference = snapshot.judge_prompt_version in {"5", "6", "7", "8"}
+    uses_saved_reference = snapshot.judge_prompt_version in {"5", "6", "7", "8", "9", "10", "11", "12", "13", "14"}
     criterion_ids = [criterion.id for criterion in snapshot.criteria]
     source_ids = [source.id for source in evidence.sources]
     if not 1 <= len(criterion_ids) <= 30 or len(set(criterion_ids)) != len(criterion_ids):
@@ -367,7 +532,11 @@ def build_trial_judge_messages(
         raise TrialJudgeValidationError("The saved evidence contains duplicate source identifiers.")
     envelope: dict[str, JsonValue] = {
         "criteria": [criterion.model_dump(mode="json") for criterion in snapshot.criteria],
-        "sources": [source.model_dump(mode="json") for source in evidence.sources],
+        "sources": (
+            build_citation_sources(evidence.sources)
+            if snapshot.judge_prompt_version in {"12", "13", "14"}
+            else [source.model_dump(mode="json") for source in evidence.sources]
+        ),
         "limitations": [*evidence.limitations],
     }
     if uses_saved_reference:
@@ -442,7 +611,7 @@ def parse_trial_judgment(
                     normalization_reasons.append("No citation to observed evidence was supplied.")
             reason = (
                 " ".join(dict.fromkeys(normalization_reasons))
-                if judge_prompt_version in {"6", "7", "8"}
+                if judge_prompt_version in {"6", "7", "8", "9", "10", "11", "12", "13", "14"}
                 else "The cited sources do not establish this criterion."
             )
             criterion = criterion.model_copy(
@@ -500,6 +669,156 @@ def _create_judge_token(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvi
     return create_trial_gateway_token(run)
 
 
+async def _cleanup_grouped_judge_token(mint_task: asyncio.Task[str]) -> None:
+    try:
+        token = await mint_task
+    except Exception:
+        return
+    try:
+        with private_capture_context():
+            await database_sync_to_async(revoke_trial_gateway_token, thread_sensitive=False)(token)
+    except Exception:
+        raise RuntimeError("The private judge credential could not be revoked.") from None
+
+
+async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence) -> TrialRunJudgment:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _GROUPED_JUDGE_TIMEOUT_SECONDS
+    mint_task: asyncio.Task[str] | None = None
+    input_tokens: int | None = 0
+    output_tokens: int | None = 0
+    failure: str
+    try:
+        with private_capture_context():
+            # Keep the whole saved rubric's validation and input limit before splitting it.
+            build_trial_judge_messages(snapshot, evidence)
+            groups = [
+                snapshot.model_copy(update={"criteria": snapshot.criteria[offset : offset + _GROUPED_JUDGE_CRITERIA]})
+                for offset in range(0, len(snapshot.criteria), _GROUPED_JUDGE_CRITERIA)
+            ]
+            messages = [build_trial_judge_messages(group, evidence) for group in groups]
+            # Retain the result if cancellation arrives while the database thread is minting.
+            mint_task = asyncio.create_task(
+                database_sync_to_async(_create_judge_token, thread_sensitive=False)(snapshot, evidence)
+            )
+            token = await asyncio.shield(mint_task)
+            criteria: list[TrialCriterionVerdict] = []
+            with private_scout_gateway(token):
+                async with get_async_llm_client(product="signals", team_id=snapshot.team_id).with_options(
+                    max_retries=0, timeout=240.0
+                ) as client:
+                    async with asyncio.timeout_at(deadline):
+                        for group, group_messages in zip(groups, messages, strict=True):
+                            remaining = deadline - loop.time()
+                            if remaining <= 0:
+                                raise TimeoutError
+                            response = await client.chat.completions.create(
+                                model=snapshot.judge_model,
+                                messages=group_messages,
+                                response_format={"type": "json_object"},
+                                max_completion_tokens=24000,
+                                reasoning_effort=omit
+                                if snapshot.judge_prompt_version in {"11", "12", "13", "14"}
+                                else "high",
+                                extra_body=(
+                                    {"max_retries": 0, "timeout": min(remaining, 240.0), "drop_params": False}
+                                    if snapshot.judge_prompt_version in {"11", "12", "13", "14"}
+                                    else {"max_retries": 0}
+                                ),
+                                timeout=min(remaining, 240.0),
+                            )
+                            if response.usage is None:
+                                input_tokens = output_tokens = None
+                            elif input_tokens is not None and output_tokens is not None:
+                                input_tokens += response.usage.prompt_tokens
+                                output_tokens += response.usage.completion_tokens
+                            if response.choices and response.choices[0].finish_reason == "length":
+                                raise TrialJudgeValidationError(
+                                    "The judge reached its output token limit before completing the verdict document. "
+                                    "Review the rubric size before starting a new evaluation; this request was not retried."
+                                )
+                            if not response.choices or response.choices[0].finish_reason != "stop":
+                                raise TrialJudgeValidationError("The judge did not return a complete verdict document.")
+                            content = response.choices[0].message.content
+                            if content is None:
+                                raise TrialJudgeValidationError("The judge did not return a verdict document.")
+                            if snapshot.judge_prompt_version in {"12", "13", "14"}:
+                                if len(content) > MAX_JUDGE_OUTPUT_CHARACTERS:
+                                    raise TrialJudgeValidationError("The judge response exceeds the output limit.")
+                                try:
+                                    content = resolve_citation_references(content, evidence.sources)
+                                except CitationReferenceError:
+                                    raise TrialJudgeValidationError(
+                                        "The judge returned an invalid evidence reference. This evaluation was not retried."
+                                    ) from None
+                            verdicts = parse_trial_judgment(
+                                content,
+                                criteria=group.criteria,
+                                sources=evidence.sources,
+                                judge_prompt_version=snapshot.judge_prompt_version,
+                            )
+                            criteria.extend(verdicts.criteria)
+                        counts = {
+                            verdict: sum(criterion.verdict == verdict for criterion in criteria)
+                            for verdict in ("pass", "fail", "unknown", "not_applicable")
+                        }
+                        summary = ", ".join(f"{count} {verdict}" for verdict, count in counts.items() if count) + "."
+                        # Revalidate complete membership, citations and the overall document size.
+                        verdicts = parse_trial_judgment(
+                            json.dumps(
+                                {
+                                    "summary": summary,
+                                    "criteria": [criterion.model_dump(mode="json") for criterion in criteria],
+                                },
+                                ensure_ascii=False,
+                            ),
+                            criteria=snapshot.criteria,
+                            sources=evidence.sources,
+                            judge_prompt_version=snapshot.judge_prompt_version,
+                        )
+                        if loop.time() >= deadline:
+                            raise TimeoutError
+            return TrialRunJudgment(
+                launch_id=evidence.launch_id,
+                variant_id=evidence.variant_id,
+                status="judged",
+                summary=verdicts.summary,
+                criteria=verdicts.criteria,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+    except TimeoutError:
+        failure = "The judge did not finish all criteria within the run time limit. This evaluation was not retried."
+    except TrialJudgeValidationError as error:
+        failure = str(error)
+    except RateLimitError:
+        failure = (
+            "The judge was rate-limited. Wait or check usage limits before starting a new evaluation. "
+            "This evaluation will not retry automatically."
+        )
+    except Exception:
+        failure = "The private judge request failed. Retry with a new evaluation after checking service availability."
+    finally:
+        if mint_task is not None:
+            cleanup = asyncio.create_task(_cleanup_grouped_judge_token(mint_task))
+            cancelled = False
+            while not cleanup.done():
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    cancelled = True
+            cleanup.result()
+            if cancelled:
+                raise asyncio.CancelledError
+    return TrialRunJudgment(
+        launch_id=evidence.launch_id,
+        variant_id=evidence.variant_id,
+        status="judge_error",
+        summary="The judge could not produce a reliable evaluation of this run.",
+        error=failure,
+    )
+
+
 async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence) -> TrialRunJudgment:
     if evidence.exclusion_reason is not None or evidence.execution_status != "completed":
         return TrialRunJudgment(
@@ -508,6 +827,8 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
             status="excluded",
             summary=evidence.exclusion_reason or "The scout run did not complete and cannot be judged for quality.",
         )
+    if snapshot.judge_prompt_version in {"10", "11", "12", "13", "14"}:
+        return await _judge_trial_run_grouped(snapshot, evidence)
     token: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -517,21 +838,23 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
             token = await database_sync_to_async(_create_judge_token, thread_sensitive=False)(snapshot, evidence)
             with private_scout_gateway(token):
                 async with get_async_llm_client(product="signals", team_id=snapshot.team_id).with_options(
-                    max_retries=0, timeout=240.0 if snapshot.judge_prompt_version == "8" else 120.0
+                    max_retries=0, timeout=240.0 if snapshot.judge_prompt_version in {"8", "9"} else 120.0
                 ) as client:
                     response = await client.chat.completions.create(
                         model=snapshot.judge_model,
                         messages=messages,
                         response_format={"type": "json_object"},
-                        max_completion_tokens={"7": 16000, "8": 24000}.get(snapshot.judge_prompt_version, 8000),
-                        reasoning_effort="high" if snapshot.judge_prompt_version == "8" else omit,
-                        extra_body={"max_retries": 0} if snapshot.judge_prompt_version == "8" else None,
+                        max_completion_tokens={"7": 16000, "8": 24000, "9": 24000}.get(
+                            snapshot.judge_prompt_version, 8000
+                        ),
+                        reasoning_effort="high" if snapshot.judge_prompt_version in {"8", "9"} else omit,
+                        extra_body={"max_retries": 0} if snapshot.judge_prompt_version in {"8", "9"} else None,
                     )
             if response.usage is not None:
                 input_tokens = response.usage.prompt_tokens
                 output_tokens = response.usage.completion_tokens
             if (
-                snapshot.judge_prompt_version in {"7", "8"}
+                snapshot.judge_prompt_version in {"7", "8", "9"}
                 and response.choices
                 and response.choices[0].finish_reason == "length"
             ):

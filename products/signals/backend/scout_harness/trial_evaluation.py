@@ -59,8 +59,8 @@ MAX_TRACE_BYTES = 2 * 1024 * 1024
 MAX_EVIDENCE_CHARS = 80_000
 MAX_SOURCE_CHARS = 12_000
 MAX_EVIDENCE_SOURCES = 200
-JUDGE_MODEL = "gpt-5.5"
-JUDGE_PROMPT_VERSION = "8"
+JUDGE_MODEL = "gpt-6-astra"
+JUDGE_PROMPT_VERSION = "14"
 _Document = TypeVar("_Document", bound=BaseModel)
 
 
@@ -299,6 +299,35 @@ def _usage(value: JsonValue, field: str) -> int | None:
     return item if isinstance(item, int) and not isinstance(item, bool) and item >= 0 else None
 
 
+def _report_evidence(report_id: str, report: JsonValue) -> dict[str, JsonValue]:
+    if not isinstance(report, dict):
+        return {"report_id": report_id, "report": report}
+    document, payload = report.get("document"), report.get("payload")
+    if not isinstance(document, dict) or not isinstance(payload, dict):
+        return {"report_id": report_id, "report": report}
+    matching: list[JsonValue] = [
+        key for key, value in payload.items() if isinstance(value, str) and value == document.get(key)
+    ]
+    metadata: dict[str, JsonValue] = {
+        key: value
+        for key, value in payload.items()
+        if key not in matching
+        and (value is None or isinstance(value, (bool, int, float)) or isinstance(value, str) and len(value) <= 256)
+    }
+    return {
+        "report_id": report_id,
+        "report": {
+            "captured_submission_metadata": metadata,
+            "document": document,
+            "submission_fields_matching_document": matching,
+            "captured_submission_details": {
+                key: value for key, value in payload.items() if key not in metadata and key not in matching
+            },
+            **{key: value for key, value in report.items() if key not in {"document", "payload"}},
+        },
+    }
+
+
 def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) -> TrialRunEvidence:
     run = _bound_run(launch)
     result = read_trial_result(run) if run is not None else None
@@ -377,7 +406,7 @@ def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) 
                 builder.add(
                     f"report:{index}",
                     "report",
-                    json.dumps({"report_id": identifier, "report": report}, ensure_ascii=False),
+                    json.dumps(_report_evidence(identifier, report), ensure_ascii=False),
                 )
         builder.add("memory", "memory", json.dumps(private.get("memory", {}), ensure_ascii=False))
     else:
