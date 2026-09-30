@@ -3462,9 +3462,10 @@ def set_task_run_summary(
     # Omitted tags keep the current set, so a summary-only call does not erase them.
     if tags is not None:
         updates[TASK_RUN_TAGS_STATE_KEY] = list(dict.fromkeys(tags))
-    run.state = TaskRun.update_state_atomic(run.id, updates=updates)
-    if tags is not None:
-        set_tags_on_object(tags, run.task)
+    with transaction.atomic():
+        run.state = TaskRun.update_state_atomic(run.id, updates=updates)
+        if tags is not None:
+            set_tags_on_object(tags, run.task)
     run.refresh_from_db()
     run.publish_stream_state_event()
     return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)

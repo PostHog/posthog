@@ -23,7 +23,7 @@ def backfill_task_tags(team_id: int | None = None, dry_run: bool = False) -> int
     if team_id is not None:
         runs_with_tags = runs_with_tags.filter(team_id=team_id)
         tasks = tasks.filter(team_id=team_id)
-    latest_run_state = TaskRun.objects.filter(task_id=OuterRef("pk")).order_by("-created_at").values("state")[:1]
+    latest_run_state = TaskRun.objects.filter(task_id=OuterRef("pk")).order_by("-created_at", "-id").values("state")[:1]
     tasks = tasks.filter(id__in=runs_with_tags.values("task_id")).annotate(latest_run_state=Subquery(latest_run_state))
 
     tagged = 0
