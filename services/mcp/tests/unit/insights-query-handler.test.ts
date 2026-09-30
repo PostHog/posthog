@@ -27,7 +27,7 @@ interface MockHandles {
 interface QueryResult {
     query: unknown
     results: unknown
-    insight: { url: string }
+    insight: { url: string; result?: unknown }
     _posthogUrl: string
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }
@@ -221,6 +221,26 @@ describe('queryHandler — result shape for UI rendering', () => {
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
     })
 
+    it('masks credential query parameters in fresh and cached insight results', async () => {
+        const { context } = createContext({
+            getData: {
+                id: 42,
+                short_id: 'abc12345',
+                query: { kind: 'HogQLQuery', query: 'select properties.$current_url from events' },
+                result: [['https://example.com/cb?code=fake-cached-code&lang=en']],
+            },
+            queryData: { columns: ['url'], results: [['https://example.com/cb?code=fake-fresh-code&lang=en']] },
+        })
+
+        const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as QueryResult
+
+        expect(result.results).toEqual({
+            columns: ['url'],
+            results: [['https://example.com/cb?code=[REDACTED]&lang=en']],
+        })
+        expect(result.insight.result).toEqual([['https://example.com/cb?code=[REDACTED]&lang=en']])
+    })
+
     it('passes the raw results array through for trends insights', async () => {
         const trendsResults = [{ data: [1, 2], labels: ['a', 'b'] }]
         const { context } = createContext({
@@ -234,7 +254,7 @@ describe('queryHandler — result shape for UI rendering', () => {
 
         const result = (await queryHandler(context, { insightId: '42', output_format: 'optimized' })) as QueryResult
 
-        expect(result.results).toBe(trendsResults)
+        expect(result.results).toEqual(trendsResults)
         expect(result.query).toEqual({ kind: 'TrendsQuery' })
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(formatted)
     })
@@ -258,7 +278,7 @@ describe('queryHandler — result shape for UI rendering', () => {
 
         // Chart visualizers read the raw array; wrapping it in { columns, results } makes the
         // structural guards fall through to the table renderer and show an empty table.
-        expect(result.results).toBe(chartResults)
+        expect(result.results).toEqual(chartResults)
         expect(result.query).toEqual({ kind })
     })
 })

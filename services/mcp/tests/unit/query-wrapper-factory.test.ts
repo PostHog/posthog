@@ -631,6 +631,23 @@ describe('createQueryWrapper warnings', () => {
         expect(result.warnings).toEqual(warnings)
     })
 
+    it.each([
+        ['HogQLQuery', 'TrendsQuery'],
+        ['TrendsQuery', 'TrendsQuery'],
+    ])('masks credential query parameters in %s results and formatted output', async (kind) => {
+        const url = 'https://example.com/callback?code=fake-auth-code&lang=en'
+        const tool = createQueryWrapper({ name: 'test', schema, kind, outputFormat: 'optimized' })()
+
+        const result = (await tool.handler(
+            contextWithRunQuery({ results: [[url, 3]], formatted_results: `url,count\n${url},3` }),
+            { kind }
+        )) as any
+
+        const masked = 'https://example.com/callback?code=[REDACTED]&lang=en'
+        expect(result.results).toEqual([[masked, 3]])
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(`url,count\n${masked},3`)
+    })
+
     it('omits the key when there are no warnings', async () => {
         const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
 

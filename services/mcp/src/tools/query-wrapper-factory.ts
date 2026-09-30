@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { type TraceDetail, compactTraceResponse } from '@/lib/trace-compaction'
 import { redactTraceResults } from '@/lib/trace-redaction'
+import { redactUrlCredentials, redactUrlCredentialsDeep } from '@/lib/url-credential-redaction'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -222,6 +223,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 }
                 return {
                     ...data,
+                    results: redactUrlCredentialsDeep(data.results),
                     _posthogUrl: buildInsightUrl('DataTableNode', data.query, baseUrl, config.urlPrefix),
                 }
             }
@@ -237,7 +239,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const response = {
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 query,
-                results: isTraceQuery ? redactTraceResults(data.results) : data.results,
+                results: redactUrlCredentialsDeep(isTraceQuery ? redactTraceResults(data.results) : data.results),
                 ...(data.warnings ? { warnings: data.warnings } : {}),
             }
             if (isTraceQuery) {
@@ -245,7 +247,9 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             }
             return {
                 ...response,
-                ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
+                ...(shouldSurfaceFormatted
+                    ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: redactUrlCredentials(data.formatted_results) }
+                    : {}),
             }
         },
         _meta: {
