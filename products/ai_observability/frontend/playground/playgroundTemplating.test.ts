@@ -16,6 +16,8 @@ describe('playgroundTemplating', () => {
     it('substitutes every occurrence and leaves unfilled placeholders intact', () => {
         expect(substituteVariables('{{a}} and {{b}} and {{a}}', { a: 'x' })).toBe('x and {{b}} and x')
         expect(substituteVariables('{{a}}', { a: '' })).toBe('{{a}}')
+        // Object.prototype keys must not leak function source text into the prompt
+        expect(substituteVariables('{{constructor}} {{toString}}', {})).toBe('{{constructor}} {{toString}}')
     })
 
     it('substitutes multiline JSON values containing replacement patterns literally', () => {

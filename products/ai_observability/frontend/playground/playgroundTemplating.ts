@@ -20,11 +20,20 @@ export function extractVariables(text: string): string[] {
 }
 
 /**
+ * Own-property read of a variable value. A plain record inherits `constructor`,
+ * `toString` and the rest of Object.prototype, so a bare `values[name]` would
+ * hand function source text to a `{{constructor}}` placeholder.
+ */
+export function getVariableValue(values: Record<string, string>, name: string): string {
+    return Object.prototype.hasOwnProperty.call(values, name) ? values[name] : ''
+}
+
+/**
  * Replace each `{{name}}` with its value. A variable with no value (or an empty
  * one) stays in place, matching the SDK `compile` behavior, so a forgotten value
  * is visible in the model's input instead of silently becoming an empty string.
  */
 export function substituteVariables(text: string, values: Record<string, string>): string {
     // Function replacer so values containing `$&`-style patterns substitute literally
-    return text.replace(TEMPLATE_VARIABLE_REGEX, (match, name: string) => values[name] || match)
+    return text.replace(TEMPLATE_VARIABLE_REGEX, (match, name: string) => getVariableValue(values, name) || match)
 }

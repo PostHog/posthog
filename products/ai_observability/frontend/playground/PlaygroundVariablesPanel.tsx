@@ -7,6 +7,7 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { CollapsibleChevron } from './CollapsibleChevron'
 import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
+import { getVariableValue } from './playgroundTemplating'
 
 export function PlaygroundVariablesPanel(): JSX.Element {
     const { detectedVariables, variableValues } = useValues(llmPlaygroundVariablesLogic)
@@ -43,7 +44,7 @@ export function PlaygroundVariablesPanel(): JSX.Element {
                                 <LemonTextArea
                                     className="text-sm flex-1"
                                     placeholder="Value"
-                                    value={variableValues[name] ?? ''}
+                                    value={getVariableValue(variableValues, name)}
                                     onChange={(value) => setVariableValue(name, value)}
                                     minRows={1}
                                     maxRows={6}
