@@ -106,9 +106,8 @@ class MetricResultStore:
         ]
         if not fingerprints:
             return []
-        # The recalc fingerprint is deterministic per config, not per run, so a running experiment accumulates one
-        # row per query_to under the same fingerprint. Without the query_to filter a later run would return every
-        # earlier window's row and overcount.
+        # The recalc fingerprint is per config, not per run, so each window of a running experiment holds a row under
+        # the same fingerprint. Without the query_to filter a later run would return every earlier window's row.
         rows = ExperimentMetricResult.objects.filter(
             experiment_id=self.experiment_id, fingerprint__in=fingerprints, query_to=run.query_to
         )
@@ -166,9 +165,8 @@ class MetricResultStore:
             ExperimentMetricResult.objects.filter(
                 experiment_id=self.experiment_id, metric_uuid=metric_uuid, status=_COMPLETED
             )
-            # NULLS FIRST is the Postgres default for a descending order, so the stop-experiment check keeps its rule.
-            # Every writer sets completed_at on a completed row, so NULLS LAST would differ only for rows that no
-            # writer creates.
+            # NULLS FIRST keeps the stop-experiment check's rule. Every writer sets completed_at on a completed row,
+            # so NULLS LAST would differ only for rows that no writer creates.
             .order_by(F("completed_at").desc(nulls_first=True), "-id")
             .first()
         )
@@ -215,9 +213,8 @@ class MetricResultStore:
                 experiment_id__in=metric_uuid_by_experiment.keys(),
                 metric_uuid__in=set(metric_uuid_by_experiment.values()),
                 status=_COMPLETED,
-                # `gte` rather than an exact match, so a start date edited to an earlier moment keeps its results
-                # instead of hiding them until every row is recomputed. A draft has no start date, so nothing
-                # matches.
+                # `gte` rather than an exact match, so a start date edited to an earlier moment keeps its results.
+                # A draft has no start date, so nothing matches.
                 query_from__gte=F("experiment__start_date"),
             )
             .order_by("experiment_id", "metric_uuid", "-query_to", F("completed_at").desc(nulls_last=True), "-id")
