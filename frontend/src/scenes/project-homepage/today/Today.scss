@@ -181,6 +181,15 @@
     color: var(--today-body-text);
 }
 
+.TodayNavItem[data-emphasized='true'] .TodayNavItem__title {
+    font-weight: 600;
+}
+
+.TodayNavItem[data-done='true'] .TodayNavItem__title,
+.TodayReportLink[data-done='true'] {
+    text-decoration: line-through;
+}
+
 .TodayNavItem__meta {
     margin-top: 3px;
     font-size: 11px;

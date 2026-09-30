@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { TodayAskBox } from './TodayAskBox'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
+import { TodayPersonalBriefing } from './TodayPersonalBriefing'
 import { TodaySampleBanner } from './TodaySampleBanner'
 import { TodayBriefingSegment, reportIcon, reportSource } from './todaySignalReports'
 
@@ -116,7 +117,15 @@ function TodayBriefingReports(): JSX.Element {
 }
 
 export function TodayBriefing(): JSX.Element {
-    const { greeting, topReports, topReportsLoading, reportsFailed, reports } = useValues(todayLogic)
+    const {
+        greeting,
+        topReports,
+        topReportsLoading,
+        reportsFailed,
+        reports,
+        showPersonalBriefing,
+        personalBriefingPending,
+    } = useValues(todayLogic)
     const { loadTopReports } = useActions(todayLogic)
 
     return (
@@ -125,7 +134,11 @@ export function TodayBriefing(): JSX.Element {
             <TodayMetaLine />
             <section className="TodayHome__intro" aria-label="Daily brief">
                 <div className="TodayHome__greeting">{greeting}</div>
-                {topReports === null && reportsFailed ? (
+                {showPersonalBriefing ? (
+                    <TodayPersonalBriefing />
+                ) : personalBriefingPending ? (
+                    <p>Reading what changed in your project…</p>
+                ) : topReports === null && reportsFailed ? (
                     <LemonBanner
                         type="error"
                         action={{

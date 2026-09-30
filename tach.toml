@@ -1660,3 +1660,26 @@ expose = [
 from = [
     "products.security",
 ]
+
+[[modules]]
+path = "products.today"
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.alerts",
+    "products.conversations",
+    "products.dashboards",
+    "products.error_tracking",
+    "products.product_analytics",
+    "products.signals",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.today",
+]

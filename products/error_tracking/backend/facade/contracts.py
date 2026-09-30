@@ -328,3 +328,14 @@ class ErrorTrackingAlert:
     destinations: list[ErrorTrackingAlertDestination]
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class AssignedIssueSummary:
+    """An active issue assigned to a user directly or to one of their roles."""
+
+    issue_id: UUID
+    name: str
+    status: str
+    created_at: datetime
+    assigned_via_role: bool

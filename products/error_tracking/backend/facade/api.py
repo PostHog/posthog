@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 import posthoganalytics
 
@@ -20,6 +20,7 @@ from ..indexed_embedding import EMBEDDING_TABLES
 from ..logic import external_references, github_external_references, rules
 from ..models import (
     ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
     resolve_fingerprints_for_issues,
     sync_issues_to_clickhouse as sync_issues_to_clickhouse,
@@ -802,4 +803,28 @@ def document_embedding_tables() -> list[DocumentEmbeddingTable]:
             sharded_table=table.sharded_table_name(), distributed_table=table.distributed_table_name()
         )
         for table in EMBEDDING_TABLES
+    ]
+
+
+def active_issues_assigned_to(
+    *, team_id: int, user_id: int, role_ids: list[str], limit: int = 5
+) -> list[contracts.AssignedIssueSummary]:
+    """Active issues assigned to the user or to one of the given roles, newest first."""
+    assignments = (
+        ErrorTrackingIssueAssignment.objects.filter(
+            issue__team_id=team_id, issue__status=ErrorTrackingIssue.Status.ACTIVE
+        )
+        .filter(Q(user_id=user_id) | Q(role_id__in=role_ids))
+        .select_related("issue")
+        .order_by("-issue__created_at")[:limit]
+    )
+    return [
+        contracts.AssignedIssueSummary(
+            issue_id=assignment.issue.id,
+            name=assignment.issue.name or "Unnamed issue",
+            status=assignment.issue.status,
+            created_at=assignment.issue.created_at,
+            assigned_via_role=assignment.user_id != user_id,
+        )
+        for assignment in assignments
     ]

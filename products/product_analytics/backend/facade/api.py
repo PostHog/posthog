@@ -24,7 +24,12 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedInsightDefinition
+from products.product_analytics.backend.facade.contracts import (
+    CachedTrends,
+    CachedTrendsSeries,
+    InsightVariableDefinition,
+    SavedInsightDefinition,
+)
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -214,3 +219,70 @@ def save_saved_insight_query(
         insight.last_modified_by = user
         insight.save(update_fields=["query", "saved", "last_modified_by", "updated_at"])
     return None
+
+
+# Counting and summing series can be compared week over week by adding up their points.
+_ADDITIVE_MATHS = {None, "total", "sum"}
+
+
+def cached_trends(*, insight: Insight, team: Team, user: User, dashboard: Any = None) -> CachedTrends | None:
+    """The insight's cached trends result, or None when it is not a plain trends insight or not cached.
+
+    Never starts a calculation, so it is safe to call for many insights in a background job. Only
+    series whose points can be added up (counts and sums, no formulas) are returned.
+    """
+    from posthog.api.services.query import (
+        ExecutionMode,  # noqa: PLC0415 — keeps the query stack off the facade import path
+    )
+    from posthog.caching.calculate_results import calculate_for_query_based_insight  # noqa: PLC0415 — same
+
+    source = (insight.query or {}).get("source") or {}
+    trends_filter = source.get("trendsFilter") or {}
+    if source.get("kind") != "TrendsQuery" or trends_filter.get("formula") or trends_filter.get("formulaNodes"):
+        return None
+    calculation = calculate_for_query_based_insight(
+        insight,
+        team=team,
+        dashboard=dashboard,
+        execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+        user=user,
+    )
+    series: list[CachedTrendsSeries] = []
+    for row in calculation.result or []:
+        if not isinstance(row, dict) or not isinstance(row.get("data"), list):
+            continue
+        math = (row.get("action") or {}).get("math")
+        if math not in _ADDITIVE_MATHS or row.get("breakdown_value") not in (None, ""):
+            continue
+        series.append(
+            CachedTrendsSeries(
+                label=str(row.get("label") or ""),
+                math=math,
+                days=[str(day) for day in row.get("days") or []],
+                data=[float(value or 0) for value in row["data"]],
+            )
+        )
+    if not series:
+        return None
+    return CachedTrends(
+        insight_id=insight.id,
+        short_id=insight.short_id,
+        name=insight.name or insight.derived_name or "",
+        interval=source.get("interval"),
+        series=series,
+    )
+
+
+def cached_trends_for_insights(*, team: Team, user: User, short_ids: Collection[str]) -> list[CachedTrends]:
+    """Cached trends results for the given insights the user can view, in the given order."""
+    queryset = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
+        Insight.objects.filter(team_id=team.id, deleted=False, saved=True, short_id__in=list(short_ids))
+    )
+    by_short_id = {insight.short_id: insight for insight in queryset}
+    results = []
+    for short_id in short_ids:
+        insight = by_short_id.get(short_id)
+        trends = cached_trends(insight=insight, team=team, user=user) if insight else None
+        if trends is not None:
+            results.append(trends)
+    return results

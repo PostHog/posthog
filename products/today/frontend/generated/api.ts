@@ -1,0 +1,110 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
+/**
+ * Auto-generated from the Django backend OpenAPI schema.
+ * To modify these types, update the Django serializers or views, then run:
+ *   hogli build:openapi
+ * Questions or issues? #team-devex on Slack
+ *
+ * PostHog API - generated
+ * OpenAPI spec version: 1.0.0
+ */
+import type {
+    BriefingApi,
+    CandidateListApi,
+    TodayBriefingRefreshCreateParams,
+    TodayBriefingRetrieveParams,
+    TodayCandidatesRetrieveParams,
+} from './api.schemas'
+
+export const getTodayBriefingRetrieveUrl = (projectId: string, params?: TodayBriefingRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/today/briefing/?${stringifiedParams}`
+        : `/api/projects/${projectId}/today/briefing/`
+}
+
+/**
+ * Today's personal briefing: a short text about the top 5 items and a left bar with the top 10. Starts generating one when there is none yet; while it writes, the template draft is returned with status 'writing'.
+ * @summary Get today's briefing
+ */
+export const todayBriefingRetrieve = async (
+    projectId: string,
+    params?: TodayBriefingRetrieveParams,
+    options?: RequestInit
+): Promise<BriefingApi> => {
+    return apiMutator<BriefingApi>(getTodayBriefingRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTodayBriefingRefreshCreateUrl = (projectId: string, params?: TodayBriefingRefreshCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/today/briefing/refresh/?${stringifiedParams}`
+        : `/api/projects/${projectId}/today/briefing/refresh/`
+}
+
+/**
+ * Start a new generation of today's briefing. Allowed 3 times per day.
+ * @summary Refresh today's briefing
+ */
+export const todayBriefingRefreshCreate = async (
+    projectId: string,
+    params?: TodayBriefingRefreshCreateParams,
+    options?: RequestInit
+): Promise<BriefingApi> => {
+    return apiMutator<BriefingApi>(getTodayBriefingRefreshCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTodayCandidatesRetrieveUrl = (projectId: string, params?: TodayCandidatesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/today/candidates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/today/candidates/`
+}
+
+/**
+ * The ranked items behind today's briefing, with the facts and the reason for each, without the written text.
+ * @summary List today's ranked items
+ */
+export const todayCandidatesRetrieve = async (
+    projectId: string,
+    params?: TodayCandidatesRetrieveParams,
+    options?: RequestInit
+): Promise<CandidateListApi> => {
+    return apiMutator<CandidateListApi>(getTodayCandidatesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}

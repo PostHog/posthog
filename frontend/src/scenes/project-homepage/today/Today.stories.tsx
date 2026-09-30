@@ -22,6 +22,7 @@ import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 const ADA = {
     id: 1,
@@ -225,6 +226,114 @@ const REPORTS = [
     }),
 ]
 
+function briefingItem(overrides: Partial<BriefingItemApi> & Pick<BriefingItemApi, 'key' | 'label'>): BriefingItemApi {
+    return {
+        title: overrides.label,
+        signal: '',
+        url: '/project/1/inbox',
+        rank: 1,
+        in_text: true,
+        group: 'report',
+        source: 'self_driving',
+        reason: 'waiting_for_you',
+        state: 'open',
+        ...overrides,
+    }
+}
+
+const PERSONAL_BRIEFING: BriefingApi = {
+    id: 'briefing-1',
+    local_day: '2026-09-28',
+    headline: 'Two reports need your input this morning',
+    paragraphs: [
+        [
+            { text: 'The ', item_key: null, highlight: false },
+            { text: 'signup form rejects plus-addressed emails', item_key: 'report:report-1', highlight: true },
+            { text: ', and a fix is waiting for your review. ', item_key: null, highlight: false },
+            { text: 'LLM costs doubled', item_key: 'report:report-3', highlight: false },
+            { text: ' for the summarize tool after the prompt change.', item_key: null, highlight: false },
+        ],
+        [
+            { text: 'Trial starts on ', item_key: null, highlight: false },
+            { text: 'the growth dashboard', item_key: 'dashboard:12', highlight: false },
+            { text: ' fell 18% week over week, and ', item_key: null, highlight: false },
+            { text: 'the error rate alert', item_key: 'alert:5', highlight: false },
+            { text: ' is firing. ', item_key: null, highlight: false },
+            { text: 'Ticket #1042', item_key: 'ticket:t-1', highlight: false },
+            { text: ' has 3 unread messages.', item_key: null, highlight: false },
+        ],
+    ],
+    items: [
+        briefingItem({
+            key: 'report:report-1',
+            label: 'Plus-addressed signups fail',
+            signal: 'P1, fix ready for review',
+            rank: 1,
+        }),
+        briefingItem({
+            key: 'report:report-3',
+            label: 'Summarize tool costs doubled',
+            signal: 'P2, claimed by you',
+            rank: 2,
+        }),
+        briefingItem({
+            key: 'dashboard:12',
+            label: 'Growth overview',
+            signal: 'Trial starts down 18%',
+            url: '/project/1/dashboard/12',
+            rank: 3,
+            group: 'dashboard',
+            source: 'product_analytics',
+            reason: 'dashboard_you_viewed',
+        }),
+        briefingItem({
+            key: 'alert:5',
+            label: 'Error rate alert',
+            signal: 'Firing since 07:10',
+            url: '/project/1/insights/abc123/alerts?alert_id=5',
+            rank: 4,
+            group: 'dashboard',
+            source: 'alerts',
+            reason: 'alert_firing',
+        }),
+        briefingItem({
+            key: 'ticket:t-1',
+            label: 'Ticket #1042',
+            signal: '3 unread messages',
+            url: '/project/1/support/tickets/t-1',
+            rank: 5,
+            group: 'other',
+            source: 'support',
+            reason: 'assigned_ticket',
+        }),
+        briefingItem({
+            key: 'report:report-2',
+            label: 'Pricing page drop-off',
+            signal: 'P3, suggested reviewer',
+            rank: 6,
+            in_text: false,
+            reason: 'suggested_reviewer',
+            state: 'done',
+        }),
+        briefingItem({
+            key: 'github:example/app#42',
+            label: 'Retry the billing webhook',
+            signal: 'Review requested',
+            url: 'https://github.com/example/app/pull/42',
+            rank: 7,
+            in_text: false,
+            group: 'other',
+            source: 'github',
+            reason: 'review_requested',
+        }),
+    ],
+    more_reports_count: 4,
+    status: 'ready',
+    writer: 'llm',
+    created_at: '2026-09-28T06:00:00Z',
+    ready_at: '2026-09-28T06:00:21Z',
+}
+
 // Today keeps sample mode, the open pane, the sidebar width and the space feed view in local storage, which outlives
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
 function clearTodayStorage(Story: () => JSX.Element): JSX.Element {
@@ -269,6 +378,7 @@ const meta: Meta = {
                         ),
                     },
                 ],
+                '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
                     200,
@@ -347,6 +457,25 @@ export default meta
 type Story = StoryObj<{}>
 
 export const Home: Story = {}
+
+export const HomeWithPersonalBriefing: Story = {
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING } })],
+}
+
+export const HomeWithPersonalBriefingDraft: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/briefing/': {
+                    ...PERSONAL_BRIEFING,
+                    status: 'writing',
+                    writer: 'template',
+                    ready_at: null,
+                },
+            },
+        }),
+    ],
+}
 
 export const HomeWithSampleReports: Story = {
     parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },

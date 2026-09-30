@@ -983,3 +983,43 @@ def list_account_email_thread_messages(
         ],
         count,
     )
+
+
+@frozen
+class AssignedTicketSummary:
+    """Metadata of an open ticket assigned to a user. Carries no message text."""
+
+    ticket_id: str
+    ticket_number: int
+    channel_source: str
+    status: str
+    priority: str | None
+    unread_team_count: int
+    message_count: int
+    sla_due_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+def open_tickets_assigned_to_user(*, team_id: int, user_id: int, limit: int = 10) -> list[AssignedTicketSummary]:
+    """Tickets assigned directly to the user that are not resolved, most recently updated first."""
+    tickets = (
+        Ticket.objects.filter(team_id=team_id, assignment__user_id=user_id)
+        .exclude(status=Status.RESOLVED)
+        .order_by("-updated_at")[:limit]
+    )
+    return [
+        AssignedTicketSummary(
+            ticket_id=str(ticket.id),
+            ticket_number=ticket.ticket_number,
+            channel_source=ticket.channel_source,
+            status=ticket.status,
+            priority=ticket.priority,
+            unread_team_count=ticket.unread_team_count,
+            message_count=ticket.message_count,
+            sla_due_at=ticket.sla_due_at,
+            created_at=ticket.created_at,
+            updated_at=ticket.updated_at,
+        )
+        for ticket in tickets
+    ]

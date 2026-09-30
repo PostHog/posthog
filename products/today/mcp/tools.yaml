@@ -1,0 +1,50 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Today
+feature: today
+url_prefix: /today
+tools:
+    today-briefing-refresh-create:
+        operation: today_briefing_refresh_create
+        enabled: false
+    today-briefing-get:
+        operation: today_briefing_retrieve
+        enabled: true
+        scopes:
+            - today:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get my Today briefing
+        description: >
+            The current user's morning briefing for this project, as shown on the Today home page.
+            It returns a short text about the most important items (reports assigned to the user,
+            dashboards and insights they viewed with week-over-week changes, firing alerts, assigned
+            support tickets and error issues, and GitHub pull requests), plus up to 10 ranked items
+            with a label, a signal and a link. The first call of the day starts generation and
+            returns status "collecting" or "writing"; call again after a few seconds for the "ready"
+            text. Use this to answer "what should I look at today?".
+        feature_flag: today-rail-nav
+        feature_flag_behavior: enable
+    today-candidates-list:
+        operation: today_candidates_retrieve
+        enabled: true
+        scopes:
+            - today:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List my Today candidates
+        description: >
+            The ranked items behind the current user's briefing, each with its source, the reason it
+            was picked, a link, and the raw facts (for example priority, status, or last week and this
+            week values of a metric). Use this when you need the numbers and details, not the written
+            text. Reports rank first, then dashboards and alerts, then everything else.
+        feature_flag: today-rail-nav
+        feature_flag_behavior: enable

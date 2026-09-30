@@ -1,0 +1,49 @@
+"""Django models for today. Keep models thin; logic lives in logic/."""
+
+import uuid
+
+from django.db import models
+
+from posthog.models.scoping.product_mixin import ProductTeamModel
+
+from .facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter
+
+
+class DailyBriefing(ProductTeamModel):
+    """One generation of a person's Today briefing. The page shows the newest ready row for the day."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user_id = models.BigIntegerField()
+    local_day = models.DateField()
+    timezone = models.CharField(max_length=64)
+    trigger = models.CharField(max_length=16, choices=[(t.value, t.value) for t in BriefingTrigger])
+    status = models.CharField(
+        max_length=16, choices=[(s.value, s.value) for s in BriefingStatus], default=BriefingStatus.COLLECTING
+    )
+    # The ranked list of up to 10 items with the facts the writer may use.
+    facts = models.JSONField(default=dict)
+    # The template text, stored before the LLM call so the page has something to show.
+    draft = models.JSONField(default=dict)
+    # What the page shows: the LLM text when it passed the checks, else the draft.
+    content = models.JSONField(default=dict)
+    writer = models.CharField(max_length=16, choices=[(w.value, w.value) for w in BriefingWriter], null=True)
+    error = models.TextField(null=True, blank=True)
+    llm_cost_usd = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    ready_at = models.DateTimeField(null=True, blank=True)
+    # The last time the person opened Today with this briefing; the schedule only serves recent viewers.
+    last_viewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(ProductTeamModel.Meta):
+        indexes = [
+            models.Index(fields=["team_id", "user_id", "local_day", "-created_at"], name="today_briefing_day_idx"),
+            models.Index(fields=["last_viewed_at"], name="today_briefing_viewed_idx"),
+            models.Index(
+                fields=["created_at"],
+                name="today_briefing_pending_idx",
+                condition=models.Q(status__in=["collecting", "writing"]),
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.local_day} {self.status}"

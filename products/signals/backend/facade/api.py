@@ -26,6 +26,15 @@ from products.signals.backend.artefact_schemas import (
     # notification thread without naming the relationship vocabulary itself.
     TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
 )
+from products.signals.backend.briefing_reports import (
+    # Re-exported for the Today briefing, which ranks these reports next to other products' items.
+    BriefingReport as BriefingReport,
+    BriefingReportRelation as BriefingReportRelation,
+    ReportState as ReportState,
+    report_states as report_states,
+    reports_for_briefing as reports_for_briefing,
+    reports_for_me_count as reports_for_me_count,
+)
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig

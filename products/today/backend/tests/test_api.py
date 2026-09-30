@@ -1,0 +1,55 @@
+from posthog.test.base import APIBaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from rest_framework import status
+
+from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
+from products.today.backend.models import DailyBriefing
+from products.today.backend.tests.conftest import PRODUCT_DATABASES, TodayTeamScopedTestMixin
+
+
+@patch("products.today.backend.logic.briefings.sync_connect")
+class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def _flag(self, enabled: bool):
+        return patch("products.today.backend.logic.eligibility.posthoganalytics.feature_enabled", return_value=enabled)
+
+    def test_flag_off_hides_the_briefing(self, _sync_connect: MagicMock) -> None:
+        with self._flag(False):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/briefing/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not DailyBriefing.objects.for_team(self.team.id).exists()
+
+    def test_first_open_creates_one_briefing_and_starts_generation_once(self, sync_connect: MagicMock) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock()
+        with self._flag(True):
+            first = self.client.get(f"/api/projects/{self.team.id}/today/briefing/?timezone=Europe/Prague")
+            second = self.client.get(f"/api/projects/{self.team.id}/today/briefing/?timezone=Europe/Prague")
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert first.json()["status"] == BriefingStatus.COLLECTING
+        assert second.json()["id"] == first.json()["id"]
+        rows = DailyBriefing.objects.for_team(self.team.id).filter(user_id=self.user.id)
+        assert [(row.trigger, row.timezone) for row in rows] == [(BriefingTrigger.FIRST_OPEN, "Europe/Prague")]
+        assert sync_connect.return_value.start_workflow.call_count == 1
+
+    def test_refresh_is_limited_per_day(self, sync_connect: MagicMock) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock()
+        with self._flag(True):
+            responses = [self.client.post(f"/api/projects/{self.team.id}/today/briefing/refresh/") for _ in range(4)]
+
+        assert [response.status_code for response in responses] == [200, 200, 200, 429]
+        assert sync_connect.return_value.start_workflow.call_count == 3
+
+    def test_briefings_of_other_people_stay_private(self, _sync_connect: MagicMock) -> None:
+        other = self._create_user("other@example.com")
+        with self._flag(True):
+            self.client.get(f"/api/projects/{self.team.id}/today/briefing/")
+            self.client.force_login(other)
+            response = self.client.get(f"/api/projects/{self.team.id}/today/briefing/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert DailyBriefing.objects.for_team(self.team.id).filter(user_id=other.id).count() == 1
+        assert DailyBriefing.objects.for_team(self.team.id).count() == 2

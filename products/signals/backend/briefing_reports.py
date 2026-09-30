@@ -1,0 +1,180 @@
+"""Reports that matter to one person, for the Today briefing.
+
+The briefing ranks items across products, so this module only answers "which reports relate to this
+person, and how". It does not order across relations; the caller does that.
+"""
+
+import json
+from collections.abc import Sequence
+from datetime import datetime
+from enum import StrEnum
+
+from django.db.models import Q
+
+from posthog.dataclasses import frozen
+from posthog.models import User
+
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import ActionabilityChoice
+from products.signals.backend.implementation_pr import implementation_pr_report_filter
+from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_claims import reports_with_active_claim
+from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
+
+_OPEN_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
+_SUMMARY_LIMIT = 300
+
+
+class BriefingReportRelation(StrEnum):
+    CLAIMED = "claimed"
+    WAITING_FOR_YOU = "waiting_for_you"
+    SUGGESTED_REVIEWER = "suggested_reviewer"
+    URGENT_UNOWNED = "urgent_unowned"
+
+
+@frozen
+class BriefingReport:
+    report_id: str
+    relation: BriefingReportRelation
+    title: str
+    summary: str
+    status: str
+    priority: str | None
+    has_implementation_pr: bool
+    updated_at: datetime
+
+
+@frozen
+class ReportState:
+    report_id: str
+    status: str
+
+
+def _priorities(report_ids: Sequence[str]) -> dict[str, str]:
+    """Latest priority judgment per report, read the same way the inbox serializer reads it."""
+    latest: dict[str, str] = {}
+    artefacts = (
+        SignalReportArtefact.objects.filter(
+            report_id__in=report_ids, type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+        )
+        .order_by("report_id", "-created_at")
+        .values_list("report_id", "content")
+    )
+    for report_id, content in artefacts:
+        key = str(report_id)
+        if key in latest:
+            continue
+        try:
+            data = json.loads(content)
+        except (TypeError, ValueError):
+            continue
+        priority = data.get("priority") if isinstance(data, dict) else None
+        if isinstance(priority, str):
+            latest[key] = priority
+    return latest
+
+
+def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int = 5) -> list[BriefingReport]:
+    """Open, actionable reports for one person, each tagged with its strongest relation to them.
+
+    A report appears once, under the first relation that matches in this order: claimed by the
+    person, waiting for their input, naming them as a reviewer, then a P0 that nobody owns.
+    """
+    user = User.objects.get(id=user_id)
+    github_login = user.get_github_login()
+    open_reports = (
+        SignalReport.objects.filter(team_id=team_id, status__in=_OPEN_STATUSES)
+        .exclude(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
+        .exclude(latest_already_addressed=True)
+    )
+    names_me = Q(
+        id__in=report_ids_naming_reviewers(
+            team_id=team_id,
+            user_uuids=[str(user.uuid)],
+            github_logins=[github_login.lower()] if github_login else [],
+            logins_match_unidentified_only=False,
+        )
+    )
+    claimed = reports_with_active_claim(team_id=team_id, actor=ArtefactAttribution.from_user(user_id))
+    unowned = ~reports_with_active_claim(team_id=team_id) & ~implementation_pr_report_filter(
+        team_id=team_id, active_only=True
+    )
+    buckets: list[tuple[BriefingReportRelation, Q]] = [
+        (BriefingReportRelation.CLAIMED, claimed),
+        (BriefingReportRelation.WAITING_FOR_YOU, names_me & Q(status=SignalReport.Status.PENDING_INPUT)),
+        (BriefingReportRelation.SUGGESTED_REVIEWER, names_me & Q(status=SignalReport.Status.READY)),
+        (
+            BriefingReportRelation.URGENT_UNOWNED,
+            unowned
+            & Q(
+                status=SignalReport.Status.READY,
+                latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+            ),
+        ),
+    ]
+    seen: set[str] = set()
+    picked: list[tuple[BriefingReportRelation, SignalReport]] = []
+    for relation, condition in buckets:
+        # Urgent-unowned is only meaningful at P0, which is filtered after the priority lookup,
+        # so it reads a wider page than the other buckets.
+        page = limit_per_relation * 4 if relation == BriefingReportRelation.URGENT_UNOWNED else limit_per_relation
+        for report in open_reports.filter(condition).order_by("-updated_at")[: page * 3]:
+            key = str(report.id)
+            if key not in seen:
+                seen.add(key)
+                picked.append((relation, report))
+    priorities = _priorities([str(report.id) for _, report in picked])
+    with_pr = set(
+        SignalReport.objects.filter(team_id=team_id, id__in=[report.id for _, report in picked])
+        .filter(implementation_pr_report_filter(team_id=team_id))
+        .values_list("id", flat=True)
+    )
+    results: list[BriefingReport] = []
+    counts: dict[BriefingReportRelation, int] = {}
+    for relation, report in picked:
+        priority = priorities.get(str(report.id))
+        if relation == BriefingReportRelation.URGENT_UNOWNED and priority != "P0":
+            continue
+        if counts.get(relation, 0) >= limit_per_relation:
+            continue
+        counts[relation] = counts.get(relation, 0) + 1
+        results.append(
+            BriefingReport(
+                report_id=str(report.id),
+                relation=relation,
+                title=" ".join((report.title or "").split())[:200] or "Untitled report",
+                summary=" ".join((report.summary or "").split())[:_SUMMARY_LIMIT],
+                status=report.status,
+                priority=priority,
+                has_implementation_pr=report.id in with_pr,
+                updated_at=report.updated_at,
+            )
+        )
+    return results
+
+
+def reports_for_me_count(*, team_id: int, user_id: int) -> int:
+    """How many open, actionable reports name this person, the count the Today footer shows."""
+    user = User.objects.get(id=user_id)
+    github_login = user.get_github_login()
+    return (
+        SignalReport.objects.filter(team_id=team_id, status__in=_OPEN_STATUSES)
+        .exclude(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
+        .filter(
+            id__in=report_ids_naming_reviewers(
+                team_id=team_id,
+                user_uuids=[str(user.uuid)],
+                github_logins=[github_login.lower()] if github_login else [],
+                logins_match_unidentified_only=False,
+            )
+        )
+        .count()
+    )
+
+
+def report_states(*, team_id: int, report_ids: Sequence[str]) -> list[ReportState]:
+    """Current status of the given reports, so a briefing written earlier can show which are done."""
+    if not report_ids:
+        return []
+    rows = SignalReport.objects.filter(team_id=team_id, id__in=list(report_ids)).values_list("id", "status")
+    return [ReportState(report_id=str(report_id), status=status) for report_id, status in rows]
