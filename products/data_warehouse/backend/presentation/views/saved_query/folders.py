@@ -87,7 +87,10 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         )
 
     def perform_create(self, serializer):
-        serializer.save(team_id=self.team_id, created_by=self.request.user)
+        instance = serializer.save(team_id=self.team_id, created_by=self.request.user)
+        # A fresh folder holds nothing, and the create path never runs the list annotation that
+        # supplies view_count, so stamp it here or DRF drops the field from the response.
+        instance.view_count = 0
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         from products.data_modeling.backend.facade.api import dependent_saved_query_ids
