@@ -828,17 +828,22 @@ class TestMSSQLSourceValidateCredentials:
         capture.assert_not_called()
 
     @pytest.mark.parametrize(
-        "driver_error",
+        ("driver_error", "expected_guidance"),
         [
-            # Real pymssql DB-Lib error 20009 for a host it cannot reach.
-            "DB-Lib error message 20009, severity 9:\nUnable to connect: Adaptive Server is "
-            "unavailable or does not exist (db.example.com)",
-            "DB-Lib error message 20003, severity 6:\nAdaptive Server connection timed out",
+            # Real pymssql DB-Lib error 20009 for a host it cannot reach. The driver says the same
+            # thing for a wrong host or port, so the copy has to cover the values and the network.
+            (
+                "DB-Lib error message 20009, severity 9:\nUnable to connect: Adaptive Server is "
+                "unavailable or does not exist (db.example.com)",
+                ("host and port", "firewall"),
+            ),
+            (
+                "DB-Lib error message 20003, severity 6:\nAdaptive Server connection timed out",
+                ("public internet", "firewall", "SSH tunnel"),
+            ),
         ],
     )
-    def test_connect_failure_names_a_network_cause(self, source, mocker, driver_error):
-        # Both conditions used to return a bare "check server host and port" fragment, which left
-        # the firewall and the tunnel option, the usual causes, unmentioned.
+    def test_connect_failure_names_a_network_cause(self, source, mocker, driver_error, expected_guidance):
         mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
         mocker.patch.object(source, "get_schemas", side_effect=pymssql.OperationalError(driver_error))
 
@@ -846,7 +851,8 @@ class TestMSSQLSourceValidateCredentials:
 
         assert valid is False
         assert error is not None
-        assert "firewall" in error
+        for fragment in expected_guidance:
+            assert fragment in error
         assert "Adaptive Server" not in error
 
 
