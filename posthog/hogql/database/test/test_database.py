@@ -509,6 +509,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         for table_name, subset_table in subset.items():
             assert subset_table == full[table_name], table_name
 
+    def test_serialize_database_skips_hidden_posthog_tables_that_still_resolve(self):
+        database = Database.create_for(team=self.team, user=self.user)
+        serialized = database.serialize(
+            HogQLContext(team_id=self.team.pk, database=database), include_hidden_posthog_tables=True
+        )
+
+        for hidden_table in ("cohort_membership", "posthog.error_tracking_recent_issue_state"):
+            assert hidden_table not in serialized
+            assert database.get_table(hidden_table.split(".")) is not None
+
     def test_apply_schema_scope_removes_lazy_joins_to_hidden_direct_tables(self):
         database = Database()
         events = PostgresTable(
