@@ -2,13 +2,15 @@ import { Decorator, Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { DataWarehouseSavedQuery } from '~/types'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
+import { BIConfig, BIField, buildBIQuery } from './bi/biEditorTypes'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -101,6 +103,40 @@ const MANAGED_WAREHOUSE_CONNECTIONS = [
         description: null,
     },
 ]
+
+// A worksheet restored from the URL, so the snapshot shows every shelf holding a pill
+const BI_EVENTS_SOURCE = { table: 'events' }
+const biEventsField = (name: string, type: BIField['type']): BIField => ({
+    id: JSON.stringify([null, 'events', name]),
+    name,
+    expression: name,
+    type,
+    source: BI_EVENTS_SOURCE,
+})
+const BI_WORKSHEET_CONFIG: BIConfig = {
+    source: BI_EVENTS_SOURCE,
+    chartType: ChartDisplayType.ActionsLineGraph,
+    rows: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    columns: [biEventsField('event', 'string')],
+    values: [{ field: biEventsField('revenue', 'float'), aggregation: 'sum' }],
+    filters: [{ field: biEventsField('event', 'string'), operator: 'equals', value: 'purchase' }],
+    limit: 1000,
+    sort: null,
+}
+const BI_EVENTS_FIELDS = Object.fromEntries(
+    (
+        [
+            ['event', 'string'],
+            ['distinct_id', 'string'],
+            ['timestamp', 'datetime'],
+            ['$is_bot', 'boolean'],
+            ['properties', 'json'],
+            ['user_id', 'integer'],
+            ['revenue', 'float'],
+            ['duration_ms', 'integer'],
+        ] as const
+    ).map(([name, type]) => [name, { name, hogql_value: name, type, schema_valid: true }])
+)
 
 const meta: Meta = {
     component: App,
@@ -223,6 +259,47 @@ export const MaterializationSettings: StoryObj = {
             },
         }),
     ],
+}
+
+export const BIModeWorksheet: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        // The editor restores BI state only alongside the query it generated
+        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({
+            q: buildBIQuery(BI_WORKSHEET_CONFIG)?.query ?? '',
+            mode: 'bi',
+            bi: JSON.stringify(BI_WORKSHEET_CONFIG),
+        })}`,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-data-pane-measure"]',
+            viewport: { width: 1600, height: 900 },
+        },
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }: { request: Request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        if (body?.query?.kind === 'DatabaseSchemaQuery') {
+                            return [
+                                200,
+                                {
+                                    tables: {
+                                        events: {
+                                            id: 'events',
+                                            name: 'events',
+                                            type: 'posthog',
+                                            fields: BI_EVENTS_FIELDS,
+                                        },
+                                    },
+                                },
+                            ]
+                        }
+                        return [200, { errors: [], warnings: [], notices: [], isValid: true }]
+                    },
+                },
+            },
+        },
+    },
 }
 
 export const LazySchema: Story = {
