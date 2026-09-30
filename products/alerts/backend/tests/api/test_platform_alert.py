@@ -62,8 +62,12 @@ class TestPlatformAlertAPI(APIBaseTest):
             )
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         other_configuration = self._create_configuration(other_team, "Other team errors")
+        child_environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/")
+        child_retrieve_response = self.client.get(
+            f"/api/projects/{child_environment.id}/platform_alerts/{configuration.id}/"
+        )
         other_retrieve_response = self.client.get(
             f"/api/projects/{self.team.id}/platform_alerts/{other_configuration.id}/"
         )
@@ -82,4 +86,6 @@ class TestPlatformAlertAPI(APIBaseTest):
                 "snooze_until": None,
             }
         ]
+        assert child_retrieve_response.status_code == status.HTTP_200_OK, child_retrieve_response.json()
+        assert child_retrieve_response.json() == results[0]
         assert other_retrieve_response.status_code == status.HTTP_404_NOT_FOUND

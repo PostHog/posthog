@@ -104,6 +104,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnl
     # safely_get_queryset.
     queryset = PlatformAlertConfiguration.objects.unscoped()
 
+    def _should_skip_parents_filter(self) -> bool:
+        # for_team() resolves a child environment to its parent team, where the rows live. The
+        # default parent-lookup filter would AND the raw URL team id back in and hide them.
+        return True
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
             PlatformAlertConfiguration.objects.for_team(self.team_id)
