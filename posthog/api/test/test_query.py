@@ -120,6 +120,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {"query": HogQLQuery(query="select 1").model_dump()},
             )
         self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
+        self.assertNotIn("Retry-After", response)
         self.assertEqual(mock_capture.called, expect_capture)
 
     @parameterized.expand(

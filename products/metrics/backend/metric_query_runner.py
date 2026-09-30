@@ -23,6 +23,7 @@ from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
 from products.metrics.backend.facade.enums import FilterOp, MetricType
+from products.metrics.backend.metrics4_samples import metric_name_expr, samples_points_query
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
@@ -116,6 +117,9 @@ def _finite_or_none(value: float | None) -> float | None:
 _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
     {"sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"}
 )
+
+# These aggregations also read the predecessor lookback before `date_from`.
+_LOOKBACK_AGGREGATIONS: frozenset[str] = frozenset({"rate", "increase", "histogram_quantile"})
 
 # Derive this from the contract enum to match ingestion values.
 _ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
@@ -277,6 +281,46 @@ def _utc_hour(value: dt.datetime) -> dt.datetime:
     return value.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0)
 
 
+def points_query(
+    *,
+    from_samples: bool,
+    columns: Sequence[str],
+    metric_names: Sequence[str] | None,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    timezone: str,
+    row_filters: Sequence[ast.Expr] = (),
+    point_filters: Sequence[ast.Expr] = (),
+    samples_row_filters: Sequence[ast.Expr] = (),
+) -> ast.SelectQuery:
+    """Return one row per metric point in `[date_from, date_to)`.
+
+    `from_samples` reads `metric_samples`. Use it only when the range starts at
+    or after the metrics4 cut-over. Otherwise read the `metrics` view.
+    `row_filters` can use only columns that are constant in a series-hour.
+    `samples_row_filters` apply only to `metric_samples`, for example array lookups.
+    """
+    if from_samples:
+        return samples_points_query(
+            columns=columns,
+            metric_names=metric_names,
+            date_from=date_from,
+            date_to=date_to,
+            timezone=timezone,
+            row_filters=[*row_filters, *samples_row_filters],
+            point_filters=point_filters,
+        )
+    query = parse_select(
+        "SELECT 1 FROM posthog.metrics WHERE {name_filter} AND {time_range}",
+        placeholders={"name_filter": metric_name_expr(metric_names), "time_range": time_range_expr(date_from, date_to)},
+    )
+    assert isinstance(query, ast.SelectQuery) and query.where is not None
+    query.select = [ast.Field(chain=[column]) for column in columns]
+    if row_filters or point_filters:
+        query.where = ast.And(exprs=[query.where, *row_filters, *point_filters])
+    return query
+
+
 def type_filter_expr(metric_type: str | None) -> ast.Expr:
     """Limit rows to one metric type.
 
@@ -383,6 +427,10 @@ def series_group_labels_query(
 
 
 class MetricQueryRunner:
+    """Run the query on the `metrics` view, which also reads `metrics2` data before the cut-over."""
+
+    reads_samples: bool = False
+
     def __init__(
         self,
         team: Team,
@@ -428,6 +476,13 @@ class MetricQueryRunner:
         self.group_by = tuple(group_by)
         self.quantile = quantile
         self.metric_type = metric_type
+
+    @property
+    def scan_from(self) -> dt.datetime:
+        """The earliest point time that the query reads, including the predecessor lookback."""
+        if self.aggregation in _LOOKBACK_AGGREGATIONS:
+            return self.date_from - counter_lookback(self.interval)
+        return self.date_from
 
     def run(self) -> list[dict[str, Any]]:
         """Bucketed rows: `{"time", "value", "labels", "series_fingerprints"}`.
@@ -541,6 +596,18 @@ class MetricQueryRunner:
     def _series_scope_expr(self) -> ast.Expr:
         return series_scope_expr(self.metric_name, self.filters, self.date_from)
 
+    def _points_query(self, columns: Sequence[str], point_filters: Sequence[ast.Expr] = ()) -> ast.SelectQuery:
+        return points_query(
+            from_samples=self.reads_samples,
+            columns=columns,
+            metric_names=(self.metric_name,),
+            date_from=self.scan_from,
+            date_to=self.date_to,
+            timezone=self.team.timezone,
+            row_filters=(self._series_scope_expr(), self._type_filter_expr()),
+            point_filters=point_filters,
+        )
+
     def _build_simple_query(self) -> ast.SelectQuery:
         """Build sum, average, count, and p95 queries.
 
@@ -559,11 +626,7 @@ class MetricQueryRunner:
                         toStartOfInterval(timestamp, {interval}) AS time,
                         series_fingerprint AS series_fingerprint,
                         argMax(value, timestamp) AS series_value
-                    FROM posthog.metrics
-                    WHERE metric_name = {metric_name}
-                      AND {time_range}
-                      AND {series_scope}
-                      AND {type_filter}
+                    FROM {points}
                     GROUP BY time, {series_key}
                 ) AS s
                 GROUP BY time
@@ -573,11 +636,8 @@ class MetricQueryRunner:
             placeholders={
                 "interval": _interval_expr(self.interval),
                 "aggregation": _aggregation_expr(self.aggregation, ast.Field(chain=["series_value"])),
-                "metric_name": ast.Constant(value=self.metric_name),
-                "time_range": time_range_expr(self.date_from, self.date_to),
-                "series_scope": self._series_scope_expr(),
+                "points": self._points_query(("timestamp", "series_fingerprint", "value")),
                 "series_key": _series_key_expr(),
-                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
@@ -621,11 +681,7 @@ class MetricQueryRunner:
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_value
-                        FROM posthog.metrics
-                        WHERE metric_name = {metric_name}
-                          AND {scan_range}
-                          AND {series_scope}
-                          AND {type_filter}
+                        FROM {points}
                     )
                 ) AS s
                 WHERE sample_timestamp >= {date_from}
@@ -638,11 +694,8 @@ class MetricQueryRunner:
                 "interval": _interval_expr(self.interval),
                 "divisor": ast.Constant(value=divisor),
                 "series_key": _series_key_expr(),
-                "metric_name": ast.Constant(value=self.metric_name),
-                "scan_range": time_range_expr(self.date_from - counter_lookback(self.interval), self.date_to),
+                "points": self._points_query(("timestamp", "series_fingerprint", "value", "aggregation_temporality")),
                 "date_from": ast.Constant(value=self.date_from),
-                "series_scope": self._series_scope_expr(),
-                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
@@ -684,12 +737,7 @@ class MetricQueryRunner:
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_counts
-                        FROM posthog.metrics
-                        WHERE metric_name = {metric_name}
-                          AND {scan_range}
-                          AND notEmpty(histogram_counts)
-                          AND {series_scope}
-                          AND {type_filter}
+                        FROM {points}
                     )
                 ) AS s
                 WHERE sample_timestamp >= {date_from}
@@ -700,11 +748,17 @@ class MetricQueryRunner:
             placeholders={
                 "interval": _interval_expr(self.interval),
                 "series_key": _series_key_expr(),
-                "metric_name": ast.Constant(value=self.metric_name),
-                "scan_range": time_range_expr(self.date_from - counter_lookback(self.interval), self.date_to),
+                "points": self._points_query(
+                    (
+                        "timestamp",
+                        "series_fingerprint",
+                        "aggregation_temporality",
+                        "histogram_bounds",
+                        "histogram_counts",
+                    ),
+                    point_filters=(parse_expr("notEmpty(histogram_counts)"),),
+                ),
                 "date_from": ast.Constant(value=self.date_from),
-                "series_scope": self._series_scope_expr(),
-                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )

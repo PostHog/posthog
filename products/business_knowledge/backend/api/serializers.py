@@ -424,7 +424,7 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
         default=DEFAULT_MAX_PAGES,
         min_value=1,
         max_value=MAX_URLS_PER_SOURCE,
-        help_text=f"Max pages to fetch. Capped at {MAX_URLS_PER_SOURCE} for inline crawls.",
+        help_text=f"Max pages to fetch. Capped at {MAX_URLS_PER_SOURCE}.",
     )
     max_depth = serializers.IntegerField(
         required=False,
@@ -501,6 +501,10 @@ class KnowledgeDocumentWindowSerializer(serializers.Serializer):
         read_only=True,
         help_text="Title of the document this chunk belongs to.",
     )
+    url = serializers.CharField(
+        read_only=True,
+        help_text="Fetched page URL. Empty for text and file sources.",
+    )
 
 
 class KnowledgeSearchResultSerializer(serializers.Serializer):
@@ -550,6 +554,10 @@ class KnowledgeSearchResultSerializer(serializers.Serializer):
     is_generated = serializers.BooleanField(
         read_only=True,
         help_text="True when this chunk comes from a generated source learned from a past support ticket.",
+    )
+    url = serializers.CharField(
+        read_only=True,
+        help_text="Fetched page URL. Empty for text and file sources.",
     )
 
 

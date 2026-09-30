@@ -190,6 +190,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'streamlit_app:write',
     'subscription:read',
     'subscription:write',
+    'support_ticket:read',
+    'support_ticket:write',
     'survey:read',
     'survey:write',
     'tagger:read',

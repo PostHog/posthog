@@ -9,6 +9,7 @@ from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, Experim
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 
+from products.experiments.backend.facade.timeseries import resolve_saved_metric_definition
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
@@ -64,19 +65,15 @@ def _get_variant_result(result_dict: dict, variant_key: str) -> dict | None:
 
 
 def _get_relative_change(result_dict: dict, variant_key: str) -> str | None:
-    baseline = result_dict.get("baseline")
     variant = _get_variant_result(result_dict, variant_key)
-    if not baseline or not variant:
+    if not variant:
         return None
-    baseline_count = baseline.get("number_of_samples") or 0
-    variant_count = variant.get("number_of_samples") or 0
-    if baseline_count == 0 or variant_count == 0:
+    # The stats layer centers both interval kinds on its point estimate, which applies the ratio and retention
+    # denominators and the CUPED adjustment. The results page shows this midpoint, so the notification uses it too.
+    interval = variant.get("credible_interval") or variant.get("confidence_interval")
+    if not interval or len(interval) != 2 or None in interval:
         return None
-    baseline_mean = (baseline.get("sum") or 0) / baseline_count
-    variant_mean = (variant.get("sum") or 0) / variant_count
-    if baseline_mean == 0:
-        return None
-    pct = (variant_mean - baseline_mean) / baseline_mean * 100
+    pct = (interval[0] + interval[1]) / 2 * 100
     sign = "+" if pct >= 0 else ""
     return f"{sign}{round(pct)}%"
 
@@ -122,7 +119,7 @@ def _find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict | None:
     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
         query = link.saved_metric.query
         if isinstance(query, dict) and query.get("uuid") == metric_uuid:
-            return query
+            return resolve_saved_metric_definition(query, link.metadata)
     return None
 
 
