@@ -115,6 +115,11 @@ FIELDS: dict[str, FieldOrTable] = {
     # ci_job_history's consumers already do. Appended, because the column order is the saved-query
     # schema contract.
     "created_at_raw": StringDatabaseField(name="created_at_raw", nullable=True),
+    "ci_engine": StringDatabaseField(name="ci_engine", nullable=True),
+    "native_run_id": StringDatabaseField(name="native_run_id", nullable=True),
+    "native_workflow_run_id": StringDatabaseField(name="native_workflow_run_id", nullable=True),
+    "native_job_id": StringDatabaseField(name="native_job_id", nullable=True),
+    "native_attempt_id": StringDatabaseField(name="native_attempt_id", nullable=True),
 }
 
 
@@ -142,7 +147,12 @@ def _run_passthrough_aliases() -> str:
 
 
 def build_query(
-    *, jobs_table: str, runs_table: str, include_run_columns: bool = False, created_floor: bool = False
+    *,
+    jobs_table: str,
+    runs_table: str,
+    include_run_columns: bool = False,
+    created_floor: bool = False,
+    normalized: bool = False,
 ) -> str:
     """The per-job cost SELECT for one GitHub source: curated jobs LEFT JOIN curated runs.
 
@@ -170,8 +180,8 @@ def build_query(
     ``created_at`` bound with a coarse ``created_at_raw`` floor, which is the predicate the scan can
     prune on and the reason the view exposes that column.
     """
-    jobs = workflow_jobs.build_query(jobs_table, created_floor=created_floor)
-    runs = workflow_runs.build_query(runs_table)
+    jobs = workflow_jobs.build_query(jobs_table, created_floor=created_floor, normalized=normalized)
+    runs = workflow_runs.build_query(runs_table, normalized=normalized)
 
     # labels is already ifNull'd to '[]' by the jobs builder; JSONExtract to Array(String) yields
     # [] for any non-array/invalid JSON, matching cost._parse_labels' empty-on-bad-input behavior.
@@ -207,7 +217,8 @@ def build_query(
             {render_estimated_cost_usd("provider", "os", "vcpu", "is_rerun_copy", "billed_seconds")} AS estimated_cost_usd,
             is_merge_queue,
             is_rerun_copy,
-            created_at_raw{run_columns}
+            created_at_raw,
+            ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id{run_columns}
         FROM (
             SELECT
                 repo_owner,
@@ -230,6 +241,7 @@ def build_query(
                 is_merge_queue,
                 is_rerun_copy,
                 created_at_raw,
+                ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                 {render_provider("depot_label", "hosted_label")} AS provider,
                 {render_os("depot_label", "hosted_label")} AS os,
                 {render_vcpu("depot_label", "hosted_label")} AS vcpu{run_columns}
@@ -255,6 +267,7 @@ def build_query(
                     is_merge_queue,
                     is_rerun_copy,
                     created_at_raw,
+                    ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                     {render_depot_label("labels_arr")} AS depot_label,
                     {render_hosted_label("labels_arr")} AS hosted_label{run_columns}
                 FROM (
@@ -283,9 +296,14 @@ def build_query(
                         r.is_merge_queue AS is_merge_queue,
                         j.is_rerun_copy AS is_rerun_copy,
                         j.created_at_raw AS created_at_raw,
+                        j.ci_engine AS ci_engine,
+                        j.native_run_id AS native_run_id,
+                        j.native_workflow_run_id AS native_workflow_run_id,
+                        j.native_job_id AS native_job_id,
+                        j.native_attempt_id AS native_attempt_id,
                         {labels_array} AS labels_arr{inner_run_columns}
                     FROM ({jobs}) AS j
-                    LEFT JOIN ({runs}) AS r ON j.run_id = r.id
+                    LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.ci_engine = r.ci_engine
                 )
             )
         )
@@ -301,5 +319,7 @@ def build_team_view(team: "Team") -> str | None:
     sources = resolve_job_source_tables(team)
     if not sources:
         return None
-    selects = [build_query(jobs_table=source.jobs_source, runs_table=source.runs_source) for source in sources]
+    selects = [
+        build_query(jobs_table=source.jobs_source, runs_table=source.runs_source, normalized=True) for source in sources
+    ]
     return "\nUNION ALL\n".join(selects)

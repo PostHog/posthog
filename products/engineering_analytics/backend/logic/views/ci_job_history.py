@@ -92,6 +92,11 @@ FIELDS: dict[str, FieldOrTable] = {
     # builder). Its timestamps and conclusion are the earlier attempt's, so a boundary or duration
     # read that counts it counts one execution twice.
     "is_rerun_copy": BooleanDatabaseField(name="is_rerun_copy"),
+    "ci_engine": StringDatabaseField(name="ci_engine", nullable=True),
+    "native_run_id": StringDatabaseField(name="native_run_id", nullable=True),
+    "native_workflow_run_id": StringDatabaseField(name="native_workflow_run_id", nullable=True),
+    "native_job_id": StringDatabaseField(name="native_job_id", nullable=True),
+    "native_attempt_id": StringDatabaseField(name="native_attempt_id", nullable=True),
 }
 
 
@@ -122,6 +127,7 @@ def build_query(
     runs_table: str,
     pull_requests_table: str | None = None,
     head_commit_runs_table: str | None = None,
+    normalized: bool = False,
 ) -> str:
     """The per-job-attempt history SELECT for one GitHub source: curated jobs LEFT JOIN curated runs,
     plus the run's commit attribution.
@@ -134,8 +140,8 @@ def build_query(
     ``head_commit_runs_table`` names the plain GitHub runs table when ``runs_table`` also holds Depot
     CI runs, which carry no commit object, so the attribution scan skips them.
     """
-    jobs = workflow_jobs.build_query(jobs_table)
-    runs = workflow_runs.build_query(runs_table, pull_requests_table=pull_requests_table)
+    jobs = workflow_jobs.build_query(jobs_table, normalized=normalized)
+    runs = workflow_runs.build_query(runs_table, pull_requests_table=pull_requests_table, normalized=normalized)
     head_commits = _head_commit_query(head_commit_runs_table or runs_table)
 
     return f"""
@@ -165,10 +171,15 @@ def build_query(
             -- The run ran on a merge-queue gate branch, so pr_number above is the PR it was landing
             -- rather than an association. Without this the two populations are indistinguishable.
             r.is_merge_queue AS is_merge_queue,
-            j.is_rerun_copy AS is_rerun_copy
+            j.is_rerun_copy AS is_rerun_copy,
+            j.ci_engine AS ci_engine,
+            j.native_run_id AS native_run_id,
+            j.native_workflow_run_id AS native_workflow_run_id,
+            j.native_job_id AS native_job_id,
+            j.native_attempt_id AS native_attempt_id
         FROM ({jobs}) AS j
-        LEFT JOIN ({runs}) AS r ON j.run_id = r.id
-        LEFT JOIN ({head_commits}) AS hc ON j.run_id = hc.run_id
+        LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.ci_engine = r.ci_engine
+        LEFT JOIN ({head_commits}) AS hc ON j.run_id = hc.run_id AND j.ci_engine = 'github_actions'
     """
 
 
@@ -187,6 +198,7 @@ def build_team_view(team: "Team") -> str | None:
             runs_table=source.runs_source,
             pull_requests_table=source.pull_requests,
             head_commit_runs_table=source.github_workflow_runs,
+            normalized=True,
         )
         for source in sources
     ]

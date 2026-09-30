@@ -129,9 +129,13 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
             {_id_to_int("if(a.run_workflow_count = 1, a.run_id, a.workflow_id)")} AS github_run_id,
             {_id_to_int("a.attempt_id")} AS github_job_id,
             {pr_number} AS pr_number,
-            {head_branch} AS head_branch,
+            coalesce(nullIf(extract(ifNull(a.ref, ''), '^refs/heads/(.+)$'), ''), {head_branch}) AS head_branch,
             a.repo AS repo,
-            a.head_sha AS head_sha,
+            coalesce(nullIf(a.head_sha, ''), a.sha) AS head_sha,
+            a.run_id AS native_run_id,
+            a.workflow_id AS native_workflow_run_id,
+            a.job_id AS native_job_id,
+            a.attempt_id AS native_attempt_id,
             a.workflow_name AS workflow_name,
             a.workflow_status AS workflow_status,
             a.workflow_created_at AS workflow_created_at,
@@ -172,7 +176,10 @@ def _runs(attempts: str) -> str:
             ) AS pull_requests,
             concat('{{"id":{_REPOSITORY_ID},"full_name":"', any(repo), '"}}') AS repository,
             NULL AS head_commit,
-            NULL AS actor
+            NULL AS actor,
+            'depot_ci' AS ci_engine,
+            any(native_run_id) AS native_run_id,
+            any(native_workflow_run_id) AS native_workflow_run_id
         FROM {attempts}
         GROUP BY github_run_id
     """
@@ -200,7 +207,12 @@ def _jobs(attempts: str) -> str:
             a.attempt_started_at AS created_at,
             a.attempt_started_at AS started_at,
             a.attempt_finished_at AS completed_at,
-            NULL AS steps
+            NULL AS steps,
+            'depot_ci' AS ci_engine,
+            a.native_run_id AS native_run_id,
+            a.native_workflow_run_id AS native_workflow_run_id,
+            a.native_job_id AS native_job_id,
+            a.native_attempt_id AS native_attempt_id
         FROM {attempts} AS a
         INNER JOIN (
             SELECT jobs.depot_job_id AS depot_job_id, jobs.job_attempt AS job_attempt, runs.run_attempt AS run_attempt
@@ -264,10 +276,21 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
     """
 
 
+def _github_rows(table: str, columns: dict[str, dict[str, str]], where: str = "1") -> str:
+    run_id = "run_id" if columns is WORKFLOW_JOBS_COLUMNS else "id"
+    job_id = (
+        ", toString(id) AS native_job_id, toString(id) AS native_attempt_id" if columns is WORKFLOW_JOBS_COLUMNS else ""
+    )
+    return f"""SELECT {", ".join(columns)}, 'github_actions' AS ci_engine,
+        toString({run_id}) AS native_run_id, toString({run_id}) AS native_workflow_run_id{job_id}
+        FROM {table} WHERE {where}"""
+
+
 def _union(github_table: str, columns: dict[str, dict[str, str]], depot_select: str, where: str) -> str:
     # UNION ALL matches columns by position, so the GitHub side names them in the contract order the
     # Depot side follows.
-    return f"(SELECT {', '.join(columns)} FROM {github_table} WHERE {where} UNION ALL {depot_select})"
+    github_select = _github_rows(github_table, columns, where)
+    return f"({github_select} UNION ALL {depot_select})"
 
 
 def with_depot_runs(
@@ -278,7 +301,7 @@ def with_depot_runs(
     Successful hand-off shells are left out. Without ``jobs_table`` the GitHub shells stay.
     """
     if depot is None:
-        return runs_table
+        return f"({_github_rows(runs_table, WORKFLOW_RUNS_COLUMNS)})"
     handoffs = _handoff_workflows(depot)
     where = f"id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})" if jobs_table else "1"
     return _union(
@@ -294,7 +317,7 @@ def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table:
     joins a job to its run reads the branch through ``workflow_jobs.branch``, which falls back to the run's.
     """
     if depot is None:
-        return jobs_table
+        return f"({_github_rows(jobs_table, WORKFLOW_JOBS_COLUMNS)})"
     handoffs = _handoff_workflows(depot)
     return _union(
         jobs_table,

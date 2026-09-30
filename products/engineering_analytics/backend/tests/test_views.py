@@ -442,7 +442,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         # 80213453736890 is the GITHUB_RUN_ID Depot CI gave run 427q556wmn, as its per-test traces report it.
         assert self._select(
             "SELECT id, workflow_name, conclusion, pr_number, head_branch, duration_seconds, repo_owner, run_attempt "
-            f"FROM ({workflow_runs.build_query(runs)}) AS r ORDER BY id"
+            f"FROM ({workflow_runs.build_query(runs, normalized=True)}) AS r ORDER BY id"
         ) == [
             (902, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
             (903, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
@@ -452,11 +452,11 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (907, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
             (80213453736890, "Backend CI on Depot", "success", 101991, "feature/depot", 600, "PostHog", 2),
             (101808620689656, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 1),
-            (223978965517241, "Monitor", "success", 0, None, 600, "PostHog", 1),
-            (244340689655172, "Timing", "failure", 0, None, 600, "PostHog", 1),
+            (223978965517241, "Monitor", "success", 0, "master", 600, "PostHog", 1),
+            (244340689655172, "Timing", "failure", 0, "master", 600, "PostHog", 1),
         ]
         assert self._select(
-            f"SELECT DISTINCT run_id FROM ({workflow_jobs.build_query(jobs)}) AS j ORDER BY run_id"
+            f"SELECT DISTINCT run_id FROM ({workflow_jobs.build_query(jobs, normalized=True)}) AS j ORDER BY run_id"
         ) == [
             (902,),
             (903,),
@@ -471,7 +471,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         ]
         assert self._select(
             "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
-            f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at, run_attempt"
+            f"FROM ({workflow_jobs.build_query(jobs, normalized=True)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at, run_attempt"
         ) == [
             (80213453736890, 1, "Wait for GitHub Actions to hand off backend tests", "success", 10, 0),
             (80213453736890, 2, "Wait for GitHub Actions to hand off backend tests", "success", 10, 1),
@@ -483,13 +483,29 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         ]
         assert self._select(
             "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0, head_branch, is_rerun_copy "
-            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c WHERE run_id = 80213453736890 "
+            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs, normalized=True)}) AS c WHERE run_id = 80213453736890 "
             "ORDER BY is_rerun_copy"
         ) == [("depot", 2, 1, "feature/depot", 0), ("depot", 2, 0, "feature/depot", 1)]
         assert self._select(
             "SELECT DISTINCT head_branch "
-            f"FROM ({ci_job_history.build_query(jobs_table=jobs, runs_table=runs)}) AS h WHERE run_id = 80213453736890"
+            f"FROM ({ci_job_history.build_query(jobs_table=jobs, runs_table=runs, normalized=True)}) AS h WHERE run_id = 80213453736890"
         ) == [("feature/depot",)]
+
+        assert self._select(
+            "SELECT DISTINCT ci_engine, native_run_id, native_workflow_run_id "
+            f"FROM ({workflow_runs.build_query(runs, normalized=True)}) AS r "
+            "WHERE id IN (902, 80213453736890, 223978965517241) ORDER BY id"
+        ) == [
+            ("github_actions", "902", "902"),
+            ("depot_ci", "427q556wmn", "6n4tghls33"),
+            ("depot_ci", "bbbbbbbbbb", "cccccccccc"),
+        ]
+        for view in (job_costs, ci_job_history):
+            assert self._select(
+                "SELECT DISTINCT ci_engine, native_run_id, native_workflow_run_id, native_attempt_id "
+                f"FROM ({view.build_query(jobs_table=jobs, runs_table=runs, normalized=True)}) AS j "
+                "WHERE native_attempt_id = '3v4pbsqvfc'"
+            ) == [("depot_ci", "427q556wmn", "6n4tghls33", "3v4pbsqvfc")]
 
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
