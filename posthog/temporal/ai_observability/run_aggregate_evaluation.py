@@ -705,6 +705,9 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     evaluation=evaluation,
                     team_id=inputs.team_id,
                     result=result,
+                    target=inputs.target,
+                    start_time=eval_start,
+                    backfill_id=inputs.backfill_id,
                 ),
                 schedule_to_close_timeout=timedelta(seconds=30),
             )

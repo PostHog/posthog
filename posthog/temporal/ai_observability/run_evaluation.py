@@ -392,6 +392,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         evaluation=evaluation,
                         team_id=evaluation["team_id"],
                         result=result,
+                        target="generation",
+                        start_time=start_time,
+                        backfill_id=inputs.backfill_id,
                     ),
                     schedule_to_close_timeout=timedelta(seconds=30),
                 )

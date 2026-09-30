@@ -819,14 +819,16 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
             timestamp=timestamp,
             properties=properties,
         )
-        capture_evaluation_run_usage(
-            inputs.evaluation,
-            inputs.result,
-            team_id=inputs.team_id,
-            target=inputs.target,
-            start_time=inputs.start_time,
-            backfill_id=inputs.backfill_id,
-        )
+        # Completed runs emit telemetry in the workflow's separate activity.
+        if inputs.result.get("skipped"):
+            capture_evaluation_run_usage(
+                inputs.evaluation,
+                inputs.result,
+                team_id=inputs.team_id,
+                target=inputs.target,
+                start_time=inputs.start_time,
+                backfill_id=inputs.backfill_id,
+            )
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
@@ -950,6 +952,8 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
                     evaluation=evaluation,
                     team_id=inputs.team_id,
                     result=result,
+                    target="trace",
+                    start_time=eval_start,
                 ),
                 schedule_to_close_timeout=timedelta(seconds=30),
             )

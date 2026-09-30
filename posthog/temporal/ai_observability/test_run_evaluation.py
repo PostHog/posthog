@@ -95,33 +95,80 @@ from .run_trace_evaluation import EmitTraceEvaluationEventInputs, emit_trace_eva
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("target", ["generation", "trace", "session"])
 @pytest.mark.parametrize(
-    "evaluation_type,result,backfill_id,status,applicable,selection_mode",
+    "target,evaluation_type,result,backfill_id,status,applicable,selection_mode",
     [
-        ("hog", {"result_type": "numeric", "score": 987654.321, "reasoning": "private"}, None, "completed", True, None),
+        (target, *case)
+        for target in ["generation", "trace", "session"]
+        for case in [
+            (
+                "hog",
+                {"result_type": "numeric", "score": 987654.321, "reasoning": "private"},
+                None,
+                "completed",
+                True,
+                None,
+            ),
+            (
+                "llm_judge",
+                {"result_type": "boolean", "verdict": True, "reasoning": "private", "input_tokens": 42},
+                None,
+                "completed",
+                True,
+                None,
+            ),
+            (
+                "llm_judge",
+                {"result_type": "categorical", "categories": [], "reasoning": "private"},
+                "backfill",
+                "completed",
+                True,
+                "multiple",
+            ),
+            (
+                "hog",
+                {
+                    "result_type": "categorical",
+                    "skipped": True,
+                    "skip_reason": "hog_input_error",
+                    "reasoning": "private",
+                },
+                None,
+                "skipped",
+                False,
+                "single",
+            ),
+            (
+                "llm_judge",
+                {"result_type": "numeric", "skipped": True, "reasoning": "private"},
+                None,
+                "skipped",
+                False,
+                None,
+            ),
+            (
+                "llm_judge",
+                {"result_type": "numeric", "applicable": False, "allows_na": True, "reasoning": "private"},
+                None,
+                "completed",
+                False,
+                None,
+            ),
+        ]
+    ]
+    + [
         (
-            "llm_judge",
-            {"result_type": "categorical", "categories": [], "reasoning": "private"},
-            "backfill",
+            "generation",
+            "sentiment",
+            {
+                "result_type": "sentiment",
+                "sentiment_score": 0.9,
+                "sentiment_label": "positive",
+                "reasoning": "private",
+            },
+            None,
             "completed",
             True,
-            "multiple",
-        ),
-        (
-            "hog",
-            {"result_type": "categorical", "skipped": True, "skip_reason": "hog_input_error", "reasoning": "private"},
-            None,
-            "skipped",
-            False,
-            "single",
-        ),
-        (
-            "llm_judge",
-            {"result_type": "numeric", "applicable": False, "allows_na": True, "reasoning": "private"},
-            None,
-            "completed",
-            False,
             None,
         ),
     ],
@@ -146,40 +193,57 @@ async def test_run_usage_covers_targets_without_customer_results(
         },
     }
     started_at = datetime(2026, 9, 1, tzinfo=UTC)
-    groups = {"organization": "test-org", "project": "test-project", "instance": "https://example.com"}
-    module = "products.ai_observability.backend.evaluation_usage"
+    module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
     env = ActivityEnvironment()
     with (
-        patch(f"{module}._usage_groups", return_value=groups),
+        override_settings(SITE_URL="https://example.com"),
+        patch(f"{module}.Team.objects.filter") as teams,
         patch(f"{module}.ph_background_capture") as capture,
         patch("posthog.temporal.ai_observability.evaluation_workflow_activities.capture_ai_internal_for_team"),
         patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_ai_internal_for_team"),
     ):
-        if target == "generation":
-            inputs = EmitEvaluationEventInputs(
-                evaluation=evaluation,
-                event_data=create_mock_event_data(1),
-                result=result,
-                start_time=started_at,
-                backfill_id=backfill_id,
-            )
-            await env.run(emit_evaluation_event_activity, inputs)
-            await env.run(emit_evaluation_event_activity, inputs)
-        else:
-            trace_inputs = EmitTraceEvaluationEventInputs(
-                evaluation=evaluation,
-                team_id=1,
-                trace_id="private-trace",
-                distinct_id="private-user",
-                session_id=None,
-                result=result,
-                start_time=started_at,
-                target=target,
-                ai_session_id="private-session",
-                backfill_id=backfill_id,
-            )
-            await env.run(emit_trace_evaluation_event_activity, trace_inputs)
-            await env.run(emit_trace_evaluation_event_activity, trace_inputs)
+        teams.return_value.values_list.return_value.get.return_value = "test-org"
+        for attempt in range(2):
+            if target == "generation":
+                await env.run(
+                    emit_evaluation_event_activity,
+                    EmitEvaluationEventInputs(
+                        evaluation=evaluation,
+                        event_data=create_mock_event_data(1),
+                        result=result,
+                        start_time=started_at,
+                        backfill_id=backfill_id,
+                    ),
+                )
+            else:
+                await env.run(
+                    emit_trace_evaluation_event_activity,
+                    EmitTraceEvaluationEventInputs(
+                        evaluation=evaluation,
+                        team_id=1,
+                        trace_id="private-trace",
+                        distinct_id="private-user",
+                        session_id=None,
+                        result=result,
+                        start_time=started_at,
+                        target=target,
+                        ai_session_id="private-session",
+                        backfill_id=backfill_id,
+                    ),
+                )
+            if not result.get("skipped") and (target != "generation" or evaluation_type == "llm_judge"):
+                assert capture.return_value.call_count == attempt
+                await env.run(
+                    emit_internal_telemetry_activity,
+                    EmitInternalTelemetryInputs(
+                        evaluation=evaluation,
+                        team_id=1,
+                        result=result,
+                        target=target,
+                        start_time=started_at,
+                        backfill_id=backfill_id,
+                    ),
+                )
 
     calls = capture.return_value.call_args_list
     assert len(calls) == 2
@@ -188,8 +252,8 @@ async def test_run_usage_covers_targets_without_customer_results(
     assert first["uuid"] is not None
     assert first["timestamp"] == started_at
     assert first["distinct_id"] == "org-test-org"
-    assert first["groups"] == groups
-    assert first["event"] == "llma evaluation run recorded"
+    assert first["groups"] == {"organization": "test-org", "instance": "https://example.com"}
+    assert first["event"] == "llm analytics evaluation executed"
     properties = first["properties"]
     assert properties["run_id"]
     assert properties == {
@@ -197,13 +261,36 @@ async def test_run_usage_covers_targets_without_customer_results(
         "evaluation_id": "test-evaluation",
         "target": target,
         "evaluation_type": evaluation_type,
-        "output_type": result["result_type"],
+        "result_type": result["result_type"],
+        "model": result.get("model", run_evaluation_module.DEFAULT_JUDGE_MODEL),
+        "provider": result.get("provider", "openai"),
+        "input_tokens": result.get("input_tokens", 0),
+        "output_tokens": result.get("output_tokens", 0),
+        "total_tokens": result.get("total_tokens", 0),
+        **({"verdict": result["verdict"]} if "verdict" in result else {}),
         "status": status,
         "applicable": applicable,
         "trigger": "backfill" if backfill_id else "live",
         "run_id": properties["run_id"],
         **({"selection_mode": selection_mode} if selection_mode else {}),
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["Team.objects.filter", "ph_background_capture"])
+async def test_usage_failure_does_not_fail_evaluation(failure: str) -> None:
+    module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+    with (
+        patch(f"{module}.Team.objects.filter"),
+        patch(f"{module}.{failure}", side_effect=RuntimeError("telemetry unavailable")),
+    ):
+        await emit_internal_telemetry_activity(
+            EmitInternalTelemetryInputs(
+                evaluation={"id": "test-evaluation"},
+                team_id=1,
+                result={"result_type": "numeric", "score": 1, "reasoning": "private"},
+            )
+        )
 
 
 def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
@@ -943,13 +1030,13 @@ class TestRunEvaluationWorkflow:
             "reasoning": "Customer content",
             "allows_na": False,
         }
-        with patch("posthog.tasks.usage_report.get_ph_client") as get_client:
+        with patch("posthog.temporal.ai_observability.evaluation_workflow_activities.ph_background_capture") as capture:
             await emit_internal_telemetry_activity(
                 EmitInternalTelemetryInputs(evaluation=evaluation, team_id=setup_data["team"].id, result=result)
             )
 
-        get_client.return_value.capture.assert_called_once()
-        properties = get_client.return_value.capture.call_args.kwargs["properties"]
+        capture.return_value.assert_called_once()
+        properties = capture.return_value.call_args.kwargs["properties"]
         assert properties["result_type"] == "numeric"
         assert "score" not in properties
         assert "reasoning" not in properties
