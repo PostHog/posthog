@@ -558,6 +558,7 @@ export class ToolExecutor {
         // arguments; the schema comes from this connection's catalog when the
         // target resolved to a tool in it.
         const execInputShape = execInputShapeAnalyticsProperties(toolArgs, execShape, state)
+        const wrapperInputShape = inputShapeAnalyticsProperties(toolArgs, resolved.schema)
         const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
@@ -573,7 +574,7 @@ export class ToolExecutor {
                 state,
                 {
                     ...execShape,
-                    ...execInputShape,
+                    ...wrapperInputShape,
                     ...errorAnalyticsProperties(classifyToolError(rejection, 'exec'), rejection),
                 },
                 analyticsMeta
