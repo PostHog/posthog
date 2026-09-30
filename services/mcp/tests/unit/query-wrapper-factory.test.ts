@@ -369,28 +369,54 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
     }
 
     it.each([
-        ['omitted follows a checked project default', false, {}, true, true],
-        ['omitted stays unset when the project default is unchecked', false, {}, false, undefined],
-        ['explicit false wins over a checked project default', false, { filterTestAccounts: false }, true, false],
-        ['explicit true wins over an unchecked project default', false, { filterTestAccounts: true }, false, true],
-        ['an intentional true schema default survives an unchecked project default', true, {}, false, true],
+        ['omitted follows a checked project default', false, {}, true, true, true],
+        ['omitted stays unset when the project default is unchecked', false, {}, false, undefined, false],
+        [
+            'explicit false wins over a checked project default',
+            false,
+            { filterTestAccounts: false },
+            true,
+            false,
+            false,
+        ],
+        [
+            'explicit true wins over an unchecked project default',
+            false,
+            { filterTestAccounts: true },
+            false,
+            true,
+            false,
+        ],
+        ['an intentional true schema default survives an unchecked project default', true, {}, false, true, false],
         [
             'explicit false wins over an intentional true schema default',
             true,
             { filterTestAccounts: false },
             true,
             false,
+            false,
         ],
-    ] as const)('%s', async (_name, schemaDefault, inputExtra, projectDefault, expected) => {
-        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+    ] as const)('%s', async (_name, schemaDefault, inputExtra, projectDefault, expected, expectNote) => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [], formatted_results: 'Date|count' })
         const context = createMockContext(runQuery, projectDefault)
-        const tool = createQueryWrapper({ name: 'test', schema: makeSchema(schemaDefault), kind: 'TrendsQuery' })()
+        const tool = createQueryWrapper({
+            name: 'test',
+            schema: makeSchema(schemaDefault),
+            kind: 'TrendsQuery',
+            outputFormat: 'optimized',
+        })()
 
         // Validate through the tool's advertised schema first, exactly like the
         // executor does — this is where a hard default would clobber omission.
-        await tool.handler(context, tool.schema.parse({ series, ...inputExtra }))
+        const result = (await tool.handler(context, tool.schema.parse({ series, ...inputExtra }))) as any
 
         expect(runQuery.mock.calls[0]![0].query.filterTestAccounts).toBe(expected)
+        // A filter the caller did not ask for must be visible in both channels, or a
+        // result that SQL disagrees with reads as a silent zero.
+        const formatted: string = result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+        expect(formatted.startsWith('Date|count')).toBe(true)
+        expect(formatted.includes('filterTestAccounts: false')).toBe(expectNote)
+        expect('_agentNote' in result).toBe(expectNote)
     })
 
     it.each(['false', 'true'])('rejects the string %j rather than coercing it to a boolean', (stringValue) => {
