@@ -106,3 +106,11 @@ class CohortPeople(LazyTable):
 
     def to_printed_hogql(self):
         return "cohort_people"
+
+
+class CohortMembership(CohortPeople):
+    """`cohort_people` under its legacy name, so saved queries written against the removed
+    realtime `cohort_membership` table keep resolving."""
+
+    def to_printed_hogql(self):
+        return "cohort_membership"
