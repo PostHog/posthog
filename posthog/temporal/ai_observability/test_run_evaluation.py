@@ -183,6 +183,8 @@ async def test_execution_telemetry_covers_output_types(
                 EmitInternalTelemetryInputs(evaluation=evaluation, team_id=1, result=result)
             )
 
+    capture.assert_called_once_with(sync_mode=True, disabled=True)
+    capture.return_value.flush.assert_called_once_with()
     capture.return_value.capture.assert_called_once_with(
         distinct_id="org-test-org",
         event="llm analytics evaluation executed",
@@ -221,26 +223,50 @@ def test_skipped_usage_only_includes_actual_model_metadata(model_called: bool) -
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "failure",
-    [
-        "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.filter",
-        "posthog.tasks.usage_report.get_ph_client",
-    ],
-)
-async def test_usage_failure_does_not_fail_evaluation(failure: str) -> None:
+@pytest.mark.parametrize("target", ["telemetry", "generation", "trace", "session"])
+@pytest.mark.parametrize("failure", ["lookup", "capture"])
+async def test_usage_failure_preserves_activity_behavior(target: str, failure: str) -> None:
     module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
     with (
-        patch(f"{module}.Team.objects.filter"),
-        patch(failure, side_effect=RuntimeError("telemetry unavailable")),
+        patch(f"{module}.Team.objects.filter") as teams,
+        patch("posthog.tasks.usage_report.get_ph_client") as capture,
+        patch(f"{module}.capture_ai_internal_for_team") as generation_capture,
+        patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_ai_internal_for_team") as trace_capture,
     ):
-        await emit_internal_telemetry_activity(
-            EmitInternalTelemetryInputs(
-                evaluation={"id": "test-evaluation"},
-                team_id=1,
-                result={"result_type": "numeric", "score": 1, "reasoning": "private"},
+        failing_call = teams if failure == "lookup" else capture.return_value.capture
+        failing_call.side_effect = RuntimeError("telemetry unavailable")
+        evaluation = {"id": "test-evaluation", "name": "Example evaluation", "evaluation_type": "hog"}
+        result: EvaluationActivityResult = {"result_type": "numeric", "skipped": True, "reasoning": "Example"}
+        if target == "telemetry":
+            with pytest.raises(RuntimeError, match="telemetry unavailable"):
+                await emit_internal_telemetry_activity(
+                    EmitInternalTelemetryInputs(evaluation=evaluation, team_id=1, result=result)
+                )
+        elif target == "generation":
+            await emit_evaluation_event_activity(
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=create_mock_event_data(1),
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                )
             )
-        )
+            generation_capture.assert_called_once()
+        else:
+            await emit_trace_evaluation_event_activity(
+                EmitTraceEvaluationEventInputs(
+                    evaluation=evaluation,
+                    team_id=1,
+                    trace_id="example-trace",
+                    distinct_id="example-user",
+                    session_id=None,
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                    target=target,
+                    ai_session_id="example-session",
+                )
+            )
+            trace_capture.assert_called_once()
 
 
 def test_execution_telemetry_does_not_add_destination_region() -> None:

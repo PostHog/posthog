@@ -821,7 +821,11 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
         )
         # Completed runs emit telemetry in the workflow's separate activity.
         if inputs.result.get("skipped"):
-            capture_evaluation_run_usage(inputs.evaluation, inputs.result, team_id=inputs.team_id)
+            try:
+                capture_evaluation_run_usage(inputs.evaluation, inputs.result, team_id=inputs.team_id)
+            except Exception:
+                # Telemetry failures must not retry an already emitted evaluation.
+                logger.warning("evaluation_usage_capture_failed", team_id=inputs.team_id, exc_info=True)
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()

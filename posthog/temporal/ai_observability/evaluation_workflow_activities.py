@@ -377,18 +377,17 @@ def capture_evaluation_run_usage(
         )
     if "verdict" in result and not result.get("skipped"):
         properties["verdict"] = result["verdict"]
-    try:
-        from posthog.tasks.usage_report import get_ph_client  # noqa: PLC0415 - keeps billing imports off worker startup
+    from posthog.tasks.usage_report import get_ph_client  # noqa: PLC0415 - keeps billing imports off worker startup
 
-        organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
-        get_ph_client(disabled=bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False))).capture(
-            distinct_id=f"org-{organization_id}",
-            event="llm analytics evaluation executed",
-            properties=properties,
-            groups={"organization": organization_id, "instance": settings.SITE_URL},
-        )
-    except Exception:
-        logger.warning("evaluation_usage_capture_failed", team_id=team_id, exc_info=True)
+    organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
+    ph_client = get_ph_client(sync_mode=True, disabled=bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
+    ph_client.capture(
+        distinct_id=f"org-{organization_id}",
+        event="llm analytics evaluation executed",
+        properties=properties,
+        groups={"organization": organization_id, "instance": settings.SITE_URL},
+    )
+    ph_client.flush()
 
 
 async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
@@ -450,7 +449,11 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
         )
         # Completed LLM judge runs emit telemetry in the workflow's separate activity.
         if evaluation.get("evaluation_type", "llm_judge") != "llm_judge" or result.get("skipped"):
-            capture_evaluation_run_usage(evaluation, result, team_id=event_data["team_id"])
+            try:
+                capture_evaluation_run_usage(evaluation, result, team_id=event_data["team_id"])
+            except Exception:
+                # Telemetry failures must not retry an already emitted evaluation.
+                logger.warning("evaluation_usage_capture_failed", team_id=event_data["team_id"], exc_info=True)
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
