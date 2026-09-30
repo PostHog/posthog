@@ -567,9 +567,11 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         self, mock_sync_connect, mock_asyncio_run, mock_post_feedback
     ):
         from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+        from products.slack_app.backend.services.bare_mention import awaited_request_from
 
         now = time.time()
-        bare = {**self.event, "ts": f"{now - 20:.6f}", "text": "<@U0BOT>"}
+        message_ts = f"{now - 20:.6f}"
+        bare = {**self.event, "ts": message_ts, "text": "<@U0BOT>"}
         edited = {
             **bare,
             "text": "<@U0BOT> how many signups last week",
@@ -579,9 +581,11 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
         route_posthog_code_event_to_relevant_region(request, bare, "T12345")
         mock_sync_connect.assert_not_called()
+        assert awaited_request_from("T12345", "C001", message_ts, now=now) == "U123"
         route_posthog_code_event_to_relevant_region(request, edited, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
+        assert awaited_request_from("T12345", "C001", message_ts, now=now) is None
 
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")

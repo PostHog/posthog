@@ -2490,8 +2490,13 @@ def _dispatch_mention_to_target(
     if awaited_request_reply and isinstance(channel, str) and isinstance(thread_ts, str):
         bare_mention.clear_awaited_request(slack_team_id, channel, thread_ts)
         _mark_message_handled(slack_team_id, event, "mention")
-    elif event.get("type") == "app_mention" and bare_mention.is_bare_mention(event):
-        return _answer_bare_mention(event, mention_target, slack_team_id, posthog_user=posthog_user)
+    elif event.get("type") == "app_mention":
+        if bare_mention.is_bare_mention(event):
+            return _answer_bare_mention(event, mention_target, slack_team_id, posthog_user=posthog_user)
+        # An edit that adds the request to a bare mention starts the run here, so the
+        # thread must stop waiting for a reply that would otherwise start a second one.
+        if event.get("edited") and isinstance(channel, str) and isinstance(thread_ts, str):
+            bare_mention.clear_awaited_request(slack_team_id, channel, thread_ts)
 
     return _start_mention_workflow(
         event,
@@ -2728,11 +2733,8 @@ def route_posthog_code_event_to_relevant_region(
         # Threads we don't own are dropped here so the rest of the pipeline
         # only runs for actionable messages.
         untagged_followup_mapping: SlackThreadTaskMapping | None = None
-        awaited_request_reply = mention_is_threaded and _awaits_request_from_author(
-            event, slack_team_id, workspace_result.candidates[0]
-        )
+        awaited_request_reply = False
         if event_type == "message":
-            awaited_request_reply = False
             untagged_followup_mapping = _resolve_untagged_followup_mapping(
                 candidates=workspace_result.candidates,
                 channel=channel_str,
@@ -2759,6 +2761,8 @@ def route_posthog_code_event_to_relevant_region(
                     message_ts=event.get("ts"),
                 )
                 return ROUTE_HANDLED_LOCALLY
+        elif mention_is_threaded:
+            awaited_request_reply = _awaits_request_from_author(event, slack_team_id, workspace_result.candidates[0])
 
         # Both event types share the rest of the pipeline. Mention-only side
         # effects (failure reply, scope notice, approval prompt, rules command,
