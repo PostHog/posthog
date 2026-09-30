@@ -29,6 +29,8 @@ import {
 
 import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
+import { SpaceAccess } from './SpaceAccess'
+import { SpaceRepositories } from './SpaceRepositories'
 import { spaceSceneLogic } from './spaceSceneLogic'
 
 const AUTO_ARCHIVE_DAYS = [1, 3, 7, 14, 30]
@@ -94,6 +96,15 @@ export function SpaceSettings({ id }: { id: string }): JSX.Element | null {
                     </Tooltip>
                 </div>
                 {defaultSpace && <FieldDescription>Default spaces can’t be renamed.</FieldDescription>}
+            </Field>
+            <Field>
+                <FieldTitle>Repositories</FieldTitle>
+                <SpaceRepositories id={id} />
+                <FieldDescription>Sessions in this space start with these repositories checked out.</FieldDescription>
+            </Field>
+            <Field>
+                <FieldTitle>Access</FieldTitle>
+                <SpaceAccess id={id} />
             </Field>
             <Field>
                 <FieldLabel htmlFor="space-auto-archive">Auto-archive sessions</FieldLabel>
