@@ -176,7 +176,7 @@ def resolve_backfill_days(config: FlagEvaluationsBackfillConfig, *, today: date)
     if start < earliest_start:
         raise dagster.Failure(
             description=f"start_date {start} is before {earliest_start}. "
-            f"The {FLAG_EVALUATIONS_TTL_DAYS}-day TTL drops those rows before or during this run."
+            f"The {FLAG_EVALUATIONS_TTL_DAYS}-day TTL has already expired those rows."
         )
     if end > latest_end:
         raise dagster.Failure(description=f"end_date {end} is after yesterday ({latest_end}).")
