@@ -204,6 +204,13 @@ describe("runNotice", () => {
       { text: "Starting cloud run…", tone: "working" },
     ],
     [
+      "a local chat before its first reply",
+      { status: "in_progress", local: true },
+      [user],
+      false,
+      { text: "Thinking…", tone: "working" },
+    ],
+    [
       "a turn in progress",
       { status: "in_progress" },
       [user, reply],

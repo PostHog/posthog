@@ -116,14 +116,15 @@ export function Pane({
   const isLocalPane = paneTaskId?.startsWith("local:") ?? false;
   const transcript = useMemo(
     () =>
-      task
+      // A local chat has no server task; its log is pi events.
+      task || local
         ? transcriptFrom(
-            task.runtime,
+            task?.runtime ?? "pi",
             view.entries,
-            task.description || task.description_preview,
+            task ? task.description || task.description_preview : undefined,
           )
         : { lines: [], turnOpen: false, lastTurn: null, turnStartedAt: null },
-    [task, view.entries],
+    [task, local, view.entries],
   );
   const lines = useMemo(
     () => withPending(transcript.lines, pending),
