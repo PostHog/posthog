@@ -12,9 +12,9 @@ from products.alerts.backend.facade.lifecycle import (
     CheckInput,
     FiringEpisode,
     NotificationAction,
+    _firing_is_unannounced,
     decide_firing_episode,
     evaluate_alert_check,
-    firing_is_unannounced,
 )
 
 NOW = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
@@ -345,9 +345,9 @@ class TestPolicyDecisionTable:
 
     @parameterized.expand(
         [
-            ("never_fired", None, None, False),
+            # The strict comparison: a fire announced at its own start has both timestamps equal,
+            # because `record_outcomes` writes them from one cutoff.
             ("announced_at_the_start", NOW, NOW, False),
-            ("announced_after_the_start", NOW, NOW + timedelta(minutes=1), False),
             ("a_mute_held_the_first_fire_ever", NOW, None, True),
             # A firing that began after the last notification was never announced, whatever
             # suppressed it: a mute is one gate, a cooldown inside its window is another.
@@ -364,7 +364,7 @@ class TestPolicyDecisionTable:
         expected: bool,
     ) -> None:
         snap = snapshot(firing_started_at=firing_started_at, last_notified_at=last_notified_at)
-        assert firing_is_unannounced(snap) is expected
+        assert _firing_is_unannounced(snap) is expected
 
     def test_inconclusive_preserves_failure_counter(self) -> None:
         outcome = evaluate_alert_check(

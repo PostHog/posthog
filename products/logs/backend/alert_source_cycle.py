@@ -308,22 +308,13 @@ def _delivery(
         source=SourceKind.LOGS,
         alert_id=str(check.id),
         alert_name=check.name,
-        # The recorded key, prefixed by the alert. This becomes the delivery child workflow id,
-        # which has to be unique across every alert: the row key is scoped to its alert by the
-        # row's own columns, so on its own it collides between two alerts in one slot. Without
-        # the slot it collides between two checks of one alert that clamped to the same window.
-        evaluation_key=f"{check.id}:{recorded.evaluation_key}",
+        # The recorded key unchanged, so a delivery can address the row the check wrote. The
+        # workflow id that has to be unique across alerts joins this to `alert_id` itself.
+        evaluation_key=recorded.evaluation_key,
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
-        transitions=(
-            GroupTransition(
-                grouping_key="",
-                notification=outcome.notification.value,
-                kind=recorded.kind,
-                value=recorded.value,
-            ),
-        ),
+        transitions=(GroupTransition(grouping_key="", kind=recorded.kind, value=recorded.value),),
     )
 
 

@@ -223,22 +223,18 @@ class PlatformAlertOutcome:
 
 @frozen
 class GroupTransition:
-    """One transition a delivery carries.
+    """One transition a delivery carries: `kind` picks the headline, `value` is the number it
+    quotes.
 
     `grouping_key` is empty until a source groups, so delivery reads a list of one today and a
     list of N when fan-out ships.
 
-    Only what a message states travels here, and only where it is bounded. `kind` picks the
-    headline and `value` is the number it quotes. The condition and the source config a message
-    also needs are on the history row, which `evaluation_key` addresses: `source_config` is an
-    unbounded filter tree, and one per transition would blow the activity payload bound that
-    `MAX_PREVIEWS_PER_CYCLE` was sized against. The two states are on that row for the same
-    reason they are not here: no message says them, and a second copy taken at a different
-    moment can disagree with the row a comparison trusts.
+    The condition and the source config a message also needs stay on the history row the
+    delivery addresses, because `source_config` is an unbounded filter tree and one per
+    transition would blow the payload bound `MAX_PREVIEWS_PER_CYCLE` was sized against.
     """
 
     grouping_key: str
-    notification: str
     kind: AlertEventKind
     value: float | None = None
 

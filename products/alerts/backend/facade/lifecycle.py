@@ -214,7 +214,7 @@ def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
     )
 
 
-def firing_is_unannounced(snapshot: AlertSnapshot) -> bool:
+def _firing_is_unannounced(snapshot: AlertSnapshot) -> bool:
     """Whether the firing the alert is in was never announced, so one is still owed.
 
     Derived rather than stored, because the two timestamps already say it: a firing that was
@@ -325,17 +325,22 @@ def evaluate_alert_check(
             error_message=None,
         )
 
-    if policy.mute_gates_notification_only and not muted and firing_is_unannounced(snapshot):
-        # Re-evaluating from scratch is what makes a condition that survived the mute announce
-        # itself, and is what the SNOOZED branch below does for an expired snooze.
-        effective_state = AlertState.NOT_FIRING
-    elif snapshot.state == AlertState.SNOOZED:
+    if snapshot.state == AlertState.SNOOZED:
         # clear_check_ends_snooze: a snoozed alert was breached when parked, so a clear
         # check resolves it (FIRING-like). Otherwise the snooze simply expired and the
         # alert re-evaluates from scratch.
         effective_state = AlertState.FIRING if policy.clear_check_ends_snooze else AlertState.NOT_FIRING
     elif snapshot.state in (AlertState.ERRORED, AlertState.BROKEN):
         # BROKEN is only reachable here when the policy allows checks to un-break.
+        effective_state = AlertState.NOT_FIRING
+    elif policy.mute_gates_notification_only and not muted and _firing_is_unannounced(snapshot):
+        # Re-evaluating from scratch is what makes a condition that survived the mute announce
+        # itself, and is what the SNOOZED arm does for an expired snooze.
+        #
+        # Last, so a state that already names its own re-entry keeps it. Under
+        # `clear_check_ends_snooze` a breach parks the alert in SNOOZED with the firing running
+        # underneath, which reads as unannounced; that alert has to re-enter as FIRING to resolve,
+        # which is what the SNOOZED arm gives it.
         effective_state = AlertState.NOT_FIRING
     else:
         effective_state = snapshot.state
