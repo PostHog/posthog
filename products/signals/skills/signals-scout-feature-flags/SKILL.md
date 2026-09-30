@@ -60,7 +60,7 @@ A partial source shows a volume step that the code did not cause, so a step on o
    If the query fails because the table is unknown, the project has no replacement source. `events` is authoritative, so continue with the rest of this skill.
 
 2. If the table exists, run the same daily count on `events` (`WHERE event = '$feature_flag_called'`). Compare the two series day by day:
-   - **Both series are empty** — there is no call stream. Follow the "Roster exists, zero calls" branch below.
+   - **Both series are empty** — there is no call stream. Follow the matching zero-calls branch in the quick close-out below.
    - **The series agree on every day (within ~5%)** — both sources are complete. Use `events`.
    - **Only one series has rows on every day, with no step at either end of the window** — the source is migrating, and that series is the supported replacement. Use it for every traffic query and chart in this run. A trends chart reads `events`, so chart `flag_evaluations` with a SQL series. On `flag_evaluations`, read the `flag_key` and `response` columns instead of `properties.$feature_flag` and `properties.$feature_flag_response`, drop the `event` filter, and keep every window inside 90 days.
    - **Neither series covers the whole window** — no complete source exists. Suspend all traffic-based conclusions: file no cliff, ghost, response-shift, or dead-check report, attach no traffic chart, and do not edit an open traffic report to say that it recovered or got worse. Run only the config-side checks ([Stale flags](#stale-flags--one-cleanup-report-each) and dependent-flag sanity). In the close-out, say that you suspended traffic analysis because the evaluation source is migrating.
