@@ -75,7 +75,7 @@ describe('Notebook history revert flow', () => {
         apiMarkdownSaveSpy = jest
             .spyOn(api.notebooks, 'markdownSave')
             .mockResolvedValue({ ...cachedNotebook, version: 2, content: HISTORICAL_DOC })
-        apiActivityListLegacySpy = jest.spyOn(api.activity, 'listLegacy').mockResolvedValue({ results: [], count: 0 })
+        apiActivityListLegacySpy = jest.spyOn(api.activity, 'listLegacy').mockResolvedValue({ results: [], next: null })
         // collabStream opens an SSE connection that never resolves in production —
         // resolve immediately in tests so the listener doesn't dangle.
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)

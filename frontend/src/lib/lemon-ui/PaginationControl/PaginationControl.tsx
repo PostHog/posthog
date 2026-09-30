@@ -37,6 +37,9 @@ export function PaginationControl<T>({
 
     const currentPageSize = dataSourcePage.length
 
+    // A controlled caller that reports no entry count leaves `pageCount` null, so there is no last page to clamp to.
+    const clampToPageCount = (page: number): number => (pageCount !== null ? Math.min(pageCount, page) : page)
+
     return showPagination ? (
         <div className={clsx('PaginationControl', bordered && 'PaginationControl--bordered')}>
             <span>
@@ -56,7 +59,7 @@ export function PaginationControl<T>({
                 onClick={() => {
                     pagination?.controlled && pagination.onBackward?.()
                     if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
-                        setCurrentPage(Math.max(1, Math.min(pageCount as number, currentPage as number) - 1))
+                        setCurrentPage(Math.max(1, clampToPageCount(currentPage as number) - 1))
                     }
                 }}
             />
@@ -68,7 +71,7 @@ export function PaginationControl<T>({
                 onClick={() => {
                     pagination?.controlled && pagination.onForward?.()
                     if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
-                        setCurrentPage(Math.min(pageCount as number, (currentPage as number) + 1))
+                        setCurrentPage(clampToPageCount((currentPage as number) + 1))
                     }
                 }}
             />
