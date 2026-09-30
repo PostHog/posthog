@@ -74,7 +74,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "OpenRouter",
     "PromptingCompany",
     "Qdrant",
-    "RetellAI",
     "Roark",
     "ScaleAI",
     "Skyvern",
