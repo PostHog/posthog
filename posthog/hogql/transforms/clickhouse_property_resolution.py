@@ -143,6 +143,12 @@ def resolve_materialized_property_source(
     if json_source := resolve_json_subcolumn_source(field_type, table_name, field_name, property_name, context):
         return json_source
 
+    # The registries below list columns of the legacy events table. The native table has no materialized, dmat or
+    # property-group columns, so the reads that reach this point on it (`groupN_properties` keys, and paths that
+    # overlap a restriction) stay JSON reads.
+    if context.uses_new_events_schema() and table_name in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
+        return None
+
     if context.modifiers.materializationMode == "disabled":
         return None
 
@@ -386,35 +392,24 @@ def _materialized_head_expr(
 
 def _json_subcolumn_access(
     field_type: ast.FieldType,
-    keys: Sequence[str | int],
+    keys: Sequence[str],
     *,
     source: MaterializedPropertySource,
     is_nullable: bool,
     access_type: Literal["path", "sub_object"] = "path",
 ) -> ast.Expr:
-    path: list[str] = []
-    for key in keys:
-        if not isinstance(key, str):
-            break
-        path.append(key)
     json_field = (
         ast.Field(chain=[field_type.name], type=field_type)
         if source.json_column is None
         else _synthetic_column_field(field_type, source.json_column, is_nullable=False)
     )
     assert json_field is not None
-    value: ast.Expr = ast.JsonSubcolumnAccess(
+    return ast.JsonSubcolumnAccess(
         expr=json_field,
-        keys=path,
+        keys=list(keys),
         access_type=access_type,
         type=_column_constant_type_for_read(source, is_nullable=is_nullable),
     )
-    for key in keys[len(path) :]:
-        if isinstance(key, int):
-            value = ast.ArrayAccess(array=value, property=ast.Constant(value=key), type=ast.StringType(nullable=True))
-        else:
-            value = ast.JsonSubcolumnAccess(expr=value, keys=[key], type=ast.StringType(nullable=True))
-    return value
 
 
 def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
@@ -554,7 +549,18 @@ def _json_subcolumn_value_expr(
     source: MaterializedPropertySource,
     as_json: bool = False,
 ) -> ast.Expr:
-    value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
+    index_position = next((position for position, key in enumerate(keys) if isinstance(key, int)), None)
+    if index_position is not None:
+        # ClickHouse runs arrayElement on every type a Dynamic path holds in the block, so one row with a string or
+        # a number at the path fails the whole query. Index the JSON text of the value instead, as the legacy table
+        # indexes the raw document, so that such a row reads NULL.
+        document = _json_subcolumn_value_expr(
+            field_type, cast(Sequence[str], keys[:index_position]), source=source, as_json=True
+        )
+        return ast.PropertyAccess(expr=document, keys=list(keys[index_position:]), type=ast.StringType(nullable=True))
+
+    string_keys = cast(Sequence[str], keys)
+    value = _json_subcolumn_access(field_type, string_keys, source=source, is_nullable=True)
     scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
     scalar_or_null = ast.Call(
         name="if",
@@ -570,9 +576,7 @@ def _json_subcolumn_value_expr(
         ],
         type=ast.StringType(nullable=True),
     )
-    if any(isinstance(key, int) for key in keys):
-        return scalar_or_null
-    object_value = _dynamic_json_object_string_expr(field_type, list(cast(Sequence[str], keys)), source=source)
+    object_value = _dynamic_json_object_string_expr(field_type, list(string_keys), source=source)
     return ast.Call(
         name="if",
         args=[_call("notEquals", [clone_expr(object_value), _sentinel("{}")]), object_value, scalar_or_null],
@@ -1268,21 +1272,17 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         if node.name in ("toFloat", "toInt") and len(node.args) == 1:
             access = self._lowered_property_operand(node.args[0])
-            if access is not None:
+            # An array index reads through the JSON text of the value, so the cast wraps that read instead.
+            if access is not None and all(isinstance(key, str) for key in access.keys):
                 field_type = _blob_field_type_of(access)
                 assert field_type is not None
-                source = resolve_materialized_property_source(
-                    field_type,
-                    str(access.keys[0])
-                    if any(isinstance(key, int) for key in access.keys)
-                    else ".".join(cast(list[str], access.keys)),
-                    self.context,
-                )
+                keys = cast(list[str], access.keys)
+                source = resolve_materialized_property_source(field_type, ".".join(keys), self.context)
                 if source is not None and source.kind == "json_subcolumn":
                     return ast.Call(
                         name="accurateCastOrNull",
                         args=[
-                            _json_subcolumn_access(field_type, access.keys, source=source, is_nullable=True),
+                            _json_subcolumn_access(field_type, keys, source=source, is_nullable=True),
                             _sentinel("Float64" if node.name == "toFloat" else "Int64"),
                         ],
                         type=node.type,
@@ -1376,8 +1376,8 @@ class ClickHousePropertyResolver(CloningVisitor):
         if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
             return None
         if not isinstance(node.args[1], ast.Constant):
-            # A key computed per row can name a moved property, which the serialized `properties` document lacks.
-            raise QueryError(f"{node.name} over native event properties requires a constant first key")
+            # A key computed per row reads the serialized `properties` document, where a moved key reads as missing.
+            return None
         first_key = node.args[1].value
         if not isinstance(first_key, str) or not is_temporary_event_property(first_key):
             return None
@@ -1664,7 +1664,8 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         first_key_arg = node.args[1]
         if not isinstance(first_key_arg, ast.Constant):
-            raise QueryError("JSONHas over native event properties requires a constant first key")
+            # A key computed per row reads the serialized document, which the printer masks for restricted keys.
+            return None
         if not isinstance(first_key_arg.value, str):
             return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
         first_key = first_key_arg.value

@@ -15,7 +15,6 @@ from posthog.hogql.database.schema.events import (
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
@@ -369,11 +368,14 @@ class PropertySwapper(CloningVisitor):
                 "person_properties",
             )
         ):
-            if property_path is None:
-                if self._json_extract_has_runtime_path(node):
-                    raise QueryError("JSONExtract over native event properties requires a constant first key")
+            first_key = self._json_extract_first_key(node)
+            if first_key is None:
+                # A key computed per row can name any property, so the call reads the whole document, which the
+                # printer serializes without restricted keys. The native document stores `$set` in
+                # `temporary_properties` and `$feature/<key>` in the `$feature_flags` map, so a runtime key that
+                # names one of those reads as missing.
                 return None
-            return self._json_extract_subcolumn_expr(node, field_arg, field_type, property_path)
+            return self._json_extract_subcolumn_expr(node, field_arg, field_type, first_key)
 
         if property_path is None:
             return None
@@ -426,23 +428,20 @@ class PropertySwapper(CloningVisitor):
         return property_path
 
     @staticmethod
-    def _json_extract_has_runtime_path(node: ast.Call) -> bool:
-        if node.name == "JSONExtract":
-            path_args = node.args[1:-1]
-        elif node.name in _JSON_EXTRACT_SCALAR_CASTS or node.name == "JSONExtractRaw":
-            path_args = node.args[1:]
-        else:
-            return False
-        return any(not isinstance(arg, ast.Constant) for arg in path_args)
+    def _json_extract_first_key(node: ast.Call) -> str | int | None:
+        path_args = node.args[1:-1] if node.name == "JSONExtract" else node.args[1:]
+        if not path_args or not isinstance(path_args[0], ast.Constant):
+            return None
+        first_key = path_args[0].value
+        return first_key if isinstance(first_key, str | int) else None
 
     def _json_extract_subcolumn_expr(
         self,
         node: ast.Call,
         field_arg: ast.Field,
         field_type: ast.FieldType,
-        property_path: list[str | int],
+        first_key: str | int,
     ) -> ast.Expr | None:
-        first_key = property_path[0]
         if not isinstance(first_key, str):
             return ast.Call(
                 start=node.start,

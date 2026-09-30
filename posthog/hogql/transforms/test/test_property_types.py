@@ -10,6 +10,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     NewEventsSchemaSnapshotExtension,
     _create_event,
+    cleanup_materialized_columns,
     flush_persons_and_events,
     get_indexes_from_explain,
     materialized,
@@ -34,7 +35,6 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
@@ -59,11 +59,14 @@ from posthog.models import PropertyDefinition, Team
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.group.util import create_group
 from posthog.models.property.util import get_property_string_expr
+from posthog.property_columns import TableColumn
 from posthog.schema_enums import PropertyGroupsMode
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 @dataclass
@@ -176,7 +179,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
             printed, _ = prepare_and_print_ast(
                 parse_select(
                     "SELECT toFloat(properties.$screen_height), toFloat(properties.custom), "
-                    "toFloat(properties.nested.score), toFloat(properties.numbers[1]), toFloat(properties.objects[1].score) FROM events"
+                    "toFloat(properties.nested.score) FROM events"
                 ),
                 context,
                 "clickhouse",
@@ -191,27 +194,19 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 **context.values,
                 "json_type": json_type,
                 "documents": [
-                    json.dumps(
-                        {
-                            "$screen_height": value,
-                            "custom": value,
-                            "nested": {"score": value},
-                            "numbers": [value],
-                            "objects": [{"score": value}],
-                        }
-                    )
+                    json.dumps({"$screen_height": value, "custom": value, "nested": {"score": value}})
                     for value in values
                 ],
             },
         )
         assert rows == [
-            (42.0,) * 5,
-            (float(2**63),) * 5,
-            (2.5,) * 5,
-            (3.75,) * 5,
-            (None,) * 5,
-            (None,) * 5,
-            (None,) * 5,
+            (42.0,) * 3,
+            (float(2**63),) * 3,
+            (2.5,) * 3,
+            (3.75,) * 3,
+            (None,) * 3,
+            (None,) * 3,
+            (None,) * 3,
         ]
 
     def test_negative_multi_icontains_array_property_stays_optimized(self) -> None:
@@ -1475,7 +1470,7 @@ _JSON_SCHEMA_PARITY_PROPERTIES: st.SearchStrategy[dict[str, object]] = st.fixed_
     not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
     reason="requires both event tables created by the new-schema CI variant (#63448)",
 )
-class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCase, BaseTest):
+class TestEventsSchemaStorageSemantics(ClickhouseTestMixin, HypothesisDjangoTestCase, BaseTest):
     def _query_properties(self, event_uuid: str, use_new_events_schema: bool) -> tuple[Any, ...]:
         response = execute_hogql_query(
             "SELECT properties.dynamic_value, properties.$browser, JSONHas(properties, '$browser'), "
@@ -1532,6 +1527,22 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
         else:
             assert native[2] == legacy[2]
 
+
+_RUNTIME_JSON_KEY_SELECT = (
+    "SELECT JSONExtractString(properties, properties.k), JSONHas(properties, properties.k), "
+    "JSONType(properties, properties.k), JSONExtractRaw(properties, concat('sec', 'ret')), "
+    "arrayMap(key -> JSONExtractString(properties, key), ['a', 'secret']), "
+    "JSONExtractString(properties, '$set', concat('em', 'ail'))"
+)
+
+
+# A @given test runs setUp outside the per-test transaction, so the team it creates stays until the class ends and
+# collides with the team that the next test in the same class creates. Keep @given tests out of this class.
+@pytest.mark.skipif(
+    not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+    reason="requires both event tables created by the new-schema CI variant (#63448)",
+)
+class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
     def test_feature_flag_interfaces_work_across_event_schemas(self) -> None:
         native_uuid = _create_event(
             team=self.team,
@@ -1746,13 +1757,6 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
         assert all(legacy_row), legacy_row
         assert native_row == legacy_row
 
-        with pytest.raises(QueryError, match="requires a constant first key"):
-            execute_hogql_query(
-                f"SELECT JSONLength(properties, concat('$', 'set')) FROM events WHERE uuid = '{event_uuid}'",
-                team=self.team,
-                context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
-            )
-
         for restricted_name, restricted_query, expected in (
             (
                 "$set",
@@ -1781,6 +1785,109 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
                 context=restricted_context,
             )
             assert restricted.results == [expected], restricted_name
+
+    @parameterized.expand(
+        [
+            (
+                "runtime_json_keys",
+                _RUNTIME_JSON_KEY_SELECT,
+                None,
+                None,
+                [
+                    ("1", 1, "String", '"s1"', ["1", "s1"], "user@example.com"),
+                    ("s2", 1, "String", '"s2"', ["3", "s2"], ""),
+                    ("", 0, "Null", "", ["", ""], ""),
+                ],
+            ),
+            (
+                "runtime_json_keys_restricted",
+                _RUNTIME_JSON_KEY_SELECT,
+                "secret",
+                None,
+                [
+                    ("1", 1, "String", "", ["1", ""], "user@example.com"),
+                    ("", 0, "Null", "", ["3", ""], ""),
+                    ("", 0, "Null", "", ["", ""], ""),
+                ],
+            ),
+            (
+                "array_index_over_mixed_types",
+                "SELECT properties.arr.1, properties.arr[1], properties.nested_arr.1.2, properties.arr_obj.1.id, "
+                "toFloat(properties.nested_arr.1.2)",
+                None,
+                None,
+                [("x", "x", "2", "1", 2.0), (None, None, None, None, None), (None, None, None, None, None)],
+            ),
+            (
+                "percent_in_key",
+                "SELECT JSONExtractString(properties, 'completion%'), JSONHas(properties, 'completion%'), "
+                "JSONExtractRaw(properties, 'completion%'), JSONExtractInt(properties, 'completion%')",
+                None,
+                None,
+                [("50", 1, '"50"', 50), ("", 0, "", 0), ("", 0, "", 0)],
+            ),
+            (
+                "materialized_group_property",
+                "SELECT goe_0.properties.name, goe_0.properties.name = 'Org One'",
+                None,
+                "name",
+                [("Org One", 1), (None, 0), (None, 0)],
+            ),
+        ]
+    )
+    def test_query_shapes_read_the_same_on_both_schemas(
+        self,
+        _name: str,
+        select: str,
+        restricted_property: str | None,
+        materialized_group_property: str | None,
+        expected: list[tuple[Any, ...]],
+    ) -> None:
+        for minute, properties, group0_properties in (
+            (
+                30,
+                {
+                    "k": "a",
+                    "a": "1",
+                    "secret": "s1",
+                    "arr": ["x", "y"],
+                    "nested_arr": [[1, 2], [3]],
+                    "arr_obj": [{"id": 1}],
+                    "completion%": "50",
+                    "$set": {"email": "user@example.com"},
+                },
+                {"name": "Org One"},
+            ),
+            (31, {"k": "secret", "a": "3", "secret": "s2", "arr": "notarr", "nested_arr": 7, "arr_obj": "o"}, None),
+            (32, {"k": "missing", "arr": 5}, None),
+        ):
+            _create_event(
+                team=self.team,
+                distinct_id="shape-parity",
+                event="shape-parity",
+                timestamp=f"2024-01-15T10:{minute}:00Z",
+                properties=properties,
+                group0_properties=group0_properties,
+            )
+        flush_persons_and_events()
+        if materialized_group_property is not None:
+            materialize("events", materialized_group_property, table_column=cast(TableColumn, "group0_properties"))
+            self.addCleanup(cleanup_materialized_columns)
+
+        for use_new_events_schema in (False, True):
+            context = HogQLContext(
+                team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+            )
+            if restricted_property is not None:
+                context.restricted_properties = {
+                    RestrictedProperty(name=restricted_property, property_type=PropertyDefinition.Type.EVENT)
+                }
+            response = execute_hogql_query(
+                f"{select} FROM events WHERE event = 'shape-parity' ORDER BY timestamp",
+                team=self.team,
+                context=context,
+            )
+            assert response.results == expected, use_new_events_schema
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────
