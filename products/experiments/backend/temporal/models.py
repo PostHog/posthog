@@ -76,7 +76,7 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     fairness_key: str | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentMetricToRecalculate:
     """A single metric to recalculate.
 
