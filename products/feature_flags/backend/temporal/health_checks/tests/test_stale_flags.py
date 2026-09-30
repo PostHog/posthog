@@ -39,7 +39,7 @@ FULL_ROLLOUT_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 100}
 LIVE_GATE_TARGET = "products.feature_flags.backend.temporal.health_checks.stale_flags.get_feature_flag_or_none"
 # Two ways the gate reaches no answer: the flag is absent from a loaded definition set, or the
 # SDK holds an empty set, which it keeps with no personal API key or after a 401 or a 402.
-UNDECIDED_GATE_STATES = [
+UNDECIDED_GATE_STATES: list[tuple[str, str, Any]] = [
     ("flag_absent", LIVE_GATE_TARGET, None),
     ("definitions_empty", "posthoganalytics.feature_flag_definitions", []),
 ]
