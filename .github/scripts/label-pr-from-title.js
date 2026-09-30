@@ -144,6 +144,8 @@ const FLAGS_TEAM_LABEL = 'team/feature-flags'
 
 const FLAGS_MAX_CHANGED_FILES = 2
 const FLAGS_MAX_CHANGED_LINES = 50
+// GitHub's maximum page size for the "list pull request files" endpoint.
+const FLAGS_FILES_PAGE_SIZE = 100
 
 // A small diff in these paths still needs a careful review: a migration changes
 // production data, and a workflow change runs with repository secrets.
@@ -183,13 +185,20 @@ function flagsWithoutGeneratedFiles(files) {
     }
 }
 
-// `files` has the shape of GitHub's "list pull request files" response.
+// `files` is the first page of GitHub's "list pull request files" response.
 function isFlagsLowHangingFruit(files) {
-    const changedLines = files.reduce((sum, file) => sum + file.additions + file.deletions, 0)
+    // A full page means the PR has at least a page of files, and the files on
+    // later pages are not checked. So many files, even generated ones, is not a
+    // quick review, so a full page withholds the label.
+    if (files.length >= FLAGS_FILES_PAGE_SIZE) {
+        return false
+    }
+    const reviewedFiles = flagsWithoutGeneratedFiles(files)
+    const changedLines = reviewedFiles.reduce((sum, file) => sum + file.additions + file.deletions, 0)
     return (
-        files.length <= FLAGS_MAX_CHANGED_FILES &&
+        reviewedFiles.length <= FLAGS_MAX_CHANGED_FILES &&
         changedLines <= FLAGS_MAX_CHANGED_LINES &&
-        !files.some((file) => FLAGS_RISKY_PATH_PATTERNS.some((pattern) => pattern.test(file.filename)))
+        !reviewedFiles.some((file) => FLAGS_RISKY_PATH_PATTERNS.some((pattern) => pattern.test(file.filename)))
     )
 }
 
@@ -198,15 +207,15 @@ function isFlagsLowHangingFruit(files) {
 // docs labels still get applied.
 const FLAGS_FILES_REQUEST_TIMEOUT_MS = 10_000
 
-// One page is enough: a PR with more files than a page holds is far over the
-// file limit, so the result is the same. Returns null on failure, because a
-// missing size must not fail the job or apply the label.
+// Fetches only the first page, because isFlagsLowHangingFruit() withholds the
+// label when the page is full. Returns null on failure, because a missing size
+// must not fail the job or apply the label.
 async function fetchFlagsPrFiles() {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
 
     try {
         const response = await fetch(
-            `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100`,
+            `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=${FLAGS_FILES_PAGE_SIZE}`,
             {
                 headers: {
                     Authorization: `token ${GITHUB_TOKEN}`,
@@ -235,7 +244,7 @@ async function flagsLowHangingFruitLabel(author, labels) {
         return null
     }
     const files = await fetchFlagsPrFiles()
-    return files && isFlagsLowHangingFruit(flagsWithoutGeneratedFiles(files)) ? FLAGS_LOW_HANGING_FRUIT_LABEL : null
+    return files && isFlagsLowHangingFruit(files) ? FLAGS_LOW_HANGING_FRUIT_LABEL : null
 }
 
 // ---------------------------------------------------------------------------

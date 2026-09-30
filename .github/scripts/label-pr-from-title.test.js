@@ -195,6 +195,8 @@ test('isFlagsLowHangingFruitCandidate', async (t) => {
 })
 
 const file = (filename, additions, deletions = 0) => ({ filename, additions, deletions })
+const generatedFiles = (count) =>
+    Array.from({ length: count }, (_, i) => file(`frontend/src/generated/core/file${i}.ts`, 10))
 
 const FLAGS_LOW_HANGING_FRUIT_CASES = [
     {
@@ -231,6 +233,16 @@ const FLAGS_LOW_HANGING_FRUIT_CASES = [
         files: [file('.github/workflows/ci-rust.yml', 2, 2)],
         expected: false,
         description: 'small workflow change',
+    },
+    {
+        files: [...generatedFiles(98), file('a.tsx', 10)],
+        expected: true,
+        description: 'generated files below a full page do not count',
+    },
+    {
+        files: [...generatedFiles(99), file('a.tsx', 10)],
+        expected: false,
+        description: 'a full page withholds the label, because later pages go unchecked',
     },
 ]
 
