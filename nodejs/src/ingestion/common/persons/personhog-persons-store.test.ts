@@ -704,6 +704,70 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
     })
 
+    it.each([true, false])(
+        'a miss cached for an extra id before the create does not outlive it (created: %p)',
+        async (created) => {
+            repository.getOrCreatePersonByDistinctId.mockResolvedValue({ person, created } as never)
+            repository.fetchPersonById.mockResolvedValue(person as never)
+            const bound = store.forBatch(0)
+            expect(await bound.fetchForUpdate(1, 'd2')).toBeNull()
+
+            await bound.createPerson(
+                DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+                {},
+                {},
+                {},
+                1,
+                null,
+                true,
+                'advisory-uuid',
+                { distinctId: 'd1' },
+                [{ distinctId: 'd2' }]
+            )
+            repository.resolvePersonsByDistinctIds.mockClear()
+            repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd2', person }] as never)
+
+            const fetched = await bound.fetchForUpdate(1, 'd2')
+
+            expect(fetched?.id).toBe('7')
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
+        }
+    )
+
+    it('a resolve in flight across a create does not re-record the miss purged for an extra id', async () => {
+        repository.fetchPersonById.mockResolvedValue(person as never)
+        const bound = store.forBatch(0)
+        let answerMiss: () => void = () => {}
+        repository.resolvePersonsByDistinctIds.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    answerMiss = () => resolve([])
+                }) as never
+        )
+        const straddling = bound.fetchForUpdate(1, 'd2')
+
+        await bound.createPerson(
+            DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+            {},
+            {},
+            {},
+            1,
+            null,
+            true,
+            'advisory-uuid',
+            { distinctId: 'd1' },
+            [{ distinctId: 'd2' }]
+        )
+        answerMiss()
+        expect(await straddling).toBeNull()
+
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd2', person }] as never)
+        const fetched = await bound.fetchForUpdate(1, 'd2')
+
+        expect(fetched?.id).toBe('7')
+        expect(edgeOf('1:d1')).toBe('1:7')
+    })
+
     it('a create that finds an existing person leaves its id readable for updates', async () => {
         // The found branch pays a leader read to get current state. That
         // state satisfies the update read class, so the id it resolves must
