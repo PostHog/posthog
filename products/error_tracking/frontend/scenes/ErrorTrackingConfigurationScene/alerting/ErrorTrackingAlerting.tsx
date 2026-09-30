@@ -68,7 +68,9 @@ function ErrorTrackingAlertingInner(): JSX.Element {
             <HogFunctionTemplateList
                 type="destination"
                 subTemplateIds={subTemplateIds}
-                getConfigurationOverrides={(id) => (id ? { filters: getFiltersFromSubTemplateId(id) } : undefined)}
+                getConfigurationOverrides={(id, subTemplate) =>
+                    id ? { filters: subTemplate?.filters ?? getFiltersFromSubTemplateId(id) } : undefined
+                }
                 extraControls={
                     <LemonButton
                         type="secondary"
