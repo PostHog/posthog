@@ -37,7 +37,7 @@ export interface groupedAccessControlRuleModalLogicValues {
     }[]
     resourceInheritedReasonTooltip: (resource: ScopeObjectEnumApi) => string | undefined
     resourceLevelOptions: (
-        resource: ScopeObjectEnumApi | 'wizard_session',
+        resource: ScopeObjectEnumApi,
         resourceLabel: string
     ) => (
         | {
@@ -67,7 +67,7 @@ export interface groupedAccessControlRuleModalLogicActions {
         scopeType: ScopeType
     }) => {
         projectLevel: AccessControlLevel | null
-        resourceLevels: Record<ScopeObjectEnumApi | 'wizard_session', AccessControlLevel | null>
+        resourceLevels: Record<ScopeObjectEnumApi, AccessControlLevel | null>
         scopeId: string
         scopeType: ScopeType
     } // accessControlsLogic
@@ -91,7 +91,7 @@ export interface groupedAccessControlRuleModalLogicActions {
         resource: ScopeObjectEnumApi
     }
     setResourceLevels: (levels: Record<APIScopeObject, FormAccessLevel>) => {
-        levels: Record<ScopeObjectEnumApi | 'wizard_session', FormAccessLevel>
+        levels: Record<ScopeObjectEnumApi, FormAccessLevel>
     }
 }
 
@@ -131,7 +131,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
             isOrgAdmin: boolean
         ) => 'Cannot edit' | 'Loading...' | 'User is an organization admin' | undefined
         isResourceLevelShowingInherited: (
-            formResourceLevels: Record<ScopeObjectEnumApi | 'wizard_session', FormAccessLevel>,
+            formResourceLevels: Record<ScopeObjectEnumApi, FormAccessLevel>,
             entry: AccessControlSettingsEntry
         ) => (resource: ScopeObjectEnumApi) => boolean
         resourceInheritedReasonTooltip: (
@@ -141,9 +141,9 @@ export interface groupedAccessControlRuleModalLogicMeta {
         resourceLevelOptions: (
             availableResourceLevels: AccessControlLevel[],
             entry: AccessControlSettingsEntry,
-            formResourceLevels: Record<ScopeObjectEnumApi | 'wizard_session', FormAccessLevel>
+            formResourceLevels: Record<ScopeObjectEnumApi, FormAccessLevel>
         ) => (
-            resource: ScopeObjectEnumApi | 'wizard_session',
+            resource: ScopeObjectEnumApi,
             resourceLabel: string
         ) => (
             | {
@@ -158,7 +158,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
               }
         )[]
         showResourceAddOverrideButton: (
-            formResourceLevels: Record<ScopeObjectEnumApi | 'wizard_session', FormAccessLevel>
+            formResourceLevels: Record<ScopeObjectEnumApi, FormAccessLevel>
         ) => (resource: ScopeObjectEnumApi) => boolean
     }
 }

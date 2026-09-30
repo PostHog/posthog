@@ -210,11 +210,7 @@ export interface accessControlLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         resource: (resource: ScopeObjectEnumApi) => ScopeObjectEnumApi
-        endpoint: (
-            currentProjectId: number | string,
-            resource: ScopeObjectEnumApi | 'wizard_session',
-            resource_id: string
-        ) => string
+        endpoint: (currentProjectId: number | string, resource: ScopeObjectEnumApi, resource_id: string) => string
         humanReadableResource: (resource: ScopeObjectEnumApi) => string
         minimumAccessLevel: (accessControls: AccessControlResponseType | null) => AccessControlLevel | null
         availableLevelsWithNone: (accessControls: AccessControlResponseType | null) => AccessControlLevel[]
@@ -389,11 +385,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
         endpoint: [
             (s, p) => [s.currentProjectId, p.resource, p.resource_id],
-            (
-                currentProjectId: number | string,
-                resource: ScopeObjectEnumApi | 'wizard_session',
-                resource_id: string
-            ): string => {
+            (currentProjectId: number | string, resource: ScopeObjectEnumApi, resource_id: string): string => {
                 // TODO: This is far from perfect... but it's a start
                 if (resource === 'project') {
                     return `api/projects/${currentProjectId}/access_controls`

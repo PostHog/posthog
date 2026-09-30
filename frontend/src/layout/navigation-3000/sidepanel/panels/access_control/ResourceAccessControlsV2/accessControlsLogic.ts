@@ -388,7 +388,7 @@ export interface accessControlsLogicActions {
         scopeType: ScopeType
     }) => {
         projectLevel: AccessControlLevel | null
-        resourceLevels: Record<ScopeObjectEnumApi | 'wizard_session', AccessControlLevel | null>
+        resourceLevels: Record<ScopeObjectEnumApi, AccessControlLevel | null>
         scopeId: string
         scopeType: ScopeType
     }
