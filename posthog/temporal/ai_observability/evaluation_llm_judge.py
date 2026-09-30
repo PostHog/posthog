@@ -556,8 +556,7 @@ def call_llm_judge(
                     "score": ScoreQuestion(
                         instructions=prompt,
                         criteria=[
-                            f"The score according to the evaluation criteria is {value:.6g}."
-                            for value in numeric_levels
+                            f"The score according to the evaluation criteria is {value!r}." for value in numeric_levels
                         ],
                     )
                 }

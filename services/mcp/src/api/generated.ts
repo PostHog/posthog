@@ -39580,7 +39580,7 @@ export namespace Schemas {
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound. Must exceed min for System One numeric judges.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -40212,7 +40212,7 @@ export namespace Schemas {
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound. Must exceed min for System One numeric judges.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -75120,7 +75120,7 @@ export namespace Schemas {
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound. Must exceed min for System One numeric judges.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -103149,7 +103149,7 @@ export namespace Schemas {
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound. Must exceed min for System One numeric judges.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
          * @nullable
          */
       max?: number | null;

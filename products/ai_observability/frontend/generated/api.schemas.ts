@@ -1907,7 +1907,7 @@ export type EvaluationApiOutputConfig = {
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound. Must exceed min for System One numeric judges.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2228,7 +2228,7 @@ export type PatchedEvaluationApiOutputConfig = {
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound. Must exceed min for System One numeric judges.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2407,7 +2407,7 @@ export type TestHogRequestApiOutputConfig = {
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound. Must exceed min for System One numeric judges.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -3139,7 +3139,7 @@ export type EvaluationReportMetricsApiOutputConfig = {
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound. Must exceed min for System One numeric judges.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
