@@ -54,7 +54,12 @@ export function TodaySpacesRow({
                 render={<LinkPrimitive to={to} />}
                 aria-current={active ? 'page' : undefined}
                 data-attr={dataAttr}
-                onFocus={ticker ? (e: React.FocusEvent<HTMLElement>) => setKeyboardFocused(e.currentTarget.matches(':focus-visible')) : undefined}
+                onFocus={
+                    ticker
+                        ? (e: React.FocusEvent<HTMLElement>) =>
+                              setKeyboardFocused(e.currentTarget.matches(':focus-visible'))
+                        : undefined
+                }
                 onBlur={ticker ? () => setKeyboardFocused(false) : undefined}
                 className={cn(
                     'min-w-0 text-xs font-medium text-foreground',
