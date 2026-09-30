@@ -101,10 +101,17 @@ export function shortTimeAgo(timestamp: string | null, now: Dayjs = dayjs()): st
     if (minutes < 60 * 24) {
         return `${Math.floor(minutes / 60)}h`
     }
-    if (minutes < 60 * 24 * 7) {
-        return `${Math.floor(minutes / (60 * 24))}d`
+    const days = Math.floor(minutes / (60 * 24))
+    if (days < 7) {
+        return `${days}d`
     }
-    return `${Math.floor(minutes / (60 * 24 * 7))}w`
+    if (days < 30) {
+        return `${Math.floor(days / 7)}w`
+    }
+    if (days < 365) {
+        return `${Math.floor(days / 30)}mo`
+    }
+    return `${Math.floor(days / 365)}y`
 }
 
 function earlierOf(first: Dayjs, second: Dayjs): Dayjs {

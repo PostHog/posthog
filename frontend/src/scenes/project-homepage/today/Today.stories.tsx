@@ -71,7 +71,10 @@ const PINNED_SESSIONS = [
         title: 'Fix the flaky checkout test',
         archived: false,
         last_activity_at: '2026-09-28T17:40:00Z',
-        latest_run: { status: 'in_progress' },
+        latest_run: { status: 'in_progress', environment: 'cloud', output: null },
+        description_preview: 'The checkout test fails about once in ten runs. Find the race and make the test stable.',
+        repository: 'example-org/webapp',
+        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
     },
 ]
 
@@ -82,14 +85,24 @@ const RECENT_SESSIONS = [
         title: 'Add a retry to the billing webhook',
         archived: false,
         last_activity_at: '2026-09-28T18:05:00Z',
-        latest_run: { status: 'completed' },
+        latest_run: {
+            status: 'completed',
+            environment: 'cloud',
+            output: { pr_url: 'https://github.com/example-org/webapp/pull/421' },
+        },
+        description_preview: 'Retry the billing webhook three times with a backoff before it reports a failure.',
+        repository: 'example-org/webapp',
+        created_by: { id: 2, first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.com' },
     },
     {
         id: 'task-2',
         title: 'Investigate the drop in trial starts',
         archived: false,
         last_activity_at: '2026-09-27T11:20:00Z',
-        latest_run: { status: 'failed' },
+        latest_run: { status: 'failed', environment: 'cloud', output: null },
+        description_preview: 'Trial starts dropped last week. Find the step where people leave.',
+        repository: null,
+        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
     },
 ]
 
