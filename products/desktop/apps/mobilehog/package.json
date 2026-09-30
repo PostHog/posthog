@@ -9,6 +9,7 @@
     "prebuild": "expo prebuild",
     "prebuild:clean": "expo prebuild --clean",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "clean": "node ../../scripts/rimraf.mjs .turbo .expo"
@@ -79,7 +80,8 @@
   },
   "devDependencies": {
     "@types/react": "^19.2.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vitest": "^4.1.8"
   },
   "private": true
 }

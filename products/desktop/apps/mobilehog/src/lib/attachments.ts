@@ -2,6 +2,7 @@ import type {
   PreparedTaskArtifactUpload,
   TaskArtifactUploadRequest,
 } from "@posthog/api-client/posthog-client";
+import { fetch } from "expo/fetch";
 import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { getClient } from "@/lib/client";
