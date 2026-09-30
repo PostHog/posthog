@@ -111,63 +111,22 @@ export function isTaskRunSandbox(env: NodeJS.ProcessEnv): boolean {
   return Boolean(env.POSTHOG_TASK_RUN_ID);
 }
 
-export interface MemoryWatchdogWatcherOptions {
-  onProcessKilled: (params: ProcessKilledParams) => void;
-  logger: Logger;
-  path?: string;
-  intervalMs?: number;
-}
-
-export class MemoryWatchdogWatcher {
-  private readonly path: string;
-  private readonly intervalMs: number;
+export class MemoryWatchdogKillReader {
   private readonly tail = new JsonlTail();
-  private timer: ReturnType<typeof setInterval> | null = null;
-  private polling = false;
   private inode: number | null = null;
+  private reads: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly options: MemoryWatchdogWatcherOptions) {
-    this.path = options.path ?? MEMORY_WATCHDOG_EVENTS_PATH;
-    this.intervalMs = options.intervalMs ?? POLL_INTERVAL_MS;
+  constructor(readonly path: string = MEMORY_WATCHDOG_EVENTS_PATH) {}
+
+  // Parallel tool calls run their hooks at the same time. Two overlapping
+  // reads would read from the same offset and report the same kills twice.
+  readNewKills(): Promise<ProcessKilledParams[]> {
+    const read = this.reads.then(() => this.readOnce());
+    this.reads = read.catch(() => undefined);
+    return read;
   }
 
-  async start(): Promise<boolean> {
-    if (this.timer) return true;
-    try {
-      await access(dirname(this.path), fsConstants.W_OK);
-    } catch {
-      return false;
-    }
-    this.timer = setInterval(() => {
-      void this.poll();
-    }, this.intervalMs);
-    this.timer.unref?.();
-    return true;
-  }
-
-  stop(): void {
-    if (!this.timer) return;
-    clearInterval(this.timer);
-    this.timer = null;
-  }
-
-  async poll(): Promise<void> {
-    if (this.polling) return;
-    this.polling = true;
-    try {
-      for (const params of await this.readNewKills()) {
-        this.options.onProcessKilled(params);
-      }
-    } catch (error) {
-      this.options.logger.debug("Memory watchdog events read failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      this.polling = false;
-    }
-  }
-
-  private async readNewKills(): Promise<ProcessKilledParams[]> {
+  private async readOnce(): Promise<ProcessKilledParams[]> {
     let size: number;
     let inode: number;
     try {
@@ -197,6 +156,61 @@ export class MemoryWatchdogWatcher {
         .filter((params): params is ProcessKilledParams => params !== null);
     } finally {
       await handle.close();
+    }
+  }
+}
+
+export interface MemoryWatchdogWatcherOptions {
+  onProcessKilled: (params: ProcessKilledParams) => void;
+  logger: Logger;
+  path?: string;
+  intervalMs?: number;
+}
+
+export class MemoryWatchdogWatcher {
+  private readonly reader: MemoryWatchdogKillReader;
+  private readonly intervalMs: number;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private polling = false;
+
+  constructor(private readonly options: MemoryWatchdogWatcherOptions) {
+    this.reader = new MemoryWatchdogKillReader(options.path);
+    this.intervalMs = options.intervalMs ?? POLL_INTERVAL_MS;
+  }
+
+  async start(): Promise<boolean> {
+    if (this.timer) return true;
+    try {
+      await access(dirname(this.reader.path), fsConstants.W_OK);
+    } catch {
+      return false;
+    }
+    this.timer = setInterval(() => {
+      void this.poll();
+    }, this.intervalMs);
+    this.timer.unref?.();
+    return true;
+  }
+
+  stop(): void {
+    if (!this.timer) return;
+    clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  async poll(): Promise<void> {
+    if (this.polling) return;
+    this.polling = true;
+    try {
+      for (const params of await this.reader.readNewKills()) {
+        this.options.onProcessKilled(params);
+      }
+    } catch (error) {
+      this.options.logger.debug("Memory watchdog events read failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.polling = false;
     }
   }
 }
