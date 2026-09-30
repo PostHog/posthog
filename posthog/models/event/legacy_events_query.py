@@ -18,7 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import get_events_list_rate_limiter
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.events_query_runner import CURSOR_DELIMITER, EventsQueryRunner, split_pagination_cursor
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import generate_short_id, relative_date_parse
@@ -79,6 +79,12 @@ def _execute_events_list_query(runner: EventsQueryRunner, database: Database) ->
     )
     rows = [dict(zip(EVENT_LIST_SELECT_COLUMNS, row)) for row in runner.paginator.results]
     return rows, runner.paginator.has_more()
+
+
+def _to_cursor(timestamp: datetime, cursor_uuid: Optional[str]) -> str:
+    if cursor_uuid is None:
+        return timestamp.isoformat()
+    return f"{timestamp.isoformat()}{CURSOR_DELIMITER}{cursor_uuid}"
 
 
 def get_one_event(team: Team, pk: str) -> Optional[dict]:
@@ -146,8 +152,12 @@ class LegacyEventsListQuery:
         if before and after:
             try:
                 tzinfo = self.team.timezone_info
+                before_timestamp = split_pagination_cursor(before)[0]
+                after_timestamp = split_pagination_cursor(after)[0]
                 request_window_seconds = int(
-                    (relative_date_parse(before, tzinfo) - relative_date_parse(after, tzinfo)).total_seconds()
+                    (
+                        relative_date_parse(before_timestamp, tzinfo) - relative_date_parse(after_timestamp, tzinfo)
+                    ).total_seconds()
                 )
             except (ValueError, TypeError):
                 pass
@@ -227,15 +237,22 @@ class LegacyEventsListQuery:
         window that was applied (`None` when the request's own date range was used).
         """
         tzinfo = self.team.timezone_info
+        # A `next` link carries a `<timestamp>|<uuid>` cursor. The runner uses the uuid as a tiebreaker.
+        before_timestamp, before_uuid = split_pagination_cursor(before) if before else (None, None)
+        after_timestamp, after_uuid = split_pagination_cursor(after) if after else (None, None)
 
         # Resolve the [after_dt, before_dt) bounds. `before` defaults to just past now (so events
         # ingested a moment ago aren't excluded); `after` stays open unless requested.
         # PATCH_EVENT_LIST_MAX_OFFSET clamps this deprecated endpoint's ClickHouse cost as a graduated
         # rollout (0 = off, 1 = migration, 2 = enabled; see settings/data_stores.py): at 2 a missing
         # `after` defaults to before-24h, and a range over a year is rejected (always at 2, ~1% at 1).
-        before_dt = relative_date_parse(before, tzinfo) if before else datetime.now(tzinfo) + timedelta(seconds=5)
-        if after:
-            after_dt: Optional[datetime] = relative_date_parse(after, tzinfo)
+        before_dt = (
+            relative_date_parse(before_timestamp, tzinfo)
+            if before_timestamp
+            else datetime.now(tzinfo) + timedelta(seconds=5)
+        )
+        if after_timestamp:
+            after_dt: Optional[datetime] = relative_date_parse(after_timestamp, tzinfo)
         elif settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
             after_dt = before_dt - timedelta(hours=24)
         else:
@@ -254,6 +271,7 @@ class LegacyEventsListQuery:
             and (after_dt is None or (before_dt - after_dt).total_seconds() > time_window_seconds)
         ):
             after_dt = before_dt - timedelta(seconds=time_window_seconds)
+            after_uuid = None
             applied_window_seconds = time_window_seconds
 
         # Match the legacy behaviour for actions with no match groups (or that no longer exist):
@@ -282,10 +300,10 @@ class LegacyEventsListQuery:
 
         events_query = EventsQuery(
             select=EVENT_LIST_SELECT_COLUMNS,
-            before=before_dt.isoformat(),
+            before=_to_cursor(before_dt, before_uuid),
             # "all" disables the runner's default 24h lower bound: with no `after` and no window,
             # the query has no lower timestamp bound at all.
-            after=after_dt.isoformat() if after_dt is not None else "all",
+            after=_to_cursor(after_dt, after_uuid) if after_dt is not None else "all",
             event=event or None,
             personId=str(person_id) if person_id else None,
             actionId=int(action_id) if action_id else None,

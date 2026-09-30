@@ -5,7 +5,7 @@ import random
 import urllib
 import builtins
 import dataclasses
-from datetime import UTC, datetime
+from datetime import UTC
 from typing import Any, Iterator, List, Optional, Union, cast  # noqa: UP035
 
 from django.conf import settings
@@ -38,6 +38,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.events_query_runner import CURSOR_DELIMITER
 from posthog.models import Element, Person, PropertyDefinition, User
 from posthog.models.event.legacy_events_query import LegacyEventsListQuery, get_one_event
 from posthog.models.event.util import ClickhouseEventSerializer
@@ -177,16 +178,18 @@ class EventViewSet(
     def _build_next_url(
         self,
         request: request.Request,
-        last_event_timestamp: datetime,
+        last_event: dict,
         order_by: list[str],
     ) -> str:
         params = request.GET.dict()
         reverse = "-timestamp" in order_by
-        timestamp = last_event_timestamp.replace(tzinfo=UTC).isoformat()
+        # The uuid tiebreaker lets the next page continue inside a group of events that share one timestamp.
+        timestamp = last_event["timestamp"].replace(tzinfo=UTC).isoformat()
+        cursor = f"{timestamp}{CURSOR_DELIMITER}{last_event['uuid']}"
         if reverse:
-            params["before"] = timestamp
+            params["before"] = cursor
         else:
-            params["after"] = timestamp
+            params["after"] = cursor
         return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
     @extend_schema(
@@ -318,7 +321,7 @@ class EventViewSet(
 
             next_url: Optional[str] = None
             if not is_csv_request and has_more and query_result:
-                next_url = self._build_next_url(request, query_result[-1]["timestamp"], order_by)
+                next_url = self._build_next_url(request, query_result[-1], order_by)
             headers = None
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
                 headers = {"X-PostHog-Warn": "https://posthog.com/docs/api/events"}
