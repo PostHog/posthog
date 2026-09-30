@@ -145,14 +145,12 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         # field the caller actually moved when enabled and status disagree.
         self._initial_enabled = self.enabled
         self._initial_status = self.status
-        self._initial_condition_filters = self._condition_filters()
 
     @classmethod
     def from_db(cls, db, field_names, values):
         instance = super().from_db(db, field_names, values)
         instance._initial_enabled = instance.enabled
         instance._initial_status = instance.status
-        instance._initial_condition_filters = instance._condition_filters()
         return instance
 
     def refresh_from_db(self, *args, **kwargs) -> None:
@@ -162,13 +160,9 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         super().refresh_from_db(*args, **kwargs)
         self._initial_enabled = self.enabled
         self._initial_status = self.status
-        self._initial_condition_filters = self._condition_filters()
 
     def __str__(self):
         return self.name
-
-    def _condition_filters(self) -> list[list[dict]]:
-        return [condition.get("properties", []) for condition in self.conditions or []]
 
     def _coerce_status_and_enabled(self) -> None:
         """Reconcile status with enabled at save time.
@@ -226,6 +220,17 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         self.status_reason_detail = reason_detail
         self.save(update_fields=["status", "status_reason", "status_reason_detail", "enabled", "updated_at"])
 
+    def _condition_filters_changed(self) -> bool:
+        # Compare against the stored row, not an in-memory snapshot, so in-place edits count as changes.
+        if self._state.adding:
+            return True
+        stored = (
+            Evaluation.objects.filter(pk=self.pk, team_id=self.team_id).values_list("conditions", flat=True).first()
+        )
+        if stored is None:
+            return True
+        return [c.get("properties", []) for c in self.conditions] != [c.get("properties", []) for c in stored]
+
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
 
@@ -272,16 +277,14 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         # The scheduler skips a condition that has no bytecode, so the evaluation never runs. Reject it when
         # the caller changes the filters. Other saves skip this check, so pause, delete and status changes work.
         update_fields = kwargs.get("update_fields")
-        writes_conditions = (update_fields is None or "conditions" in update_fields) and (
-            self._state.adding or self._condition_filters() != self._initial_condition_filters
-        )
+        writes_conditions = update_fields is None or "conditions" in update_fields
         compiled_conditions = []
         for index, condition in enumerate(self.conditions):
             compiled_condition = {**condition}
             filters = {"properties": condition.get("properties", [])}
             compiled = compile_filters_bytecode(filters, self.team)
             bytecode_error = compiled.get("bytecode_error")
-            if bytecode_error and writes_conditions:
+            if bytecode_error and writes_conditions and self._condition_filters_changed():
                 raise ValidationError(
                     {
                         "conditions": f"Condition set {index + 1} has a filter that evaluations cannot run. {bytecode_error}"
@@ -296,7 +299,6 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         # Refresh the baseline so the next save cycle compares against the post-save state.
         self._initial_enabled = self.enabled
         self._initial_status = self.status
-        self._initial_condition_filters = self._condition_filters()
         return result
 
 

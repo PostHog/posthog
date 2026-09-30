@@ -41,20 +41,42 @@ class TestEvaluationModel(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "set_status",
-                lambda e: e.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR),
-                "status",
-                EvaluationStatus.ERROR,
-            ),
-            ("pause", lambda e: (setattr(e, "enabled", False), e.save()), "enabled", False),
-            ("delete", lambda e: (setattr(e, "deleted", True), e.save()), "deleted", True),
+            ("set_status", None, "status", EvaluationStatus.ERROR),
+            ("pause", {"enabled": False}, "enabled", False),
+            ("delete", {"deleted": True}, "deleted", True),
         ]
     )
     def test_save_without_filter_change_succeeds_when_condition_no_longer_compiles(
-        self, _name, apply_change, field, expected
+        self, _name, updates, field, expected
     ):
-        evaluation = Evaluation.objects.create(
+        evaluation = self._create_hog_evaluation()
+
+        with patch("posthog.cdp.filters.compile_filters_bytecode") as mock_compile:
+            mock_compile.return_value = {"bytecode": None, "bytecode_error": "Invalid property filter"}
+            if updates is None:
+                evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR)
+            else:
+                for key, value in updates.items():
+                    setattr(evaluation, key, value)
+                evaluation.save()
+            mock_compile.assert_called_once()
+
+        evaluation.refresh_from_db()
+        self.assertEqual(getattr(evaluation, field), expected)
+
+    def test_full_save_rejects_filter_edited_in_place_after_status_only_save(self):
+        evaluation = self._create_hog_evaluation()
+
+        evaluation.conditions[0]["properties"].append({"type": "hogql", "key": "(select 1)"})
+        evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR)
+
+        with self.assertRaises(ValidationError):
+            evaluation.save()
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.conditions[0]["properties"], [])
+
+    def _create_hog_evaluation(self) -> Evaluation:
+        return Evaluation.objects.create(
             team=self.team,
             name="Test Evaluation",
             evaluation_type="hog",
@@ -63,14 +85,6 @@ class TestEvaluationModel(BaseTest):
             enabled=True,
             conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
         )
-
-        with patch("posthog.cdp.filters.compile_filters_bytecode") as mock_compile:
-            mock_compile.return_value = {"bytecode": None, "bytecode_error": "Invalid property filter"}
-            apply_change(evaluation)
-            mock_compile.assert_called_once()
-
-        evaluation.refresh_from_db()
-        self.assertEqual(getattr(evaluation, field), expected)
 
     def test_handles_empty_properties_list(self):
         """
