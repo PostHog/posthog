@@ -9,28 +9,37 @@ import {
 import { CommonFilters, HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 
 import { initKeaTests } from '~/test/init'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { AppContext } from '~/types'
 
 describe('heatmapDataLogic window resize', () => {
     const originalInnerWidth = window.innerWidth
 
     beforeEach(() => {
+        jest.spyOn(global, 'fetch').mockImplementation(() =>
+            Promise.resolve(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+        )
         initKeaTests()
+        toolbarConfigLogic.build({ apiURL: 'http://localhost', accessToken: 'test-token' }).mount()
     })
 
     afterEach(() => {
+        jest.restoreAllMocks()
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
     })
 
-    // The in-app query uses a fixed analysis width, so a refetch on resize only hides the empty-state
-    // banner while the request runs. The toolbar queries the live window width, so it must refetch.
     it.each([
         ['in-app', false],
         ['toolbar', true],
     ] as const)('%s context refetches on resize: %s', async (context, refetches) => {
         const logic = heatmapDataLogic({ context })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadHeatmapSuccess'])
+        await expectLogic(logic, () => logic.actions.setHref('https://example.com/pricing'))
+            .toDispatchActions(['loadHeatmapSuccess'])
+            .toFinishAllListeners()
+        const heatmapRequests = jest.mocked(global.fetch).mock.calls.filter(([url]) => String(url).includes('heatmap'))
+        expect(heatmapRequests).toHaveLength(1)
+        expect(logic.values.rawHeatmap).toEqual({ results: [] })
 
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: window.innerWidth - 200 })
         window.dispatchEvent(new Event('resize'))

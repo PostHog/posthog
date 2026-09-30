@@ -813,7 +813,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         },
     })),
     subscriptions(({ actions }) => ({
-        // Window size only reaches the query through analysisWidth, so an in-app resize must not refetch
         analysisWidth: () => {
             actions.loadHeatmap()
         },
