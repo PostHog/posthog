@@ -276,9 +276,7 @@
         },
         "$ai_evaluation_probability": {
             "description": "The probability of a true verdict for a boolean evaluation.",
-            "examples": [
-                0.9
-            ],
+            "examples": [0.9],
             "label": "AI evaluation probability",
             "type": "Numeric"
         },
@@ -4059,9 +4057,7 @@
         },
         "$ai_evaluation_probability": {
             "description": "The probability of a true verdict for a boolean evaluation.",
-            "examples": [
-                0.9
-            ],
+            "examples": [0.9],
             "label": "AI evaluation probability",
             "type": "Numeric"
         },
