@@ -2,7 +2,7 @@
 export interface ScoutWriteScopeRow {
     scope: string
     /** Heading the row sits under. Purely a label: the API stores a flat list of scopes. */
-    group: 'Analytics' | 'Monitoring' | 'Scouts and skills' | 'Data' | 'Replay vision'
+    group: 'Analytics' | 'Monitoring' | 'Customer analytics' | 'Scouts and skills' | 'Data' | 'Replay vision'
     label: string
     description: string
 }
@@ -44,6 +44,13 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         label: 'Alerts',
         description:
             'Create, update, and delete insight alerts, and post them to a Slack channel your project has connected',
+    },
+    {
+        scope: 'customer_task:write',
+        group: 'Customer analytics',
+        label: 'Customer tasks',
+        description:
+            'Create tasks, update their status, due date, and assignee, and archive them. This includes tasks assigned to other people',
     },
     {
         scope: 'llm_skill:write',
