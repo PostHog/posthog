@@ -2669,6 +2669,16 @@ describe("PostHogAPIClient", () => {
         task_id: "t1",
         created_by: null,
       },
+      {
+        id: "a15",
+        type: "report_link",
+        content: {
+          kind: "depends_on",
+          report_id: "00000000-0000-4000-8000-000000000001",
+          reason: "Needs the schema first",
+        },
+        created_at: "2026-06-01T00:00:14Z",
+      },
     ];
 
     it("normalizes every backend artefact type without dropping rows", async () => {
@@ -2711,6 +2721,17 @@ describe("PostHogAPIClient", () => {
           content: {},
           created_at: "2026-06-01T00:00:02Z",
         },
+        // report link naming something that is not a report id
+        {
+          id: "bad4",
+          type: "report_link",
+          content: {
+            kind: "depends_on",
+            report_id: "not-a-report-id",
+            reason: "stale link",
+          },
+          created_at: "2026-06-01T00:00:03Z",
+        },
       ];
       const fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -2720,7 +2741,12 @@ describe("PostHogAPIClient", () => {
 
       const { results } = await client.getSignalReportArtefacts("r1");
 
-      expect(results.map((a) => a.id)).toEqual(["bad1", "bad2", "bad3"]);
+      expect(results.map((a) => a.id)).toEqual([
+        "bad1",
+        "bad2",
+        "bad3",
+        "bad4",
+      ]);
       expect(results.every((a) => a.degraded)).toBe(true);
       expect(results[0].type).toBe("commit");
       expect((results[1].content as { content: string }).content).toBe(

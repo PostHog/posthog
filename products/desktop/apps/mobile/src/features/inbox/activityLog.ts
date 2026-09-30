@@ -2,16 +2,17 @@ import type { AnySignalReportArtefact } from "@posthog/shared/domain-types";
 
 export type ActivityArtefact = Extract<
   AnySignalReportArtefact,
-  { type: "commit" | "task_run" }
+  { type: "commit" | "task_run" | "report_link" }
 >;
+
+const ACTIVITY_ARTEFACT_TYPES = new Set(["commit", "task_run", "report_link"]);
 
 export function selectActivityArtefacts(
   artefacts: AnySignalReportArtefact[],
 ): ActivityArtefact[] {
   return artefacts
-    .filter(
-      (artefact): artefact is ActivityArtefact =>
-        artefact.type === "commit" || artefact.type === "task_run",
+    .filter((artefact): artefact is ActivityArtefact =>
+      ACTIVITY_ARTEFACT_TYPES.has(artefact.type),
     )
     .sort((left, right) => left.created_at.localeCompare(right.created_at));
 }

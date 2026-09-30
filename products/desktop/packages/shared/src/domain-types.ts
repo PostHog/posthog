@@ -1020,6 +1020,33 @@ export interface NoteContent {
   author?: string | null;
 }
 
+/**
+ * How one report relates to another, read as a sentence that starts at the report the
+ * `report_link` artefact is written on: "this report `kind` the report named by `report_id`".
+ * The direction is the payload, so nothing is mirrored onto the target report.
+ */
+export type ReportLinkKind =
+  | "depends_on"
+  | "part_of"
+  | "follow_up_of"
+  | "duplicate_of"
+  | "recurrence_of";
+
+/** Artefact with `type: "report_link"` — a typed, directed link to another report. */
+export interface ReportLinkArtefact extends SignalReportArtefactBase {
+  type: "report_link";
+  content: ReportLinkContent;
+}
+
+export interface ReportLinkContent {
+  /** A kind the backend added after this client shipped still arrives as a plain string. */
+  kind: ReportLinkKind | (string & {});
+  /** UUID of the linked report, always in the same project. */
+  report_id: string;
+  /** Optional one-line note on why the reports are linked this way. */
+  reason?: string | null;
+}
+
 /** Response from the `commit` artefact diff endpoint — the commit rendered against its parent. */
 export interface CommitDiffResponse {
   /** Unified diff (patch) text introduced by the commit. */
@@ -1123,7 +1150,8 @@ export type AnySignalReportArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | ReportLinkArtefact;
 
 export interface SignalReportArtefactsResponse {
   results: AnySignalReportArtefact[];
