@@ -20,7 +20,9 @@ class TestTaskSearchIndex(TransactionTestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Search Org")
         self.team = Team.objects.create(organization=self.organization, name="Search Team")
-        self.user = User.objects.create(email="search@example.com", distinct_id="search-user")
+        # Joined to the organization because search only ever runs for a project member, and
+        # per-object canvas access control fails closed for a caller it cannot place in the org.
+        self.user = User.objects.create_and_join(self.organization, "search@example.com", None)
         self.enterContext(team_scope(self.team.id))
 
     def make_task(self, title="Index command menu", **kwargs):
@@ -85,7 +87,7 @@ class TestTaskSearchIndex(TransactionTestCase):
             created_by=self.user,
         )
         canvas = Canvas.objects.create(team=self.team, name="Release checklist", channel=shared)
-        teammate = User.objects.create(email="teammate@example.com", distinct_id="teammate-search-user")
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
         self.assertEqual(len(search_tasks(self.team.id, teammate.id, "release checklist")), 1)
 
         canvas.channel = private

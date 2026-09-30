@@ -1321,6 +1321,7 @@ export type ActivityLogListParams = {
      * * `Notebook` - Notebook
      * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
+     * * `Task` - Task
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -1424,6 +1425,7 @@ export const ActivityLogListScope = {
     Notebook: 'Notebook',
     GeneratedWidget: 'GeneratedWidget',
     Canvas: 'Canvas',
+    Task: 'Task',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
     Dashboard: 'Dashboard',
@@ -1514,6 +1516,7 @@ export const ActivityLogListScope = {
  * * `Notebook` - Notebook
  * * `GeneratedWidget` - GeneratedWidget
  * * `Canvas` - Canvas
+ * * `Task` - Task
  * * `Endpoint` - Endpoint
  * * `EndpointVersion` - EndpointVersion
  * * `Dashboard` - Dashboard
@@ -1605,6 +1608,7 @@ export const ActivityLogListScopesItem = {
     Notebook: 'Notebook',
     GeneratedWidget: 'GeneratedWidget',
     Canvas: 'Canvas',
+    Task: 'Task',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
     Dashboard: 'Dashboard',
