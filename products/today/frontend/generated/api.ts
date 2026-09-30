@@ -33,7 +33,7 @@ export const getTodayBriefingRetrieveUrl = (projectId: string, params?: TodayBri
 }
 
 /**
- * Today's personal briefing: a short text about the top 5 items and a left bar with the top 10. Starts generating one when there is none yet; while it writes, the template draft is returned with status 'writing'.
+ * Today's personal briefing: a short text about the top 5 items and a left bar with the top 10. There are two editions a day, from 8:00 and from 12:00 local time. Starts generating the current edition when there is none yet; while it writes, the template draft is returned with status 'writing'.
  * @summary Get today's briefing
  */
 export const todayBriefingRetrieve = async (
@@ -64,7 +64,7 @@ export const getTodayBriefingRefreshCreateUrl = (projectId: string, params?: Tod
 }
 
 /**
- * Start a new generation of today's briefing. Allowed 3 times per day.
+ * Regenerate the current edition of today's briefing. Allowed 3 times per day.
  * @summary Refresh today's briefing
  */
 export const todayBriefingRefreshCreate = async (

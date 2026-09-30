@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from pydantic.dataclasses import dataclass
 
-from .enums import BriefingStatus, BriefingWriter, ItemGroup, ItemReason, ItemSource, ItemState
+from .enums import BriefingEdition, BriefingStatus, BriefingWriter, ItemGroup, ItemReason, ItemSource, ItemState
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,7 @@ class Briefing:
     status: BriefingStatus
     writer: BriefingWriter | None
     local_day: date
+    edition: BriefingEdition
     headline: str
     paragraphs: list[list[BriefingSegment]]
     items: list[BriefingItem]

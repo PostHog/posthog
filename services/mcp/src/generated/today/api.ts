@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Today's personal briefing: a short text about the top 5 items and a left bar with the top 10. Starts generating one when there is none yet; while it writes, the template draft is returned with status 'writing'.
+ * Today's personal briefing: a short text about the top 5 items and a left bar with the top 10. There are two editions a day, from 8:00 and from 12:00 local time. Starts generating the current edition when there is none yet; while it writes, the template draft is returned with status 'writing'.
  * @summary Get today's briefing
  */
 export const TodayBriefingRetrieveParams = () => zod.object({
@@ -28,7 +28,7 @@ export const TodayBriefingRetrieveQueryParams = () => zod.object({
         .max(todayBriefingRetrieveQueryTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone of the person's browser, for example Europe\/Prague. The day starts at 8:00 in it. Defaults to the project timezone."
+            "IANA timezone of the person's browser, for example Europe\/Prague. Editions start at 8:00 and 12:00 in it. Defaults to the project timezone."
         ),
 })
 
@@ -52,6 +52,6 @@ export const TodayCandidatesRetrieveQueryParams = () => zod.object({
         .max(todayCandidatesRetrieveQueryTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone of the person's browser, for example Europe\/Prague. The day starts at 8:00 in it. Defaults to the project timezone."
+            "IANA timezone of the person's browser, for example Europe\/Prague. Editions start at 8:00 and 12:00 in it. Defaults to the project timezone."
         ),
 })

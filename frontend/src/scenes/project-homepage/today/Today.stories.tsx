@@ -244,7 +244,8 @@ function briefingItem(overrides: Partial<BriefingItemApi> & Pick<BriefingItemApi
 const PERSONAL_BRIEFING: BriefingApi = {
     id: 'briefing-1',
     local_day: '2026-09-28',
-    headline: 'Two reports need your input this morning',
+    edition: 'morning',
+    headline: 'Two reports need your input',
     paragraphs: [
         [
             { text: 'The ', item_key: null, highlight: false },
@@ -460,6 +461,23 @@ export const Home: Story = {}
 
 export const HomeWithPersonalBriefing: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING } })],
+}
+
+export const HomeWithNothingForYou: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/briefing/': {
+                    ...PERSONAL_BRIEFING,
+                    headline: 'Nothing needs you right now',
+                    paragraphs: [],
+                    items: [],
+                    more_reports_count: 0,
+                    writer: 'template',
+                },
+            },
+        }),
+    ],
 }
 
 export const HomeWithPersonalBriefingDraft: Story = {

@@ -16,6 +16,13 @@ class BriefingTrigger(StrEnum):
     REFRESH = "refresh"
 
 
+class BriefingEdition(StrEnum):
+    """A day has two briefings: the morning one from 8:00 and the midday one from 12:00, in local time."""
+
+    MORNING = "morning"
+    MIDDAY = "midday"
+
+
 class BriefingWriter(StrEnum):
     LLM = "llm"
     TEMPLATE = "template"

@@ -22,7 +22,7 @@ from ..feature_flags import is_enabled_for
 from ..logic import generate
 from ..logic.briefings import create_briefing
 from ..logic.candidates import Candidate
-from ..logic.eligibility import is_due, local_day
+from ..logic.eligibility import due_edition
 from ..models import DailyBriefing
 from .inputs import (
     GENERATE_WORKFLOW_NAME,
@@ -83,7 +83,7 @@ def _fail_stuck_briefings(now: datetime) -> int:
 
 
 def _due_briefings() -> list[DailyBriefing]:
-    """Create the rows for people whose day starts in this window and who opened Today recently."""
+    """Create the rows for people whose next edition starts in this window and who opened Today recently."""
     now = timezone.now()
     _fail_stuck_briefings(now)
     since = now - timedelta(days=ACTIVE_VIEWER_DAYS)
@@ -96,9 +96,9 @@ def _due_briefings() -> list[DailyBriefing]:
         .values_list("team_id", "user_id", "timezone")
     )
     due = [
-        (team_id, user_id, timezone_name, local_day(now + timedelta(minutes=SCHEDULE_WINDOW_MINUTES), timezone_name))
+        (team_id, user_id, timezone_name, slot)
         for team_id, user_id, timezone_name in viewers
-        if is_due(now, timezone_name, SCHEDULE_WINDOW_MINUTES)
+        if (slot := due_edition(now, timezone_name, SCHEDULE_WINDOW_MINUTES)) is not None
     ]
     if not due:
         return []
@@ -108,20 +108,21 @@ def _due_briefings() -> list[DailyBriefing]:
     users = User.objects.filter(is_active=True).in_bulk(user_ids)
     existing = set(
         DailyBriefing.objects.unscoped()
-        .filter(team_id__in=team_ids, user_id__in=user_ids, local_day__in={day for _, _, _, day in due})
-        .values_list("team_id", "user_id", "local_day")
+        .filter(team_id__in=team_ids, user_id__in=user_ids, local_day__in={slot.local_day for _, _, _, slot in due})
+        .values_list("team_id", "user_id", "local_day", "edition")
     )
     created: list[DailyBriefing] = []
-    for team_id, user_id, timezone_name, day in due:
+    for team_id, user_id, timezone_name, slot in due:
         if len(created) >= MAX_STARTS_PER_RUN:
             break
         team, user = teams.get(team_id), users.get(user_id)
+        already_created = (team_id, user_id, slot.local_day, slot.edition) in existing
         # Someone who opened Today may have lost the flag since. They get no row and no workflow.
-        if (team_id, user_id, day) in existing or team is None or user is None or not is_enabled_for(user, team):
+        if already_created or team is None or user is None or not is_enabled_for(user, team):
             continue
         created.append(
             create_briefing(
-                team=team, user=user, day=day, timezone_name=timezone_name, trigger=BriefingTrigger.SCHEDULED
+                team=team, user=user, slot=slot, timezone_name=timezone_name, trigger=BriefingTrigger.SCHEDULED
             )
         )
     return created

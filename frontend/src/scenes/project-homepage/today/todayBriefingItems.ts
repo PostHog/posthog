@@ -48,6 +48,11 @@ export function hasBriefingText(briefing: BriefingApi | null): boolean {
     return !!briefing && (!!briefing.headline || briefing.paragraphs.length > 0)
 }
 
+/** The edition the browser's clock is in. It matches the backend: morning from 8:00, midday from 12:00. */
+export function editionForHour(hour: number): BriefingApi['edition'] {
+    return hour >= 8 && hour < 12 ? 'morning' : 'midday'
+}
+
 export function isBriefingSettled(briefing: Pick<BriefingApi, 'status'>): boolean {
     return briefing.status === 'ready' || briefing.status === 'failed'
 }

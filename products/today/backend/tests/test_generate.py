@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter
+from products.today.backend.facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter
 from products.today.backend.logic.generate import draft_briefing, write_and_check
 from products.today.backend.models import DailyBriefing
 from products.today.backend.temporal.activities import _due_briefings
@@ -35,6 +35,7 @@ class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
             team_id=self.team.id,
             user_id=self.user.id,
             local_day=timezone.now().date(),
+            edition=BriefingEdition.MORNING,
             timezone="UTC",
             trigger=BriefingTrigger.FIRST_OPEN,
             status=BriefingStatus.WRITING,
@@ -94,25 +95,35 @@ class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):
             team_id=self.team.id,
             user_id=self.user.id,
             local_day=date(2026, 9, 29),
+            edition=BriefingEdition.MIDDAY,
             timezone="Europe/Prague",
             trigger=BriefingTrigger.FIRST_OPEN,
             status=BriefingStatus.READY,
             last_viewed_at=datetime(2026, 9, 29, 9, 0, tzinfo=UTC),
         )
 
-    @parameterized.expand([("flag on", True, 1), ("flag off", False, 0)])
-    def test_scheduler_creates_a_row_only_with_the_flag(self, _name: str, enabled: bool, expected_rows: int) -> None:
+    @parameterized.expand(
+        [
+            # Prague is UTC+2, so 05:50 UTC is 07:50 and 09:50 UTC is 11:50 local time.
+            ("morning edition", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), True, [BriefingEdition.MORNING]),
+            ("midday edition", datetime(2026, 9, 30, 9, 50, tzinfo=UTC), True, [BriefingEdition.MIDDAY]),
+            ("between editions", datetime(2026, 9, 30, 7, 0, tzinfo=UTC), True, []),
+            ("flag off", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), False, []),
+        ]
+    )
+    def test_scheduler_writes_each_edition_ahead_only_with_the_flag(
+        self, _name: str, now: datetime, enabled: bool, expected: list[BriefingEdition]
+    ) -> None:
         self._viewer_row()
 
-        # 07:50 in Prague, inside the window before the 8:00 day start.
-        with (
-            time_machine.travel(datetime(2026, 9, 30, 5, 50, tzinfo=UTC), tick=False),
-            patch(FLAG, return_value=enabled),
-        ):
+        with time_machine.travel(now, tick=False), patch(FLAG, return_value=enabled):
             created = _due_briefings()
+            again = _due_briefings()
 
-        assert len(created) == expected_rows
-        assert DailyBriefing.objects.for_team(self.team.id).filter(local_day=date(2026, 9, 30)).count() == expected_rows
+        assert [(row.local_day, row.edition) for row in created] == [
+            (date(2026, 9, 30), edition) for edition in expected
+        ]
+        assert again == []
 
     def test_draft_deletes_the_row_when_the_flag_turned_off(self) -> None:
         briefing = self._viewer_row()

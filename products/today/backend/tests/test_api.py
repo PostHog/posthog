@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -34,6 +37,21 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         rows = DailyBriefing.objects.for_team(self.team.id).filter(user_id=self.user.id)
         assert [(row.trigger, row.timezone) for row in rows] == [(BriefingTrigger.FIRST_OPEN, "Europe/Prague")]
         assert sync_connect.return_value.start_workflow.call_count == 1
+
+    def test_opening_after_noon_starts_the_midday_edition(self, sync_connect: MagicMock) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock()
+        url = f"/api/projects/{self.team.id}/today/briefing/?timezone=Europe/Prague"
+        with self._flag(True):
+            # Prague is UTC+2: 09:00 and then 13:00 local time on the same day.
+            with time_machine.travel(datetime(2026, 9, 30, 7, 0, tzinfo=UTC), tick=False):
+                morning = self.client.get(url).json()
+            with time_machine.travel(datetime(2026, 9, 30, 11, 0, tzinfo=UTC), tick=False):
+                midday = self.client.get(url).json()
+
+        assert (morning["local_day"], morning["edition"]) == ("2026-09-30", "morning")
+        assert (midday["local_day"], midday["edition"]) == ("2026-09-30", "midday")
+        assert morning["id"] != midday["id"]
+        assert sync_connect.return_value.start_workflow.call_count == 2
 
     def test_refresh_is_limited_per_day(self, sync_connect: MagicMock) -> None:
         sync_connect.return_value.start_workflow = AsyncMock()

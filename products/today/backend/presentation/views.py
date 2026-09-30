@@ -32,7 +32,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=TodayQuerySerializer,
         responses={200: OpenApiResponse(response=BriefingSerializer)},
         summary="Get today's briefing",
-        description="Today's personal briefing: a short text about the top 5 items and a left bar with the top 10. Starts generating one when there is none yet; while it writes, the template draft is returned with status 'writing'.",
+        description="Today's personal briefing: a short text about the top 5 items and a left bar with the top 10. There are two editions a day, from 8:00 and from 12:00 local time. Starts generating the current edition when there is none yet; while it writes, the template draft is returned with status 'writing'.",
     )
     @action(detail=False, methods=["get"], url_path="briefing")
     def briefing(self, request: Request, **kwargs) -> Response:
@@ -49,7 +49,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             429: OpenApiResponse(response=TodayErrorSerializer),
         },
         summary="Refresh today's briefing",
-        description=f"Start a new generation of today's briefing. Allowed {api.MAX_REFRESHES_PER_DAY} times per day.",
+        description=f"Regenerate the current edition of today's briefing. Allowed {api.MAX_REFRESHES_PER_DAY} times per day.",
     )
     @action(detail=False, methods=["post"], url_path="briefing/refresh")
     def refresh(self, request: Request, **kwargs) -> Response:

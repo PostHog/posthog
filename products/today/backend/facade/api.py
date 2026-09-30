@@ -16,7 +16,7 @@ def get_briefing(*, team: Team, user: User, timezone_name: str | None) -> contra
 
 
 def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> contracts.Briefing:
-    """Start a new generation for today. Raises RefreshLimitReached after the daily limit."""
+    """Regenerate the current edition. Raises RefreshLimitReached after the daily limit."""
     briefings.refresh_briefing(team=team, user=user, timezone_name=timezone_name)
     return get_briefing(team=team, user=user, timezone_name=timezone_name)
 

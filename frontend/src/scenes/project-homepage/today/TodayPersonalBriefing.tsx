@@ -1,8 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
 import { Link } from 'lib/lemon-ui/Link'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
@@ -40,12 +37,28 @@ function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): 
 }
 
 export function TodayPersonalBriefing(): JSX.Element | null {
-    const { personalBriefing, briefingWaiting, refreshedBriefingLoading } = useValues(todayLogic)
-    const { refreshBriefing } = useActions(todayLogic)
+    const { personalBriefing } = useValues(todayLogic)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
 
     if (!personalBriefing) {
         return null
+    }
+    if (personalBriefing.items.length === 0) {
+        return (
+            <>
+                <p className="TodayHome__count">{personalBriefing.headline || 'Nothing needs you right now'}</p>
+                <p>
+                    <span>
+                        Reports assigned to you, changes on dashboards you use, firing alerts, your tickets and your
+                        pull requests show up here. Your briefing updates at 8:00 and at noon.{' '}
+                    </span>
+                    <Link to={urls.inbox()} data-attr="today-empty-briefing-inbox">
+                        Open the Inbox
+                    </Link>
+                    <span> to see every report.</span>
+                </p>
+            </>
+        )
     }
     const moreCount = personalBriefing.more_reports_count
 
@@ -78,21 +91,6 @@ export function TodayPersonalBriefing(): JSX.Element | null {
                 </button>
                 <span>.</span>
             </p>
-            <div className="flex">
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    icon={<IconRefresh />}
-                    loading={briefingWaiting}
-                    disabledReason={
-                        briefingWaiting && !refreshedBriefingLoading ? 'Your briefing is being written' : undefined
-                    }
-                    onClick={() => refreshBriefing()}
-                    data-attr="today-briefing-refresh"
-                >
-                    {briefingWaiting ? 'Writing your briefing…' : 'Refresh'}
-                </LemonButton>
-            </div>
         </>
     )
 }

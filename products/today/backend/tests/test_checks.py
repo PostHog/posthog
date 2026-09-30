@@ -54,7 +54,7 @@ FACT_SHEET: dict[str, Any] = {
 }
 
 VALID: dict[str, Any] = {
-    "headline": "One report needs your input this morning.",
+    "headline": "One report needs your input.",
     "paragraphs": [
         [
             {"text": "A ", "item_key": None, "highlight": False},

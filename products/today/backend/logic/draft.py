@@ -75,11 +75,11 @@ def build_draft(fact_sheet: dict[str, Any]) -> dict[str, Any]:
 
     if reports:
         count = len(reports)
-        headline = f"{_COUNT_WORDS[count]} {'report needs' if count == 1 else 'reports need'} your input this morning"
+        headline = f"{_COUNT_WORDS[count]} {'report needs' if count == 1 else 'reports need'} your input"
     elif movements:
         headline = "Here is how your dashboards moved this week"
     elif others:
-        headline = "A few things need you this morning"
+        headline = "A few things need you"
     else:
         headline = "Nothing needs you right now"
 

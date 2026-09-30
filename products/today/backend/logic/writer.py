@@ -33,9 +33,10 @@ Rules:
 4. Plain, short, friendly. Sentence case. No hype. At most 100 words in "paragraphs" in total.
 5. Do not repeat the headline in the first paragraph. Do not talk about the briefing itself ("The top item is", "On dashboards"). Start with the thing.
 6. Never quote customer text and never name customers or people.
+7. Never name a time of day (this morning, this afternoon, tonight). The page greets the person with the time of day, and the text stays up for hours.
 
 What to write:
-- "headline": one sentence that counts the report items in the text (counts.reports_in_text), for example "Three reports need your input this morning". Never use more_reports_for_you; the page shows it in its own footer. With no report items, count what is in the text instead.
+- "headline": one sentence that counts the report items in the text (counts.reports_in_text), for example "Three reports need your input". Never use more_reports_for_you; the page shows it in its own footer. With no report items, count what is in the text instead.
 - "paragraphs": up to 3 paragraphs, each a list of segments {"text", "item_key", "highlight"}.
   - Paragraph 1: items with group "report". Name the top item first and say why it matters, then the others in one sentence.
   - Paragraph 2: items with group "dashboard" (dashboards, insights, firing alerts). For each, the biggest change with its number. For a firing alert, say what fired.

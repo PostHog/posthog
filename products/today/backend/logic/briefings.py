@@ -18,11 +18,20 @@ from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
 from ..facade.contracts import RefreshLimitReached
-from ..facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter, ItemGroup, ItemReason, ItemSource, ItemState
+from ..facade.enums import (
+    BriefingEdition,
+    BriefingStatus,
+    BriefingTrigger,
+    BriefingWriter,
+    ItemGroup,
+    ItemReason,
+    ItemSource,
+    ItemState,
+)
 from ..models import DailyBriefing
 from ..temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, generate_workflow_id
 from .candidates import SourceContext
-from .eligibility import local_day, resolve_timezone
+from .eligibility import EditionSlot, current_edition, resolve_timezone
 from .fact_sheet import build_fact_sheet
 from .ranking import rank_candidates, select
 from .sources import collect_all, reports
@@ -52,25 +61,26 @@ def start_generation(briefing: DailyBriefing) -> None:
 
 
 def create_briefing(
-    *, team: Team, user: User, day: date, timezone_name: str, trigger: BriefingTrigger
+    *, team: Team, user: User, slot: EditionSlot, timezone_name: str, trigger: BriefingTrigger
 ) -> DailyBriefing:
     return DailyBriefing.objects.for_team(team.id).create(
         team_id=team.id,
         user_id=user.id,
-        local_day=day,
+        local_day=slot.local_day,
+        edition=slot.edition,
         timezone=timezone_name,
         trigger=trigger,
         status=BriefingStatus.COLLECTING,
     )
 
 
-def _current(team: Team, user: User, day: date) -> DailyBriefing | None:
-    """The briefing to show: the newest ready one, else the newest in progress, else the newest failed one.
-
-    A refresh in progress keeps the ready briefing on screen until the new one is written.
-    """
-    # A day holds a handful of rows at most (one open, one scheduled, three refreshes).
-    rows = list(DailyBriefing.objects.for_team(team.id).filter(user_id=user.id, local_day=day).order_by("-created_at"))
+def _current(team: Team, user: User, slot: EditionSlot) -> DailyBriefing | None:
+    """The edition's briefing: the newest ready one, else the newest in progress, else the newest failed one."""
+    rows = list(
+        DailyBriefing.objects.for_team(team.id)
+        .filter(user_id=user.id, local_day=slot.local_day, edition=slot.edition)
+        .order_by("-created_at")
+    )
     pending_statuses = {BriefingStatus.COLLECTING, BriefingStatus.WRITING}
     ready = next((row for row in rows if row.status == BriefingStatus.READY), None)
     pending = next((row for row in rows if row.status in pending_statuses), None)
@@ -81,26 +91,30 @@ def get_or_start_briefing(
     *, team: Team, user: User, timezone_name: str | None, now: datetime | None = None
 ) -> DailyBriefing:
     tz = resolve_timezone(timezone_name, team)
-    day = local_day(now or timezone.now(), tz)
-    briefing = _current(team, user, day)
+    slot = current_edition(now or timezone.now(), tz)
+    briefing = _current(team, user, slot)
     if briefing is None:
-        briefing = create_briefing(team=team, user=user, day=day, timezone_name=tz, trigger=BriefingTrigger.FIRST_OPEN)
+        # The scheduler writes both editions ahead for recent viewers; this covers everyone else.
+        briefing = create_briefing(
+            team=team, user=user, slot=slot, timezone_name=tz, trigger=BriefingTrigger.FIRST_OPEN
+        )
         start_generation(briefing)
     DailyBriefing.objects.for_team(team.id).filter(id=briefing.id).update(last_viewed_at=timezone.now(), timezone=tz)
     return briefing
 
 
 def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> DailyBriefing:
+    """Regenerate the current edition. The ready briefing stays on screen until the new one is written."""
     tz = resolve_timezone(timezone_name, team)
-    day = local_day(timezone.now(), tz)
+    slot = current_edition(timezone.now(), tz)
     refreshes = (
         DailyBriefing.objects.for_team(team.id)
-        .filter(user_id=user.id, local_day=day, trigger=BriefingTrigger.REFRESH)
+        .filter(user_id=user.id, local_day=slot.local_day, trigger=BriefingTrigger.REFRESH)
         .count()
     )
     if refreshes >= MAX_REFRESHES_PER_DAY:
         raise RefreshLimitReached()
-    briefing = create_briefing(team=team, user=user, day=day, timezone_name=tz, trigger=BriefingTrigger.REFRESH)
+    briefing = create_briefing(team=team, user=user, slot=slot, timezone_name=tz, trigger=BriefingTrigger.REFRESH)
     start_generation(briefing)
     return briefing
 
@@ -128,6 +142,7 @@ def to_contract(briefing: DailyBriefing, team: Team) -> contracts.Briefing:
         status=BriefingStatus(briefing.status),
         writer=BriefingWriter(briefing.writer) if briefing.writer else None,
         local_day=briefing.local_day,
+        edition=BriefingEdition(briefing.edition),
         headline=str(content.get("headline") or ""),
         paragraphs=[
             [
@@ -191,8 +206,9 @@ def _facts_to_candidates(fact_sheet: dict[str, Any], day: date) -> contracts.Can
 def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> contracts.CandidateList:
     """Today's ranked items with their facts: from today's briefing when there is one, else collected now."""
     tz = resolve_timezone(timezone_name, team)
-    day = local_day(timezone.now(), tz)
-    briefing = _current(team, user, day)
+    slot = current_edition(timezone.now(), tz)
+    day = slot.local_day
+    briefing = _current(team, user, slot)
     if briefing is not None and (briefing.facts or {}).get("items") is not None:
         return _facts_to_candidates(briefing.facts, day)
     ctx = SourceContext(team=team, user=user, now=timezone.now())

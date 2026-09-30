@@ -13,7 +13,7 @@ from products.today.backend.logic.writer import WriterError, WriterOutput, write
 
 OUTPUT = WriterOutput.model_validate(
     {
-        "headline": "One report needs your input this morning.",
+        "headline": "One report needs your input.",
         "paragraphs": [[{"text": "The checkout report", "item_key": "report:1", "highlight": True}]],
         "items": [
             {"item_key": "report:1", "label": "Checkout button hidden", "signal": "P2, waits for you"},

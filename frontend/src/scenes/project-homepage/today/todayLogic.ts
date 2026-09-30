@@ -19,7 +19,7 @@ import { todayBriefingRefreshCreate, todayBriefingRetrieve } from 'products/toda
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 import type { TeamPublicType } from '../../../types'
-import { TodayItemOpenSurface, hasBriefingText, isBriefingSettled } from './todayBriefingItems'
+import { TodayItemOpenSurface, editionForHour, hasBriefingText, isBriefingSettled } from './todayBriefingItems'
 import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySampleReports'
 import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
 
@@ -435,6 +435,15 @@ export const todayLogic = kea<todayLogicType>([
         askAi: ({ prompt }) => {
             router.actions.push(urls.ai(undefined, prompt))
         },
+        tick: () => {
+            // An open tab moves to the next edition at 8:00 and at noon without a reload.
+            // The first tick, at mount, only records the edition.
+            const edition = editionForHour(values.hour)
+            if (cache.edition !== undefined && edition !== cache.edition && !values.useSampleData) {
+                actions.loadPersonalBriefing()
+            }
+            cache.edition = edition
+        },
         openReport: ({ report, source }) => {
             router.actions.push(urls.todayReport(report.id))
             actions.reportOpened(report, source)
@@ -530,6 +539,8 @@ export const todayLogic = kea<todayLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
+        // `now` defaults to the time the module loaded, so set it before anything reads the hour.
+        actions.tick()
         const useSampleData = parseSampleParam(router.values.searchParams.sample)
         if (useSampleData !== null && useSampleData !== values.useSampleData) {
             actions.setUseSampleData(useSampleData)

@@ -13,7 +13,7 @@ from posthog.models import Team, User
 from products.signals.backend.facade import api as signals
 from products.today.backend.facade.enums import ItemGroup, ItemReason, ItemSource
 from products.today.backend.logic.candidates import Candidate, SourceContext
-from products.today.backend.logic.eligibility import is_due, local_day
+from products.today.backend.logic.eligibility import current_edition, due_edition
 from products.today.backend.logic.ranking import rank_candidates, select
 from products.today.backend.logic.sources import reports as report_source
 
@@ -115,23 +115,31 @@ class TestReportOrder(SimpleTestCase):
         assert [item.key for item in ranked] == [f"report:{report_id}" for report_id in expected]
 
 
-class TestBriefingDay(SimpleTestCase):
+class TestBriefingEdition(SimpleTestCase):
     @parameterized.expand(
         [
-            ("before 8:00 is still yesterday", datetime(2026, 9, 30, 5, 30, tzinfo=UTC), "Europe/Prague", "2026-09-29"),
-            ("after 8:00 is today", datetime(2026, 9, 30, 6, 30, tzinfo=UTC), "Europe/Prague", "2026-09-30"),
-            ("the zone decides", datetime(2026, 9, 30, 13, 0, tzinfo=UTC), "America/Los_Angeles", "2026-09-29"),
+            # Prague is UTC+2 on these dates.
+            ("before 8:00 is yesterday's midday", datetime(2026, 9, 30, 5, 30, tzinfo=UTC), "2026-09-29", "midday"),
+            ("8:00 starts the morning", datetime(2026, 9, 30, 6, 0, tzinfo=UTC), "2026-09-30", "morning"),
+            ("noon starts the midday", datetime(2026, 9, 30, 10, 0, tzinfo=UTC), "2026-09-30", "midday"),
+            ("late evening is still midday", datetime(2026, 9, 30, 21, 0, tzinfo=UTC), "2026-09-30", "midday"),
         ]
     )
-    def test_local_day(self, _name: str, now: datetime, zone: str, expected: str) -> None:
-        assert local_day(now, zone).isoformat() == expected
+    def test_current_edition(self, _name: str, now: datetime, expected_day: str, expected_edition: str) -> None:
+        slot = current_edition(now, "Europe/Prague")
+
+        assert (slot.local_day.isoformat(), slot.edition) == (expected_day, expected_edition)
 
     @parameterized.expand(
         [
-            ("in the window", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), True),
-            ("at 8:00 the window has closed", datetime(2026, 9, 30, 6, 0, tzinfo=UTC), False),
-            ("too early", datetime(2026, 9, 30, 5, 40, tzinfo=UTC), False),
+            ("15 minutes before 8:00", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), "morning"),
+            ("15 minutes before noon", datetime(2026, 9, 30, 9, 50, tzinfo=UTC), "midday"),
+            ("at 8:00 the window has closed", datetime(2026, 9, 30, 6, 0, tzinfo=UTC), None),
+            ("too early", datetime(2026, 9, 30, 5, 40, tzinfo=UTC), None),
+            ("mid afternoon", datetime(2026, 9, 30, 14, 50, tzinfo=UTC), None),
         ]
     )
-    def test_is_due_15_minutes_before_8_in_prague(self, _name: str, now: datetime, expected: bool) -> None:
-        assert is_due(now, "Europe/Prague", 15) is expected
+    def test_due_edition(self, _name: str, now: datetime, expected: str | None) -> None:
+        slot = due_edition(now, "Europe/Prague", 15)
+
+        assert (slot.edition if slot else None) == expected

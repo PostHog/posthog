@@ -6,15 +6,16 @@ from django.db import models
 
 from posthog.models.scoping.product_mixin import ProductTeamModel
 
-from .facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter
+from .facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter
 
 
 class DailyBriefing(ProductTeamModel):
-    """One generation of a person's Today briefing. The page shows the newest ready row for the day."""
+    """One generation of a person's Today briefing. The page shows the current edition of the day."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user_id = models.BigIntegerField()
     local_day = models.DateField()
+    edition = models.CharField(max_length=16, choices=[(e.value, e.value) for e in BriefingEdition])
     timezone = models.CharField(max_length=64)
     trigger = models.CharField(max_length=16, choices=[(t.value, t.value) for t in BriefingTrigger])
     status = models.CharField(
@@ -36,7 +37,9 @@ class DailyBriefing(ProductTeamModel):
 
     class Meta(ProductTeamModel.Meta):
         indexes = [
-            models.Index(fields=["team_id", "user_id", "local_day", "-created_at"], name="today_briefing_day_idx"),
+            models.Index(
+                fields=["team_id", "user_id", "local_day", "edition", "-created_at"], name="today_briefing_day_idx"
+            ),
             models.Index(fields=["last_viewed_at"], name="today_briefing_viewed_idx"),
             models.Index(
                 fields=["created_at"],
@@ -46,4 +49,4 @@ class DailyBriefing(ProductTeamModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.user_id} {self.local_day} {self.status}"
+        return f"{self.user_id} {self.local_day} {self.edition} {self.status}"

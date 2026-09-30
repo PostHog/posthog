@@ -16,7 +16,8 @@ function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
     return {
         id: 'briefing-1',
         local_day: '2026-09-30',
-        headline: 'One report needs your input this morning',
+        edition: 'morning',
+        headline: 'One report needs your input',
         paragraphs: [[{ text: 'Signup form rejects emails', item_key: 'report:a', highlight: true }]],
         items: [
             {
@@ -111,6 +112,23 @@ describe('todayLogic', () => {
             .toMatchValues({ briefingWaiting: false, personalBriefing: ready })
 
         await jest.advanceTimersByTimeAsync(BRIEFING_POLL_MS * 3)
+        expect(briefingCalls).toBe(2)
+    })
+
+    it('loads the midday edition when an open tab crosses noon', async () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(2026, 8, 30, 11, 59, 45))
+        briefingResponses = [[200, makeBriefing()]]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPersonalBriefingSuccess'])
+
+        await expectLogic(logic, () => {
+            jest.advanceTimersByTime(30_000)
+        }).toDispatchActions(['tick', 'loadPersonalBriefing', 'loadPersonalBriefingSuccess'])
+        expect(briefingCalls).toBe(2)
+
+        await jest.advanceTimersByTimeAsync(30_000)
         expect(briefingCalls).toBe(2)
     })
 
