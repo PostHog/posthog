@@ -2,7 +2,13 @@ import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
 
-import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_MAX_WIDTH, railPaneForPath, todayShellLogic } from './todayShellLogic'
+import {
+    TODAY_RAIL_WIDTH,
+    TODAY_SIDEBAR_MAX_WIDTH,
+    landingPaneForPath,
+    railPaneForPath,
+    todayShellLogic,
+} from './todayShellLogic'
 
 describe('todayShellLogic', () => {
     beforeEach(() => {
@@ -22,6 +28,28 @@ describe('todayShellLogic', () => {
         ['/project/1/homework', null],
     ])('puts %s under %s', (pathname, pane) => {
         expect(railPaneForPath(pathname)).toBe(pane)
+    })
+
+    test.each([
+        ['/project/1/feature_flags/42', 'library'],
+        ['/project/1/insights/abc', 'library'],
+        ['/project/1/dashboard/7', 'library'],
+        ['/project/1/visual_review/runs/abc', 'tools'],
+        ['/project/1/visual_review', 'tools'],
+        ['/project/1/visual_reviewer', null],
+        ['/project/1/ai', 'spaces'],
+    ])('lands on %s with %s open', (pathname, pane) => {
+        expect(landingPaneForPath(pathname, ['/visual_review?tab=runs'])).toBe(pane)
+    })
+
+    it('opens the pane of the first page only, and keeps it when later pages belong to another', () => {
+        router.actions.push('/project/1/feature_flags/42')
+        const logic = todayShellLogic()
+        logic.mount()
+        expect(logic.values.activePane).toBe('library')
+
+        router.actions.push('/project/1/sql')
+        expect(logic.values.activePane).toBe('library')
     })
 
     it('keeps the last pane open on pages that belong to no pane', () => {
