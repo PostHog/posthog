@@ -968,6 +968,7 @@ fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<Lead
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_secs(5),
+            num_channels: 1,
         },
         StashTable::with_bounds(usize::MAX, usize::MAX),
     ))
@@ -1000,6 +1001,7 @@ fn make_dying_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Ar
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_millis(200),
+            num_channels: 1,
         },
         StashTable::with_bounds(usize::MAX, usize::MAX),
     ))
