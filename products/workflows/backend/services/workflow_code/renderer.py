@@ -10,12 +10,16 @@ from posthog.dataclasses import frozen
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.workflow_code.compiler import (
+    EDITOR_ACTION_FIELDS,
     EMAIL_TEMPLATE_ID,
     EXIT_NODE_ID,
+    MAX_STEP_ID_LENGTH,
+    MAX_STEPS,
     TRIGGER_NODE_ID,
     WEBHOOK_TEMPLATE_ID,
     DocumentStep,
     DocumentTrigger,
+    count_steps,
     slug,
     step_action_body,
     trigger_config,
@@ -41,15 +45,17 @@ _BRANCH_COUNT_KEYS = {"conditional_branch": "conditions", "random_cohort_branch"
 _NOT_IN_THE_FILE = ("conversion", "trigger_masking", "email_sending_rate_limit", "abort_action")
 _LEADING_FIELDS = ("version", "key", "type", "id", "name")
 _TRAILING_FIELDS = ("output_variable",)
-_EDITOR_FIELDS = ("created_at", "updated_at")
-_NODE_FIELDS = frozenset({"id", "name", "description", "type", "config", *_EDITOR_FIELDS})
+_NODE_FIELDS = frozenset({"id", "name", "description", "type", "config", *EDITOR_ACTION_FIELDS})
 _STEP_FIELDS = _NODE_FIELDS | {"output_variable"}
 # Header, input and query names that usually hold a credential the template does not mark as secret.
 _CREDENTIAL_NAME = re.compile(
     r"^(?:proxy-)?authorization$|cookie|token|secret|passw|api[-_]?key|access[-_]?key|^x-auth", re.IGNORECASE
 )
-_MAX_STEP_ID_LENGTH = 200
-_SHRINK_IT = "An email design from the email editor is the usual cause. Make the workflow smaller in PostHog before you pull it again."
+_TEMPLATE_ONLY = re.compile(r"^\s*\{[^{}]*\}\s*$|^\s*\{\{[^{}]*\}\}\s*$")
+# Leaves room in a replacement step id for a suffix such as _2.
+_ROOM_FOR_A_SUFFIX = 6
+_MAKE_IT_SMALLER = "Make the workflow smaller in PostHog before you pull it again."
+_MAX_NAME_LENGTH = 400
 _DOCUMENT_STATUSES = (HogFlow.State.DRAFT, HogFlow.State.ACTIVE)
 # Each nested branch adds about four levels to the file, and the loader refuses files deeper than 100.
 MAX_BRANCH_DEPTH = 15
@@ -150,28 +156,53 @@ def _with_filters_cleaned(entry: Any) -> Any:
     return {**entry, "filters": _without_default_source(entry["filters"])}
 
 
-def _credential_names(inputs: dict[str, Any]) -> list[str]:
-    """Where the inputs hold something named like a credential: an input, a header or a URL query key."""
-    found: list[str] = []
+def _credential_places(inputs: dict[str, Any]) -> list[str]:
+    """Where the inputs hold a value under a name that usually means a credential: an input, a key at any
+    depth of an input's value, or a URL query key. A value that is only a template is read at run time, so
+    it holds no credential itself."""
+    places: list[str] = []
     for key, raw in inputs.items():
         value = raw.get("value") if isinstance(raw, dict) else raw
-        if _is_secret_marker(raw) or not _is_set(value):
+        if _is_secret_marker(raw):
             continue
-        if _CREDENTIAL_NAME.search(key):
-            found.append(f"the input {key}")
-        if isinstance(value, dict):
-            found += [
-                f"{name} in the input {key}"
-                for name, item in value.items()
-                if isinstance(name, str) and _CREDENTIAL_NAME.search(name) and _is_set(item)
+        if _CREDENTIAL_NAME.search(key) and _holds_literal(value):
+            places.append(f"the input {key}")
+        places += [f"{name} in the input {key}" for name in _credential_names_in(value)]
+    return places
+
+
+def _credential_names_in(value: Any) -> list[str]:
+    names: list[str] = []
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            for name, child in item.items():
+                if isinstance(name, str) and _CREDENTIAL_NAME.search(name) and _holds_literal(child):
+                    names.append(name)
+                pending.append(child)
+        elif isinstance(item, list):
+            pending += item
+        elif isinstance(item, str) and "?" in item:
+            names += [
+                f"the query key {name}" for name, _ in parse_qsl(urlsplit(item).query) if _CREDENTIAL_NAME.search(name)
             ]
-        elif isinstance(value, str) and "?" in value:
-            found += [
-                f"{name} in the query of the input {key}"
-                for name, _item in parse_qsl(urlsplit(value).query)
-                if _CREDENTIAL_NAME.search(name)
-            ]
-    return found
+    return names
+
+
+def _holds_literal(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value) and not _TEMPLATE_ONLY.match(value)
+    return _is_set(value) and not isinstance(value, dict | list)
+
+
+def _output_variable(value: Any) -> Any:
+    """The output variable as the workflows API stores it, which reads a bare key as { key }."""
+    if isinstance(value, str) and value:
+        return {"key": value}
+    if isinstance(value, list):
+        return [_output_variable(entry) for entry in value]
+    return value
 
 
 @frozen
@@ -293,7 +324,7 @@ class _Renderer:
         name = definition.get("name") or "Workflow"
         if not definition.get("name"):
             self.warn(
-                None, "The workflow has no name, so the file calls it Workflow. Applying the file names it Workflow."
+                None, "The workflow has no name, so the file names it Workflow, and applying the file stores that name."
             )
         status = self.render_status(definition.get("status"))
         if not key:
@@ -341,25 +372,40 @@ class _Renderer:
                 "trigger": trigger,
                 "steps": steps,
                 "exit": {
-                    "name": exit_action.get("name") or "Exit",
+                    "name": self.render_exit_name(exit_action),
                     "reason": _dict(exit_action.get("config")).get("reason") or "",
                     "description": exit_action.get("description") or "",
                 },
             }
         )
         data = _ordered(document)
-        self.warn_past_the_loader_limits(_shape(data))
+        self.warn_past_the_limits(_shape(data), count_steps(steps))
         content = dump_workflow_file(data, [warning.message for warning in self.warnings])
         size = len(content.encode("utf-8"))
         if size > MAX_CONTENT_BYTES:
             self.warn(
                 None,
-                f"The file is {size} bytes, and check and apply refuse a file over {MAX_CONTENT_BYTES} bytes. {_SHRINK_IT}",
+                f"The file is {size} bytes, and check and apply refuse a file over {MAX_CONTENT_BYTES} bytes. {_MAKE_IT_SMALLER}",
             )
             content = dump_workflow_file(data, [warning.message for warning in self.warnings])
         return RenderedWorkflow(content=content, warnings=tuple(self.warnings))
 
-    def warn_past_the_loader_limits(self, shape: _Shape) -> None:
+    def render_exit_name(self, exit_action: dict[str, Any]) -> str:
+        name = exit_action.get("name")
+        if name is None or name == "" or (isinstance(name, str) and len(name) <= _MAX_NAME_LENGTH):
+            return name or "Exit"
+        self.warn(
+            exit_action.get("id"),
+            "The exit has a name a file cannot hold, so the file calls it Exit. Applying the file renames it Exit.",
+        )
+        return "Exit"
+
+    def warn_past_the_limits(self, shape: _Shape, steps: int) -> None:
+        if steps > MAX_STEPS:
+            self.warn(
+                None,
+                f"The workflow has {steps} steps, and check and apply refuse a file with more than {MAX_STEPS}. {_MAKE_IT_SMALLER}",
+            )
         if shape.depth > MAX_DEPTH:
             self.warn(
                 None,
@@ -368,7 +414,7 @@ class _Renderer:
         if shape.values > MAX_VALUES:
             self.warn(
                 None,
-                f"The file holds more than {MAX_VALUES} values, and check and apply refuse a file with that many. {_SHRINK_IT}",
+                f"The file holds more than {MAX_VALUES} values, and check and apply refuse a file with that many. {_MAKE_IT_SMALLER}",
             )
 
     def warn_renamed_node(self, stored_id: str, file_id: str, label: str) -> None:
@@ -406,7 +452,7 @@ class _Renderer:
             if unset:
                 self.warn(
                     None,
-                    f"The variable {rendered.key} has no {' or '.join(unset)}. Applying the file stores it with type {rendered.type} and the default '{rendered.default}'.",
+                    f"The variable {rendered.key} has no {' or '.join(unset)}. Applying the file stores it with type {rendered.type} and {f"the default '{rendered.default}'" if rendered.default else 'an empty default'}.",
                 )
             extra = sorted(
                 field for field, value in variable.items() if field not in ("key", "type", "default") and _is_set(value)
@@ -529,13 +575,13 @@ class _Renderer:
 
     def step_base(self, action: dict[str, Any]) -> dict[str, Any]:
         base: dict[str, Any] = {"name": self.name_of(action), "description": action.get("description") or ""}
-        if isinstance(action.get("output_variable"), dict | list):
-            base["output_variable"] = action["output_variable"]
+        if _is_set(action.get("output_variable")):
+            base["output_variable"] = _output_variable(action["output_variable"])
         if slug(base["name"]) == action["id"]:
             return base
         if re.fullmatch(STEP_ID_PATTERN, action["id"]):
             return {**base, "id": action["id"]}
-        replacement = self.unused_id(slug(base["name"])[: _MAX_STEP_ID_LENGTH - 10] or "step")
+        replacement = self.unused_id(slug(base["name"])[: MAX_STEP_ID_LENGTH - _ROOM_FOR_A_SUFFIX] or "step")
         self.warn(
             action["id"],
             f'The id of "{self.name_of(action)}" has characters a file cannot hold, so the file gives the step the id {replacement}. Applying the file moves the people in it on as if the step were removed.',
@@ -584,10 +630,10 @@ class _Renderer:
             )
 
     def warn_credentials(self, action: dict[str, Any]) -> None:
-        for found in _credential_names(_dict(_dict(action.get("config")).get("inputs"))):
+        for place in _credential_places(_dict(_dict(action.get("config")).get("inputs"))):
             self.warn(
                 action["id"],
-                f'The file carries {found} of "{self.name_of(action)}" as plain text. It looks like a credential, and the template does not mark it secret. Take it out before you commit the file. Applying a file without it removes it from the workflow.',
+                f'The file carries {place} of "{self.name_of(action)}" as plain text. It looks like a credential, and the template does not mark it secret. A file cannot leave it out and keep it, because applying a file without it removes it from the workflow. Do not commit the file to a shared repository while it holds the value.',
             )
 
     def warn_secret_inputs(self, action: dict[str, Any]) -> None:

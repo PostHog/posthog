@@ -7,6 +7,7 @@ from pydantic_core import PydanticCustomError
 from posthog.schema import PropertyOperator
 
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, TRIGGER_TYPES, HogFlow
+from products.workflows.backend.services.workflow_code.errors import shown
 from products.workflows.backend.utils.durations import (
     DURATION_PATTERN,
     MAX_VALUE_FOR_DURATION_UNIT,
@@ -47,17 +48,6 @@ def document_error(message: str, why: str, fix: str) -> PydanticCustomError:
     return PydanticCustomError("document_error", "{message}", {"message": message, "why": why, "fix": fix})
 
 
-def shown(value: str) -> str:
-    """A value quoted back in an error, cut short so a long value does not fill the response."""
-    return f"'{shortened(value)}'"
-
-
-def shortened(value: str) -> str:
-    if len(value) <= _MAX_SHOWN_VALUE_LENGTH:
-        return value
-    return f"{value[:_MAX_SHOWN_VALUE_LENGTH]}..."
-
-
 def _check_duration(value: str) -> str:
     parsed = parse_duration(value)
     if parsed is None or parsed.negative or parsed.amount == 0:
@@ -87,12 +77,16 @@ def _duration_fix(value: str) -> str:
     match = _LOOSE_DURATION.match(value) if len(value) <= _MAX_SHOWN_VALUE_LENGTH else None
     if match is None:
         return "Write the duration as a number and a unit, for example 30m or 3d."
-    seconds = float(match.group(1)) * SECONDS_PER_DURATION_UNIT[match.group(2)[0].lower()]
+    amount, unit = float(match.group(1)), match.group(2)[0].lower()
+    seconds = amount * SECONDS_PER_DURATION_UNIT[unit]
     if seconds == 0:
         return "Use a number above zero, for example 30m or 3d."
     if seconds > _MAX_DELAY_SECONDS:
         return _OVER_30_DAYS_FIX
-    return _suggest_duration(seconds) or "Write the duration as a number and a unit, for example 30m or 3d."
+    if amount <= MAX_VALUE_FOR_DURATION_UNIT[unit]:
+        return f"Write the duration as {match.group(1)}{unit}."
+    cap = MAX_VALUE_FOR_DURATION_UNIT[unit]
+    return _suggest_duration(seconds) or f"Use at most {cap:g}{unit}, or write the delay in a larger unit."
 
 
 def _suggest_duration(seconds: float) -> str | None:
@@ -107,7 +101,7 @@ def _suggest_duration(seconds: float) -> str | None:
 def _only_the_number(value: Any) -> Any:
     # Strict Literal[1] still takes true and 1.0, since both equal 1.
     if type(value) is not int:
-        raise PydanticCustomError("unsupported_version", "version is not the number 1")
+        raise ValueError("version is not the number 1")
     return value
 
 
@@ -242,7 +236,7 @@ class _Step(_DocumentModel):
     description: str = Field(default="", description="An optional note about the step.")
     output_variable: dict[str, Any] | list[dict[str, Any]] | None = Field(
         default=None,
-        description="Saves the step's result in a workflow variable, as the workflows API takes it: { key, result_path } or a list of those. Later steps read it as {variables.<key>}.",
+        description="Saves the step's result in a workflow variable, as the workflows API takes it: { key, result_path, spread, label } or a list of those. Later steps read it as {variables.<key>}.",
     )
 
 

@@ -1,6 +1,8 @@
 import re
 import json
 import math
+from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 import yaml
@@ -10,14 +12,16 @@ from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import WorkflowCodeErrorStatus
-from products.workflows.backend.services.workflow_code.document import shortened, shown
 from products.workflows.backend.services.workflow_code.errors import (
     DocumentError,
     DocumentInvalid,
     DocumentPath,
+    ErrorCollector,
     PointsAt,
     Position,
     describe_path,
+    shortened,
+    shown,
 )
 
 MAX_CONTENT_BYTES = 1024 * 1024
@@ -100,25 +104,12 @@ for _resolver in CORE_SCHEMA_RESOLVERS:
 class LoadedContent:
     data: Any
     errors: list[DocumentError]
+    errors_left_out: int
+    refused_paths: frozenset[DocumentPath]
+    """Paths the loader refused a value at. A duplicate key keeps its first value, which is still checked."""
     value_positions: dict[DocumentPath, Position]
     key_positions: dict[DocumentPath, Position]
     scalar_sources: dict[DocumentPath, str]
-
-    def with_validation_errors(self, validation_errors: list[DocumentError]) -> list[DocumentError]:
-        """The loader's errors plus the validation errors they do not already explain.
-
-        A refused alias, tag or number leaves no usable value at its path, so a validation error under that
-        path repeats the same mistake. A duplicate key keeps its first value, which is still checked.
-        """
-        refused = {
-            error.path
-            for error in self.errors
-            if error.status != WorkflowCodeErrorStatus.DUPLICATE_KEY and error.path is not None
-        }
-        return [
-            *self.errors,
-            *(error for error in validation_errors if error.path is None or not _under_any(error.path, refused)),
-        ]
 
     def locate(self, error: DocumentError) -> Position | None:
         if error.position is not None:
@@ -136,10 +127,6 @@ class LoadedContent:
             path = path[:-1]
 
 
-def _under_any(path: DocumentPath, parents: set[DocumentPath]) -> bool:
-    return any(path[:length] in parents for length in range(len(path) + 1))
-
-
 def load_content(content: str) -> LoadedContent:
     size = len(content.encode("utf-8"))
     if size > MAX_CONTENT_BYTES:
@@ -154,8 +141,8 @@ def load_content(content: str) -> LoadedContent:
                 )
             ]
         )
-    if content.lstrip("\ufeff \t\r\n").startswith("{"):
-        return _load_json(content.lstrip("\ufeff"))
+    if content.lstrip("﻿ \t\r\n").startswith("{"):
+        return _load_json(content.lstrip("﻿"))
     return _load_yaml(content)
 
 
@@ -180,7 +167,9 @@ def _load_yaml(content: str) -> LoadedContent:
     builder.refuse_unused_anchors()
     return LoadedContent(
         data=data,
-        errors=builder.errors,
+        errors=builder.collector.errors,
+        errors_left_out=builder.collector.left_out,
+        refused_paths=frozenset(builder.refused_paths),
         value_positions=builder.value_positions,
         key_positions=builder.key_positions,
         scalar_sources=builder.scalar_sources,
@@ -222,10 +211,23 @@ def _position(mark: yaml.Mark) -> Position:
     return Position(line=mark.line + 1, column=mark.column + 1)
 
 
-class _YamlBuilder:
+class _Refusals:
+    """The errors a builder finds, and the paths where it refused a value."""
+
+    def __init__(self) -> None:
+        self.collector = ErrorCollector()
+        self.refused_paths: set[DocumentPath] = set()
+
+    def refuse(self, path: DocumentPath | None, describe: Callable[[], DocumentError]) -> None:
+        if path is not None:
+            self.refused_paths.add(path)
+        self.collector.add(describe)
+
+
+class _YamlBuilder(_Refusals):
     def __init__(self, loader: _CoreSchemaLoader) -> None:
+        super().__init__()
         self.loader = loader
-        self.errors: list[DocumentError] = []
         self.value_positions: dict[DocumentPath, Position] = {}
         self.key_positions: dict[DocumentPath, Position] = {}
         self.scalar_sources: dict[DocumentPath, str] = {}
@@ -241,7 +243,8 @@ class _YamlBuilder:
         self._first_paths[id(node)] = path
         self.value_positions[path] = _position(node.start_mark)
         if id(node) in self.loader.explicit_tags:
-            self._refuse_tag(self.loader.explicit_tags[id(node)], path)
+            tag = self.loader.explicit_tags[id(node)]
+            self.refuse(path, lambda: _tag_not_allowed(tag, path))
         if isinstance(node, MappingNode):
             value: Any = self._build_mapping(node, path)
         elif isinstance(node, SequenceNode):
@@ -258,16 +261,16 @@ class _YamlBuilder:
             value = _scalar_value(node)
         except ValueError:
             # Python refuses to read an integer of more than 4300 digits.
-            self.errors.append(_unstorable_number(path))
+            self.refuse(path, lambda: _unstorable_number(path))
             return None
         if isinstance(value, float) and not math.isfinite(value):
-            self.errors.append(_unstorable_number(path))
+            self.refuse(path, lambda: _unstorable_number(path))
             return None
         if isinstance(value, str) and _UNSTORABLE_CHARACTERS.search(value):
-            self.errors.append(_unstorable_text(path))
+            self.refuse(path, lambda: _unstorable_text(path))
             return None
         if isinstance(value, int | float) and not isinstance(value, bool) and node.value not in _number_texts(value):
-            self.errors.append(_number_not_as_written(path, node.value, value))
+            self.refuse(path, lambda: _number_not_as_written(path, node.value, value))
             return None
         return value
 
@@ -275,30 +278,14 @@ class _YamlBuilder:
         for node_id, name in self.loader.anchor_names.items():
             if node_id not in self.loader.alias_uses and node_id not in self._refused_keys:
                 path = self._first_paths.get(node_id)
-                self.errors.append(
-                    DocumentError(
-                        status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
-                        message=f"{describe_path(path)} sets the YAML anchor &{name}.",
-                        why=_NO_ANCHORS,
-                        fix=f"Remove &{name}.",
-                        path=path,
-                    )
-                )
+                self.refuse(path, partial(_anchor_not_allowed, name, path))
 
     def _build_alias(self, node: Node, path: DocumentPath) -> Any:
         use = self._alias_uses_seen.get(id(node), 0)
         self._alias_uses_seen[id(node)] = use + 1
         name, mark = self.loader.alias_uses[id(node)][use]
         self.value_positions[path] = _position(mark)
-        self.errors.append(
-            DocumentError(
-                status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
-                message=f"{describe_path(path)} uses the YAML alias *{name}.",
-                why=_NO_ANCHORS,
-                fix=f"Write the value out in full here, and remove the anchor &{name}.",
-                path=path,
-            )
-        )
+        self.refuse(path, lambda: _alias_not_allowed(name, path))
         # The aliased value is not expanded: a chain of aliases can double in size at every level, and an
         # alias can point at its own ancestor. Validation skips this path because the alias is the error.
         return None
@@ -311,8 +298,7 @@ class _YamlBuilder:
                 self._refuse_key_feature(path, key_position, key_node)
                 continue
             if not isinstance(key_node, ScalarNode) or key_node.tag != _STR_TAG:
-                shown = key_node.value if isinstance(key_node, ScalarNode) else "?"
-                self._refuse_key((*path, shown), key_position, key_node)
+                self._refuse_key(path, key_position, key_node)
                 continue
             key: str = key_node.value
             if _UNSTORABLE_CHARACTERS.search(key):
@@ -324,7 +310,7 @@ class _YamlBuilder:
                 continue
             if key in mapping:
                 self.key_positions[child] = key_position
-                self.errors.append(_duplicate_key(child))
+                self.collector.add(partial(_duplicate_key, child))
                 continue
             self.key_positions[child] = key_position
             mapping[key] = self.build(value_node, child)
@@ -336,64 +322,94 @@ class _YamlBuilder:
         )
 
     def _refuse_key_feature(self, parent: DocumentPath, position: Position, key_node: Node) -> None:
-        path: DocumentPath = (*parent, key_node.value if isinstance(key_node, ScalarNode) else "?")
+        path: DocumentPath = (*parent, _key_text(key_node))
         # Registered as seen, so a later alias of this key is refused as an alias and its anchor is not reported twice.
         self._first_paths.setdefault(id(key_node), path)
         self._refused_keys.add(id(key_node))
         self.key_positions[path] = position
-        self.errors.append(
-            DocumentError(
-                status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
-                message=f"{describe_path(parent)} has a key with a YAML anchor, alias or tag.",
-                why=_NO_ANCHORS,
-                fix="Write the key as plain text, without &, * or !.",
-                path=path,
-                points_at=PointsAt.KEY,
-            )
-        )
+        self.refuse(path, lambda: _key_feature_not_allowed(parent, path))
 
-    def _refuse_key(self, path: DocumentPath, position: Position, key_node: Node) -> None:
-        shown = key_node.value if isinstance(key_node, ScalarNode) else "a mapping or list"
+    def _refuse_key(self, parent: DocumentPath, position: Position, key_node: Node) -> None:
+        path: DocumentPath = (*parent, _key_text(key_node))
         self.key_positions[path] = position
-        self.errors.append(
-            DocumentError(
-                status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
-                message=f"{describe_path(path[:-1])} has the key {shown}, which YAML does not read as text.",
-                why="Every key in a workflow file is a field name, and a field name is text.",
-                fix=f"Quote the key, for example '{shown}', or use the field name the schema gives.",
-                path=path,
-                points_at=PointsAt.KEY,
-            )
-        )
+        self.refuse(path, lambda: _key_not_text(path, key_node))
 
     def _refuse_unstorable_key(self, parent: DocumentPath, key: str, position: Position) -> None:
         path: DocumentPath = (*parent, _storable(key))
         self.key_positions[path] = position
-        self.errors.append(_unstorable_text(path, points_at=PointsAt.KEY))
+        self.refuse(path, lambda: _unstorable_text(path, points_at=PointsAt.KEY))
 
     def _refuse_merge_key(self, path: DocumentPath, position: Position) -> None:
         self.key_positions[path] = position
-        self.errors.append(
-            DocumentError(
-                status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
-                message=f"{describe_path(path[:-1])} uses the YAML merge key <<.",
-                why="Workflow files do not use YAML merge keys, so each field is written where it applies and a diff shows every change.",
-                fix="Write the merged fields out in full, and remove <<.",
-                path=path,
-                points_at=PointsAt.KEY,
-            )
-        )
+        self.refuse(path, lambda: _merge_key_not_allowed(path))
 
-    def _refuse_tag(self, tag: str, path: DocumentPath) -> None:
-        self.errors.append(
-            DocumentError(
-                status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
-                message=f"{describe_path(path)} has the YAML tag {tag}.",
-                why="Workflow files do not use YAML tags. The schema already says which type each field takes.",
-                fix="Remove the tag. If the value should be text, put it in quotes instead.",
-                path=path,
-            )
-        )
+
+def _key_text(key_node: Node) -> str:
+    return _storable(key_node.value) if isinstance(key_node, ScalarNode) else "?"
+
+
+def _tag_not_allowed(tag: str, path: DocumentPath) -> DocumentError:
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
+        message=f"{describe_path(path)} has the YAML tag {shortened(_storable(tag))}.",
+        why="Workflow files do not use YAML tags. The schema already says which type each field takes.",
+        fix="Remove the tag. If the value should be text, put it in quotes instead.",
+        path=path,
+    )
+
+
+def _anchor_not_allowed(name: str, path: DocumentPath | None) -> DocumentError:
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
+        message=f"{describe_path(path)} sets the YAML anchor &{shortened(name)}.",
+        why=_NO_ANCHORS,
+        fix=f"Remove &{shortened(name)}.",
+        path=path,
+    )
+
+
+def _alias_not_allowed(name: str, path: DocumentPath) -> DocumentError:
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
+        message=f"{describe_path(path)} uses the YAML alias *{shortened(name)}.",
+        why=_NO_ANCHORS,
+        fix=f"Write the value out in full here, and remove the anchor &{shortened(name)}.",
+        path=path,
+    )
+
+
+def _key_feature_not_allowed(parent: DocumentPath, path: DocumentPath) -> DocumentError:
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
+        message=f"{describe_path(parent)} has a key with a YAML anchor, alias or tag.",
+        why=_NO_ANCHORS,
+        fix="Write the key as plain text, without &, * or !.",
+        path=path,
+        points_at=PointsAt.KEY,
+    )
+
+
+def _key_not_text(path: DocumentPath, key_node: Node) -> DocumentError:
+    key = shortened(_key_text(key_node)) if isinstance(key_node, ScalarNode) else "a mapping or list"
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
+        message=f"{describe_path(path[:-1])} has the key {key}, which YAML does not read as text.",
+        why="Every key in a workflow file is a field name, and a field name is text.",
+        fix=f"Quote the key, for example '{key}', or use the field name the schema gives.",
+        path=path,
+        points_at=PointsAt.KEY,
+    )
+
+
+def _merge_key_not_allowed(path: DocumentPath) -> DocumentError:
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.YAML_FEATURE_NOT_ALLOWED,
+        message=f"{describe_path(path[:-1])} uses the YAML merge key <<.",
+        why="Workflow files do not use YAML merge keys, so each field is written where it applies and a diff shows every change.",
+        fix="Write the merged fields out in full, and remove <<.",
+        path=path,
+        points_at=PointsAt.KEY,
+    )
 
 
 def _scalar_value(node: ScalarNode) -> Any:
@@ -442,18 +458,24 @@ def _load_json(content: str) -> LoadedContent:
         raise DocumentInvalid([_unstorable_number(None)])
     builder = _JsonBuilder()
     data = builder.build(raw, ())
-    return LoadedContent(data=data, errors=builder.errors, value_positions={}, key_positions={}, scalar_sources={})
+    return LoadedContent(
+        data=data,
+        errors=builder.collector.errors,
+        errors_left_out=builder.collector.left_out,
+        refused_paths=frozenset(builder.refused_paths),
+        value_positions={},
+        key_positions={},
+        scalar_sources={},
+    )
 
 
-class _JsonBuilder:
+class _JsonBuilder(_Refusals):
     def __init__(self) -> None:
-        self.errors: list[DocumentError] = []
+        super().__init__()
         self._values_built = 0
 
     def build(self, value: Any, path: DocumentPath) -> Any:
-        self._values_built += 1
-        if self._values_built > MAX_VALUES:
-            raise DocumentInvalid([_too_many_values()])
+        self._count(1)
         if len(path) > MAX_DEPTH:
             raise DocumentInvalid([_too_deep(path)])
         if isinstance(value, _JsonObject):
@@ -461,22 +483,30 @@ class _JsonBuilder:
         if isinstance(value, list):
             return [self.build(item, (*path, index)) for index, item in enumerate(value)]
         if isinstance(value, float) and not math.isfinite(value):
-            self.errors.append(_unstorable_number(path))
+            self.refuse(path, lambda: _unstorable_number(path))
             return None
         if isinstance(value, str) and _UNSTORABLE_CHARACTERS.search(value):
-            self.errors.append(_unstorable_text(path))
+            self.refuse(path, lambda: _unstorable_text(path))
             return None
         return value
 
+    def _count(self, values: int) -> None:
+        # Counted as the YAML loader counts them, keys included.
+        self._values_built += values
+        if self._values_built > MAX_VALUES:
+            raise DocumentInvalid([_too_many_values()])
+
     def _build_object(self, pairs: _JsonObject, path: DocumentPath) -> dict[str, Any]:
+        self._count(len(pairs))
         mapping: dict[str, Any] = {}
         for key, item in pairs:
             if _UNSTORABLE_CHARACTERS.search(key):
-                self.errors.append(_unstorable_text((*path, _storable(key)), points_at=PointsAt.KEY))
+                bad: DocumentPath = (*path, _storable(key))
+                self.refuse(bad, partial(_unstorable_text, bad, points_at=PointsAt.KEY))
                 continue
             child: DocumentPath = (*path, key)
             if key in mapping:
-                self.errors.append(_duplicate_key(child))
+                self.collector.add(partial(_duplicate_key, child))
                 continue
             mapping[key] = self.build(item, child)
         return mapping
@@ -493,7 +523,7 @@ def _unstorable_number(path: DocumentPath | None) -> DocumentError:
 
 
 def _storable(text: str) -> str:
-    return _UNSTORABLE_CHARACTERS.sub("\ufffd", text)
+    return _UNSTORABLE_CHARACTERS.sub("�", text)
 
 
 def _unstorable_text(path: DocumentPath, points_at: PointsAt = PointsAt.VALUE) -> DocumentError:
@@ -501,7 +531,7 @@ def _unstorable_text(path: DocumentPath, points_at: PointsAt = PointsAt.VALUE) -
         status=WorkflowCodeErrorStatus.INVALID_VALUE,
         message=f"{describe_path(path)} holds a NUL character or half of a surrogate pair, which PostHog cannot store.",
         why="PostHog stores a workflow as JSON in Postgres, which refuses NUL, and half of a surrogate pair is not a character on its own.",
-        fix="Remove the \\0 or \\u0000 escape. Write any other character as itself, or as one \\U escape with eight digits, for example \\U0001F600, not as two \\u escapes.",
+        fix="Remove the NUL character (\\0 or \\u0000) and any \\u escape from \\ud800 to \\udfff that has no other half. In YAML, write a character such as an emoji as itself, or as one \\U escape, for example \\U0001F600.",
         path=path,
         points_at=points_at,
     )
@@ -536,7 +566,7 @@ def _duplicate_key(path: DocumentPath) -> DocumentError:
         status=WorkflowCodeErrorStatus.DUPLICATE_KEY,
         message=f"{describe_path(path)} is set more than once.",
         why="A key can appear only once in a mapping. With two, it is not clear which value the workflow should use.",
-        fix=f"Keep one {path[-1]} entry and remove the other.",
+        fix=f"Keep one {shortened(str(path[-1]))} entry and remove the other.",
         path=path,
         points_at=PointsAt.KEY,
     )

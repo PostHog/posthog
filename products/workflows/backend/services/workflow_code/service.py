@@ -30,7 +30,12 @@ from products.workflows.backend.services.workflow_code.compiler import (
     template_errors,
     with_stored_editor_fields,
 )
-from products.workflows.backend.services.workflow_code.errors import DocumentError, DocumentInvalid, format_path
+from products.workflows.backend.services.workflow_code.errors import (
+    MAX_REPORTED_ERRORS,
+    DocumentError,
+    DocumentInvalid,
+    format_path,
+)
 from products.workflows.backend.services.workflow_code.plan import (
     CodePlan,
     PlanWarning,
@@ -56,7 +61,6 @@ DefinitionValidator = Callable[[Optional[HogFlow], dict[str, Any]], ValidatedWor
 InFlightCounter = Callable[[HogFlow], Optional[dict[str, Any]]]
 
 _KEY_CONSTRAINT = "unique_key_for_team"
-MAX_REPORTED_ERRORS = 50
 
 
 @frozen
@@ -125,7 +129,7 @@ class WorkflowCode:
         if workflow is None:
             plan = plan_create(_state(validated, content=validated))
         else:
-            plan, _counts = self._plan_existing(key, workflow, validated)
+            plan = self._plan_existing(key, workflow, validated)[0]
         self._refuse_disallowed_status(plan, key)
         return plan
 
@@ -340,11 +344,11 @@ def _key_conflict(key: str) -> DocumentError:
 
 def _compile(loaded: LoadedContent, team_id: int) -> tuple[CompiledWorkflow, str]:
     try:
-        document = validate_document(loaded.data, loaded.scalar_sources)
+        document = validate_document(loaded.data, loaded.scalar_sources, loaded.refused_paths)
     except DocumentInvalid as invalid:
-        raise DocumentInvalid(loaded.with_validation_errors(invalid.errors))
+        raise DocumentInvalid([*loaded.errors, *invalid.errors], loaded.errors_left_out + invalid.left_out)
     if loaded.errors:
-        raise DocumentInvalid(loaded.errors)
+        raise DocumentInvalid(loaded.errors, loaded.errors_left_out)
     compiled = compile_document(document)
     get_template = cache(_get_template)
     errors = template_errors(compiled, get_template) + sender_errors(
@@ -388,15 +392,18 @@ def _publish_impact(workflow: HogFlow, validated: dict[str, Any], counts: Option
 def _rejected(invalid: DocumentInvalid, loaded: Optional[LoadedContent]) -> WorkflowCodeRejected:
     located = [_located(error, loaded) for error in invalid.errors]
     located.sort(key=lambda e: (e.line is None, e.line or 0, e.column or 0))
-    if len(located) <= MAX_REPORTED_ERRORS:
+    left_out = len(located) - MAX_REPORTED_ERRORS + invalid.left_out
+    if left_out <= 0:
         return WorkflowCodeRejected(tuple(located))
-    return WorkflowCodeRejected((*located[:MAX_REPORTED_ERRORS], _left_out_errors(len(located) - MAX_REPORTED_ERRORS)))
+    return WorkflowCodeRejected((*located[:MAX_REPORTED_ERRORS], _left_out_errors(left_out)))
 
 
 def _left_out_errors(count: int) -> WorkflowCodeError:
+    # Up to, because an error PostHog did not describe may repeat one it did.
+    errors = "error" if count == 1 else "errors"
     return WorkflowCodeError(
         status=WorkflowCodeErrorStatus.TOO_MANY_ERRORS,
-        message=f"The file has {count} more errors than the {MAX_REPORTED_ERRORS} listed here.",
+        message=f"The file has up to {count} more {errors} than the {MAX_REPORTED_ERRORS} listed here.",
         why=f"PostHog lists the first {MAX_REPORTED_ERRORS} errors in file order, so one response stays readable.",
         fix="Fix the errors listed here, then check the file again to see the rest.",
         path=None,

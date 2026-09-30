@@ -11,22 +11,23 @@ from django.test import SimpleTestCase
 from jsonschema import Draft202012Validator
 from parameterized import parameterized
 
-from products.workflows.backend.facade.enums import WorkflowCodeErrorStatus
-from products.workflows.backend.services.workflow_code import yaml_loader
+from products.workflows.backend.services.workflow_code import compiler, yaml_loader
 from products.workflows.backend.services.workflow_code.compiler import compile_document, definition_errors
-from products.workflows.backend.services.workflow_code.errors import (
-    DocumentError,
-    DocumentInvalid,
-    DocumentPath,
-    format_path,
-)
+from products.workflows.backend.services.workflow_code.errors import DocumentInvalid, format_path
 from products.workflows.backend.services.workflow_code.plan import WorkflowState, plan_create, plan_warnings
 from products.workflows.backend.services.workflow_code.schema import validate_document, workflow_document_schema
-from products.workflows.backend.services.workflow_code.yaml_loader import load_content
+from products.workflows.backend.services.workflow_code.yaml_loader import LoadedContent, load_content
 
 
-def _error(path: DocumentPath) -> DocumentError:
-    return DocumentError(status=WorkflowCodeErrorStatus.INVALID_VALUE, message="", why="", fix="", path=path)
+def _is_storable(text: str) -> bool:
+    return "\x00" not in text and not any("\ud800" <= char <= "\udfff" for char in text)
+
+
+def _validate(loaded: LoadedContent) -> None:
+    try:
+        validate_document(loaded.data, loaded.scalar_sources, loaded.refused_paths)
+    except DocumentInvalid:
+        pass
 
 
 def _empty_state() -> WorkflowState:
@@ -34,7 +35,6 @@ def _empty_state() -> WorkflowState:
 
 
 def _lines_run(call: Callable[[], object]) -> int:
-    """How many Python lines `call` runs, a measure of its work that does not depend on the machine."""
     count = 0
 
     def trace(_frame: FrameType, event: str, _arg: object) -> Callable:
@@ -43,11 +43,12 @@ def _lines_run(call: Callable[[], object]) -> int:
             count += 1
         return trace
 
+    previous = sys.gettrace()
     sys.settrace(trace)
     try:
         call()
     finally:
-        sys.settrace(None)
+        sys.settrace(previous)
     return count
 
 
@@ -117,6 +118,8 @@ class TestWorkflowCodeSchema(SimpleTestCase):
             ("octal_number", "mode: 0o17\n", ["invalid_value"]),
             ("number_with_an_exponent", "value: 1e3\n", ["invalid_value"]),
             ("number_with_a_plus_sign", "value: +5\n", ["invalid_value"]),
+            ("tagged_key_with_a_lone_surrogate", '!!str "\\ud800x": 1\n', ["yaml_feature_not_allowed"]),
+            ("tag_with_a_nul", "k: !<tag:%00x> 1\n", ["yaml_feature_not_allowed"]),
         ]
     )
     def test_content_no_workflow_can_hold_is_one_error(self, _name: str, content: str, statuses: list[str]) -> None:
@@ -126,7 +129,7 @@ class TestWorkflowCodeSchema(SimpleTestCase):
             errors = invalid.errors
 
         assert [error.status for error in errors] == statuses
-        assert all("\x00" not in error.message and error.message.encode("utf-8") for error in errors)
+        assert all(_is_storable(error.message) and _is_storable(format_path(error.path) or "") for error in errors)
 
     @parameterized.expand([("yaml", "a: [" + "1, " * 30 + "1]\n"), ("json", '{"a": [' + "1, " * 30 + "1]}")])
     def test_content_with_more_values_than_a_workflow_holds_is_refused(self, _name: str, content: str) -> None:
@@ -135,14 +138,42 @@ class TestWorkflowCodeSchema(SimpleTestCase):
 
         assert [error.status for error in raised.exception.errors] == ["content_too_large"]
 
-    def test_leaving_out_errors_under_refused_values_grows_linearly_with_the_errors(self) -> None:
+    def test_validation_errors_cost_the_same_per_error_whether_or_not_they_are_refused(self) -> None:
         def lines_run_for(count: int) -> int:
-            loaded = load_content("steps: [" + ", ".join(["!t {type: x}"] * count) + "]\n")
-            validation = [_error(("steps", index, "type")) for index in range(count)]
-            validation += [_error(("exit", index)) for index in range(count)]
-            return _lines_run(lambda: loaded.with_validation_errors(validation))
+            refused_steps = "steps: [" + ", ".join(["!t {type: x}"] * count) + "]\n"
+            unknown_fields = "".join(f"extra_{index}: 1\n" for index in range(count))
+            loaded = load_content(refused_steps + unknown_fields)
+            return _lines_run(lambda: _validate(loaded))
 
         assert lines_run_for(400) < 3 * lines_run_for(200)
+
+    @parameterized.expand(
+        [
+            ("yaml", "? " + "k" * 5000 + "\n: [" + ", ".join(["01"] * 300) + "]\n"),
+            ("json", '{"' + "k" * 5000 + '": [' + ", ".join(["1e400"] * 300) + "]}"),
+        ]
+    )
+    def test_a_mistake_in_every_value_describes_a_bounded_number_of_short_errors(
+        self, _name: str, content: str
+    ) -> None:
+        loaded = load_content(content)
+
+        assert (len(loaded.errors), loaded.errors_left_out) == (50, 250)
+        assert max(len(error.message) + len(error.fix) for error in loaded.errors) < 500
+
+    def test_a_file_with_more_steps_than_the_limit_is_refused_counting_the_steps_in_branches(self) -> None:
+        wait = {"type": "delay", "name": "Wait", "duration": "1d"}
+        branch = {
+            "type": "branch",
+            "name": "Which plan?",
+            "arms": [{"name": "Pro", "when": [{"person": "plan", "value": "pro"}], "then": [wait]}],
+        }
+        document = validate_document(_document(branch, {**wait, "name": "Wait again"}), {})
+
+        with patch.object(compiler, "MAX_STEPS", 2), self.assertRaises(DocumentInvalid) as raised:
+            compile_document(document)
+
+        assert [(error.status, error.path) for error in raised.exception.errors] == [("content_too_large", ("steps",))]
 
     @parameterized.expand(
         [
@@ -156,6 +187,7 @@ class TestWorkflowCodeSchema(SimpleTestCase):
             ),
             ("seconds_with_no_exact_larger_unit", "61s", "Use at most 60s, or write the delay in a larger unit."),
             ("words", "3 days", "Write the duration as 3d."),
+            ("words_within_the_unit_cap", "1.25 hours", "Write the duration as 1.25h."),
             ("hours_that_make_a_day_and_a_half", "36h", "Write the duration as 1.5d."),
         ]
     )

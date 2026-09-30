@@ -3,6 +3,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 import yaml
@@ -10,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.cdp.validation import build_html_wrap_design
 
+from products.workflows.backend.services.workflow_code import renderer
 from products.workflows.backend.services.workflow_code.compiler import compile_document
 from products.workflows.backend.services.workflow_code.renderer import render_workflow
 from products.workflows.backend.services.workflow_code.schema import validate_document
@@ -173,21 +176,37 @@ class TestWorkflowCodeRoundTrip(SimpleTestCase):
                 lambda s: _action(s, "trigger_node")["config"].update(masked=True),
                 "masked",
             ),
-            ("variable_without_type_or_default", lambda s: s.update(variables=[{"key": "plan"}]), "plan"),
-            ("blank_name", lambda s: s.update(name=""), "no name"),
+            (
+                "variable_without_type_or_default",
+                lambda s: s.update(variables=[{"key": "plan"}]),
+                "The variable plan has no type or default",
+            ),
+            ("blank_name", lambda s: s.update(name=""), "The workflow has no name"),
+            (
+                "exit_name_a_file_cannot_hold",
+                lambda s: _action(s, "exit_node").update(name="x" * 500),
+                "The exit has a name a file cannot hold",
+            ),
             (
                 "credential_header",
                 lambda s: _action(s, "tell_the_crm")["config"]["inputs"].update(
                     headers={"value": {"Authorization": "Bearer EXAMPLE_TOKEN"}}
                 ),
-                "Authorization",
+                "Authorization in the input headers",
+            ),
+            (
+                "credential_nested_in_the_body",
+                lambda s: _action(s, "tell_the_crm")["config"]["inputs"]["body"].update(
+                    value={"auth": {"api_key": "EXAMPLE_KEY"}}
+                ),
+                "api_key in the input body",
             ),
             (
                 "credential_in_the_url",
                 lambda s: _action(s, "tell_the_crm")["config"]["inputs"]["url"].update(
                     value="https://example.com/hooks/crm?api_key=EXAMPLE_KEY"
                 ),
-                "api_key",
+                "the query key api_key in the input url",
             ),
             (
                 "value_nested_too_deep",
@@ -197,7 +216,7 @@ class TestWorkflowCodeRoundTrip(SimpleTestCase):
             (
                 "file_too_large",
                 lambda s: _action(s, "tell_the_crm")["config"]["inputs"]["body"].update(value={"blob": "x" * 1100000}),
-                "bytes",
+                "bytes, and check and apply refuse",
             ),
             (
                 "too_many_values",
@@ -214,6 +233,32 @@ class TestWorkflowCodeRoundTrip(SimpleTestCase):
         matching = [warning.message for warning in rendered.warnings if named in warning.message]
         assert len(matching) == 1, rendered.warnings
         assert f"# {matching[0]}" in rendered.content
+
+    def test_a_header_filled_in_from_a_template_is_not_a_credential_in_the_file(self) -> None:
+        stored = _stored("crm_follow_up")
+        _action(stored, "tell_the_crm")["config"]["inputs"]["headers"] = {
+            "value": {"Authorization": "{person.properties.crm_token}"}
+        }
+
+        rendered = render_workflow(stored, key="crm-follow-up")
+
+        assert not [warning for warning in rendered.warnings if "credential" in warning.message]
+
+    def test_an_output_variable_stored_as_a_bare_key_comes_back_as_the_api_reads_it(self) -> None:
+        stored = _stored("crm_follow_up")
+        _action(stored, "tell_the_crm")["output_variable"] = "crm_id"
+
+        compiled, _key = _load(render_workflow(stored, key="crm-follow-up").content)
+
+        assert _action(compiled, "tell_the_crm")["output_variable"] == {"key": "crm_id"}
+
+    def test_a_workflow_with_more_steps_than_check_reads_is_pulled_with_a_warning(self) -> None:
+        with patch.object(renderer, "MAX_STEPS", 4):
+            rendered = render_workflow(_stored("crm_follow_up"), key="crm-follow-up")
+
+        assert [
+            warning.message for warning in rendered.warnings if "steps, and check and apply refuse" in warning.message
+        ]
 
     def test_a_workflow_without_a_key_is_pulled_as_a_draft_so_the_file_never_runs_a_second_copy(self) -> None:
         stored = _stored("welcome_series")

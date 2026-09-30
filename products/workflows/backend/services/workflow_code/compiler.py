@@ -32,6 +32,9 @@ EMAIL_TEMPLATE_ID = "template-email"
 _EMAIL_INPUT_TYPES = ("email", "native_email")
 WEBHOOK_TEMPLATE_ID = "template-webhook"
 MAX_STEP_ID_LENGTH = 200
+# PostHog validates each step with its own template lookup and bytecode compile, so this bounds the work of one
+# check, which only needs a read key.
+MAX_STEPS = 1000
 # Set by the workflow editor on each step it creates. They are bookkeeping, not content, so a file keeps them.
 EDITOR_ACTION_FIELDS = ("created_at", "updated_at")
 
@@ -59,6 +62,9 @@ def slug(name: str) -> str:
 
 def compile_document(document: WorkflowDocument) -> CompiledWorkflow:
     """Turn a validated document into the definition fields HogFlowSerializer accepts."""
+    steps = count_steps(document.steps)
+    if steps > MAX_STEPS:
+        raise DocumentInvalid([_too_many_steps(steps)])
     compiler = _Compiler()
     trigger = compiler.trigger_action(document.trigger)
     compiler.claim_ids(document.steps, ("steps",))
@@ -88,6 +94,21 @@ def compile_document(document: WorkflowDocument) -> CompiledWorkflow:
         step_paths={TRIGGER_NODE_ID: ("trigger",), EXIT_NODE_ID: ("exit",), **compiler.step_paths},
         input_paths=compiler.input_paths,
         template_paths=compiler.template_paths,
+    )
+
+
+def count_steps(steps: Sequence[DocumentStep]) -> int:
+    """The steps in a list, counting the steps in each of their branches."""
+    return sum(1 + sum(count_steps(branch) for branch, _path in _Compiler.branches(step, ())) for step in steps)
+
+
+def _too_many_steps(count: int) -> DocumentError:
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.CONTENT_TOO_LARGE,
+        message=f"The file has {count} steps, over the limit of {MAX_STEPS}.",
+        why="PostHog checks every step of a file on each request, and a workflow has far fewer steps than this.",
+        fix=f"Split the workflow into workflows of at most {MAX_STEPS} steps.",
+        path=("steps",),
     )
 
 
@@ -310,7 +331,7 @@ class _Compiler:
         for index, step in enumerate(steps):
             step_path: DocumentPath = (*path, index)
             self._ids[step_path] = self._claim_id(step, step_path)
-            for branch_steps, branch_path in self._branches(step, step_path):
+            for branch_steps, branch_path in self.branches(step, step_path):
                 self.claim_ids(branch_steps, branch_path)
 
     def path(self, steps: Sequence[DocumentStep], path: DocumentPath, continuation: str) -> str:
@@ -330,7 +351,7 @@ class _Compiler:
                 }
             )
             self.edges.append({"from": action_id, "to": following, "type": "continue"})
-            for branch_index, (branch_steps, branch_path) in enumerate(self._branches(step, step_path)):
+            for branch_index, (branch_steps, branch_path) in enumerate(self.branches(step, step_path)):
                 entry = self.path(branch_steps, branch_path, following)
                 self.edges.append({"from": action_id, "to": entry, "type": "branch", "index": branch_index})
         return ids[0] if ids else continuation
@@ -384,9 +405,8 @@ class _Compiler:
             self.input_paths[action_id] = (*step_path, "config", "inputs")
         return step_action_body(step)
 
-    def _branches(
-        self, step: DocumentStep, step_path: DocumentPath
-    ) -> list[tuple[Sequence[DocumentStep], DocumentPath]]:
+    @staticmethod
+    def branches(step: DocumentStep, step_path: DocumentPath) -> list[tuple[Sequence[DocumentStep], DocumentPath]]:
         if isinstance(step, BranchStep):
             return [(arm.then, (*step_path, "arms", index, "then")) for index, arm in enumerate(step.arms)]
         if isinstance(step, PassThroughStep):

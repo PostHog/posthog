@@ -8,13 +8,16 @@ from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
 from products.workflows.backend.facade.enums import WorkflowCodeErrorStatus
-from products.workflows.backend.services.workflow_code.document import WorkflowDocument, shown
+from products.workflows.backend.services.workflow_code.document import WorkflowDocument
 from products.workflows.backend.services.workflow_code.errors import (
+    MAX_REPORTED_ERRORS,
     DocumentError,
     DocumentInvalid,
     DocumentPath,
     PointsAt,
     describe_path,
+    shortened,
+    shown,
 )
 
 JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
@@ -104,15 +107,33 @@ def _select(node: Any, data: Any, root: dict[str, Any]) -> dict[str, Any] | None
     return node
 
 
-def validate_document(data: Any, scalar_sources: dict[DocumentPath, str]) -> WorkflowDocument:
+def validate_document(
+    data: Any, scalar_sources: dict[DocumentPath, str], refused: frozenset[DocumentPath] = frozenset()
+) -> WorkflowDocument:
+    """The document, or DocumentInvalid with an error for each mistake not under a path in `refused`.
+
+    The loader refuses a value it cannot read and leaves no usable value there, so a validation error under
+    that path would repeat the same mistake.
+    """
     try:
         return WorkflowDocument.model_validate(data)
     except ValidationError as error:
         errors: dict[tuple[WorkflowCodeErrorStatus, DocumentPath], DocumentError] = {}
-        for detail in error.errors():
-            document_error = _describe(detail, data, scalar_sources)
+        left_out = 0
+        for detail in error.errors(include_url=False):
+            path = _document_path(detail["loc"], data)
+            if _under_any(path, refused):
+                continue
+            if len(errors) >= MAX_REPORTED_ERRORS:
+                left_out += 1
+                continue
+            document_error = _describe(detail, path, data, scalar_sources)
             errors.setdefault((document_error.status, document_error.path or ()), document_error)
-        raise DocumentInvalid(_without_missing_fields_misspelled_nearby(list(errors.values()), data))
+        raise DocumentInvalid(_without_missing_fields_misspelled_nearby(list(errors.values()), data), left_out)
+
+
+def _under_any(path: DocumentPath, parents: frozenset[DocumentPath]) -> bool:
+    return bool(parents) and any(path[:length] in parents for length in range(len(path) + 1))
 
 
 def _without_missing_fields_misspelled_nearby(errors: list[DocumentError], data: Any) -> list[DocumentError]:
@@ -131,8 +152,9 @@ def _without_missing_fields_misspelled_nearby(errors: list[DocumentError], data:
     ]
 
 
-def _describe(detail: ErrorDetails, data: Any, scalar_sources: dict[DocumentPath, str]) -> DocumentError:
-    path = _document_path(detail["loc"], data)
+def _describe(
+    detail: ErrorDetails, path: DocumentPath, data: Any, scalar_sources: dict[DocumentPath, str]
+) -> DocumentError:
     kind = detail["type"]
     context = detail.get("ctx") or {}
     if kind == "document_error":
@@ -154,7 +176,7 @@ def _describe(detail: ErrorDetails, data: Any, scalar_sources: dict[DocumentPath
     if path == ("version",):
         return DocumentError(
             status=WorkflowCodeErrorStatus.UNSUPPORTED_VERSION,
-            message=f"version is {scalar_sources.get(path, repr(detail['input']))}, and PostHog reads version 1.",
+            message=f"version is {shortened(scalar_sources.get(path, repr(detail['input'])))}, and PostHog reads version 1.",
             why="The version says which shape the file has, and 1 is the only version so far.",
             fix="Set version: 1, written as a number without quotes.",
             path=path,
@@ -240,7 +262,7 @@ def _closest_field(path: DocumentPath, data: Any) -> str | None:
 
 
 def _unknown_field(path: DocumentPath, data: Any) -> DocumentError:
-    field = str(path[-1])
+    field = shortened(str(path[-1]))
     closest = _closest_field(path, data)
     if closest is not None:
         fix = f"Rename {field} to {closest}."
