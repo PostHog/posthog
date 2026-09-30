@@ -103,8 +103,6 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.feature_flags.backend.person_sampling import bounded_memory_settings
-from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
@@ -121,6 +119,16 @@ from products.tasks.backend.facade.workflow_tasks import (
     validate_skill_names,
 )
 from products.workflows.backend.facade.api import create_batch_job
+from products.workflows.backend.facade.blast_radius import (
+    SUPPORTED_DEDUPE_KEYS,
+    get_account_audience_ids_page,
+    get_account_audience_size,
+    get_account_group_type_name,
+    get_audience_person_page,
+    get_audience_size,
+    is_account_audience,
+    parse_account_audience_filters,
+)
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
     mask_derived_trigger,
@@ -191,25 +199,6 @@ from products.workflows.backend.presentation.views.message_assets import (
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
 from products.workflows.backend.providers.ses import SESProvider
-from products.workflows.backend.services.account_audience import (
-    ACCOUNT_BATCH_SIZE,
-    get_account_audience_count,
-    get_account_audience_page,
-    get_account_group_type_name,
-    is_account_audience,
-    parse_account_audience_filters,
-)
-from products.workflows.backend.services.audience_v2 import (
-    get_dedupe_audience_count_v2,
-    get_person_audience_count_v2,
-    use_audience_query_v2,
-)
-from products.workflows.backend.services.batch_audience import (
-    SUPPORTED_DEDUPE_KEYS,
-    audience_page_size,
-    get_batch_audience_count,
-    get_batch_audience_person_ids,
-)
 from products.workflows.backend.services.email_sending_attribution import (
     EMAIL_HEALTH_METRIC_NAMES,
     fold_email_totals_by_flow,
@@ -224,7 +213,6 @@ from products.workflows.backend.services.workflow_email_health import (
     resume_workflow_email_sending,
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
-from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -1437,7 +1425,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         )
                     if audience_type == "accounts":
                         team = self.context["get_team"]()
-                        if get_account_group_type_name(team) is None:
+                        if get_account_group_type_name(team.id) is None:
                             raise serializers.ValidationError(
                                 {
                                     "filters": (
@@ -6112,12 +6100,13 @@ class HogFlowViewSet(
             # data, so it requires the same access the audience editor requires.
             if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
                 raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
+            size = get_account_audience_size(team_id=self.team_id, filters=filters, sends_email=params["sends_email"])
             return Response(
                 BlastRadiusSerializer(
                     {
-                        "affected": get_account_audience_count(self.team, filters),
-                        "total": get_account_audience_count(self.team, {"audience_type": "accounts"}),
-                        "limit": get_hogflow_batch_trigger_limit(self.team_id, sends_email=params["sends_email"]),
+                        "affected": size.affected,
+                        "total": size.total,
+                        "limit": size.limit,
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
                     }
@@ -6126,36 +6115,22 @@ class HogFlowViewSet(
 
         reject_flag_conditions_in_audience(self.team, filters)
 
-        # Preview matches the actual send: with dedup active, "affected" is the number of
-        # sends (unique emails + email-less persons), not the number of matching persons —
-        # the legacy person-count query is skipped entirely, "total" comes straight from
-        # the cached team-wide count it would have returned anyway. The applied key is
-        # echoed back so the frontend labels the count from the response instead of
-        # guessing whether the dedup actually ran.
-        applied_dedupe_key = None
-        audience_v2 = group_type_index is None and use_audience_query_v2(self.team)
-        if dedupe_key is not None and group_type_index is None:
-            if audience_v2:
-                blast_radius = get_dedupe_audience_count_v2(self.team, filters, dedupe_key)
-            else:
-                total = self.team.persons_seen_so_far
-                affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
-                blast_radius = BlastRadiusResult(affected=affected, total=total)
-            applied_dedupe_key = dedupe_key
-        elif audience_v2:
-            blast_radius = get_person_audience_count_v2(self.team, filters)
-        else:
-            blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
-
+        size = get_audience_size(
+            team_id=self.team_id,
+            filters=filters,
+            group_type_index=group_type_index,
+            dedupe_key=dedupe_key,
+            sends_email=params["sends_email"],
+        )
         return Response(
             BlastRadiusSerializer(
                 {
-                    "affected": blast_radius.affected,
-                    "total": blast_radius.total,
-                    "limit": get_hogflow_batch_trigger_limit(self.team_id, sends_email=params["sends_email"]),
-                    "dedupe_key": applied_dedupe_key,
+                    "affected": size.affected,
+                    "total": size.total,
+                    "limit": size.limit,
+                    "dedupe_key": size.dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
-                        self.team_id, filters, group_type_index, applied_dedupe_key
+                        self.team_id, filters, group_type_index, size.dedupe_key
                     ),
                 }
             ).data
@@ -6968,18 +6943,19 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            if group_type_index is None and use_audience_query_v2(team):
-                result = get_person_audience_count_v2(team, filters)
-            else:
-                result = get_user_blast_radius(team, filters, group_type_index)
+            result = get_audience_size(
+                team_id=team.id,
+                filters=filters,
+                group_type_index=group_type_index,
+                dedupe_key=None,
+                sends_email=bool(request.data.get("sends_email", True)),
+            )
             return Response(
                 BlastRadiusSerializer(
                     {
                         "affected": result.affected,
                         "total": result.total,
-                        "limit": get_hogflow_batch_trigger_limit(
-                            team.id, sends_email=bool(request.data.get("sends_email", True))
-                        ),
+                        "limit": result.limit,
                         "dedupe_key": None,
                     }
                 ).data
@@ -7016,18 +6992,19 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            enumeration_settings = (
-                bounded_memory_settings() if group_type_index is None and use_audience_query_v2(team) else None
-            )
-            users_affected = get_batch_audience_person_ids(
-                team, filters, group_type_index, cursor, dedupe_key=dedupe_key, settings=enumeration_settings
+            page = get_audience_person_page(
+                team_id=team.id,
+                filters=filters,
+                group_type_index=group_type_index,
+                cursor=cursor,
+                dedupe_key=dedupe_key,
             )
             return Response(
                 InternalBlastRadiusPersonsSerializer(
                     {
-                        "users_affected": users_affected,
-                        "cursor": users_affected[-1] if users_affected else None,
-                        "has_more": len(users_affected) == audience_page_size(group_type_index),
+                        "users_affected": page.ids,
+                        "cursor": page.ids[-1] if page.ids else None,
+                        "has_more": page.has_more,
                     }
                 ).data
             )
@@ -7053,18 +7030,18 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         filters = request.data.get("filters") or {}
         if not is_account_audience(filters):
             return Response({"error": "Filters must declare audience_type 'accounts'"}, status=400)
-        group_type = get_account_group_type_name(team)
+        group_type = get_account_group_type_name(team.id)
         if group_type is None:
             return Response({"error": "No customer analytics account group type configured"}, status=400)
 
         cursor = request.data.get("cursor")
         try:
-            accounts = get_account_audience_page(team, filters, cursor)
+            page = get_account_audience_ids_page(team_id=team.id, filters=filters, cursor=cursor)
             return Response(
                 {
-                    "accounts": accounts,
-                    "cursor": accounts[-1] if accounts else None,
-                    "has_more": len(accounts) == ACCOUNT_BATCH_SIZE,
+                    "accounts": page.ids,
+                    "cursor": page.ids[-1] if page.ids else None,
+                    "has_more": page.has_more,
                     "group_type": group_type,
                 }
             )
