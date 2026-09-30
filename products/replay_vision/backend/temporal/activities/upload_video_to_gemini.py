@@ -84,11 +84,14 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
             size_bytes=len(video_bytes),
             limit_bytes=MAX_INLINE_VIDEO_BYTES,
         )
+    return await upload_to_files_api(video_bytes, asset.export_format, workflow_id)
+
+
+async def upload_to_files_api(video_bytes: bytes, mime_type: str, workflow_id: str) -> UploadedVideo:
+    """Upload the video to the Gemini Files API, track it for the cleanup sweep, and wait until it is ACTIVE."""
     raw_client = RawGenAIClient(api_key=gemini_api_key())
     # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
-    uploaded_file = await asyncio.to_thread(
-        _write_and_upload, raw_client, video_bytes, asset.export_format, workflow_id
-    )
+    uploaded_file = await asyncio.to_thread(_write_and_upload, raw_client, video_bytes, mime_type, workflow_id)
 
     if uploaded_file.name is None:
         # Non-retryable: a retry would re-upload before the cleanup sweep can reap the unnamed file Gemini may have created.
@@ -141,7 +144,7 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
 
     return UploadedVideo(
         file_uri=uploaded_file.uri,
-        mime_type=uploaded_file.mime_type or asset.export_format,
+        mime_type=uploaded_file.mime_type or mime_type,
         gemini_file_name=gemini_file_name,
     )
 

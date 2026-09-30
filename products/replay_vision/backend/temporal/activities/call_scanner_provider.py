@@ -26,6 +26,7 @@ from google.genai import (
     Client as GoogleGenAIClient,
     types,
 )
+from google.genai.errors import APIError
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
@@ -55,6 +56,7 @@ from products.replay_vision.backend.temporal.events_tool import (
     events_tool,
 )
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import delete_and_untrack
 from products.replay_vision.backend.temporal.metrics import (
     record_events_tool_call,
     record_mission_pass,
@@ -208,19 +210,39 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
             raise ScannerFailureError(
                 "The recording's video is too large to send inline", kind=FailureKind.INTERNAL_ERROR
             )
-    return await run_scan(
+    scan = functools.partial(
+        run_scan,
         snapshot=snapshot,
         scanner=scanner,
         llm_inputs=llm_inputs,
         team_name=team_name,
-        file_uri=inputs.file_uri,
-        mime_type=inputs.mime_type,
         team_id=inputs.team_id,
         video_clock=video_clock,
         network_payload=network_payload,
         trace_id=_scan_trace_id(inputs),
-        video_bytes=video_bytes,
     )
+    try:
+        return await scan(file_uri=inputs.file_uri, mime_type=inputs.mime_type, video_bytes=video_bytes)
+    except APIError as e:
+        if video_bytes is None or e.code != 413:
+            raise
+    # The gateway caps the request body, and each tool round adds to the request that carries the video.
+    logger.warning("replay_vision.call_scanner_provider.inline_too_large_uploading", size_bytes=len(video_bytes))
+    # Imported here: at module level it runs before `conversation` and re-enters the `types`/`scanners` import cycle.
+    from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_to_files_api
+
+    workflow_id = activity.info().workflow_id
+    if workflow_id is None:
+        raise ScannerFailureError("call_scanner_provider_activity has no workflow_id", kind=FailureKind.INTERNAL_ERROR)
+    uploaded = await upload_to_files_api(video_bytes, inputs.mime_type, workflow_id)
+    try:
+        return await scan(file_uri=uploaded.file_uri, mime_type=uploaded.mime_type, video_bytes=None)
+    finally:
+        await delete_and_untrack(
+            GoogleGenAIClient(api_key=gemini_api_key()),
+            uploaded.gemini_file_name,
+            log_source="replay_vision.call_scanner_provider.inline_fallback",
+        )
 
 
 # A render cuts whole inactive stretches, so anything under this is encoder rounding rather than a cut.
@@ -570,9 +592,11 @@ async def _run_mission(
 
     client: Any
     cache_client: GoogleGenAIClient | None = None
+    gateway: GatewayGeminiClient | None = None
     if inline_video:
         routed = replay_gemini_client(direct_client, team_id=team_id, properties=properties)
-        client = routed.aio if isinstance(routed, GatewayGeminiClient) else routed
+        gateway = routed if isinstance(routed, GatewayGeminiClient) else None
+        client = gateway.aio if gateway is not None else routed
     else:
         client = direct_client()
         cache_client = GoogleGenAIClient(api_key=gemini_api_key())
@@ -675,6 +699,8 @@ async def _run_mission(
     finally:
         if cache is not None and cache_client is not None:
             await _delete_video_cache(cache_client, cache.name)
+        if gateway is not None:
+            await gateway.aio.aclose()
 
     finalized, signals = scanner.assemble(step_outputs)
     return _MissionOutcome(

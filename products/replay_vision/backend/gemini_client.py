@@ -1,6 +1,7 @@
 """Replay Vision's Gemini client: the AI gateway when enabled for the team, else Google directly with our key."""
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any, TypeVar
 
 from google.genai import errors, types
@@ -28,20 +29,39 @@ def replay_gateway_enabled(team_id: int) -> bool:
         GATEWAY_FLAG,
         team_distinct_id(team_id),
         groups={"project": str(team_id)},
+        group_properties={"project": {"id": str(team_id)}},
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
+
+
+# The gateway's own refusals (key, spend cap, product policy) are ours to fix, so they retry.
+_GATEWAY_REFUSAL_CODES = frozenset({401, 402, 403})
+
+
+@contextmanager
+def _retry_gateway_refusals() -> Iterator[None]:
+    try:
+        yield
+    except errors.ClientError as e:
+        if e.code not in _GATEWAY_REFUSAL_CODES:
+            raise
+        raise errors.ServerError(
+            503,
+            {"error": {"code": 503, "message": f"AI gateway returned HTTP {e.code}", "status": "UNAVAILABLE"}},
+        ) from e
 
 
 class _GatewayModelsBase:
     """A plain SDK `models` surface that accepts the analytics wrapper's per-call `posthog_*` kwargs.
 
     The gateway captures the generation, so those kwargs become request headers. Groups have no gateway header.
-    Calls stream, because the gateway cuts a buffered call off at 290s and long scans run past that.
     """
 
-    def __init__(self, models: Any, base_properties: Mapping[str, Any]) -> None:
-        self._models = models
+    def __init__(self, client: Any, base_properties: Mapping[str, Any]) -> None:
+        # Holds the SDK client itself: collecting it closes the transport its `models` send through.
+        self._client = client
+        self._models = client.models
         self._base_properties = base_properties
 
     def _config(
@@ -73,15 +93,17 @@ class _GatewayModels(_GatewayModelsBase):
         posthog_privacy_mode: bool | None = None,
         posthog_groups: Mapping[str, Any] | None = None,
     ) -> types.GenerateContentResponse:
-        stream = self._models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=self._config(config, posthog_distinct_id, posthog_trace_id, posthog_properties),
-        )
-        return assemble_stream(list(stream))
+        with _retry_gateway_refusals():
+            return self._models.generate_content(
+                model=model,
+                contents=contents,
+                config=self._config(config, posthog_distinct_id, posthog_trace_id, posthog_properties),
+            )
 
 
 class _AsyncGatewayModels(_GatewayModelsBase):
+    """Streams each call, because the gateway cuts a buffered call off at 290s and long scans run past that."""
+
     async def generate_content(
         self,
         *,
@@ -94,25 +116,31 @@ class _AsyncGatewayModels(_GatewayModelsBase):
         posthog_privacy_mode: bool | None = None,
         posthog_groups: Mapping[str, Any] | None = None,
     ) -> types.GenerateContentResponse:
-        stream = await self._models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=self._config(config, posthog_distinct_id, posthog_trace_id, posthog_properties),
-        )
-        return assemble_stream([chunk async for chunk in stream])
+        with _retry_gateway_refusals():
+            stream = await self._models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=self._config(config, posthog_distinct_id, posthog_trace_id, posthog_properties),
+            )
+            chunks = [chunk async for chunk in stream]
+        return assemble_stream(chunks)
 
 
 class _GatewayAio:
-    def __init__(self, models: _AsyncGatewayModels) -> None:
-        self.models = models
+    def __init__(self, client: Any, base_properties: Mapping[str, Any]) -> None:
+        self._client = client
+        self.models = _AsyncGatewayModels(client, base_properties)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
 
 class GatewayGeminiClient:
     """The gateway client with the analytics wrapper's call shape, so call sites stay the same in both modes."""
 
     def __init__(self, client: Any, base_properties: Mapping[str, Any]) -> None:
-        self.models = _GatewayModels(client.models, base_properties)
-        self.aio = _GatewayAio(_AsyncGatewayModels(client.aio.models, base_properties))
+        self.models = _GatewayModels(client, base_properties)
+        self.aio = _GatewayAio(client.aio, base_properties)
 
 
 def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.GenerateContentResponse:

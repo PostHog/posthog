@@ -185,15 +185,18 @@ def _attribution_snapshot() -> MagicMock:
     return snapshot
 
 
-async def _mission_client(*, inline_video: bool, flag_on: bool = True) -> tuple[Any, MagicMock, MagicMock, AsyncMock]:
+async def _mission_client(
+    *, inline_video: bool, flag_on: bool = True
+) -> tuple[Any, MagicMock, MagicMock, AsyncMock, MagicMock]:
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
     scanner.assemble.return_value = (MagicMock(), [])
     attempts = AsyncMock(return_value={})
+    gateway_aio = MagicMock(aclose=AsyncMock())
     create_cache = AsyncMock(return_value=None)
     with (
         override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
-        patch("posthog.llm.gateway_client.genai.Client"),
+        patch("posthog.llm.gateway_client.genai.Client") as gateway_cls,
         patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=flag_on),
         patch(f"{_MODULE}.genai.AsyncClient") as direct_cls,
         patch(f"{_MODULE}.GoogleGenAIClient") as cache_cls,
@@ -201,6 +204,7 @@ async def _mission_client(*, inline_video: bool, flag_on: bool = True) -> tuple[
         patch(f"{_MODULE}._run_mission_attempts", new=attempts),
         patch(f"{_MODULE}.build_events_index", return_value={}),
     ):
+        gateway_cls.return_value.aio = gateway_aio
         await _run_mission(
             scanner=scanner,
             snapshot=_attribution_snapshot(),
@@ -212,22 +216,24 @@ async def _mission_client(*, inline_video: bool, flag_on: bool = True) -> tuple[
             trace_id="trace-1",
             inline_video=inline_video,
         )
-    return attempts.call_args.kwargs["run"].keywords["client"], direct_cls, cache_cls, create_cache
+    client = attempts.call_args.kwargs["run"].keywords["client"]
+    return client, direct_cls, cache_cls, create_cache, gateway_aio.aclose
 
 
 @pytest.mark.asyncio
 async def test_inline_video_scans_through_the_gateway_without_a_cache() -> None:
-    client, direct_cls, cache_cls, create_cache = await _mission_client(inline_video=True)
+    client, direct_cls, cache_cls, create_cache, gateway_close = await _mission_client(inline_video=True)
 
     assert isinstance(client.models, _AsyncGatewayModels)
     direct_cls.assert_not_called()
     cache_cls.assert_not_called()
     create_cache.assert_not_called()
+    gateway_close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_inline_video_scans_directly_when_the_team_flag_is_off() -> None:
-    client, direct_cls, cache_cls, create_cache = await _mission_client(inline_video=True, flag_on=False)
+    client, direct_cls, cache_cls, create_cache, _ = await _mission_client(inline_video=True, flag_on=False)
 
     assert client is direct_cls.return_value
     cache_cls.assert_not_called()
@@ -236,7 +242,7 @@ async def test_inline_video_scans_directly_when_the_team_flag_is_off() -> None:
 
 @pytest.mark.asyncio
 async def test_uploaded_file_scans_directly_even_when_the_gateway_is_configured() -> None:
-    client, direct_cls, cache_cls, create_cache = await _mission_client(inline_video=False)
+    client, direct_cls, cache_cls, create_cache, _ = await _mission_client(inline_video=False)
 
     assert client is direct_cls.return_value
     cache_cls.assert_called_once()

@@ -443,7 +443,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 await self._mark_failed(observation_id, scanner_type, failure_kind, _root_cause_message(e))
             raise
         finally:
-            if uploaded is not None and not uploaded.inline_video:
+            # An inline scan uploads no file. The patch marks the skipped cleanup command for replay.
+            if uploaded is not None and not (uploaded.inline_video and wf.patched("replay-vision-inline-video")):
                 # Swallow exceptions so cleanup failure can't fail a workflow that already marked-succeeded.
                 try:
                     await wf.execute_activity(

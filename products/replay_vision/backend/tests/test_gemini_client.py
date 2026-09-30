@@ -1,3 +1,4 @@
+import gc
 import json
 import asyncio
 from collections.abc import Callable
@@ -47,19 +48,28 @@ def _sse(*chunks: dict[str, Any]) -> bytes:
     return b"".join(b"data: " + json.dumps(chunk).encode() + b"\r\n\r\n" for chunk in chunks)
 
 
-def _wired_gateway_client(properties: dict[str, Any]) -> tuple[GatewayGeminiClient, list[httpx.Request]]:
+def _ok(request: httpx.Request) -> httpx.Response:
+    if request.url.path.endswith(":streamGenerateContent"):
+        return httpx.Response(200, content=_sse(_OK), headers={"content-type": "text/event-stream"})
+    return httpx.Response(200, json=_OK)
+
+
+def _wired_gateway_client(
+    properties: dict[str, Any], respond: Callable[[httpx.Request], httpx.Response] = _ok
+) -> tuple[GatewayGeminiClient, list[httpx.Request]]:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return httpx.Response(200, content=_sse(_OK), headers={"content-type": "text/event-stream"})
+        return respond(request)
 
     with override_settings(**_GATEWAY):
         client = replay_gemini_client(MagicMock(), team_id=42, properties=properties, distinct_id="replay-vision:42")
     assert isinstance(client, GatewayGeminiClient)
-    api_client = client.models._models._api_client
-    api_client._httpx_client = httpx.Client(transport=httpx.MockTransport(handler))
-    api_client._async_httpx_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    # Swaps only the transport, so a client the SDK has closed still fails the call.
+    api_client = client.models._client._api_client
+    api_client._httpx_client._transport = httpx.MockTransport(handler)
+    api_client._async_httpx_client._transport = httpx.MockTransport(handler)
     return client, seen
 
 
@@ -83,6 +93,7 @@ class TestReplayGeminiClient:
             GATEWAY_FLAG,
             "team-42",
             groups={"project": "42"},
+            group_properties={"project": {"id": "42"}},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
@@ -112,7 +123,7 @@ class TestReplayGeminiClient:
         )
 
         request = seen[0]
-        assert str(request.url) == "https://ai-gateway.example/v1beta/models/gemini-test:streamGenerateContent?alt=sse"
+        assert str(request.url) == "https://ai-gateway.example/v1beta/models/gemini-test:generateContent"
         assert request.headers["x-goog-api-key"] == "phs_test"
         assert request.headers["x-posthog-trace-id"] == "trace-1"
         assert request.headers["x-posthog-distinct-id"] == "user-1"
@@ -132,8 +143,46 @@ class TestReplayGeminiClient:
 
         asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi", posthog_trace_id="t"))
 
+        assert seen[0].url.path.endswith(":streamGenerateContent")
         assert seen[0].headers["x-posthog-trace-id"] == "t"
         assert seen[0].headers["x-posthog-distinct-id"] == "replay-vision:42"
+
+    def test_the_sdk_client_outlives_the_wrapper(self) -> None:
+        async def call_after_collection() -> list[httpx.Request]:
+            # Built inside a running loop, as the scan activity does: only there does the SDK close its async transport.
+            client, seen = _wired_gateway_client({"feature": "scanner"})
+            models, aio = client.models, client.aio
+            del client
+            gc.collect()
+            await asyncio.sleep(0)
+            models.generate_content(model="gemini-test", contents="hi")
+            await aio.models.generate_content(model="gemini-test", contents="hi")
+            await aio.aclose()
+            return seen
+
+        assert len(asyncio.run(call_after_collection())) == 2
+
+    @pytest.mark.parametrize("code", [401, 402, 403])
+    def test_gateway_refusals_retry_as_transient(self, code: int) -> None:
+        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json={"error": {"code": code}}))
+
+        with pytest.raises(genai_errors.ServerError) as sync_error:
+            client.models.generate_content(model="gemini-test", contents="hi")
+        with pytest.raises(genai_errors.ServerError) as async_error:
+            asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
+
+        for error in (sync_error.value, async_error.value):
+            assert classify_gemini_error(error) == FailureKind.PROVIDER_TRANSIENT
+            assert f"HTTP {code}" in (error.message or "")
+
+    @pytest.mark.parametrize("code", [400, 413])
+    def test_other_client_errors_pass_through(self, code: int) -> None:
+        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json={"error": {"code": code}}))
+
+        with pytest.raises(genai_errors.ClientError) as exc_info:
+            asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
+
+        assert exc_info.value.code == code
 
 
 def _call_search() -> None:
@@ -174,16 +223,16 @@ def test_text_call_sites_use_the_gateway_when_configured(module: Any, call: Call
         patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
         patch.object(module.genai, "Client") as direct_client,
     ):
-        gateway_client.return_value.models.generate_content_stream.side_effect = RuntimeError("stop")
+        gateway_client.return_value.models.generate_content.side_effect = RuntimeError("stop")
         with pytest.raises(Exception):
             call()
 
     direct_client.assert_not_called()
-    gateway_client.return_value.models.generate_content_stream.assert_called()
+    gateway_client.return_value.models.generate_content.assert_called()
     headers = gateway_client.call_args.kwargs["http_options"].headers
     assert headers["X-PostHog-Product"] == "replay_vision"
     assert headers["X-PostHog-Privacy-Mode"] == "true"
-    request_headers = gateway_client.return_value.models.generate_content_stream.call_args.kwargs[
+    request_headers = gateway_client.return_value.models.generate_content.call_args.kwargs[
         "config"
     ].http_options.headers
     labels = json.loads(request_headers["X-PostHog-Properties"])
@@ -194,7 +243,6 @@ def test_text_call_sites_use_the_gateway_when_configured(module: Any, call: Call
 
 
 def test_a_stream_assembles_into_the_buffered_response() -> None:
-    client, seen = _wired_gateway_client({"feature": "scanner"})
     chunks: list[dict[str, Any]] = [
         {"candidates": [{"content": {"role": "model", "parts": [{"text": "Hel"}]}}]},
         {"candidates": [{"content": {"role": "model", "parts": [{"text": "lo"}]}}]},
@@ -204,13 +252,12 @@ def test_a_stream_assembles_into_the_buffered_response() -> None:
         },
     ]
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(200, content=_sse(*chunks), headers={"content-type": "text/event-stream"})
+    client, _ = _wired_gateway_client(
+        {"feature": "scanner"},
+        respond=lambda _: httpx.Response(200, content=_sse(*chunks), headers={"content-type": "text/event-stream"}),
+    )
 
-    client.models._models._api_client._httpx_client = httpx.Client(transport=httpx.MockTransport(handler))
-
-    response = client.models.generate_content(model="gemini-test", contents="hi")
+    response = asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
 
     assert response.text == "Hello"
     assert response.candidates is not None
@@ -318,21 +365,11 @@ _PARTIAL = {"candidates": [{"content": {"role": "model", "parts": [{"text": '{"v
     [_sse(_PARTIAL, _ERROR_FRAME), _sse(_ERROR_FRAME), _sse(_PARTIAL)],
     ids=["partial-then-error", "error-only", "clean-close-mid-answer"],
 )
-def test_a_cut_gateway_stream_raises_on_both_surfaces(body: bytes) -> None:
-    client, _ = _wired_gateway_client({"feature": "scanner"})
-    api_client = client.models._models._api_client
-    api_client._httpx_client = httpx.Client(
-        transport=httpx.MockTransport(
-            lambda _: httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
-        )
-    )
-    api_client._async_httpx_client = httpx.AsyncClient(
-        transport=httpx.MockTransport(
-            lambda _: httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
-        )
+def test_a_cut_gateway_stream_raises(body: bytes) -> None:
+    client, _ = _wired_gateway_client(
+        {"feature": "scanner"},
+        respond=lambda _: httpx.Response(200, content=body, headers={"content-type": "text/event-stream"}),
     )
 
-    with pytest.raises(genai_errors.ServerError):
-        client.models.generate_content(model="gemini-test", contents="hi")
     with pytest.raises(genai_errors.ServerError):
         asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
