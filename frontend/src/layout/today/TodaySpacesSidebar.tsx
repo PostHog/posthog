@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconChevronRight, IconList, IconPlus, IconStar, IconStarFilled } from '@posthog/icons'
+import { IconChevronRight, IconList, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -31,15 +31,8 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentTasksUnavailable,
         collapsedSections,
     } = useValues(todaySpacesLogic)
-    const {
-        toggleSpace,
-        loadSpaces,
-        loadSpaceTasks,
-        loadRecentTasks,
-        toggleSection,
-        setBrowsingSpaces,
-        setSpaceStarred,
-    } = useActions(todaySpacesLogic)
+    const { toggleSpace, loadSpaces, loadSpaceTasks, loadRecentTasks, toggleSection, setBrowsingSpaces } =
+        useActions(todaySpacesLogic)
     const { location, searchParams } = useValues(router)
     const onAi = location.pathname.endsWith('/ai')
 
@@ -156,85 +149,60 @@ export function TodaySpacesSidebar(): JSX.Element {
                             Spaces group the sessions you and your agents work on. Create one from PostHog Desktop.
                         </div>
                     ) : (
-                        <>
-                            {visibleSpaces.map((space) => {
-                                const expanded = expandedSpaceIds.includes(space.id)
-                                const tasks = spaceTasks[space.id]
-                                const personal = space.system_role === 'personal'
-                                return (
-                                    <div key={space.id}>
-                                        <TodayPaneRow
-                                            label={spaceLabel(space)}
-                                            icon={<span className="TodayPane__hash">#</span>}
-                                            dataAttr="today-space-row"
-                                            onClick={() => toggleSpace(space.id)}
-                                            trailing={
-                                                <IconChevronRight
-                                                    className={cn('TodayPaneRow__chevron', expanded && 'rotate-90')}
-                                                />
-                                            }
-                                            action={
-                                                personal ? null : (
+                        visibleSpaces.map((space) => {
+                            const expanded = expandedSpaceIds.includes(space.id)
+                            const tasks = spaceTasks[space.id]
+                            return (
+                                <div key={space.id}>
+                                    <TodayPaneRow
+                                        label={spaceLabel(space)}
+                                        icon={<span className="TodayPane__hash">#</span>}
+                                        dataAttr="today-space-row"
+                                        onClick={() => toggleSpace(space.id)}
+                                        trailing={
+                                            <IconChevronRight
+                                                className={cn('TodayPaneRow__chevron', expanded && 'rotate-90')}
+                                            />
+                                        }
+                                    />
+                                    {expanded &&
+                                        (tasks === undefined ? (
+                                            loadingSpaceIds.includes(space.id) ? (
+                                                <div className="TodayPane__state TodayPane__state--nested">
+                                                    <Spinner />
+                                                </div>
+                                            ) : failedSpaceIds.includes(space.id) ? (
+                                                <div className="TodayPane__state TodayPane__state--nested">
+                                                    <span>Couldn’t load this space’s sessions.</span>
                                                     <LemonButton
                                                         size="xsmall"
-                                                        icon={space.starred ? <IconStarFilled /> : <IconStar />}
-                                                        tooltip={space.starred ? 'Unstar space' : 'Star space'}
-                                                        onClick={() => setSpaceStarred(space.id, !space.starred)}
-                                                        data-attr="today-space-star"
-                                                    />
-                                                )
-                                            }
-                                        />
-                                        {expanded &&
-                                            (tasks === undefined ? (
-                                                loadingSpaceIds.includes(space.id) ? (
-                                                    <div className="TodayPane__state TodayPane__state--nested">
-                                                        <Spinner />
-                                                    </div>
-                                                ) : failedSpaceIds.includes(space.id) ? (
-                                                    <div className="TodayPane__state TodayPane__state--nested">
-                                                        <span>Couldn’t load this space’s sessions.</span>
-                                                        <LemonButton
-                                                            size="xsmall"
-                                                            type="secondary"
-                                                            onClick={() => loadSpaceTasks(space.id)}
-                                                            data-attr="today-space-tasks-retry"
-                                                        >
-                                                            Try again
-                                                        </LemonButton>
-                                                    </div>
-                                                ) : null
-                                            ) : tasks.length === 0 ? (
-                                                <div className="TodayPane__state TodayPane__state--nested">
-                                                    No sessions yet.
+                                                        type="secondary"
+                                                        onClick={() => loadSpaceTasks(space.id)}
+                                                        data-attr="today-space-tasks-retry"
+                                                    >
+                                                        Try again
+                                                    </LemonButton>
                                                 </div>
-                                            ) : (
-                                                tasks.map((task) => (
-                                                    <TodayPaneRow
-                                                        key={task.id}
-                                                        depth={1}
-                                                        label={task.title || 'Untitled session'}
-                                                        to={urls.aiTask(task.id)}
-                                                        active={onAi && searchParams.task === task.id}
-                                                        dataAttr="today-space-task"
-                                                    />
-                                                ))
-                                            ))}
-                                    </div>
-                                )
-                            })}
-                            {!browsingSpaces && visibleSpaces.length <= 1 && (
-                                <button
-                                    type="button"
-                                    className="TodayPane__add"
-                                    data-attr="today-spaces-add"
-                                    onClick={() => setBrowsingSpaces(true)}
-                                >
-                                    <IconPlus />
-                                    Add the spaces you work in
-                                </button>
-                            )}
-                        </>
+                                            ) : null
+                                        ) : tasks.length === 0 ? (
+                                            <div className="TodayPane__state TodayPane__state--nested">
+                                                No sessions yet.
+                                            </div>
+                                        ) : (
+                                            tasks.map((task) => (
+                                                <TodayPaneRow
+                                                    key={task.id}
+                                                    depth={1}
+                                                    label={task.title || 'Untitled session'}
+                                                    to={urls.aiTask(task.id)}
+                                                    active={onAi && searchParams.task === task.id}
+                                                    dataAttr="today-space-task"
+                                                />
+                                            ))
+                                        ))}
+                                </div>
+                            )
+                        })
                     )}
                 </TodayPaneSection>
             </div>

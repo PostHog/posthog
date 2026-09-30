@@ -152,35 +152,6 @@
     }
 }
 
-.TodayPane__add {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 6px 8px;
-    margin-top: 4px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--today-muted);
-    text-align: left;
-    border: 1px dashed var(--today-input-border);
-    border-radius: 8px;
-    transition:
-        color 0.16s,
-        border-color 0.16s;
-
-    svg {
-        width: 13px;
-        height: 13px;
-    }
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            color: var(--today-ink);
-            border-color: var(--today-focus-border);
-        }
-    }
-}
-
 .TodayPane__state {
     display: flex;
     flex-direction: column;
@@ -290,17 +261,5 @@
     .TodayPaneRow__wrap:hover &,
     .TodayPaneRow__wrap:focus-within & {
         opacity: 1;
-    }
-}
-
-.TodayPaneRow__wrap:has(.TodayPaneRow__chevron) {
-    .TodayPaneRow--withAction {
-        padding-right: 8px;
-    }
-
-    .TodayPaneRow__action {
-        right: 30px;
-        background: var(--today-soft);
-        border-radius: 6px;
     }
 }

@@ -1,15 +1,13 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ConversationDetail, UserType } from '~/types'
 
-import { taskChannelsList, taskChannelsStarCreate, tasksList } from 'products/tasks/frontend/generated/api'
+import { taskChannelsList, tasksList } from 'products/tasks/frontend/generated/api'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { TodayWorkGroup, TodayWorkItem, buildRecentItems, groupByDay, sessionItem } from './todayWorkItems'
@@ -125,13 +123,6 @@ export interface todaySpacesLogicActions {
     setBrowsingSpaces: (browsingSpaces: boolean) => {
         browsingSpaces: boolean
     }
-    setSpaceStarred: (
-        spaceId: string,
-        starred: boolean
-    ) => {
-        spaceId: string
-        starred: boolean
-    }
     setSpaceTasks: (
         spaceId: string,
         tasks: TaskListItemApi[]
@@ -189,7 +180,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         loadSpaceTasksFailure: (spaceId: string) => ({ spaceId }),
         toggleSection: (sectionId: TodayWorkSectionId) => ({ sectionId }),
         setBrowsingSpaces: (browsingSpaces: boolean) => ({ browsingSpaces }),
-        setSpaceStarred: (spaceId: string, starred: boolean) => ({ spaceId, starred }),
     }),
     loaders(({ values }) => ({
         spaces: [
@@ -263,10 +253,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 setBrowsingSpaces: (_, { browsingSpaces }) => browsingSpaces,
             },
         ],
-        spaces: {
-            setSpaceStarred: (state, { spaceId, starred }) =>
-                state.map((space) => (space.id === spaceId ? { ...space, starred } : space)),
-        },
         spacesUnavailable: [false, { loadSpaces: () => false, loadSpacesFailure: () => true }],
         recentTasksUnavailable: [false, { loadRecentTasks: () => false, loadRecentTasksFailure: () => true }],
         // Each space loads on its own, so expanding several at once never drops one space's sessions.
@@ -353,17 +339,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 if (values.expandedSpaceIds.includes(space.id)) {
                     actions.loadSpaceTasks(space.id)
                 }
-            }
-        },
-        setSpaceStarred: async ({ spaceId, starred }) => {
-            if (!values.currentTeamId) {
-                return
-            }
-            try {
-                await taskChannelsStarCreate(String(values.currentTeamId), spaceId, { starred })
-            } catch {
-                lemonToast.error(`Couldn’t ${starred ? 'star' : 'unstar'} this space. Try again.`)
-                actions.loadSpaces()
             }
         },
     })),
