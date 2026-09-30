@@ -63,7 +63,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Gumloop",
     "Hatchet",
     "Hetzner",
-    "HeyGen",
     "Kernel",
     "Linode",
     "Maxio",
