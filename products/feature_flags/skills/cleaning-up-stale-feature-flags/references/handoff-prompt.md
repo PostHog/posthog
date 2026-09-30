@@ -111,9 +111,8 @@ Before pushing or opening a PR, fetch the flag definition and its status one mor
 did this before editing. If the read fails, stop before publishing. Compare its version, update time, and rollout summary
 against what you used to choose the retained path. If they match, name the version and rollout you
 just confirmed in your summary or PR description. If they differ, do not push or open a PR. Revert
-any edit made against the old data, then restart from the assessment checks: the dependency, schedule,
-and age exclusions, and only then the rollout classification. The change is itself an update,
-and a flag updated inside the last 30 days is excluded.
+any edit made against the old data and ask for a refreshed assessment, as the pre-edit check does.
+The change is itself an update, so the flag stays excluded for 30 days after it.
 Do this even when your pre-edit check already ran and matched; that confirmed one moment, not this one.
 Complete any existing-work check you recorded as missing before you publish, and re-run the open-PR search
 even when it ran before, because a cleanup PR can open while you edit.

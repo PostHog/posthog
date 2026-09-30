@@ -27,12 +27,12 @@ Agent steps:
   and no branch, commit, or open PR removes it
 - Search the repository for "old-checkout-flow"; find a Flags.OLD_CHECKOUT constant
   and trace its two call sites
-- Re-read the flag: still 100% boolean
+- Repeat the definition, status, dependents, and schedules reads: same version and updated_at, still 100% boolean
 - Remove both checks, keep the enabled paths, delete the constant and a dead else branch;
   keep the generic isEnabled helper the removal orphaned, and note it for the report
 - Run the checkout tests and the linter; both pass
 - Ask whether to open a PR: "The cleanup is ready and the tests pass. Open a draft PR?"
-- The user agrees. Re-read the flag right before publishing: same version, still 100% boolean
+- The user agrees. Re-run the open-PR search, then repeat the four reads right before publishing: same version, still 100% boolean
 - Open one draft PR:
   "chore(feature-flags): remove old-checkout-flow"
 - Report:
