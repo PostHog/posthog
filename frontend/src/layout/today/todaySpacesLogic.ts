@@ -44,7 +44,6 @@ export interface todaySpacesLogicValues {
     conversationHistoryLoading: boolean // maxGlobalLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
-    browsingSpaces: boolean
     collapsedSections: TodayWorkSectionId[]
     pinnedItems: TodayWorkItem[]
     pinnedTasks: TaskListItemApi[]
@@ -109,9 +108,6 @@ export interface todaySpacesLogicActions {
         spaces: ChannelDTOApi[]
         payload?: any
     }
-    setBrowsingSpaces: (browsingSpaces: boolean) => {
-        browsingSpaces: boolean
-    }
     toggleSection: (sectionId: TodayWorkSectionId) => {
         sectionId: TodayWorkSectionId
     }
@@ -121,7 +117,7 @@ export interface todaySpacesLogicActions {
 export interface todaySpacesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sortedSpaces: (spaces: ChannelDTOApi[]) => ChannelDTOApi[]
-        visibleSpaces: (browsingSpaces: boolean, sortedSpaces: ChannelDTOApi[]) => ChannelDTOApi[]
+        visibleSpaces: (sortedSpaces: ChannelDTOApi[]) => ChannelDTOApi[]
         pinnedItems: (pinnedTasks: TaskListItemApi[]) => TodayWorkItem[]
         recentItems: (
             recentTasks: TaskListItemApi[],
@@ -154,7 +150,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
     })),
     actions({
         toggleSection: (sectionId: TodayWorkSectionId) => ({ sectionId }),
-        setBrowsingSpaces: (browsingSpaces: boolean) => ({ browsingSpaces }),
     }),
     loaders(({ values }) => ({
         spaces: [
@@ -213,22 +208,14 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     state.includes(sectionId) ? state.filter((id) => id !== sectionId) : [...state, sectionId],
             },
         ],
-        browsingSpaces: [
-            false,
-            { persist: true },
-            {
-                setBrowsingSpaces: (_, { browsingSpaces }) => browsingSpaces,
-            },
-        ],
         spacesUnavailable: [false, { loadSpaces: () => false, loadSpacesFailure: () => true }],
         recentTasksUnavailable: [false, { loadRecentTasks: () => false, loadRecentTasksFailure: () => true }],
     }),
     selectors({
         sortedSpaces: [(s) => [s.spaces], (spaces: ChannelDTOApi[]): ChannelDTOApi[] => sortSpaces(spaces)],
         visibleSpaces: [
-            (s) => [s.browsingSpaces, s.sortedSpaces],
-            (browsingSpaces: boolean, sortedSpaces: ChannelDTOApi[]): ChannelDTOApi[] =>
-                browsingSpaces ? sortedSpaces : starredSpaces(sortedSpaces),
+            (s) => [s.sortedSpaces],
+            (sortedSpaces: ChannelDTOApi[]): ChannelDTOApi[] => starredSpaces(sortedSpaces),
         ],
         pinnedItems: [
             (s) => [s.pinnedTasks],

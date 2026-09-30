@@ -18,7 +18,6 @@ import { TodayWorkItem, shortTimeAgo } from './todayWorkItems'
 export function TodaySpacesSidebar(): JSX.Element {
     const {
         visibleSpaces,
-        browsingSpaces,
         spacesLoading,
         spacesUnavailable,
         pinnedItems,
@@ -28,7 +27,7 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentTasksUnavailable,
         collapsedSections,
     } = useValues(todaySpacesLogic)
-    const { loadSpaces, loadRecentTasks, toggleSection, setBrowsingSpaces } = useActions(todaySpacesLogic)
+    const { loadSpaces, loadRecentTasks, toggleSection } = useActions(todaySpacesLogic)
     const { location, searchParams } = useValues(router)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
 
@@ -146,9 +145,9 @@ export function TodaySpacesSidebar(): JSX.Element {
                         <LemonButton
                             size="xsmall"
                             icon={<IconList />}
-                            active={browsingSpaces}
-                            tooltip={browsingSpaces ? 'Show starred spaces only' : 'Browse all spaces'}
-                            onClick={() => setBrowsingSpaces(!browsingSpaces)}
+                            active={location.pathname.endsWith(urls.taskSpaces())}
+                            tooltip="Browse spaces"
+                            to={urls.taskSpaces()}
                             data-attr="today-spaces-browse"
                         />
                     }
@@ -164,10 +163,6 @@ export function TodaySpacesSidebar(): JSX.Element {
                                 Try again
                             </LemonButton>
                         </div>
-                    ) : !visibleSpaces.length && browsingSpaces ? (
-                        <div className="TodayPane__state">
-                            Spaces group the sessions you and your agents work on. Create one from PostHog Desktop.
-                        </div>
                     ) : (
                         <>
                             {visibleSpaces.map((space) => (
@@ -180,12 +175,12 @@ export function TodaySpacesSidebar(): JSX.Element {
                                     dataAttr="today-space-row"
                                 />
                             ))}
-                            {!browsingSpaces && visibleSpaces.length <= 1 && (
+                            {visibleSpaces.length <= 1 && (
                                 <button
                                     type="button"
                                     className="TodayPane__add"
                                     data-attr="today-spaces-add"
-                                    onClick={() => setBrowsingSpaces(true)}
+                                    onClick={() => router.actions.push(urls.taskSpaces())}
                                 >
                                     <IconPlus />
                                     Add the spaces you work in

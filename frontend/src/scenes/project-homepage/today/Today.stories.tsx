@@ -256,6 +256,10 @@ export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
+export const SpacesBrowse: Story = {
+    parameters: { pageUrl: urls.taskSpaces() },
+}
+
 export const SpaceSettingsTab: Story = {
     parameters: { pageUrl: urls.taskSpaceSettings('space-checkout') },
 }
