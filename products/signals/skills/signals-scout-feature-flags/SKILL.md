@@ -45,26 +45,32 @@ PostHog moves flag-evaluation data from `events` into the `flag_evaluations` tab
 During the move, a source can hold only part of a window.
 `flag_evaluations` gets rows from the day ingestion starts to write to it, and it keeps 90 days.
 `events` stops getting `$feature_flag_called` rows when the organization moves to the new table only.
-A partial source shows a volume step that the code did not cause, so a step on one source is not evidence.
+A partial source shows a volume step that the code did not cause.
+Compare the two sources to tell that step from a real change in traffic.
 
 1. Probe the replacement table:
 
    ```sql
    SELECT toDate(timestamp) AS day, count() AS calls
    FROM flag_evaluations
-   WHERE timestamp >= now() - INTERVAL 14 DAY
+   WHERE timestamp >= toStartOfDay(now()) - INTERVAL 14 DAY
+     AND timestamp < toStartOfDay(now())
    GROUP BY day
    ORDER BY day
    ```
+
+   The window holds 14 complete days. It leaves out the current day, because a partial day looks like a step. The cliff read in [Get oriented](#get-oriented) checks the latest 24 hours separately.
 
    If the query fails because the table is unknown, the project has no replacement source. `events` is authoritative, so continue with the rest of this skill.
 
 2. If the table exists, run the same daily count on `events` (`WHERE event = '$feature_flag_called'`). Compare the two series day by day:
    - **Both series are empty** — there is no call stream. Follow the matching zero-calls branch in the quick close-out below.
    - **The series agree on every day (within ~5%)** — both sources are complete. Use `events`.
-   - **Only one series has rows on every day, with no step at either end of the window** — the source is migrating, and that series is the supported replacement. Use it for every traffic query and chart in this run. A trends chart reads `events`, so chart `flag_evaluations` with a SQL series. On `flag_evaluations`, read the `flag_key` and `response` columns instead of `properties.$feature_flag` and `properties.$feature_flag_response`, drop the `event` filter, and keep every window inside 90 days.
-   - **Neither series covers the whole window** — no complete source exists. Suspend all traffic-based conclusions: file no cliff, ghost, response-shift, or dead-check report, attach no traffic chart, and do not edit an open traffic report to say that it recovered or got worse. Run only the config-side checks ([Stale flags](#stale-flags--one-cleanup-report-each) and dependent-flag sanity). In the close-out, say that you suspended traffic analysis because the evaluation source is migrating.
-3. When one source falls and the other rises by the same amount, the step is the migration. It is never an SDK or capture-path finding.
+   - **Only one series has calls on every day where either series has calls** — that series is complete. For example, a complete `events` series next to an empty or late-starting `flag_evaluations` series, or a complete `flag_evaluations` series next to an `events` series that stops. Use it for every traffic query and chart in this run. A trends chart reads `events`, so chart `flag_evaluations` with a SQL series. On `flag_evaluations`, read the `flag_key` and `response` columns instead of `properties.$feature_flag` and `properties.$feature_flag_response`, drop the `event` filter, and keep every window inside 90 days.
+   - **Neither series has calls on every day where either series has calls** — the calls moved from one series to the other inside the window, so no complete source exists. Suspend all traffic-based conclusions: file no cliff, ghost, response-shift, or dead-check report, attach no traffic chart, and do not edit an open traffic report to say that it recovered or got worse. Run only the config-side checks ([Stale flags](#stale-flags--one-cleanup-report-each) and dependent-flag sanity). In the close-out, say that you suspended traffic analysis because the evaluation source is migrating.
+3. To find the cause of a step, compare the two series on the day of the step:
+   - One series falls, and the other series keeps a steady count above zero or gains about the same number of calls: the step is the migration. It is never an SDK or capture-path finding.
+   - Both series fall, or the only series with calls falls: the step is a real change in traffic, even when it falls to zero. Investigate it with the patterns below.
 4. Every `$feature_flag_called` query in this skill reads the source that this check chose. The stale-flag call count is the one exception: when both sources have rows, count on both, because a partial source can miss the call that expires a candidate.
 5. Save the result under `pattern:feature-flags:event-source`: the chosen source, the date of the check, and the first complete day. Do the probe again on each run, because an organization can move between runs.
 
