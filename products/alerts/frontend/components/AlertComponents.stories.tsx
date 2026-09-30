@@ -16,6 +16,7 @@ import { IntegrationType } from '~/types'
 import type { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { alertCadenceMinutes } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { alertNotificationLogic } from 'products/alerts/frontend/logic/alertNotificationLogic'
+import { ALERT_NOTIFICATION_TYPE_PAGERDUTY } from 'products/alerts/frontend/logic/alertNotifications'
 import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import { InlineAlertNotifications } from 'products/alerts/frontend/views/InlineAlertNotifications'
 
@@ -30,6 +31,8 @@ import {
 import {
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
+    AlertPagerDutyRegion,
+    AlertPagerDutySeverity,
     PendingAlertNotificationDestinationView,
 } from './AlertNotificationDestinationEditor'
 import { AlertPreviewCard } from './AlertPreviewCard'
@@ -146,17 +149,21 @@ function AdvancedOptionsStory(): JSX.Element {
     )
 }
 
-type StoryNotificationType = 'slack' | 'webhook'
+type StoryNotificationType = 'slack' | 'webhook' | 'pagerduty'
 
 const NOTIFICATION_TYPE_OPTIONS: LemonSelectOptions<StoryNotificationType> = [
     { label: 'Slack', value: 'slack' },
+    { label: 'PagerDuty', value: 'pagerduty' },
     { label: 'Webhook', value: 'webhook' },
 ]
 
-function NotificationsStory(): JSX.Element {
-    const [selectedType, setSelectedType] = useState<StoryNotificationType>('webhook')
+function NotificationsStory({ initialType = 'webhook' }: { initialType?: StoryNotificationType }): JSX.Element {
+    const [selectedType, setSelectedType] = useState<StoryNotificationType>(initialType)
     const [urlValue, setUrlValue] = useState('https://example.com/alerts')
     const [slackChannelValue, setSlackChannelValue] = useState<string | null>(null)
+    const [routingKey, setRoutingKey] = useState('')
+    const [severity, setSeverity] = useState<AlertPagerDutySeverity>('critical')
+    const [region, setRegion] = useState<AlertPagerDutyRegion>('us')
     const [existingDestinations, setExistingDestinations] = useState<AlertNotificationDestinationView[]>([
         {
             key: 'existing-slack',
@@ -197,6 +204,8 @@ function NotificationsStory(): JSX.Element {
     let addDisabledReason: string | undefined
     if (selectedType === 'slack') {
         addDisabledReason = 'Connect Slack first'
+    } else if (selectedType === 'pagerduty') {
+        addDisabledReason = routingKey ? undefined : 'Enter a PagerDuty integration key'
     } else if (!urlValue) {
         addDisabledReason = 'Enter a webhook URL'
     }
@@ -231,6 +240,19 @@ function NotificationsStory(): JSX.Element {
                               input: { placeholder: 'https://example.com/webhook' },
                               value: urlValue,
                               onChange: setUrlValue,
+                          }
+                        : undefined
+                }
+                pagerduty={
+                    selectedType === 'pagerduty'
+                        ? {
+                              routingKey,
+                              onRoutingKeyChange: setRoutingKey,
+                              severity,
+                              onSeverityChange: setSeverity,
+                              region,
+                              onRegionChange: setRegion,
+                              incidentHelpText: 'An incident opens when the alert fires.',
                           }
                         : undefined
                 }
@@ -469,6 +491,56 @@ function PreviewBreakdownStory(): JSX.Element {
     )
 }
 
+const STORY_PAGERDUTY_HOG_FUNCTION = {
+    id: 'hf-pagerduty',
+    type: 'internal_destination',
+    name: 'Alert: PagerDuty',
+    description: '',
+    created_by: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    enabled: true,
+    hog: '',
+    template_id: 'template-pagerduty',
+    inputs: {
+        routing_key: { secret: true },
+        severity: { value: 'critical' },
+        region: { value: 'us' },
+    },
+}
+
+function InsightAlertPagerDutyStory(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            '/api/projects/:team_id/integrations': { results: STORY_SLACK_WORKSPACES.slice(0, 1), count: 1 },
+            '/api/environments/:team_id/integrations/:id/channels': {
+                channels: [],
+                lastRefreshedAt: '2026-01-01T00:00:00Z',
+            },
+            '/api/environments/:team_id/hog_functions': { results: [STORY_PAGERDUTY_HOG_FUNCTION], count: 1 },
+        },
+    })
+
+    const { setSelectedType, addPendingNotification } = useActions(
+        alertNotificationLogic({ alertId: 'alert-pagerduty' })
+    )
+    useEffect(() => {
+        setSelectedType(ALERT_NOTIFICATION_TYPE_PAGERDUTY)
+        addPendingNotification({
+            type: ALERT_NOTIFICATION_TYPE_PAGERDUTY,
+            routingKey: 'fake-routing-key-for-storybook',
+            severity: 'warning',
+            region: 'eu',
+        })
+    }, [setSelectedType, addPendingNotification])
+
+    return (
+        <div className="max-w-2xl border rounded bg-surface-primary p-4">
+            <InlineAlertNotifications alertId="alert-pagerduty" />
+        </div>
+    )
+}
+
 const meta: Meta = {
     title: 'Products/Alerts/Shared components',
     parameters: {
@@ -495,6 +567,8 @@ export const EditorLoading: Story = {
 export const Definition: Story = { render: () => <DefinitionStory /> }
 export const AdvancedOptions: Story = { render: () => <AdvancedOptionsStory /> }
 export const Notifications: Story = { render: () => <NotificationsStory /> }
+export const NotificationsPagerDuty: Story = { render: () => <NotificationsStory initialType="pagerduty" /> }
+export const InsightAlertNotificationsPagerDuty: Story = { render: () => <InsightAlertPagerDutyStory /> }
 export const NotificationsMultipleSlackWorkspaces: Story = { render: () => <MultipleSlackWorkspacesStory /> }
 export const QuietHours: Story = { render: () => <QuietHoursStory /> }
 export const EvaluationHistory: Story = { render: () => <EvaluationHistoryStory /> }
