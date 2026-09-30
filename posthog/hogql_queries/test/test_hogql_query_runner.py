@@ -19,7 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import LimitContext, get_default_limit_for_context
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
@@ -123,6 +123,22 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results is not None
         self.assertEqual(len(response.results), 5)
         self.assertNotIn("hasMore", response)
+
+    @parameterized.expand([(LimitContext.QUERY,), (LimitContext.POSTHOG_AI,)])
+    def test_information_schema_query_without_limit_lists_every_system_table(self, limit_context):
+        query = HogQLQuery(query="SELECT table_name FROM system.information_schema.tables")
+        response = HogQLQueryRunner(
+            query=query, team=self.team, user=self.user, limit_context=limit_context
+        ).calculate()
+        listed = {row[0] for row in response.results}
+        full = execute_hogql_query(
+            "SELECT table_name FROM system.information_schema.tables LIMIT 10000", team=self.team, user=self.user
+        )
+        expected = {row[0] for row in full.results}
+        assert len(expected) > get_default_limit_for_context(limit_context)
+        assert listed == expected
+        assert "system.insights" in listed
+        assert response.hasMore is False
 
     @parameterized.expand([(3, False), (4, True)])
     def test_alert_explicit_limit_probes_one_extra_row(self, row_count, has_more):

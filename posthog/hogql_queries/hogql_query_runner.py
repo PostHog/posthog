@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
@@ -163,6 +163,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             _ACTIVITY_LOGS_TABLE in table_names
         )
 
+    @property
+    def _reads_only_information_schema(self) -> bool:
+        table_names = self._queried_table_names
+        return bool(table_names) and all(name.lower().startswith(_INFORMATION_SCHEMA_PREFIX) for name in table_names)
+
     @cached_property
     def _queried_table_names(self) -> set[str]:
         """Tables this query names, or empty when it is unparseable or reads an external connection.
@@ -278,7 +283,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if self.limit_context == LimitContext.SQL_ALERT:
             paginator = HogQLHasMorePaginator.from_alert_query(query, limit_context=self.limit_context)
         elif isinstance(query, ast.SelectQuery) and not query.limit:
-            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
+            default_limit = None
+            if self._reads_only_information_schema:
+                # The default page cuts the catalog before most `system.*` tables. Use the largest page,
+                # less the row the paginator adds to detect more results.
+                default_limit = get_max_limit_for_context(self.limit_context) - 1
+            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context, limit=default_limit)
         func = cast(
             Callable[..., HogQLQueryResponse],
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,
