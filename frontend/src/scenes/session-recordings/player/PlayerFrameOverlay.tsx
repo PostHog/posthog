@@ -58,7 +58,7 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
         <div className="flex gap-1 mt-4">
             <CommentOnRecordingButton className="text-2xl text-white" data-attr="replay-overlay-comment" />
             <LemonButton
-                data-attr="replay-overlay-play-pause"
+                data-attr="replay-overlay-emoji"
                 size="xsmall"
                 icon={<IconEmoji className="text-2xl text-white" />}
                 onClick={(e) => {

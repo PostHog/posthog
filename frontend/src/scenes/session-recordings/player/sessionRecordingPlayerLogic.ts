@@ -3643,6 +3643,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 filename: filename || `replay-${values.sessionRecordingId}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
                 skip_inactivity: values.skipInactivitySetting,
             })
+            if (format === ExporterFormat.MP4) {
+                actions.reportRecordingExportedToFile('mp4')
+            }
         },
         takeScreenshot: async () => {
             // We need to subtract 1 second as the player starts immediately
@@ -3665,7 +3668,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ? Math.floor(values.sessionPlayerData?.durationMs / 1000)
                 : 5
 
-            actions.reportRecordingExportedToFile('mp4')
             actions.exportRecording(ExporterFormat.MP4, 0, SessionRecordingPlayerMode.Video, duration)
         },
         openHeatmap: () => {

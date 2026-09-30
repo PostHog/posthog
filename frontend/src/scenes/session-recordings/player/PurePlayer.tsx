@@ -277,7 +277,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                 {
                     ...hotkey,
                     action: (e: KeyboardEvent) => {
-                        posthog.capture('recording player hotkey used', { key })
+                        if (!e.repeat && !e.ctrlKey && !e.metaKey) {
+                            posthog.capture('recording player hotkey used', { key })
+                        }
                         hotkey.action(e)
                     },
                 },
