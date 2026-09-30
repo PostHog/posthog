@@ -2064,7 +2064,11 @@ describe('exec tool', () => {
 
     describe('describeInputKeys', () => {
         it('lists the top-level keys sorted, without values', () => {
-            const keys = describeInputKeys({ zeta: 'secret-value', alpha: 1, mid: { nested: 'also-secret' } })
+            const schema = z.object({ zeta: z.string(), alpha: z.number(), mid: z.object({ nested: z.string() }) })
+            const keys = describeInputKeys(
+                { zeta: 'secret-value', alpha: 1, mid: { nested: 'also-secret' } },
+                schema
+            )
 
             expect(keys).toEqual(['alpha', 'mid', 'zeta'])
             expect(JSON.stringify(keys)).not.toContain('secret')
@@ -2072,7 +2076,8 @@ describe('exec tool', () => {
 
         it('caps the count at 20 and masks a key longer than 64 characters', () => {
             const wide = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${String(i).padStart(2, '0')}`, i]))
-            expect(describeInputKeys(wide)).toHaveLength(20)
+            const schema = z.object(Object.fromEntries(Object.keys(wide).map((key) => [key, z.number()])))
+            expect(describeInputKeys(wide, schema)).toHaveLength(20)
 
             // A 100-character key is not a parameter spelling; it is recorded as masked, not truncated.
             const long = 'x'.repeat(100)
@@ -2089,12 +2094,19 @@ describe('exec tool', () => {
         })
 
         it('drops SDK-injected keys and masks a key that is not identifier-shaped', () => {
-            expect(describeInputKeys({ context: {}, llm_model: 'x', conversation_id: 'c', id: 1 })).toEqual(['id'])
+            expect(
+                describeInputKeys(
+                    { context: {}, llm_model: 'x', conversation_id: 'c', id: 1 },
+                    z.object({ id: z.number() })
+                )
+            ).toEqual(['id'])
             expect(
                 describeInputKeys({ context: {}, id: 1 }, z.object({ context: z.string(), id: z.number() }))
             ).toEqual(['context', 'id'])
             // Free text in a key name is caller text; the property records names only.
-            expect(describeInputKeys({ 'drop table users; --': 1, ok_key: 2 })).toEqual(['ok_key', '[redacted]'])
+            expect(
+                describeInputKeys({ 'drop table users; --': 1, ok_key: 2 }, z.object({ ok_key: z.number() }))
+            ).toEqual(['ok_key', '[redacted]'])
         })
 
         it('records declared names before misspelled ones when the limit is reached', () => {
@@ -2142,7 +2154,7 @@ describe('exec tool', () => {
                     $mcp_input_aliases_used: ['experimentId:id'],
                 })
                 expect(describeInputShape({ experimentId: 1 }, z.object({ id: z.number() }))).toEqual({
-                    $mcp_input_keys: ['experimentId'],
+                    $mcp_input_keys: ['[redacted]'],
                 })
             })
 
@@ -2155,9 +2167,7 @@ describe('exec tool', () => {
     })
 
     describe('describeValidationError', () => {
-        it('surfaces the unaccepted top-level key on a union rejection without leaking values', () => {
-            // The switch-organization regression shape: a union rejection carries an
-            // empty issue path, so `inputKeys` is what makes the wrong alias diagnosable.
+        it('redacts an unaccepted top-level key on a union rejection without leaking values', () => {
             const schema = z.union([z.object({ orgId: z.string() }), z.object({ id: z.string() })])
             const input = { organizationId: 'super-secret-org-uuid' }
             const result = schema.safeParse(input, { reportInput: true })
@@ -2165,7 +2175,7 @@ describe('exec tool', () => {
 
             const detail = describeValidationError(result.error!, input, schema)
 
-            expect(detail.inputKeys).toEqual(['organizationId'])
+            expect(detail.inputKeys).toEqual(['[redacted]'])
             // Never record input values — the raw uuid must not appear anywhere.
             expect(JSON.stringify(detail)).not.toContain('super-secret-org-uuid')
         })
