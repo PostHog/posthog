@@ -5,6 +5,7 @@ effective definition from here, so that they calculate and hash the same metric.
 uuids between activities and re-resolve the definition at the point of use.
 """
 
+import dataclasses
 from typing import Any, Literal
 
 from posthog.schema import (
@@ -40,6 +41,7 @@ def is_daily_timeseries_metric(metric: dict[str, Any] | None) -> bool:
 
 
 MetricRole = Literal["primary", "secondary"]
+MetricSource = Literal["inline", "saved"]
 
 
 @frozen
@@ -49,9 +51,10 @@ class ResolvedExperimentMetric:
 
     uuid: str
     role: MetricRole
-    # The effective definition. It is the only dict that may feed `compute_metric_fingerprint` or a
-    # query for this metric. A caller that uses the raw saved query calculates a different metric and
-    # files or looks up results under a different hash than every other caller.
+    source: MetricSource
+    # The effective definition. It is the only dict that may feed a calculation spec or a query for
+    # this metric. A caller that uses the raw saved query calculates a different metric and files or
+    # looks up results under a different calculation key than every other caller.
     definition: dict[str, Any]
 
 
@@ -66,7 +69,7 @@ def resolve_saved_metric_definition(saved_query: dict[str, Any], metadata: dict[
       funnel metrics have these fields.
 
     The limit and the attribution are breakdown settings, so a link without breakdowns applies neither.
-    Applying them would change the fingerprint of a metric whose results cannot change, and the stored
+    Applying them would change the calculation key of a metric whose results cannot change, and the stored
     results of that metric would become unreachable.
 
     A key that is absent or null is an omitted override. Step 0 is an explicit value.
@@ -112,7 +115,9 @@ def _resolve_inline_metrics(experiment: Experiment) -> list[ResolvedExperimentMe
     for role, metrics in sections:
         for metric in metrics or []:
             if isinstance(metric, dict) and metric.get("uuid"):
-                resolved.append(ResolvedExperimentMetric(uuid=metric["uuid"], role=role, definition=metric))
+                resolved.append(
+                    ResolvedExperimentMetric(uuid=metric["uuid"], role=role, source="inline", definition=metric)
+                )
     return resolved
 
 
@@ -127,9 +132,14 @@ def saved_metric_links(experiment: Experiment) -> list[ExperimentToSavedMetric]:
     return sorted(links, key=lambda link: link.id)
 
 
+def saved_metric_role(metadata: dict[str, Any] | None) -> MetricRole:
+    """The role of a saved/shared metric on an experiment. The link's metadata["type"] holds it, and a
+    missing type means primary."""
+    return "secondary" if (metadata or {}).get("type") == "secondary" else "primary"
+
+
 def _resolve_saved_metrics(experiment: Experiment) -> list[ResolvedExperimentMetric]:
-    """Saved/shared metrics linked to the experiment, with the link overrides applied. The link's
-    metadata["type"] holds the role, and a missing type means primary."""
+    """Saved/shared metrics linked to the experiment, with the link overrides applied."""
     resolved: list[ResolvedExperimentMetric] = []
     for link in saved_metric_links(experiment):
         saved_query = link.saved_metric.query
@@ -139,7 +149,8 @@ def _resolve_saved_metrics(experiment: Experiment) -> list[ResolvedExperimentMet
         resolved.append(
             ResolvedExperimentMetric(
                 uuid=saved_query["uuid"],
-                role="secondary" if metadata.get("type") == "secondary" else "primary",
+                role=saved_metric_role(metadata),
+                source="saved",
                 definition=resolve_saved_metric_definition(saved_query, metadata),
             )
         )
@@ -166,7 +177,7 @@ def resolve_scheduled_metrics(experiment: Experiment) -> list[ResolvedExperiment
     for metric in resolve_experiment_metrics(experiment):
         if is_scheduled_metric(metric.definition):
             definition = definitions.setdefault(metric.uuid, metric.definition)
-            scheduled.append(ResolvedExperimentMetric(uuid=metric.uuid, role=metric.role, definition=definition))
+            scheduled.append(dataclasses.replace(metric, definition=definition))
     return scheduled
 
 

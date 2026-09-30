@@ -51,7 +51,6 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -60,6 +59,8 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.metric_calculation.spec import ExperimentCalculationSettings, stamp_calculation_keys
+from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
@@ -184,6 +185,11 @@ FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
 
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
+
+_INLINE_METRIC_FIELD_ROLES: tuple[tuple[str, MetricRole], ...] = (
+    ("metrics", "primary"),
+    ("metrics_secondary", "secondary"),
+)
 
 # Deprecated flag-config sub-keys under `parameters` that should move to the `feature_flag` object.
 # Kept in sync with the model's `parameters` deprecation comment. Used to attribute deprecated-field
@@ -1164,27 +1170,20 @@ class ExperimentService:
                 "minimum_detectable_effect": team_config.default_minimum_detectable_effect,
             }
 
-        stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
+        calculation_settings = ExperimentCalculationSettings.resolve(
+            team=self.team,
+            feature_flag=feature_flag,
+            start_date=start_date,
+            stats_config=stats_config,
+            exposure_criteria=exposure_criteria,
+            only_count_matured_users=only_count_matured_users,
+            excluded_variants=excluded_variants,
+            team_config=team_config,
+        )
         if metrics is not None:
-            for metric in metrics:
-                metric["fingerprint"] = compute_metric_fingerprint(
-                    metric,
-                    start_date,
-                    stats_method,
-                    exposure_criteria,
-                    only_count_matured_users=only_count_matured_users,
-                    excluded_variants=excluded_variants,
-                )
+            metrics = stamp_calculation_keys(metrics, "primary", calculation_settings)
         if metrics_secondary is not None:
-            for metric in metrics_secondary:
-                metric["fingerprint"] = compute_metric_fingerprint(
-                    metric,
-                    start_date,
-                    stats_method,
-                    exposure_criteria,
-                    only_count_matured_users=only_count_matured_users,
-                    excluded_variants=excluded_variants,
-                )
+            metrics_secondary = stamp_calculation_keys(metrics_secondary, "secondary", calculation_settings)
 
         self.validate_no_duplicate_metric_uuids(metrics, metrics_secondary)
 
@@ -1575,31 +1574,6 @@ class ExperimentService:
             metric["uuid"] = new_uuid
         return prepared, remap
 
-    @staticmethod
-    def _recompute_fingerprints(
-        metrics: list[dict],
-        start_date: datetime | None,
-        stats_config: dict | None,
-        exposure_criteria: dict | None,
-        only_count_matured_users: bool = False,
-        excluded_variants: list[str] | None = None,
-    ) -> list[dict]:
-        """Recompute fingerprints for a list of metrics. Returns a new list with updated fingerprints."""
-        stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
-        updated = []
-        for metric in metrics:
-            metric_copy = deepcopy(metric)
-            metric_copy["fingerprint"] = compute_metric_fingerprint(
-                metric_copy,
-                start_date,
-                stats_method,
-                exposure_criteria,
-                only_count_matured_users=only_count_matured_users,
-                excluded_variants=excluded_variants,
-            )
-            updated.append(metric_copy)
-        return updated
-
     def _get_team_experiments_config(self) -> TeamExperimentsConfig:
         return get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
@@ -1714,20 +1688,11 @@ class ExperimentService:
             experiment.start_date = timezone.now()
 
             # Recompute metric fingerprints with the new start_date
-            for metric_field in ["metrics", "metrics_secondary"]:
+            calculation_settings = ExperimentCalculationSettings.of_experiment(experiment)
+            for metric_field, role in _INLINE_METRIC_FIELD_ROLES:
                 metrics = getattr(experiment, metric_field, None)
                 if metrics:
-                    setattr(
-                        experiment,
-                        metric_field,
-                        self._recompute_fingerprints(
-                            metrics,
-                            experiment.start_date,
-                            experiment.stats_config,
-                            experiment.exposure_criteria,
-                            excluded_variants=experiment.excluded_variants or [],
-                        ),
-                    )
+                    setattr(experiment, metric_field, stamp_calculation_keys(metrics, role, calculation_settings))
 
             experiment.version = locked_version + 1
             # stats_config carries the baseline-variant pin materialized above; persist it too.
@@ -3587,17 +3552,19 @@ class ExperimentService:
             else:
                 excluded_variants = experiment.excluded_variants or []
 
-            for metric_field in ["metrics", "metrics_secondary"]:
+            calculation_settings = ExperimentCalculationSettings.resolve(
+                team=self.team,
+                feature_flag=experiment.feature_flag,
+                start_date=start_date,
+                stats_config=stats_config,
+                exposure_criteria=exposure_criteria,
+                only_count_matured_users=only_count_matured_users,
+                excluded_variants=excluded_variants,
+            )
+            for metric_field, role in _INLINE_METRIC_FIELD_ROLES:
                 metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
                 if metrics:
-                    update_data[metric_field] = self._recompute_fingerprints(
-                        metrics,
-                        start_date,
-                        stats_config,
-                        exposure_criteria,
-                        only_count_matured_users=only_count_matured_users,
-                        excluded_variants=excluded_variants,
-                    )
+                    update_data[metric_field] = stamp_calculation_keys(metrics, role, calculation_settings)
 
             # --- apply changes and save ----------------------------------------
             # Feature-flag config was already synced to the flag above; strip it so it is not mirrored
