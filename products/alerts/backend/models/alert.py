@@ -137,7 +137,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     calculation_interval = models.CharField(
         max_length=20,
         choices=CALCULATION_INTERVAL_CHOICES,
-        default=AlertCalculationInterval.DAILY,
+        default=AlertCalculationInterval.DAILY.value,
         null=True,
         blank=True,
     )
@@ -149,7 +149,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     # Detector-based anomaly detection configuration (alternative to threshold)
     detector_config = models.JSONField(null=True, blank=True)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING.value)
     enabled = models.BooleanField(default=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
@@ -443,7 +443,7 @@ class AlertCheck(UUIDTModel):
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING.value)
 
     # Detector-based anomaly detection results
     anomaly_scores = models.JSONField(null=True, blank=True)  # Scores for each data point

@@ -41,8 +41,11 @@ from products.web_analytics.dags.web_preaggregated_utils import check_for_concur
 
 logger = structlog.get_logger(__name__)
 
-# Rolling window kept warm. Matches the lazy precompute MAX_PRECOMPUTE_DAYS so a
-# later read path can serve any sub-window without falling back to raw tables.
+# Rolling window kept warm, so that a later read path can serve any sub-window
+# without falling back to raw tables. Sized independently of the lazy precompute
+# `MAX_PRECOMPUTE_DAYS`, because this window is a fixed cost the dag pays for
+# every enrolled team, not a per-shape span the tenant's own demand bounds.
+# Widen it through the env var once the storage cost is agreed.
 PRECOMPUTE_WINDOW_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_WINDOW_DAYS", "90"))
 
 # Each ensure_precomputed call covers at most this many days. The framework merges

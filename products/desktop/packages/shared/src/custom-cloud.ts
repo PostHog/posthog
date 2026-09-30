@@ -45,8 +45,12 @@ function httpUrl(value: string | undefined): string | undefined {
   return `${parsed.protocol}//${canonicalHost(parsed)}`;
 }
 
+// URL.hostname keeps the brackets on an IPv6 literal.
 function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.replace(/\.+$/, "").toLowerCase();
+  const host = hostname
+    .replace(/\.+$/, "")
+    .replace(/^\[(.*)\]$/, "$1")
+    .toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
@@ -104,4 +108,108 @@ export function configureCustomCloud(target: CustomCloud | null): void {
 
 export function getCustomCloud(): CustomCloud | null {
   return configured ?? fromEnv();
+}
+
+/** Go ai-gateway hosts a mint or the dev override may name. */
+const AI_GATEWAY_HOSTS = new Set([
+  "ai-gateway.us.posthog.com",
+  "ai-gateway.eu.posthog.com",
+  "ai-gateway.dev.posthog.dev",
+]);
+
+const POSTHOG_DOMAINS = ["posthog.com", "posthog.dev"];
+
+function postHogDomain(host: string): string | undefined {
+  return POSTHOG_DOMAINS.find(
+    (domain) => host === domain || host.endsWith(`.${domain}`),
+  );
+}
+
+function safeUrl(value: string, base?: string): URL | null {
+  try {
+    return new URL(value, base);
+  } catch {
+    return null;
+  }
+}
+
+export function isCredentialOriginAllowed(
+  url: string,
+  apiHost: string,
+  extraOrigins: readonly string[] = [],
+): boolean {
+  // A root-relative path stays on the page's own origin (browser hosts).
+  // Resolved with the fetch's parser, which reads "/\host" as "//host".
+  if (url.startsWith("/")) {
+    const probe = "https://relative.invalid";
+    return safeUrl(url, probe)?.origin === probe;
+  }
+  const target = safeUrl(url);
+  const api = safeUrl(apiHost);
+  if (!target || !api) return false;
+  const targetHost = target.hostname.replace(/\.+$/, "").toLowerCase();
+  const apiHostname = api.hostname.replace(/\.+$/, "").toLowerCase();
+  // The bearer never travels in cleartext, whichever branch admits the origin.
+  if (
+    target.protocol !== "https:" &&
+    !(target.protocol === "http:" && isLoopbackHost(targetHost))
+  ) {
+    return false;
+  }
+  if (target.origin === api.origin) return true;
+  if (extraOrigins.some((extra) => safeUrl(extra)?.origin === target.origin)) {
+    return true;
+  }
+  const customGateway = isCustomCloudHost(apiHost)
+    ? getCustomCloud()?.gatewayUrl
+    : undefined;
+  if (customGateway && safeUrl(customGateway)?.origin === target.origin) {
+    return true;
+  }
+  if (isLoopbackHost(targetHost)) return isLoopbackHost(apiHostname);
+  // Only PostHog's own domains on the default port are trusted by name, and
+  // only the API host's own one, so a prod token never reaches a dev host.
+  const domain = postHogDomain(apiHostname);
+  return (
+    target.protocol === "https:" &&
+    target.port === "" &&
+    domain !== undefined &&
+    postHogDomain(targetHost) === domain
+  );
+}
+
+/**
+ * The origin of a Go gateway URL, or null unless it is a bare https origin on
+ * the ai-gateway allowlist with the default port. Loopback passes only with
+ * `allowLoopback` (the dev override). With `apiHost`, the gateway must share
+ * its PostHog domain, so a prod bearer never reaches a dev host or the reverse.
+ */
+export function validateAiGatewayUrl(
+  raw: string,
+  options: { allowLoopback?: boolean; apiHost?: string } = {},
+): string | null {
+  const parsed = safeUrl(raw.trim());
+  if (!parsed) return null;
+  if (parsed.username || parsed.password) return null;
+  if (
+    parsed.search ||
+    parsed.hash ||
+    parsed.pathname.replace(/\/+$/, "") !== ""
+  ) {
+    return null;
+  }
+  const host = parsed.hostname.replace(/\.+$/, "").toLowerCase();
+  const origin = `${parsed.protocol}//${canonicalHost(parsed)}`;
+  if (isLoopbackHost(host)) {
+    const httpish = parsed.protocol === "https:" || parsed.protocol === "http:";
+    return options.allowLoopback && httpish ? origin : null;
+  }
+  if (parsed.protocol !== "https:" || !AI_GATEWAY_HOSTS.has(host)) return null;
+  if (parsed.port !== "") return null;
+  if (options.apiHost !== undefined) {
+    const api = safeUrl(options.apiHost);
+    const apiHost = api?.hostname.replace(/\.+$/, "").toLowerCase() ?? "";
+    if (postHogDomain(apiHost) !== postHogDomain(host)) return null;
+  }
+  return origin;
 }

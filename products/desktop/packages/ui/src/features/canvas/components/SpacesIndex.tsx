@@ -199,7 +199,7 @@ export function SpacesIndex() {
     useMemo(
       () => (
         <>
-          <div className="flex min-w-0 items-center gap-1.5 pl-5">
+          <div className="flex min-w-0 items-center gap-1.5">
             <span className="shrink-0 text-muted-foreground">
               <SpacesIcon size={14} />
             </span>

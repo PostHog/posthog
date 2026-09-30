@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -410,8 +411,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     basic: true,
                 }
 
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
                 const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
-                    `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
 
                 // Cancel if a newer request came in while this one was in flight
@@ -467,7 +469,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             null as InsightBulkDeleteResponseApi | null,
             {
                 bulkDeleteInsights: async ({ ids }: { ids: number[] }) => {
-                    return (await api.create(`api/environments/${values.currentTeamId}/insights/bulk_delete/`, {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsBulkDeleteCreate() from 'products/product_analytics/frontend/generated/api' instead.
+                    return (await api.create(`api/projects/${values.currentTeamId}/insights/bulk_delete/`, {
                         ids,
                     })) as InsightBulkDeleteResponseApi
                 },
@@ -477,7 +480,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             null as InsightBulkRestoreResponseApi | null,
             {
                 bulkRestoreInsights: async ({ ids }: { ids: number[] }) => {
-                    return (await api.create(`api/environments/${values.currentTeamId}/insights/bulk_restore/`, {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsBulkRestoreCreate() from 'products/product_analytics/frontend/generated/api' instead.
+                    return (await api.create(`api/projects/${values.currentTeamId}/insights/bulk_restore/`, {
                         ids,
                     })) as InsightBulkRestoreResponseApi
                 },
@@ -638,10 +642,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 let keys = Object.keys(objectDiffShallow(oldFilters, filters))
                 if (keys.includes('tab')) {
                     keys = keys.filter((k) => k !== 'tab')
-                    eventUsageLogic.actions.reportSavedInsightTabChanged(filters.tab)
+                    posthog.capture('saved insights list page tab changed', { tab: filters.tab })
                 }
                 if (keys.length > 0) {
-                    eventUsageLogic.actions.reportSavedInsightFilterUsed(keys)
+                    posthog.capture('saved insights list page filter used', { filter_keys: keys })
                 }
             }
         },

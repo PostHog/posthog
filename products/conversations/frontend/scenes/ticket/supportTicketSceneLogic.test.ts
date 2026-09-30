@@ -256,6 +256,28 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
         expect(logic.values.chatMessages[0].authorName).toBe(expectedName)
     })
 
+    it('shows a workflow reply as a teammate message named Workflow', () => {
+        logic.actions.setMessages([
+            {
+                id: 'msg-workflow',
+                content: 'We are on it.',
+                scope: 'conversations_ticket',
+                item_id: 'ticket-1',
+                item_context: { author_type: 'workflow', author_name: 'Workflow', is_private: false },
+                created_at: '2026-01-01T00:00:00Z',
+                created_by: null,
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.chatMessages[0]).toEqual(
+            expect.objectContaining({
+                authorType: 'human',
+                authorName: 'Workflow',
+                isPrivate: false,
+            })
+        )
+    })
+
     it('loads the full email when the inbound message retained one', async () => {
         logic.actions.setMessages([makeCustomerComment('msg-1', { has_full_email_content: true })])
         expect(logic.values.chatMessages[0].hasFullEmailContent).toBe(true)
@@ -302,6 +324,34 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
                 citations: ['https://example.com/docs/sdk'],
                 clarifyingQuestions: ['Which SDK?'],
             })
+        )
+    })
+
+    it('selects the latest applicable AI draft', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
+        logic.actions.setMessages([
+            { ...makeAiComment('new-draft'), created_at: '2026-01-01T00:02:00Z' },
+            { ...makeAiComment('not-a-draft', false), created_at: '2026-01-01T00:01:00Z' },
+            { ...makeAiComment('old-draft'), created_at: '2026-01-01T00:00:00Z' },
+        ])
+
+        expect(logic.values.latestAiDraftId).toBe('new-draft')
+    })
+
+    it('selects widget delivery statuses for public team messages', () => {
+        logic.actions.setTicket({ ...makeTicket(), unread_customer_count: 1 })
+        logic.actions.setMessages([
+            makeSupportComment({ id: 'read', created_at: '2026-01-01T00:00:00Z' }),
+            makeCustomerComment('customer'),
+            makeSupportComment({ id: 'private', item_context: { author_type: 'support', is_private: true } }),
+            makeSupportComment({ id: 'sent', created_at: '2026-01-01T00:03:00Z' }),
+        ])
+
+        expect(logic.values.deliveryStatusByMessageId).toEqual(
+            new Map([
+                ['read', 'read'],
+                ['sent', 'sent'],
+            ])
         )
     })
 })

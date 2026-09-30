@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { HogFunctionTemplateType } from '~/types'
 
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { destinationPickerFilter } from './destinationPickerFilter'
 // Side-effect imports: register product-specific trigger and action nodes
 import '../registry'
 
@@ -258,22 +259,7 @@ function HogFlowEditorToolbarSection({ title, children }: { title: string; child
     )
 }
 
-// For now we only want to show destinations that do not have secrets and not coming soon
-const customFilterFunction = (template: HogFunctionTemplateType): boolean => {
-    if (template.type !== 'destination' || TEMPLATE_IDS_AT_TOP_LEVEL.includes(template.id)) {
-        return false
-    }
-
-    if (template.type === 'destination' && template.inputs_schema?.some((input) => input.secret)) {
-        return false
-    }
-
-    if (['hidden', 'coming_soon'].includes(template.status)) {
-        return false
-    }
-
-    return true
-}
+const customFilterFunction = destinationPickerFilter(TEMPLATE_IDS_AT_TOP_LEVEL)
 
 function HogFunctionTemplatesChooser({
     onActionSelect,

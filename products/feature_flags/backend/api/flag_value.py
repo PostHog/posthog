@@ -65,6 +65,11 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except FeatureFlag.DoesNotExist:
             return response.Response({"error": "Feature flag not found"}, status=404)
 
+        # values is detail=False, so DRF never routes through get_object() and its
+        # built-in check_object_permissions call. Call it explicitly here.
+        # Otherwise a caller bypasses a flag's per-flag "none" access by naming its ID directly.
+        self.check_object_permissions(request, flag)
+
         # Always include true and false for any flag
         values = [{"name": True}, {"name": False}]
 

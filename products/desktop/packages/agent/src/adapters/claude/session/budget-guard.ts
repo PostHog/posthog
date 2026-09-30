@@ -3,8 +3,10 @@ import type { Logger } from "../../../utils/logger";
 
 export const BUDGET_CAP_ENV = "AI_GATEWAY_TOKEN_CAP_USD";
 export const BUDGET_PRICES_ENV = "AI_GATEWAY_MODEL_PRICES_JSON";
-export const BUDGET_WARN_RATIO = 0.7;
-export const BUDGET_CRITICAL_RATIO = 0.85;
+export const BUDGET_WARN_RATIO = 0.5;
+export const BUDGET_CRITICAL_RATIO = 0.7;
+// The local estimate trails the gateway's billed spend, so stop before the cap.
+export const BUDGET_STOP_RATIO = 0.9;
 export const FAST_MODE_PRICE_MULTIPLIER = 2;
 export const ONE_HOUR_CACHE_WRITE_INPUT_MULTIPLIER = 2;
 
@@ -34,6 +36,9 @@ export interface BudgetThresholdEvent {
 export interface BudgetSteerRecord {
   stage: BudgetSteerStage;
   spent_usd: number;
+  threshold_spent_usd: number;
+  threshold_at: string;
+  delivered_at: string | null;
   delivered: boolean;
 }
 
@@ -106,7 +111,13 @@ export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
   },
 ];
 
-const FAN_OUT_TOOL_NAMES = new Set(["Agent", "Task", "Workflow"]);
+const CRITICAL_BLOCKED_TOOL_NAMES = new Set([
+  "Agent",
+  "Task",
+  "Workflow",
+  "WebFetch",
+  "WebSearch",
+]);
 
 const STAGE_RANK: Record<BudgetStage, number> = { ok: 0, warn: 1, critical: 2 };
 
@@ -187,10 +198,15 @@ export class RunBudgetGuard {
   private sdkTotalUsd = 0;
   private estimatedAtSdkTotal = 0;
   private stage: BudgetStage = "ok";
+  private readonly thresholds = new Map<
+    BudgetSteerStage,
+    { spentUsd: number; at: string }
+  >();
   private deliveredStage: BudgetStage = "ok";
   private pendingSteer: BudgetSteerStage | null = null;
   private steerMode: BudgetSteerMode;
   private readonly steers: BudgetSteerRecord[] = [];
+  private stopTaken = false;
 
   constructor(
     readonly capUsd: number,
@@ -199,6 +215,7 @@ export class RunBudgetGuard {
     mode: BudgetSteerMode = "wrap_up",
     private readonly warnRatio: number = BUDGET_WARN_RATIO,
     private readonly criticalRatio: number = BUDGET_CRITICAL_RATIO,
+    private readonly stopRatio: number = BUDGET_STOP_RATIO,
   ) {
     this.steerMode = mode;
   }
@@ -245,6 +262,17 @@ export class RunBudgetGuard {
 
   get currentStage(): BudgetStage {
     return this.stage;
+  }
+
+  get exhausted(): boolean {
+    return this.ratio >= this.stopRatio;
+  }
+
+  /** True once, on the first check after spend reaches the stop ratio. */
+  takeStop(): boolean {
+    if (this.stopTaken || !this.exhausted) return false;
+    this.stopTaken = true;
+    return true;
   }
 
   recordAssistantMessage(
@@ -309,7 +337,17 @@ export class RunBudgetGuard {
   }
 
   recordSteer(stage: BudgetSteerStage, delivered: boolean): BudgetSteerRecord {
-    const record = { stage, spent_usd: this.spentUsd, delivered };
+    const spent = this.spentUsd;
+    const deliveredAt = new Date().toISOString();
+    const threshold = this.thresholds.get(stage);
+    const record = {
+      stage,
+      spent_usd: spent,
+      threshold_spent_usd: threshold?.spentUsd ?? spent,
+      threshold_at: threshold?.at ?? deliveredAt,
+      delivered_at: delivered ? deliveredAt : null,
+      delivered,
+    };
     this.steers.push(record);
     if (delivered && STAGE_RANK[stage] > STAGE_RANK[this.deliveredStage]) {
       this.deliveredStage = stage;
@@ -375,10 +413,27 @@ export class RunBudgetGuard {
   preToolUseHook(): HookCallback {
     return async (input: HookInput) => {
       if (input.hook_event_name !== "PreToolUse") return { continue: true };
-      if (!FAN_OUT_TOOL_NAMES.has(input.tool_name)) return { continue: true };
+      if (this.exhausted) {
+        this.logger.warn(
+          `[BudgetGuard] Blocking ${input.tool_name}: budget exhausted at ${formatUsd(this.spentUsd)} of ${formatUsd(this.capUsd)}`,
+        );
+        return {
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse" as const,
+            permissionDecision: "deny" as const,
+            permissionDecisionReason:
+              `This run has used about ${formatUsd(this.spentUsd)} of its ${formatUsd(this.capUsd)} model budget, ` +
+              "so no more tools can run. End your turn now with a short summary of your result.",
+          },
+        };
+      }
+      if (!CRITICAL_BLOCKED_TOOL_NAMES.has(input.tool_name)) {
+        return { continue: true };
+      }
       if (this.stage !== "critical") return { continue: true };
       this.logger.warn(
-        `[BudgetGuard] Blocking ${input.tool_name} spawn at ${formatUsd(this.spentUsd)} of ${formatUsd(this.capUsd)}`,
+        `[BudgetGuard] Blocking ${input.tool_name} at ${formatUsd(this.spentUsd)} of ${formatUsd(this.capUsd)}`,
       );
       const next =
         this.mode === "publish"
@@ -391,7 +446,7 @@ export class RunBudgetGuard {
           permissionDecision: "deny" as const,
           permissionDecisionReason:
             `This run has used about ${formatUsd(this.spentUsd)} of its ${formatUsd(this.capUsd)} model budget, ` +
-            `so no new subagents or workflows can start. ${next}`,
+            `so no new subagents, workflows, or web lookups can start. ${next}`,
         },
       };
     };
@@ -407,6 +462,8 @@ export class RunBudgetGuard {
     }
     this.stage = next;
     this.pendingSteer = next;
-    return { stage: next, spentUsd: this.spentUsd, capUsd: this.capUsd };
+    const spentUsd = this.spentUsd;
+    this.thresholds.set(next, { spentUsd, at: new Date().toISOString() });
+    return { stage: next, spentUsd, capUsd: this.capUsd };
   }
 }

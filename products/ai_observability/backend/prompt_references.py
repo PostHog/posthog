@@ -5,6 +5,8 @@ from typing import Any
 from django.db import InterfaceError, OperationalError
 from django.db.models import Q
 
+import structlog
+import posthoganalytics
 from rest_framework import serializers
 
 from posthog.dataclasses import frozen
@@ -13,6 +15,8 @@ from posthog.models.team.team import Team
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
+
+logger = structlog.get_logger(__name__)
 
 # Both charsets are enforced at write time (validate_prompt_name_value,
 # validate_prompt_label_name_value in posthog/api/llm_prompt_serializers.py),
@@ -101,7 +105,12 @@ def get_active_references_to(team_id: int, child_name: str) -> list[dict[str, An
 
 
 def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_name: str) -> list[str]:
-    """Prompts whose latest or labeled version references `prompt_name` through this label."""
+    """Prompts whose latest or labeled version references `prompt_name` through this label.
+
+    Capped like its siblings: the names end up in error messages and dialogs,
+    and existence checks stay correct because over the cap still means
+    "referenced".
+    """
     return sorted(
         LLMPromptDependency.objects.filter(
             team_id=team_id, child_name=prompt_name, child_label=label_name, prompt__deleted=False
@@ -110,6 +119,7 @@ def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_n
         .exclude(parent_name=prompt_name)
         .values_list("parent_name", flat=True)
         .distinct()
+        .order_by("parent_name")[:MAX_ACTIVE_REFERENCE_RESULTS]
     )
 
 
@@ -136,17 +146,6 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
     if not references:
         return
 
-    # Resolution splices content at every occurrence, so the assembled-size
-    # check has to weigh a repeated tag once per occurrence.
-    occurrence_counts = Counter(all_references)
-
-    if len(references) > MAX_PROMPT_REFERENCES:
-        raise _reference_error(
-            f"A prompt can reference at most {MAX_PROMPT_REFERENCES} other prompts. "
-            "Remove some references and try again.",
-            "too_many_references",
-        )
-
     referenced_by = get_active_referencing_parent_names(team_id, prompt_name)
     if referenced_by:
         raise _reference_error(
@@ -154,6 +153,47 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
             "A referenced prompt cannot contain references of its own.",
             "referenced_prompt_cannot_reference",
         )
+
+    validate_reference_targets(team_id, prompt_name=prompt_name, prompt_payload=prompt_payload)
+
+
+def validate_reference_targets(team_id: int, *, prompt_name: str, prompt_payload: Any) -> None:
+    """Reject content whose reference targets cannot resolve right now.
+
+    The resolvability half of validate_prompt_references, without the
+    incoming-reference depth check: pointing a label at a version whose
+    content holds references is legal while nothing references that label,
+    but the targets must still exist. Runs inside the caller's transaction
+    for the same lock-ordering reasons.
+    """
+    text = normalize_prompt_to_string(prompt_payload)
+    all_references = parse_prompt_references(text)
+    references = sorted(set(all_references), key=lambda r: (r.name, r.version or 0, r.label or ""))
+    if not references:
+        return
+
+    # Splicing at fetch time inserts raw text into whatever surrounds the tag.
+    # Inside a JSON payload that corrupts the document, so references only
+    # live in plain-text prompts, the same rule referenced targets follow.
+    if not isinstance(prompt_payload, str):
+        raise _reference_error(
+            "References are only supported in plain-text prompts. Move the reference into a "
+            "plain-text prompt or remove it.",
+            "reference_in_non_text_prompt",
+        )
+
+    # Checked here rather than only at publish so content written before the
+    # cap existed cannot activate more references through a label.
+    if len(references) > MAX_PROMPT_REFERENCES:
+        raise _reference_error(
+            f"A prompt can reference at most {MAX_PROMPT_REFERENCES} other prompts. "
+            "Remove some references and try again.",
+            "too_many_references",
+        )
+
+    # Resolution splices content at every occurrence, so the assembled-size
+    # check has to weigh a repeated tag once per occurrence.
+    occurrence_counts = Counter(all_references)
 
     # True assembled size: the tags are replaced by content at resolution,
     # so their bytes leave the total.
@@ -306,7 +346,11 @@ def _confirm_reference_missing(team_id: int, name: str, version: str | None, lab
         return False
 
 
-def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, Any]:
+def assemble_prompt_payload(
+    team: Team,
+    payload: dict[str, Any],
+    memoized: dict[tuple[str, str | None, str | None], tuple[str, int]] | None = None,
+) -> dict[str, Any]:
     """Splice referenced prompts' content into a fetched payload.
 
     Each referenced prompt resolves through the same cached read path as the
@@ -325,8 +369,14 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
     # can hold ~35k copies of one small tag whose label later moves to a large
     # version. Memoizing bounds the cache reads to the unique references, and
     # the running size check aborts before a large assembly is materialized,
-    # so a fetch never allocates more than the payload cap.
-    memoized: dict[tuple[str, str | None, str | None], str] = {}
+    # so a fetch never allocates more than the payload cap. Callers assembling
+    # several payloads in one request pass a shared memo so a partial used by
+    # many prompts is read once.
+    if memoized is None:
+        memoized = {}
+    # Provenance is per payload while the memo may span payloads, so a memo
+    # hit must still record the reference for this payload's list.
+    seen: set[tuple[str, str | None, str | None]] = set()
     # Running total of the true assembled size: each replacement removes the
     # tag's bytes and adds the spliced content's bytes.
     assembled_bytes = len(content.encode("utf-8"))
@@ -337,8 +387,8 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
         version = match.group("version")
         label = match.group("label")
         key = (name, version, label)
-        child_content = memoized.get(key)
-        if child_content is None:
+        cached = memoized.get(key)
+        if cached is None:
             child = get_prompt_by_name_from_cache(
                 team, name, int(version) if version is not None else None, label=label
             )
@@ -369,8 +419,12 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
                     message=f"The referenced prompt '{name}' contains references of its own and cannot be spliced in.",
                     missing=False,
                 )
-            memoized[key] = child_content
-            resolved.append({"name": name, "version": child["version"], "label": label})
+            cached = (child_content, int(child["version"]))
+            memoized[key] = cached
+        child_content, child_version = cached
+        if key not in seen:
+            seen.add(key)
+            resolved.append({"name": name, "version": child_version, "label": label})
         assembled_bytes += len(child_content.encode("utf-8")) - len(match.group(0).encode("utf-8"))
         if assembled_bytes > MAX_PROMPT_PAYLOAD_BYTES:
             raise PromptReferenceResolutionError(
@@ -385,3 +439,47 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
 
     assembled = PROMPT_REFERENCE_REGEX.sub(_splice, content)
     return {**payload, "prompt": assembled, "resolved_references": resolved}
+
+
+PROMPT_PARTIALS_FLAG = "prompt-partials"
+
+
+def prompt_partials_enabled(team: Team) -> bool:
+    """Kill switch for reference resolution. Flag off = tags pass through as plain text."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                PROMPT_PARTIALS_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        # Flag service unavailable must not take down a prompt fetch.
+        return False
+
+
+def resolve_prompt_references(team: Team, content: str) -> str | None:
+    """Splice referenced partials into a managed prompt's `content`.
+
+    Internal features that read a team's managed prompt by name must resolve
+    reference tags the same way the SDK fetch path does, so a raw tag never
+    reaches an LLM. Returns `content` unchanged when the feature is off or there
+    is nothing to resolve, the assembled text when every reference resolves, or
+    None when a reference cannot be resolved so the caller falls back to its
+    in-code default prompt instead of sending a raw tag.
+    """
+    if not content or not PROMPT_REFERENCE_REGEX.search(content):
+        return content
+    if not prompt_partials_enabled(team):
+        return content
+    try:
+        return assemble_prompt_payload(team, {"name": "", "prompt": content})["prompt"]
+    except Exception:
+        # A broken reference or a cache outage must not send a raw tag to the model, but
+        # the caller only sees None, so record why here to separate it from an absent prompt.
+        logger.warning("prompt_reference_resolution_failed", team_id=team.id, exc_info=True)
+        return None

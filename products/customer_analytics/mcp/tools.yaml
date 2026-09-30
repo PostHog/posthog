@@ -62,8 +62,17 @@ tools:
             optional `description`, and `is_single_holder` flag (whether only one user can hold it per account at a
             time). Definitions are team-scoped and shared across all accounts; the users assigned to a specific account
             are managed via the account relationship tools. To query definitions in bulk, HogQL
-            `system.account_relationship_definitions` covers the same data.
+            `system.account_relationship_definitions` covers the same data. When a request names an account role, check
+            this project's definitions before assuming it is a relationship. For a named teammate, search
+            `org-members-list` by email and confirm the returned `user.email` equals the requested email, ignoring case,
+            before using the user id to query active assignments.
         feature_flag: customer-analytics-csp
+        response:
+            include:
+                - id
+                - name
+                - description
+                - is_single_holder
     account-relationship-definitions-partial-update:
         operation: account_relationship_definitions_partial_update
         enabled: true
@@ -113,6 +122,21 @@ tools:
         enabled: false
     account-track-rules-update:
         operation: account_track_rules_update
+        enabled: false
+    account-views-create:
+        operation: account_views_create
+        enabled: false
+    account-views-destroy:
+        operation: account_views_destroy
+        enabled: false
+    account-views-list:
+        operation: account_views_list
+        enabled: false
+    account-views-partial-update:
+        operation: account_views_partial_update
+        enabled: false
+    account-views-retrieve:
+        operation: account_views_retrieve
         enabled: false
     accounts-by-external-id-retrieve:
         operation: accounts_by_external_id_retrieve
@@ -211,6 +235,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: accounts/{id}
         list: true
         title: List accounts
         description: >
@@ -227,7 +252,9 @@ tools:
             deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is
             optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the
             list to that account, expands it, and opens the tab. Churned and ignored accounts are hidden by default. Set
-            `include_churned` or `include_ignored` to true to include them.
+            `include_churned` or `include_ignored` to true to include them. To filter across relationship assignments
+            and custom property values, use `execute-sql` after discovering this project's definition ids; the account
+            list parameters do not support that combination.
         param_overrides:
             include_churned:
                 description: Include churned accounts. Churned accounts are hidden by default.
@@ -352,6 +379,9 @@ tools:
         feature_flag: customer-analytics-csp
     accounts-presence-create:
         operation: accounts_presence_create
+        enabled: false
+    accounts-presence-list:
+        operation: accounts_presence_list
         enabled: false
     accounts-relationships-create:
         operation: accounts_relationships_create
@@ -544,6 +574,9 @@ tools:
     calendar-sync-backfill-create:
         operation: calendar_sync_backfill_create
         enabled: false
+    calendar-sync-interval-create:
+        operation: calendar_sync_interval_create
+        enabled: false
     calendar-sync-list:
         operation: calendar_sync_list
         enabled: false
@@ -612,8 +645,19 @@ tools:
             custom property value in bulk, take a definition `id` from this tool and query it via HogQL against
             `system.accounts`, selecting ``custom_properties.values.`<definition_id>` `` (backtick-quote the id) and
             filtering it `IS NOT NULL`. The per-account value tools return one account at a time; this HogQL path scales
-            to all accounts.
+            to all accounts. Match a requested field against this project's definition names and descriptions rather
+            than assuming the same name or data type in every project. Use `custom-property-definitions-retrieve` when
+            you need source details or select options omitted from this compact list.
         feature_flag: customer-analytics-csp
+        response:
+            include:
+                - id
+                - name
+                - description
+                - display_type
+                - target_type
+                - group_type_index
+                - is_big_number
     custom-property-definitions-partial-update:
         operation: custom_property_definitions_partial_update
         enabled: true
@@ -795,6 +839,9 @@ tools:
         enabled: false
     customer-analytics-accounts-table-query-create:
         operation: customer_analytics_accounts_table_query_create
+        enabled: false
+    customer-analytics-external-account-create:
+        operation: customer_analytics_external_account_create
         enabled: false
     customer-analytics-external-account-retrieve:
         operation: customer_analytics_external_account_retrieve

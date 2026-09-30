@@ -42,7 +42,7 @@ from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTab
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     _VOLUME_FLOOR_LOCAL_CACHE,
-    CHANNEL_MAX_WINDOW_DAYS,
+    LAZY_MAX_WINDOW_DAYS,
     OOM_PIN_TTL_SECONDS,
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
@@ -60,7 +60,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     _oom_pin_key,
     _sticky_team_count_key,
     _team_shape_set_key,
-    channel_ttl_schedule,
     check_common_eligibility,
     compute_filters_eligibility_hash,
     compute_shape_cap_key,
@@ -71,6 +70,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     is_team_above_volume_floor,
     is_team_oom_pinned,
     lazy_precompute_ineligible_reason,
+    lazy_ttl_schedule,
     log_eligibility_outcome,
     pin_team_oom,
     publish_volume_floor_teams,
@@ -143,13 +143,15 @@ class TestChannelModifiersShapeKey(BaseTest):
         assert override_key != default_key
 
 
-class TestChannelTtlSchedule(BaseTest):
+class TestLazyTtlSchedule(BaseTest):
     def test_schedule_caps_job_width_and_holds_old_days(self) -> None:
-        # Without max_window_days, `split_ranges_by_ttl` merges a year-long span's
-        # 90-day-band tail into ONE insert; without the long default hold, annual
-        # shapes re-scan a year of events every three weeks.
-        schedule = channel_ttl_schedule(self.team)
-        assert schedule.max_window_days == CHANNEL_MAX_WINDOW_DAYS
+        # Every family reaches MAX_PRECOMPUTE_DAYS, so both guards must hold for
+        # every family. Without max_window_days, `split_ranges_by_ttl` merges a
+        # year-long span's default-band tail into ONE insert; without the long
+        # default hold, annual shapes re-scan a year of events every time the
+        # band expires.
+        schedule = lazy_ttl_schedule(self.team)
+        assert schedule.max_window_days == LAZY_MAX_WINDOW_DAYS
         assert schedule.default_ttl_seconds == 90 * 24 * 60 * 60
 
 
@@ -375,7 +377,15 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
             team=self.team,
             query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]),
         )
-        return runner.get_cache_key()
+        identity = runner.get_query_identity()
+        return f"{runner.get_cache_key()} {identity.query_hash} {identity.runtime_hash}"
+
+    def _assert_only_the_runtime_changed(self, before: str, after: str) -> None:
+        key_before, query_hash_before, runtime_hash_before = before.split(" ")
+        key_after, query_hash_after, runtime_hash_after = after.split(" ")
+        assert key_before != key_after
+        assert query_hash_before == query_hash_after
+        assert runtime_hash_before != runtime_hash_after
 
     def test_flipping_enrollment_changes_cache_key(self) -> None:
         # With default-on reads, disabling the rollout flag (the kill switch)
@@ -385,7 +395,7 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
             key_enabled = self._cache_key()
         with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=False):
             key_disabled = self._cache_key()
-        assert key_enabled != key_disabled
+        self._assert_only_the_runtime_changed(key_enabled, key_disabled)
 
     def test_crossing_the_volume_floor_changes_cache_key(self) -> None:
         # A team crossing below the floor switches to the live path; the key must
@@ -395,7 +405,7 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
                 key_above = self._cache_key()
             with mock.patch(f"{self._RUNNER_MOD}.is_team_above_volume_floor", return_value=False):
                 key_below = self._cache_key()
-        assert key_above != key_below
+        self._assert_only_the_runtime_changed(key_above, key_below)
 
 
 class TestHostFilterExpr(BaseTest):
