@@ -758,7 +758,7 @@ class TestHyperCacheSecondaryCache(BaseTest):
 
         # The mirrored delete must also swallow the failure and still drop the primary entry.
         hc.delete_cache_entry(team_id, kinds=["redis"])
-        broken.delete_many.assert_called()
+        broken.delete.assert_called()
         assert caches["flags_dedicated"].get(cache_key) is None
 
     @parameterized.expand([("etag", True), ("no_etag", False)])
@@ -846,7 +846,13 @@ class TestHyperCacheSecondaryCache(BaseTest):
         assert caches["default"].get(cache_key) is not None
         assert caches["default"].get(etag_key) is not None
 
-        hc.delete_cache_entry(team_id, kinds=["redis"])
+        # The keys have no hash tag, so a multi-key DEL fails with CROSSSLOT on a cluster-mode Redis.
+        cross_slot = redis.exceptions.ResponseError("CROSSSLOT Keys in request don't hash to the same slot")
+        with (
+            patch.object(caches["flags_dedicated"], "delete_many", side_effect=cross_slot),
+            patch.object(caches["default"], "delete_many", side_effect=cross_slot),
+        ):
+            hc.delete_cache_entry(team_id, kinds=["redis"])
 
         assert caches["flags_dedicated"].get(cache_key) is None
         assert caches["flags_dedicated"].get(etag_key) is None
@@ -1424,7 +1430,7 @@ class TestHyperCacheRemoveExpiryTracking(BaseTest):
 
         hc = self._make_hypercache(token_based=False)
         hc.cache_client = Mock()
-        hc.cache_client.delete_many.side_effect = ConnectionError("Redis unavailable")
+        hc.cache_client.delete.side_effect = ConnectionError("Redis unavailable")
 
         with pytest.raises(ConnectionError):
             hc.clear_cache(42)
