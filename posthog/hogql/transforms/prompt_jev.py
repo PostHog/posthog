@@ -493,13 +493,19 @@ def validate_prompt_jev_access(team: "Team") -> None:
         send_feature_flag_events=False,
     ):
         raise QueryError("jev is not enabled for this project. Contact support to request access.")
-    if _is_over_ai_credit_budget(team.api_token):
+    if _is_over_ai_credit_budget(team):
         raise QueryError(OUT_OF_AI_CREDITS_MESSAGE)
 
 
-def _is_over_ai_credit_budget(team_api_token: str) -> bool:
+def _is_over_ai_credit_budget(team: "Team") -> bool:
     from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the HogQL import path
         is_team_over_ai_credit_budget,
     )
 
-    return is_team_over_ai_credit_budget(team_api_token)
+    try:
+        return is_team_over_ai_credit_budget(team.api_token)
+    except Exception:
+        # The quota cache reads Redis. An outage must not stop a team that has credits, and a team
+        # that is really out of them still gets the same message from the gateway's 402.
+        logger.warning("prompt_jev_ai_credit_lookup_failed", team_id=team.pk, exc_info=True)
+        return False

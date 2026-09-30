@@ -221,6 +221,14 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
         post.assert_not_called()
         limited.assert_called_once_with(self.team.api_token)
 
+    def test_credit_lookup_failure_does_not_block_the_query(self) -> None:
+        with (
+            patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", side_effect=RuntimeError("redis down")),
+            patch("httpx.AsyncClient.post", side_effect=gateway_response),
+        ):
+            response = execute_hogql_query("SELECT jev('refund', 'Refund?') AS p", self.team, user=self.user)
+        self.assertEqual(response.results, [(0.9,)])
+
     @parameterized.expand([("global",), ("team",)])
     def test_http_route_is_rejected_before_query_or_inference(self, mode: str) -> None:
         with (
