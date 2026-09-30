@@ -1,6 +1,7 @@
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -35,6 +36,7 @@ describe('inboxTaskKickoffLogic', () => {
         let startedRuns: Record<string, unknown>[]
         let warmRequests: Record<string, unknown>[]
         let cancelledRuns: { taskId: string; runId: string; body: Record<string, unknown> }[]
+        let cancelStatus: number
         let warmResponse: Record<string, unknown>
         let warmResponses: Record<string, unknown>[]
         // Holds every warm response until the test resolves it, so a test can act mid-flight.
@@ -69,6 +71,7 @@ describe('inboxTaskKickoffLogic', () => {
             startedRuns = []
             warmRequests = []
             cancelledRuns = []
+            cancelStatus = 200
             warmResponse = {}
             warmResponses = []
             warmGate = null
@@ -111,6 +114,9 @@ describe('inboxTaskKickoffLogic', () => {
                             runId: String(params.runId),
                             body: (await request.json()) as Record<string, unknown>,
                         })
+                        if (cancelStatus !== 200) {
+                            return [cancelStatus, { detail: 'Task not found' }]
+                        }
                         return [200, { id: params.runId }]
                     },
                     '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
@@ -356,6 +362,26 @@ describe('inboxTaskKickoffLogic', () => {
                 { taskId: 'warm-task', runId: 'warm-run', body: { only_if_awaiting_first_message: true } },
             ])
             expect(logic.values.reportWarmLease?.reportId ?? null).not.toBe(report.id)
+        })
+
+        it.each([
+            [404, false],
+            [500, true],
+        ])('reports a %s from the warm release only when it is unexpected', async (status, reported) => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+            cancelStatus = status
+            await expectLogic(logic, () =>
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            ).toFinishAllListeners()
+
+            await expectLogic(logic, () => sidePanelStateLogic.actions.closeSidePanel()).toFinishAllListeners()
+
+            await waitFor(() => expect(cancelledRuns).toHaveLength(1))
+            // Lets the unawaited cancel settle before the assertion.
+            await new Promise((resolve) => setTimeout(resolve, 50))
+            expect(captureException).toHaveBeenCalledTimes(reported ? 1 : 0)
+            captureException.mockRestore()
         })
 
         it('warms one report at a time and hands the slot to the newest report', async () => {

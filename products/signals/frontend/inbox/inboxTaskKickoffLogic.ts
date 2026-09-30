@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -244,6 +245,10 @@ async function cancelWarmRun(projectId: string, lease: ReportWarmLease): Promise
     try {
         await tasksRunsCancelCreate(projectId, lease.taskId, lease.runId, { only_if_awaiting_first_message: true })
     } catch (error) {
+        // A 404 means the task or run is already gone, so there is nothing left to release.
+        if (error instanceof ApiError && error.status === 404) {
+            return
+        }
         posthog.captureException(error)
     }
 }
