@@ -312,6 +312,24 @@ mod tests {
             h.await.ok();
         }
 
+        // Workers publish their metric batches only when they park or run maintenance,
+        // so the deltas can appear after the tasks complete.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let polls_published = polls_before
+                .iter()
+                .enumerate()
+                .any(|(i, &before)| metrics.worker_poll_count(i) > before);
+            let busy_published = busy_before
+                .iter()
+                .enumerate()
+                .any(|(i, &before)| metrics.worker_total_busy_duration(i) > before);
+            if (polls_published && busy_published) || Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
         monitor.report_stable_metrics(&mut stable_state, Duration::from_secs(15));
         monitor.report_unstable_metrics(&mut unstable_state, &stable_state.worker_labels);
 
