@@ -274,7 +274,8 @@ class TestUsageCounterReport(SimpleTestCase):
         assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [
             (1, 9 if mode == UsageCounterMode.REALTIME else 12)
         ]
-        assert legacy.call_count == 1
+        compares = mode == UsageCounterMode.BOTH or (mode == UsageCounterMode.REALTIME and caller == "daily_report")
+        assert legacy.call_count == int(mode != UsageCounterMode.REALTIME or compares)
         assert records.call_count == int(mode != UsageCounterMode.LEGACY)
         assert report.counter_comparisons == (
             {
@@ -282,7 +283,7 @@ class TestUsageCounterReport(SimpleTestCase):
                     legacy_by_team={1: 12}, realtime_by_org={"org-a": 9}
                 )
             }
-            if mode != UsageCounterMode.LEGACY
+            if compares
             else None
         )
         if mode == UsageCounterMode.REALTIME:
@@ -484,7 +485,7 @@ class TestUsageCounterReport(SimpleTestCase):
             assert report.counts == expected
             assert report.counter_comparisons == (
                 None
-                if fails
+                if fails or caller == "quota_limiting"
                 else {
                     "exceptions_captured_in_period": UsageCounterComparisonRows(
                         legacy_by_team={1: 3}, realtime_by_org={"org-a": 7}
@@ -492,7 +493,10 @@ class TestUsageCounterReport(SimpleTestCase):
                 }
             )
             assert report.usage_sources == {"exceptions_captured_in_period": UsageCounterMode.REALTIME}
-        self.exceptions.assert_called_once_with(period.start, period.end)
+        if caller == "quota_limiting":
+            self.exceptions.assert_not_called()
+        else:
+            self.exceptions.assert_called_once_with(period.start, period.end)
 
     @parameterized.expand([(mode,) for mode in UsageCounterMode])
     def test_legacy_only_counters_preserve_values_and_log_retention_tiers(self, flag_mode: UsageCounterMode) -> None:

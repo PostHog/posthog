@@ -308,6 +308,9 @@ class UsageCounterService:
                         for tier, rows in self._logs_retention_query(plan.period.start, plan.period.end).items()
                     }
                 )
+            elif mode == UsageCounterMode.REALTIME and plan.caller != "daily_report":
+                # A realtime counter reads legacy only for the daily comparison, so frequent runs skip it.
+                continue
             else:
                 try:
                     counts[counter.value] = self.get_legacy(
