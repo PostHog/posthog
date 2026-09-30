@@ -735,8 +735,10 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             }
 
             try {
-                // A failed delivery still answers 200, with the failure in `status` and `errors`.
-                // Only `success` means the destination accepted the event.
+                // A failed delivery still answers 200, with the failure in `status` and `errors`, so
+                // only `success` means the destination accepted the event. The generated client's
+                // invocation type declares no `errors`, so it cannot carry the failure reason.
+                // nosemgrep: prefer-codegen-api-namespaced-cdp
                 const result = await api.hogFunctions.createTestInvocation('new', {
                     configuration,
                     globals,
