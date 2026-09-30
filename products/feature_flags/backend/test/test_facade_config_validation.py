@@ -748,7 +748,8 @@ class TestValidateConfig:
     @parameterized.expand(
         [
             ("boolean", 1, "Must be true or false"),
-            ("string", "$false", "Must be a non-empty string other than $false"),
+            ("string", "$false", "Must be a non-empty string other than $false or $true"),
+            ("string", "$true", "Must be a non-empty string other than $false or $true"),
             ("number", "1", "Must be a number from -9007199254740991 to 9007199254740991"),
             (
                 "object",

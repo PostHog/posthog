@@ -30,7 +30,7 @@ from dataclasses import field
 from decimal import Decimal
 from typing import Any, Literal, TypeGuard, get_args
 
-from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
+from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
 from posthog.hogql.property import parse_semver
 
 from posthog.dataclasses import frozen
@@ -550,10 +550,10 @@ def _is_nested_value(value: object, *, depth: int) -> bool:
 
 _VALUE_CHECKS: dict[str, _Check] = {
     "boolean": (lambda v: isinstance(v, bool), "Must be true or false."),
-    # A string is served as the variant, and `$false` is the event-storage sentinel that v1 reserves as a variant key.
+    # A string is served as the variant, and the event-storage sentinels are the keys v1 reserves as variant keys.
     "string": (
-        lambda v: isinstance(v, str) and v not in ("", FEATURE_FLAG_FALSE_VARIANT_SENTINEL),
-        f"Must be a non-empty string other than {FEATURE_FLAG_FALSE_VARIANT_SENTINEL}.",
+        lambda v: isinstance(v, str) and v != "" and v not in FEATURE_FLAG_VARIANT_SENTINELS,
+        f"Must be a non-empty string other than {' or '.join(FEATURE_FLAG_VARIANT_SENTINELS)}.",
     ),
     "number": (_is_safe_number, f"Must be a number from -{MAX_SAFE_INTEGER} to {MAX_SAFE_INTEGER}."),
     "object": (
