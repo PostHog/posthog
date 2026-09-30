@@ -2,7 +2,7 @@ import './NavBar.scss'
 
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef } from 'react'
@@ -38,6 +38,7 @@ import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { FlatNavBrowse } from './tabs/flat-nav/FlatNavBrowse'
+import { navProductsTabLogic } from './tabs/navProductsTabLogic'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 import { NavTabFiles } from './tabs/NavTabFiles'
 import { NavTabProducts } from './tabs/NavTabProducts'
@@ -101,7 +102,7 @@ export function PanelIndicatorIcon(): JSX.Element | null {
 }
 
 const SIMPLE_TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
-    { id: 'home', label: 'Browse', icon: <IconApps /> },
+    { id: 'home', label: 'Apps', icon: <IconApps /> },
     { id: 'files', label: 'Files', icon: <IconFolderOpen /> },
     { id: 'chat', label: 'Chat', icon: <IconChat /> },
 ]
@@ -112,6 +113,7 @@ const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] =
 ]
 
 export function NavBar(): JSX.Element {
+    useMountedLogic(navProductsTabLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
         toggleLayoutNavCollapsed,
@@ -327,7 +329,7 @@ export function NavBar(): JSX.Element {
                                             {...props}
                                             className={cn(
                                                 'group gap-1 data-[composite-item-active]:bg-surface-tertiary justify-center',
-                                                isSimpleSidepanelEnabled ? 'flex-auto min-w-0' : 'w-1/2'
+                                                isSimpleSidepanelEnabled ? 'flex-1 min-w-0' : 'w-1/2'
                                             )}
                                             iconOnly={isSimpleSidepanelEnabled && isLayoutNavCollapsed}
                                             tooltip={isSimpleSidepanelEnabled ? tab.label : undefined}

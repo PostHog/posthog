@@ -84,7 +84,7 @@ class SourceEvaluationInputs:
 
 
 @frozen
-class PlatformAlertCheck:
+class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
 
     Flat rather than nested, because a source never holds the rows and has nothing to do with
@@ -109,6 +109,7 @@ class PlatformAlertCheck:
     state: str
     last_notified_at: datetime | None
     snooze_until: datetime | None
+    firing_started_at: datetime | None = None
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -138,14 +139,54 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
 
 
+class SkipReason(StrEnum):
+    """Why a check reached an outcome without a query answering it.
+
+    A label on the platform's own counters. It never reaches an alert's state or schedule. A check
+    that was evaluated has no skip reason, which is `None` rather than a member here.
+    """
+
+    BROKEN_CONFIG = "broken_config"
+    QUERY_FAILED = "query_failed"
+
+
+class MuteReason(StrEnum):
+    """Why an announcement was held. A muted check is evaluated like any other, so this labels the
+    held announcement rather than a skip."""
+
+    SNOOZE = "snooze"
+    QUIET_HOURS = "quiet_hours"
+
+
+@frozen
+class FiringEpisode:
+    """The firing a check concerns, and whether that check is the one that ended it.
+
+    Two readers want different things from it. An alert's current state wants the firing it is in
+    now, which is nothing once a check ends one. A history row and a delivery want the firing the
+    check was about, which on a resolve is the firing that just ended. Both come from here, so
+    neither has to work the difference out from the states.
+
+    `started_at` is None for a firing that began before the platform recorded starts.
+    """
+
+    started_at: datetime | None
+    ended: bool
+
+
 @frozen
 class PlatformAlertOutcome:
-    """What one check decided. The platform turns this into rows."""
+    """What one check decided. The platform turns this into rows.
+
+    Every check produces one, including a check a source skipped. A skip that records nothing
+    leaves its due time where it was, so discovery finds the same work every tick.
+    """
 
     configuration_id: UUID
     new_state: str
     notified: bool
     consecutive_failures: int
+    firing_episode: FiringEpisode | None = None
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False

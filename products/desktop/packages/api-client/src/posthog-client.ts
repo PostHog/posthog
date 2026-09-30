@@ -1139,6 +1139,7 @@ export interface CloudRunOptions {
 }
 
 export type CloudRunCommandMethod =
+  | "pi/rpc"
   | "user_message"
   | "permission_response"
   | "set_config_option"
@@ -3003,10 +3004,9 @@ export class PostHogAPIClient {
       "/api/projects/{project_id}/external_data_sources/{id}/bulk_update_schemas/",
       {
         path: { project_id: projectId.toString(), id: sourceId },
-        query: {},
         body: {
           schemas,
-        } as unknown as Schemas.PatchedExternalDataSourceBulkUpdateSchemas,
+        } as unknown as Schemas.ExternalDataSourceBulkUpdateSchemas,
         withResponse: true,
         throwOnStatusError: false,
       },
@@ -3216,6 +3216,14 @@ export class PostHogAPIClient {
     return normalizeTaskResponse(data, { teamId });
   }
 
+  async getTaskReview(taskId: string, page = 1): Promise<Schemas.TaskReview> {
+    const teamId = await this.getTeamId();
+    return this.api.get("/api/projects/{project_id}/tasks/{id}/review/", {
+      path: { project_id: teamId.toString(), id: taskId },
+      query: { page },
+    });
+  }
+
   async getTaskUsage(taskId: string): Promise<TaskUsage> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/${taskId}/usage/`;
@@ -3314,6 +3322,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
+        header: {},
         path: { project_id: teamId.toString() },
         body: {
           ...taskOptions,
@@ -4311,6 +4320,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/{id}/run/`, {
+        header: {},
         path: { project_id: teamId.toString(), id: taskId },
         body,
       }),
@@ -5442,6 +5452,59 @@ export class PostHogAPIClient {
     }
   }
 
+  async getReportReadStates(
+    reportIds: string[],
+    read?: boolean,
+  ): Promise<Record<string, boolean>> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.post(
+      "/api/projects/{project_id}/signals/reports/read_state/",
+      {
+        path: { project_id: teamId.toString() },
+        body: {
+          report_ids: reportIds,
+          ...(read === undefined ? {} : { read }),
+        },
+      },
+    );
+    return data.states;
+  }
+
+  private readRequests = new Map<
+    string,
+    { resolve: (read: boolean) => void; reject: (error: unknown) => void }[]
+  >();
+
+  getReportReadState(reportId: string): Promise<boolean> {
+    const pending = this.readRequests;
+    const first = pending.size === 0;
+    const result = new Promise<boolean>((resolve, reject) => {
+      pending.set(reportId, [
+        ...(pending.get(reportId) ?? []),
+        { resolve, reject },
+      ]);
+    });
+    if (first)
+      queueMicrotask(() => {
+        const entries = [...pending.entries()];
+        pending.clear();
+        for (let offset = 0; offset < entries.length; offset += 100) {
+          const batch = entries.slice(offset, offset + 100);
+          void this.getReportReadStates(batch.map(([id]) => id))
+            .then((states) => {
+              for (const [id, listeners] of batch)
+                for (const listener of listeners)
+                  listener.resolve(states[id] === true);
+            })
+            .catch((error) => {
+              for (const [, listeners] of batch)
+                for (const listener of listeners) listener.reject(error);
+            });
+        }
+      });
+    return result;
+  }
+
   async getSignalReports(
     params?: SignalReportsQueryParams,
   ): Promise<SignalReportsResponse> {
@@ -5462,6 +5525,9 @@ export class PostHogAPIClient {
     if (params?.ordering) {
       url.searchParams.set("ordering", params.ordering);
     }
+    if (params?.search) url.searchParams.set("search", params.search);
+    if (params?.unread !== undefined)
+      url.searchParams.set("unread", String(params.unread));
     if (params?.source_product) {
       url.searchParams.set("source_product", params.source_product);
     }
@@ -7676,7 +7742,7 @@ export class PostHogAPIClient {
         const [issue, totals, daily] = await Promise.all([
           this.api.get(
             "/api/projects/{project_id}/error_tracking/issues/{id}/",
-            { path: { project_id: projectId, id } },
+            { path: { project_id: projectId, id }, query: {} },
           ),
           this.runQuery({
             kind: "HogQLQuery",
@@ -7687,6 +7753,8 @@ export class PostHogAPIClient {
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE ${scope} GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
         ]);
+        if (!("id" in issue))
+          throw new Error("This issue moved. Open it in PostHog.");
         const preview = shapeErrorIssuePreview(issue);
         const totalRow = gridRows(totals)[0];
         const facts = [...(preview.facts ?? [])];

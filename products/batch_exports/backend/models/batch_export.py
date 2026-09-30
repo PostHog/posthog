@@ -24,8 +24,6 @@ from posthog.models.utils import UUIDTModel
 # (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
-# S3-family destination types that are in use. Note that this excludes the legacy "S3"
-# type which has now been fully deprecated.
 S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
 
 # Destinations that write files to object storage, as opposed to the data warehouse destinations
@@ -35,7 +33,7 @@ S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
 # Also includes "FileDownload", which writes to a PostHog bucket rather than a customer one.
 # TODO: it probably makes sense to introduce a 'DestinationKind' abstraction in the future,
 # to properly categorize object storage and data warehouse destinations.
-OBJECT_STORAGE_DESTINATIONS: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible", "AzureBlob", "FileDownload"})
+OBJECT_STORAGE_DESTINATIONS: frozenset[str] = frozenset({"AwsS3", "S3Compatible", "AzureBlob", "FileDownload"})
 
 
 class DayOfWeek(IntEnum):
@@ -75,7 +73,6 @@ class BatchExportDestination(UUIDTModel):
     class Destination(models.TextChoices):
         """Enumeration of supported destinations for PostHog BatchExports."""
 
-        S3 = "S3"  # TODO: legacy alias which is no longer used so can be removed
         AWS_S3 = "AwsS3"
         S3_COMPATIBLE = "S3Compatible"
         SNOWFLAKE = "Snowflake"
@@ -93,7 +90,6 @@ class BatchExportDestination(UUIDTModel):
     # credentials still hold them in `config`. These entries keep those stale values out of API
     # responses until a follow-up strips them from stored config.
     secret_fields = {
-        "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "AwsS3": {"aws_access_key_id", "aws_secret_access_key"},
         "S3Compatible": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": {"user", "password", "private_key", "private_key_passphrase"},
@@ -164,6 +160,11 @@ class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
         null=True,
         blank=True,
         help_text="The HogQL query whose results are exported.",
+    )
+    hogql_modifiers = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="HogQL modifiers used to run the query. They override the team modifiers key by key.",
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -518,6 +519,11 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
     def hogql_query(self) -> str | None:
         """Return the HogQL query of this batch export's source, if it has one."""
         return self.source.hogql_query if self.source is not None else None
+
+    @property
+    def hogql_modifiers(self) -> dict[str, typing.Any] | None:
+        """Return the HogQL modifiers of this batch export's source, if it has any."""
+        return self.source.hogql_modifiers if self.source is not None else None
 
 
 def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:

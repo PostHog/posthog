@@ -742,6 +742,260 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(key.encrypted_config["azure_endpoint"], "https://new.openai.azure.com/")
         self.assertEqual(key.encrypted_config["api_version"], DEFAULT_API_VERSION)
 
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_can_create_openai_compatible_provider_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "openai_compatible",
+                "name": "Melious",
+                "api_key": "custom-key-123",
+                "base_url": "https://8.8.8.8/v1",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["base_url_display"], "https://8.8.8.8/v1")
+
+        key = LLMProviderKey.objects.first()
+        assert key is not None
+        self.assertEqual(key.provider, "openai_compatible")
+        self.assertEqual(key.encrypted_config["api_key"], "custom-key-123")
+        self.assertEqual(key.encrypted_config["base_url"], "https://8.8.8.8/v1")
+        mock_validate.assert_called_once_with(
+            "openai_compatible",
+            "custom-key-123",
+            base_url="https://8.8.8.8/v1",
+        )
+
+    def test_create_openai_compatible_without_base_url_fails(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "openai_compatible",
+                "name": "Melious",
+                "api_key": "custom-key-123",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "base_url")
+
+    @parameterized.expand(
+        [
+            ("http_scheme", "http://8.8.8.8/v1"),
+            ("private_ip", "https://10.0.0.1/v1"),
+            ("cloud_metadata", "https://169.254.169.254/latest"),
+        ]
+    )
+    def test_create_openai_compatible_with_disallowed_base_url_fails(self, _name, base_url):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "openai_compatible",
+                "name": "Melious",
+                "api_key": "custom-key-123",
+                "base_url": base_url,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Error should be attributed to base_url, not api_key, so the UI highlights the URL input.
+        self.assertEqual(response.json().get("attr"), "base_url")
+
+    def test_update_openai_compatible_base_url_without_api_key_is_rejected(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai_compatible",
+            name="Melious",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={
+                "api_key": "custom-key-123",
+                "base_url": "https://8.8.8.8/v1",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
+            {"base_url": "https://1.1.1.1/v1"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "api_key")
+
+        # The stored key must stay pointed at the endpoint it was issued for. Persisting the new
+        # URL would send this key to that host on the next validation or completion.
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["base_url"], "https://8.8.8.8/v1")
+        self.assertEqual(key.encrypted_config["api_key"], "custom-key-123")
+        self.assertEqual(key.state, LLMProviderKey.State.OK)
+
+    def _openai_compatible_key(self, base_url: str = "https://8.8.8.8/v1") -> LLMProviderKey:
+        return LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai_compatible",
+            name="My gateway",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "custom-key-123", "base_url": base_url},
+            created_by=self.user,
+        )
+
+    def test_rename_openai_compatible_key_without_api_key_is_allowed(self):
+        # The common edit. A tightening of the base-URL rule that caught an unchanged base URL
+        # would break renaming with nothing else failing.
+        key = self._openai_compatible_key()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
+            {"name": "Renamed gateway"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        key.refresh_from_db()
+        self.assertEqual(key.name, "Renamed gateway")
+        self.assertEqual(key.encrypted_config["base_url"], "https://8.8.8.8/v1")
+        self.assertEqual(key.state, LLMProviderKey.State.OK)
+
+    def test_provider_cannot_be_changed_after_creation(self):
+        # `validate` branches on the incoming provider and `update` on the stored one, so a
+        # provider switch would slip past both and strand encrypted_config: the key would claim
+        # to be an OpenAI key while still holding the gateway's credential and base URL.
+        key = self._openai_compatible_key()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
+            {"provider": "openai"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "provider")
+        key.refresh_from_db()
+        self.assertEqual(key.provider, "openai_compatible")
+        self.assertEqual(key.encrypted_config["base_url"], "https://8.8.8.8/v1")
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_create_openai_compatible_strips_credentials_from_base_url(self, mock_validate):
+        # base_url_display is readable by any project member while the API key is masked, so a
+        # credential typed into the base URL field must not survive to storage.
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "openai_compatible",
+                "name": "My gateway",
+                "api_key": "custom-key-123",
+                "base_url": "https://user:secret@8.8.8.8/v1",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        key = LLMProviderKey.objects.get(id=response.json()["id"])
+        self.assertEqual(key.encrypted_config["base_url"], "https://8.8.8.8/v1")
+        self.assertNotIn("secret", response.json()["base_url_display"])
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_update_openai_compatible_base_url_with_api_key_validates_against_new_url(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai_compatible",
+            name="Melious",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={
+                "api_key": "old-key",
+                "base_url": "https://8.8.8.8/v1",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
+            {"base_url": "https://1.1.1.1/v1", "api_key": "new-key"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["base_url"], "https://1.1.1.1/v1")
+        self.assertEqual(key.encrypted_config["api_key"], "new-key")
+        mock_validate.assert_called_once_with(
+            "openai_compatible",
+            "new-key",
+            base_url="https://1.1.1.1/v1",
+        )
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_update_openai_compatible_api_key_keeps_existing_base_url(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai_compatible",
+            name="Melious",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={
+                "api_key": "old-key",
+                "base_url": "https://8.8.8.8/v1",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
+            {"api_key": "new-key"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["api_key"], "new-key")
+        self.assertEqual(key.encrypted_config["base_url"], "https://8.8.8.8/v1")
+        mock_validate.assert_called_once_with(
+            "openai_compatible",
+            "new-key",
+            base_url="https://8.8.8.8/v1",
+        )
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_validate_openai_compatible_key_reuses_encrypted_config(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai_compatible",
+            name="Melious",
+            state=LLMProviderKey.State.UNKNOWN,
+            encrypted_config={
+                "api_key": "custom-key-123",
+                "base_url": "https://8.8.8.8/v1",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/validate/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_validate.assert_called_once_with(
+            "openai_compatible",
+            "custom-key-123",
+            base_url="https://8.8.8.8/v1",
+        )
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_base_url_for_other_provider_is_dropped(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "openai",
+                "name": "OpenAI Key",
+                "api_key": "sk-test-123",
+                "base_url": "https://8.8.8.8/v1",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        key = LLMProviderKey.objects.first()
+        assert key is not None
+        self.assertNotIn("base_url", key.encrypted_config)
+        mock_validate.assert_called_once_with("openai", "sk-test-123")
+
     def test_update_invalidates_models_cache(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
@@ -928,6 +1182,30 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
         mock_validate.assert_called_once_with("zeabur", "sk-zeabur-test-key")
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_can_pre_validate_openai_compatible_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
+            {"api_key": "custom-key-123", "provider": "openai_compatible", "base_url": "https://8.8.8.8/v1"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["state"], "ok")
+        mock_validate.assert_called_once_with("openai_compatible", "custom-key-123", base_url="https://8.8.8.8/v1")
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_pre_validate_openai_compatible_attributes_base_url_errors(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.INVALID, "Base URL is required")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
+            {"api_key": "custom-key-123", "provider": "openai_compatible"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["state"], "invalid")
+        self.assertEqual(response.data["error_field"], "base_url")
 
     def test_pre_validate_requires_api_key(self):
         response = self.client.post(

@@ -331,7 +331,7 @@ async def test_insert_into_s3_activity_with_exclude_events(
 
 @pytest.mark.parametrize(("file_format", "compression"), SPLIT_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
-@pytest.mark.parametrize("max_file_size_mb", [None, 6])
+@pytest.mark.parametrize("max_file_size_mb", [None, 1])
 async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     clickhouse_client,
     bucket_name,
@@ -348,7 +348,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     s3_compatible_integration,
 ):
     prefix = str(uuid.uuid4())
-    events_per_batch = 1_000 if max_file_size_mb is None else 100_000
+    events_per_batch = 1_000 if max_file_size_mb is None else 40_000
 
     events_1, _, _ = await generate_test_events_in_clickhouse(
         client=clickhouse_client,

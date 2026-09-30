@@ -568,7 +568,7 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
+ * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline and event breakdown.
  * @summary Get compact error tracking issue details
  */
 export const errorTrackingQueryIssueCreateBodyFilterTestAccountsDefault = true
@@ -577,6 +577,7 @@ export const errorTrackingQueryIssueCreateBodyVolumeResolutionMin = 0
 export const errorTrackingQueryIssueCreateBodyVolumeResolutionMax = 200
 
 export const errorTrackingQueryIssueCreateBodyIncludeSparklineDefault = false
+export const errorTrackingQueryIssueCreateBodyIncludeBreakdownDefault = false
 
 export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
     issueId: zod.uuid().describe('Error tracking issue ID.'),
@@ -607,6 +608,12 @@ export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(errorTrackingQueryIssueCreateBodyIncludeSparklineDefault)
         .describe('Set true to include a compact numeric occurrence sparkline. Defaults to false.'),
+    includeBreakdown: zod
+        .boolean()
+        .default(errorTrackingQueryIssueCreateBodyIncludeBreakdownDefault)
+        .describe(
+            'Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false.'
+        ),
 })
 
 /**
@@ -800,7 +807,7 @@ export const errorTrackingQueryIssuesListCreateBodyFilterGroupItemOperatorDefaul
 export const errorTrackingQueryIssuesListCreateBodyFilterGroupItemTypeDefault = `event`
 export const errorTrackingQueryIssuesListCreateBodyOrderByDefault = `occurrences`
 export const errorTrackingQueryIssuesListCreateBodyOrderDirectionDefault = `DESC`
-export const errorTrackingQueryIssuesListCreateBodyLimitDefault = 25
+export const errorTrackingQueryIssuesListCreateBodyLimitDefault = 10
 export const errorTrackingQueryIssuesListCreateBodyLimitMax = 100
 
 export const errorTrackingQueryIssuesListCreateBodyOffsetDefault = 0
@@ -978,7 +985,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .min(1)
         .max(errorTrackingQueryIssuesListCreateBodyLimitMax)
         .default(errorTrackingQueryIssuesListCreateBodyLimitDefault)
-        .describe('Page size.'),
+        .describe('Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.'),
     offset: zod
         .number()
         .min(errorTrackingQueryIssuesListCreateBodyOffsetMin)
@@ -989,7 +996,9 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .min(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMin)
         .max(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssuesListCreateBodyVolumeResolutionDefault)
-        .describe('Number of volume buckets. Defaults to 0 for compact aggregate counts.'),
+        .describe(
+            'Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.'
+        ),
     library: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
         .optional()
@@ -1256,6 +1265,8 @@ export const ErrorTrackingSymbolSetsFinishUploadUpdateBody = /* @__PURE__ */ zod
 /**
  * Report which of the given symbol sets still need `bulk_start_upload`. Symbol sets already uploaded with identical content are omitted and marked as still in use.
  */
+export const errorTrackingSymbolSetsBulkCheckUploadCreateBodySymbolSetsItemContentLengthMin = 0
+
 export const errorTrackingSymbolSetsBulkCheckUploadCreateBodyForceDefault = false
 export const errorTrackingSymbolSetsBulkCheckUploadCreateBodySkipOnConflictDefault = false
 
@@ -1272,6 +1283,13 @@ export const ErrorTrackingSymbolSetsBulkCheckUploadCreateBody = /* @__PURE__ */ 
                     .string()
                     .nullish()
                     .describe('Optional hash of the symbol set content, used to skip unchanged uploads.'),
+                content_length: zod
+                    .number()
+                    .min(errorTrackingSymbolSetsBulkCheckUploadCreateBodySymbolSetsItemContentLengthMin)
+                    .nullish()
+                    .describe(
+                        'Optional byte count of the content about to be uploaded. When given, the upload response also carries a presigned PUT signed for exactly this length, which S3-compatible stores without presigned POST support (such as Cloudflare R2) accept.'
+                    ),
             })
         )
         .describe(
@@ -1295,6 +1313,8 @@ export const ErrorTrackingSymbolSetsBulkFinishUploadCreateBody = /* @__PURE__ */
     content_hashes: zod.record(zod.string(), zod.string()).describe('Map of symbol set ID to uploaded content hash.'),
 })
 
+export const errorTrackingSymbolSetsBulkStartUploadCreateBodySymbolSetsItemContentLengthMin = 0
+
 export const errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault = false
 export const errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault = false
 
@@ -1311,6 +1331,13 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
                     .string()
                     .nullish()
                     .describe('Optional hash of the symbol set content, used to skip unchanged uploads.'),
+                content_length: zod
+                    .number()
+                    .min(errorTrackingSymbolSetsBulkStartUploadCreateBodySymbolSetsItemContentLengthMin)
+                    .nullish()
+                    .describe(
+                        'Optional byte count of the content about to be uploaded. When given, the upload response also carries a presigned PUT signed for exactly this length, which S3-compatible stores without presigned POST support (such as Cloudflare R2) accept.'
+                    ),
             })
         )
         .optional()

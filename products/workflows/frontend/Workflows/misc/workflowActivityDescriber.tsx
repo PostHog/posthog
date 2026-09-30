@@ -216,6 +216,38 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
+    if (logItem.activity == 'proposal_approved') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Approved a suggested change',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> approved a suggested change into the staged draft of the{' '}
+                    {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'proposal_rejected') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Rejected a suggested change',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> rejected a suggested change to the {objectNoun}:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'draft_discarded') {
         return {
             summary: activityLogSummary(

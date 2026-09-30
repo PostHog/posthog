@@ -217,6 +217,25 @@ export const AccessControlsApply: Story = {
     },
 }
 
+// The consent page has no sidebar, so it only gets narrow in a narrow browser window, such as
+// an OAuth popup. There the group labels truncate and the counts hide, so the controls keep
+// their place. This story snapshots the runner's narrow viewport to show that.
+export const ManyOptionalScopesNarrow: Story = {
+    parameters: { testOptions: { viewportWidths: ['narrow'] } },
+    decorators: [withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() =>
+            pushAuthorize(
+                'openid profile email user:read user:write organization:read project:read project:write ' +
+                    'feature_flag:read feature_flag:write experiment:read experiment:write insight:read ' +
+                    'insight:write dashboard:read dashboard:write query:read survey:read survey:write ' +
+                    'event_definition:read event_definition:write error_tracking:read logs:read tracing:read'
+            )
+        )
+        return <App />
+    },
+}
+
 const everyScopeRequest = ['openid', 'profile', 'email', ...API_SCOPES.map(({ key }) => `${key}:write`)].join(' ')
 
 // The worst case for the layout: a client that asks for every scope PostHog has, which is one
