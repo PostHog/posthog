@@ -21,7 +21,7 @@ import time
 import asyncio
 import dataclasses
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -259,11 +259,12 @@ def _partition_key_from_add_path(path: str) -> str | None:
     return None
 
 
-def partition_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str | None, list[int]]:
-    """At-rest size of every live file, grouped by partition, read from the Delta log (no S3 LIST,
-    no data scan).
+def _live_file_sizes(delta_table: deltalake.DeltaTable) -> Iterator[tuple[str | None, int]]:
+    """(partition key, at-rest size) of every live file, read from the Delta log (no S3 LIST, no data
+    scan).
 
-    Unpartitioned tables collapse to a single `None` bucket. Keyed by the `_ph_partition_key` value.
+    Unpartitioned tables collapse to a single `None` key. Otherwise the key is the `_ph_partition_key`
+    value.
 
     Reads `get_add_file_sizes` (file path -> size only), not `get_add_actions`: the latter also
     materializes every column's min/max/null-count stats into Arrow arrays, and a table with enough
@@ -272,17 +273,24 @@ def partition_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str | None, 
     otherwise healthy table.
     """
     partitioned = PARTITION_KEY in (delta_table.metadata().partition_columns or [])
-
-    sizes: dict[str | None, list[int]] = defaultdict(list)
     for path, size in delta_table._table.get_add_file_sizes().items():
-        key = _partition_key_from_add_path(path) if partitioned else None
-        sizes[key].append(size or 0)
-    return dict(sizes)
+        yield (_partition_key_from_add_path(path) if partitioned else None), size or 0
 
 
 def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | None, int]:
-    """At-rest bytes per partition, keyed like `partition_file_sizes`."""
-    return {key: sum(sizes) for key, sizes in partition_file_sizes(delta_table).items()}
+    """At-rest bytes per partition, keyed like `_live_file_sizes`."""
+    totals: dict[str | None, int] = defaultdict(int)
+    for key, size in _live_file_sizes(delta_table):
+        totals[key] += size
+    return dict(totals)
+
+
+def partition_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str | None, list[int]]:
+    """The at-rest size of each live file per partition, keyed like `_live_file_sizes`."""
+    sizes: dict[str | None, list[int]] = defaultdict(list)
+    for key, size in _live_file_sizes(delta_table):
+        sizes[key].append(size)
+    return dict(sizes)
 
 
 def _table_row_count(delta_table: deltalake.DeltaTable) -> int:

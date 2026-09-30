@@ -1,6 +1,10 @@
+import os
+import tempfile
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pyarrow as pa
 import deltalake
 from parameterized import parameterized
 
@@ -15,9 +19,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 
 _MAINTENANCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance"
 _MB = 1024 * 1024
+# Small enough that a local table can hold files above the compaction target.
+_SMALL_TARGET = 100_000
 
 
-def _make_maintenance(delta_table: MagicMock | None) -> DeltaMaintenance:
+def _append_file(path: str, row_id: int, payload_bytes: int) -> None:
+    # Random hex keeps each file about as large as its payload, because parquet cannot compress it much.
+    blob = os.urandom(payload_bytes).hex()[:payload_bytes]
+    deltalake.write_deltalake(path, pa.table({"id": [row_id], "blob": [blob]}), mode="append")
+
+
+def _make_maintenance(delta_table: deltalake.DeltaTable | MagicMock | None) -> DeltaMaintenance:
     table_ref = MagicMock()
     table_ref.logger = make_logger()
     table_ref.get_delta_table = AsyncMock(return_value=delta_table)
@@ -134,16 +146,16 @@ class TestCompactIfFragmented:
     _SMALL_FILE_CASES: list[tuple[str, list[tuple[int, int, int]], bool, bool]] = [
         # An incremental datetime table: every sync lands in the newest partition, and 600 cold
         # partitions hold the average near one file per partition, so the averages never fire.
-        ("hot_partition_fires", [(600, 1, 60 * _MB), (1, 9, 10 * _MB)], True, True),
+        ("hot_partition_fires", [(600, 1, 60 * _MB), (1, 9, _MB)], True, True),
         # The pre-write pass and CDC tables keep the average-only thresholds.
-        ("hot_partition_ignored_without_small_file_triggers", [(600, 1, 60 * _MB), (1, 9, 10 * _MB)], False, False),
-        ("hot_partition_below_threshold_skips", [(600, 1, 60 * _MB), (1, 8, 10 * _MB)], True, False),
+        ("hot_partition_ignored_without_small_file_triggers", [(600, 1, 60 * _MB), (1, 9, _MB)], False, False),
+        ("hot_partition_below_threshold_skips", [(600, 1, 60 * _MB), (1, 8, _MB)], True, False),
         # Compaction writes files between half and the whole target, and delta-rs cannot pair two of
         # them into one bin. Counting them would start a compaction that does nothing on every sync.
         ("compaction_output_never_counts", [(600, 1, 60 * _MB), (1, 20, 60 * _MB)], True, False),
         # A cold tail of partitions with a few small files each, which no single partition reveals.
-        ("cold_tail_fires", [(100, 2, 10 * _MB)], True, True),
-        ("cold_tail_below_threshold_skips", [(99, 2, 10 * _MB)], True, False),
+        ("cold_tail_fires", [(100, 2, _MB)], True, True),
+        ("cold_tail_below_threshold_skips", [(99, 2, _MB)], True, False),
     ]
 
     @parameterized.expand(_SMALL_FILE_CASES)
@@ -169,6 +181,35 @@ class TestCompactIfFragmented:
 
         assert ran is expected_ran
         assert mock_compact.await_count == (1 if expected_ran else 0)
+
+    @parameterized.expand(
+        [
+            ("adjacent_small_files_compact", False, True),
+            # delta-rs merges only neighbouring files, and a file over the target splits them. A trigger
+            # that counted these small files would start a compaction that removes nothing on every sync.
+            ("small_files_between_oversized_files_skip", True, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_small_file_trigger_on_a_real_table(self, _name: str, interleave_oversized: bool, expected_ran: bool):
+        with (
+            tempfile.TemporaryDirectory() as path,
+            patch(f"{_MAINTENANCE_MODULE}.DEFAULT_COMPACT_TARGET_SIZE_BYTES", _SMALL_TARGET),
+        ):
+            for i in range(12):
+                _append_file(path, i, payload_bytes=500)
+                if interleave_oversized:
+                    _append_file(path, 100 + i, payload_bytes=2 * _SMALL_TARGET)
+            table = deltalake.DeltaTable(path)
+            files_before = len(table.file_uris())
+            rows_before = table.to_pyarrow_table().num_rows
+
+            ran = await _make_maintenance(table).compact_if_fragmented(partition_count=None, compact_small_files=True)
+
+            assert ran is expected_ran
+            files_after = len(table.file_uris())
+            assert (files_after < files_before) is expected_ran
+            assert table.to_pyarrow_table().num_rows == rows_before
 
 
 class TestCompactConflictRetry:

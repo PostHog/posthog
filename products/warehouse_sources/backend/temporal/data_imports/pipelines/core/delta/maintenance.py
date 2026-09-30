@@ -1,5 +1,4 @@
 import json
-import math
 import asyncio
 import datetime as dt
 from collections import defaultdict
@@ -80,18 +79,21 @@ VACUUM_RETENTION = dt.timedelta(hours=24)
 
 
 def removable_file_count(file_sizes: Iterable[int]) -> int:
-    """How many files a compaction would remove from one partition, given the sizes of its files.
+    """The fewest files a compaction is sure to remove from one partition, given the sizes of its files.
 
-    Only files under half the target size count. Any two of them fit in one compaction bin, so two or
-    more always give delta-rs a merge to make. A compaction usually writes files between half and the
-    whole target, and two such files cannot share a bin. Counting them would start a compaction that
-    changes nothing on every sync. The count assumes the small files pack into as few target-size files
-    as possible, so it is an upper bound.
+    delta-rs keeps a partition's files in their original order and packs neighbours into bins up to the
+    target size. A file at or above the target splits the run around it, and a bin with one file is
+    skipped. The log's file sizes do not show that order, so this assumes the worst case: every file of
+    at least half the target separates the small files around it. A compaction usually writes files of
+    that size, so they must not count as small. Inside a run, every bin but the last is more than half
+    full, because the next small file did not fit. A count above zero therefore always means a
+    compaction that removes files, and a layout that compaction cannot improve never starts one.
     """
-    small = [size for size in file_sizes if size < DEFAULT_COMPACT_TARGET_SIZE_BYTES // 2]
-    if len(small) < 2:
-        return 0
-    return len(small) - math.ceil(sum(small) / DEFAULT_COMPACT_TARGET_SIZE_BYTES)
+    sizes = list(file_sizes)
+    small = [size for size in sizes if size < DEFAULT_COMPACT_TARGET_SIZE_BYTES // 2]
+    runs = len(sizes) - len(small) + 1
+    output_files = runs + 2 * sum(small) // DEFAULT_COMPACT_TARGET_SIZE_BYTES
+    return max(0, len(small) - output_files)
 
 
 def _removable_files_per_partition(table: deltalake.DeltaTable) -> list[int]:
