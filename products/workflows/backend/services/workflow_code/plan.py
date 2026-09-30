@@ -1,3 +1,4 @@
+import re
 import json
 from dataclasses import replace
 from typing import Any
@@ -6,6 +7,7 @@ from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import WorkflowCodePlanResult
 from products.workflows.backend.services.workflow_code.compiler import EXIT_NODE_ID, TRIGGER_NODE_ID
+from products.workflows.backend.services.workflow_code.document import STEP_ID_PATTERN
 
 _METADATA_FIELDS = ("name", "description")
 _CONTENT_FIELDS = ("exit_condition", "variables", "edges")
@@ -142,10 +144,13 @@ def _removed_step_warning(step: dict[str, Any]) -> PlanWarning:
     else:
         people = "1 person is" if step["runs"] == 1 else f"{step['runs']} people are"
         message = f"{people} in {step['name']}, which this file removes. {where}"
-    return PlanWarning(
-        message=message,
-        fix=f"If you renamed the step, add id: {step['action_id']} to it to keep them where they are.",
-    )
+    return PlanWarning(message=message, fix=_keep_people_fix(step["action_id"]))
+
+
+def _keep_people_fix(action_id: str) -> str:
+    if re.fullmatch(STEP_ID_PATTERN, action_id):
+        return f"If you renamed the step, add id: {action_id} to it to keep them where they are."
+    return f"A file cannot give a step the id {action_id}, so it cannot keep them in place. If that is not what you want, change the step in PostHog instead of with this file."
 
 
 def _canonical(state: WorkflowState) -> WorkflowState:

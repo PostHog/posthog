@@ -55,6 +55,7 @@ class WorkflowCodeErrorStatus(LabeledStrEnum):
     INVALID_WORKFLOW = "invalid_workflow"
     STATUS_CHANGE_NOT_ALLOWED = "status_change_not_allowed"
     CONFLICT = "conflict"
+    TOO_MANY_ERRORS = "too_many_errors"
 
 
 class WorkflowCodePlanResult(LabeledStrEnum):

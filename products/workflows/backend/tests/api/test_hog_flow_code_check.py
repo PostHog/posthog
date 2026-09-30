@@ -471,7 +471,14 @@ class TestHogFlowCodeCheck(APIBaseTest):
                 2,
                 6,
             ),
-            ("version_written_as_a_float", BASE.replace("version: 1", "version: 1.0"), "unsupported_version", "version", 1, 10),
+            (
+                "version_written_as_a_float",
+                BASE.replace("version: 1", "version: 1.0"),
+                "unsupported_version",
+                "version",
+                1,
+                10,
+            ),
             (
                 "duplicate_key",
                 BASE.replace("name: Welcome\n", "name: Welcome\nname: Welcome again\n"),

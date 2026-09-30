@@ -10,6 +10,7 @@ from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import WorkflowCodeErrorStatus
+from products.workflows.backend.services.workflow_code.document import shown
 from products.workflows.backend.services.workflow_code.errors import (
     DocumentError,
     DocumentInvalid,
@@ -21,6 +22,10 @@ from products.workflows.backend.services.workflow_code.errors import (
 
 MAX_CONTENT_BYTES = 1024 * 1024
 MAX_DEPTH = 100
+# Parsing costs time per value, so this bounds the work one request can ask for.
+MAX_VALUES = 100_000
+
+_UNSTORABLE_CHARACTERS = re.compile(r"[\x00\ud800-\udfff]")
 
 _NO_ANCHORS = "Workflow files do not use YAML anchors and aliases, so each value is written where it is used and a diff shows every change."
 
@@ -46,8 +51,12 @@ class _CoreSchemaLoader(yaml.SafeLoader):
         self.anchor_names: dict[int, str] = {}
         self.alias_uses: dict[int, list[tuple[str, yaml.Mark]]] = {}
         self.explicit_tags: dict[int, str] = {}
+        self.values_composed = 0
 
     def compose_node(self, parent: Node | None, index: Any) -> Node | None:
+        self.values_composed += 1
+        if self.values_composed > MAX_VALUES:
+            raise DocumentInvalid([_too_many_values()])
         event = self.peek_event()
         node = super().compose_node(parent, index)
         if isinstance(event, AliasEvent):
@@ -101,18 +110,14 @@ class LoadedContent:
         A refused alias, tag or number leaves no usable value at its path, so a validation error under that
         path repeats the same mistake. A duplicate key keeps its first value, which is still checked.
         """
-        refused = [
+        refused = {
             error.path
             for error in self.errors
             if error.status != WorkflowCodeErrorStatus.DUPLICATE_KEY and error.path is not None
-        ]
+        }
         return [
             *self.errors,
-            *(
-                error
-                for error in validation_errors
-                if error.path is None or not any(error.path[: len(path)] == path for path in refused)
-            ),
+            *(error for error in validation_errors if error.path is None or not _under_any(error.path, refused)),
         ]
 
     def locate(self, error: DocumentError) -> Position | None:
@@ -131,6 +136,10 @@ class LoadedContent:
             path = path[:-1]
 
 
+def _under_any(path: DocumentPath, parents: set[DocumentPath]) -> bool:
+    return any(path[:length] in parents for length in range(len(path) + 1))
+
+
 def load_content(content: str) -> LoadedContent:
     size = len(content.encode("utf-8"))
     if size > MAX_CONTENT_BYTES:
@@ -145,8 +154,8 @@ def load_content(content: str) -> LoadedContent:
                 )
             ]
         )
-    if content.lstrip().startswith("{"):
-        return _load_json(content)
+    if content.lstrip("\ufeff \t\r\n").startswith("{"):
+        return _load_json(content.lstrip("\ufeff"))
     return _load_yaml(content)
 
 
@@ -199,6 +208,16 @@ def _too_deep(path: DocumentPath | None) -> DocumentError:
     )
 
 
+def _too_many_values() -> DocumentError:
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.CONTENT_TOO_LARGE,
+        message=f"The content holds more than {MAX_VALUES} values.",
+        why="PostHog checks one workflow file per request, and a workflow file holds far fewer values than this.",
+        fix="Send one workflow file per request, and remove anything that is not part of the workflow.",
+        path=None,
+    )
+
+
 def _position(mark: yaml.Mark) -> Position:
     return Position(line=mark.line + 1, column=mark.column + 1)
 
@@ -243,6 +262,12 @@ class _YamlBuilder:
             return None
         if isinstance(value, float) and not math.isfinite(value):
             self.errors.append(_unstorable_number(path))
+            return None
+        if isinstance(value, str) and _UNSTORABLE_CHARACTERS.search(value):
+            self.errors.append(_unstorable_text(path))
+            return None
+        if isinstance(value, int | float) and not isinstance(value, bool) and node.value not in _number_texts(value):
+            self.errors.append(_number_not_as_written(path, node.value, value))
             return None
         return value
 
@@ -290,6 +315,9 @@ class _YamlBuilder:
                 self._refuse_key((*path, shown), key_position, key_node)
                 continue
             key: str = key_node.value
+            if _UNSTORABLE_CHARACTERS.search(key):
+                self._refuse_unstorable_key(path, key, key_position)
+                continue
             child: DocumentPath = (*path, key)
             if key == "<<" and key_node.style is None:
                 self._refuse_merge_key(child, key_position)
@@ -337,6 +365,11 @@ class _YamlBuilder:
                 points_at=PointsAt.KEY,
             )
         )
+
+    def _refuse_unstorable_key(self, parent: DocumentPath, key: str, position: Position) -> None:
+        path: DocumentPath = (*parent, _storable(key))
+        self.key_positions[path] = position
+        self.errors.append(_unstorable_text(path, points_at=PointsAt.KEY))
 
     def _refuse_merge_key(self, path: DocumentPath, position: Position) -> None:
         self.key_positions[path] = position
@@ -407,29 +440,46 @@ def _load_json(content: str) -> LoadedContent:
     except ValueError:
         # Python refuses to read an integer of more than 4300 digits, and json.loads says no more than that.
         raise DocumentInvalid([_unstorable_number(None)])
-    errors: list[DocumentError] = []
-    data = _build_json(raw, (), errors)
-    return LoadedContent(data=data, errors=errors, value_positions={}, key_positions={}, scalar_sources={})
+    builder = _JsonBuilder()
+    data = builder.build(raw, ())
+    return LoadedContent(data=data, errors=builder.errors, value_positions={}, key_positions={}, scalar_sources={})
 
 
-def _build_json(value: Any, path: DocumentPath, errors: list[DocumentError]) -> Any:
-    if len(path) > MAX_DEPTH:
-        raise DocumentInvalid([_too_deep(path)])
-    if isinstance(value, _JsonObject):
+class _JsonBuilder:
+    def __init__(self) -> None:
+        self.errors: list[DocumentError] = []
+        self._values_built = 0
+
+    def build(self, value: Any, path: DocumentPath) -> Any:
+        self._values_built += 1
+        if self._values_built > MAX_VALUES:
+            raise DocumentInvalid([_too_many_values()])
+        if len(path) > MAX_DEPTH:
+            raise DocumentInvalid([_too_deep(path)])
+        if isinstance(value, _JsonObject):
+            return self._build_object(value, path)
+        if isinstance(value, list):
+            return [self.build(item, (*path, index)) for index, item in enumerate(value)]
+        if isinstance(value, float) and not math.isfinite(value):
+            self.errors.append(_unstorable_number(path))
+            return None
+        if isinstance(value, str) and _UNSTORABLE_CHARACTERS.search(value):
+            self.errors.append(_unstorable_text(path))
+            return None
+        return value
+
+    def _build_object(self, pairs: _JsonObject, path: DocumentPath) -> dict[str, Any]:
         mapping: dict[str, Any] = {}
-        for key, item in value:
+        for key, item in pairs:
+            if _UNSTORABLE_CHARACTERS.search(key):
+                self.errors.append(_unstorable_text((*path, _storable(key)), points_at=PointsAt.KEY))
+                continue
             child: DocumentPath = (*path, key)
             if key in mapping:
-                errors.append(_duplicate_key(child))
+                self.errors.append(_duplicate_key(child))
                 continue
-            mapping[key] = _build_json(item, child, errors)
+            mapping[key] = self.build(item, child)
         return mapping
-    if isinstance(value, list):
-        return [_build_json(item, (*path, index), errors) for index, item in enumerate(value)]
-    if isinstance(value, float) and not math.isfinite(value):
-        errors.append(_unstorable_number(path))
-        return None
-    return value
 
 
 def _unstorable_number(path: DocumentPath | None) -> DocumentError:
@@ -438,6 +488,45 @@ def _unstorable_number(path: DocumentPath | None) -> DocumentError:
         message=f"{describe_path(path)} holds a number PostHog cannot store: infinite, not a number, or too long to read.",
         why="A workflow is stored as JSON, which has no infinite or NaN numbers, and PostHog reads integers of up to 4300 digits.",
         fix="Use a finite number of normal length, or put the value in quotes to keep it as text.",
+        path=path,
+    )
+
+
+def _storable(text: str) -> str:
+    return _UNSTORABLE_CHARACTERS.sub("\ufffd", text)
+
+
+def _unstorable_text(path: DocumentPath, points_at: PointsAt = PointsAt.VALUE) -> DocumentError:
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.INVALID_VALUE,
+        message=f"{describe_path(path)} holds a NUL character or half of a surrogate pair, which PostHog cannot store.",
+        why="PostHog stores a workflow as JSON in Postgres, which refuses NUL, and half of a surrogate pair is not a character on its own.",
+        fix="Remove the \\0 or \\u0000 escape. Write any other character as itself, or as one \\U escape with eight digits, for example \\U0001F600, not as two \\u escapes.",
+        path=path,
+        points_at=points_at,
+    )
+
+
+def _number_texts(value: int | float) -> tuple[str, ...]:
+    """The ways to write a number that keep the text as written: Python's own, and the one a pull writes."""
+    if isinstance(value, int):
+        return (str(value),)
+    written = repr(value)
+    return (written, _dumped_float(written))
+
+
+def _dumped_float(written: str) -> str:
+    # PyYAML's representer adds .0 to an exponent without a decimal point, as in 1.0e-07.
+    return written.replace("e", ".0e", 1) if "." not in written and "e" in written else written
+
+
+def _number_not_as_written(path: DocumentPath, source: str, value: int | float) -> DocumentError:
+    number = _number_texts(value)[-1]
+    return DocumentError(
+        status=WorkflowCodeErrorStatus.INVALID_VALUE,
+        message=f"{describe_path(path)} is {shown(source)}, which YAML reads as the number {shown(number)}.",
+        why="A number keeps only its value, so 1.10 is stored as 1.1 and 012 as 12. A condition that compares it with text such as '1.10' never matches, and some YAML editors read the same value as another number.",
+        fix=f"Write {shown(number)} without quotes to keep the number, or put the value in quotes, {shown(source)}, to keep it as text.",
         path=path,
     )
 

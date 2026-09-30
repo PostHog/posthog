@@ -4,8 +4,9 @@ from dataclasses import replace
 from types import FrameType
 from typing import Any
 
-from django.test import SimpleTestCase
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from jsonschema import Draft202012Validator
 from parameterized import parameterized
@@ -148,7 +149,11 @@ class TestWorkflowCodeSchema(SimpleTestCase):
             ("zero", "0d", "Use a number above zero, for example 30m or 3d."),
             ("seconds_past_their_cap", "90s", "Write the duration as 1.5m."),
             ("minutes_that_make_whole_days", "43200m", "Write the duration as 30d."),
-            ("seconds_past_thirty_days", "2592001s", "Use 30d or less. To wait longer, add a second delay step after this one."),
+            (
+                "seconds_past_thirty_days",
+                "2592001s",
+                "Use 30d or less. To wait longer, add a second delay step after this one.",
+            ),
             ("seconds_with_no_exact_larger_unit", "61s", "Use at most 60s, or write the delay in a larger unit."),
             ("words", "3 days", "Write the duration as 3d."),
             ("hours_that_make_a_day_and_a_half", "36h", "Write the duration as 1.5d."),

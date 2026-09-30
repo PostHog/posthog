@@ -14182,7 +14182,7 @@
         "feature_flag_behavior": "enable"
     },
     "workflows-check-code": {
-        "description": "Check a workflow file (YAML, or JSON text) against PostHog and see what applying it would change. Writes nothing. Send the whole file as content. On a mistake it returns 400 with every error at once, each with a status, a path in the file's own field names, a line and column, and a why and fix: fix them all and check again. On success it returns a plan: result is create (no workflow has the key), update, stage (the workflow is active, so applying through MCP stages the change as a draft) or unchanged; added_steps, changed_steps and removed_steps list what changes. A removed step keeps the people in it only if it was renamed with its old id: when a warning names people in a removed step, show it to the user, and follow its fix if the step was renamed. Get the file's schema first with workflows-get-code-schema.",
+        "description": "Check a workflow file (YAML, or JSON text) against PostHog and see what applying it would change. Writes nothing. Send the whole file as content. On a mistake it returns 400 with up to 50 errors at once, each with a status, a path in the file's own field names, a line and column, and a why and fix: fix them all and check again. A last too_many_errors entry says how many more there are. On success it returns a plan: result is create (no workflow has the key), update, stage (the workflow is active, so applying through MCP stages the change as a draft) or unchanged; added_steps, changed_steps and removed_steps list what changes. A removed step keeps the people in it only if it was renamed with its old id: when a warning names people in a removed step, show it to the user, and follow its fix if the step was renamed. Get the file's schema first with workflows-get-code-schema.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Check a workflow file",
@@ -14254,7 +14254,7 @@
         }
     },
     "workflows-get-code": {
-        "description": "Get any workflow as a YAML workflow file, whether it was built in PostHog, through MCP or from a file. The file holds the live workflow, not a staged draft, and workflows-check-code accepts it as it is. warnings list what the file cannot carry exactly, such as secret inputs (left out, and apply keeps the stored value), a missing key (the file makes one from the name, so applying it creates a new workflow) or a staged draft; the same warnings open the file as # comments. Edit the file, check it with workflows-check-code, then apply it with workflows-apply-code.",
+        "description": "Get any workflow as a YAML workflow file, whether it was built in PostHog, through MCP or from a file. The file holds the live workflow, not a staged draft. warnings list what the file cannot carry exactly, such as secret inputs (left out, and apply keeps the stored value), a missing key (the file makes one from the name and says status: draft, because applying it creates a second workflow while this one keeps running), headers or inputs that look like credentials (written as plain text: tell the user before anyone commits the file), a file too large to check, or a staged draft; the same warnings open the file as # comments. Edit the file, check it with workflows-check-code, then apply it with workflows-apply-code.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get a workflow as a file",

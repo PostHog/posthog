@@ -51642,12 +51642,12 @@ export namespace Schemas {
       /** Steps whose content changes. */
       changed_steps: HogFlowCodeChangedStep[];
       /**
-         * Runs in the workflow now. Null when PostHog could not count them.
+         * Runs in the workflow now. Null when the file changes nothing, or when PostHog could not count them.
          * @nullable
          */
       in_flight_runs: number | null;
       /**
-         * Runs whose current step is unknown. Null when PostHog could not count them.
+         * Runs whose current step is unknown. Null when the file changes nothing, or when PostHog could not count them.
          * @nullable
          */
       position_unknown: number | null;
@@ -51712,6 +51712,7 @@ export namespace Schemas {
      * * `invalid_workflow` - Invalid Workflow
      * * `status_change_not_allowed` - Status Change Not Allowed
      * * `conflict` - Conflict
+     * * `too_many_errors` - Too Many Errors
      */
     export type WorkflowCodeErrorStatusEnum = typeof WorkflowCodeErrorStatusEnum[keyof typeof WorkflowCodeErrorStatusEnum];
 
@@ -51732,6 +51733,7 @@ export namespace Schemas {
       InvalidWorkflow: 'invalid_workflow',
       StatusChangeNotAllowed: 'status_change_not_allowed',
       Conflict: 'conflict',
+      TooManyErrors: 'too_many_errors',
     } as const;
 
     export interface HogFlowCodeError {
@@ -51751,7 +51753,8 @@ export namespace Schemas {
        * * `unknown_template` - Unknown Template
        * * `invalid_workflow` - Invalid Workflow
        * * `status_change_not_allowed` - Status Change Not Allowed
-       * * `conflict` - Conflict */
+       * * `conflict` - Conflict
+       * * `too_many_errors` - Too Many Errors */
       status: WorkflowCodeErrorStatusEnum;
       /** What is wrong, and where. */
       message: string;
@@ -51777,7 +51780,7 @@ export namespace Schemas {
     }
 
     export interface HogFlowCodeErrors {
-      /** Every mistake in the file, in file order. */
+      /** The mistakes in the file, in file order. After the first 50, one too_many_errors entry says how many more the file has. */
       errors: HogFlowCodeError[];
     }
 

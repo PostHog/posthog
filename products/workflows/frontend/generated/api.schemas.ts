@@ -1741,12 +1741,12 @@ export interface HogFlowCodePlanApi {
     /** Steps whose content changes. */
     changed_steps: HogFlowCodeChangedStepApi[]
     /**
-     * Runs in the workflow now. Null when PostHog could not count them.
+     * Runs in the workflow now. Null when the file changes nothing, or when PostHog could not count them.
      * @nullable
      */
     in_flight_runs: number | null
     /**
-     * Runs whose current step is unknown. Null when PostHog could not count them.
+     * Runs whose current step is unknown. Null when the file changes nothing, or when PostHog could not count them.
      * @nullable
      */
     position_unknown: number | null
@@ -1804,6 +1804,7 @@ export interface HogFlowCodeApplyResponseApi {
  * * `invalid_workflow` - Invalid Workflow
  * * `status_change_not_allowed` - Status Change Not Allowed
  * * `conflict` - Conflict
+ * * `too_many_errors` - Too Many Errors
  */
 export type WorkflowCodeErrorStatusEnumApi =
     (typeof WorkflowCodeErrorStatusEnumApi)[keyof typeof WorkflowCodeErrorStatusEnumApi]
@@ -1824,6 +1825,7 @@ export const WorkflowCodeErrorStatusEnumApi = {
     InvalidWorkflow: 'invalid_workflow',
     StatusChangeNotAllowed: 'status_change_not_allowed',
     Conflict: 'conflict',
+    TooManyErrors: 'too_many_errors',
 } as const
 
 export interface HogFlowCodeErrorApi {
@@ -1843,7 +1845,8 @@ export interface HogFlowCodeErrorApi {
      * * `unknown_template` - Unknown Template
      * * `invalid_workflow` - Invalid Workflow
      * * `status_change_not_allowed` - Status Change Not Allowed
-     * * `conflict` - Conflict */
+     * * `conflict` - Conflict
+     * * `too_many_errors` - Too Many Errors */
     status: WorkflowCodeErrorStatusEnumApi
     /** What is wrong, and where. */
     message: string
@@ -1869,7 +1872,7 @@ export interface HogFlowCodeErrorApi {
 }
 
 export interface HogFlowCodeErrorsApi {
-    /** Every mistake in the file, in file order. */
+    /** The mistakes in the file, in file order. After the first 50, one too_many_errors entry says how many more the file has. */
     errors: HogFlowCodeErrorApi[]
 }
 

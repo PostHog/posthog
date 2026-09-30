@@ -18,7 +18,8 @@ KEY_PATTERN = r"^[A-Za-z0-9_-]{1,400}$"
 MAX_KEY_LENGTH = 400
 STEP_ID_PATTERN = r"^[A-Za-z0-9_-]{1,200}$"
 
-_NEXT_LARGER_UNIT = {"s": "m", "m": "h", "h": "d"}
+_MAX_DELAY_SECONDS = MAX_VALUE_FOR_DURATION_UNIT["d"] * SECONDS_PER_DURATION_UNIT["d"]
+_OVER_30_DAYS_FIX = "Use 30d or less. To wait longer, add a second delay step after this one."
 _UNIT_NAMES = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}
 # The number alternation keeps each digit run owned by one quantifier, as in durations.py, so a long
 # value that does not match fails in linear time.
@@ -64,26 +65,46 @@ def _check_duration(value: str) -> str:
     cap = MAX_VALUE_FOR_DURATION_UNIT[parsed.unit]
     if parsed.amount <= cap:
         return value
-    if parsed.unit == "d":
+    seconds = parsed.amount * SECONDS_PER_DURATION_UNIT[parsed.unit]
+    if seconds > _MAX_DELAY_SECONDS:
         raise document_error(
             f"{shown(value)} is longer than 30 days.",
             "The longest delay PostHog runs is 30 days. A longer delay ends after 30 days without an error.",
-            "Use 30d or less. To wait longer, add a second delay step after this one.",
+            _OVER_30_DAYS_FIX,
         )
-    larger = _NEXT_LARGER_UNIT[parsed.unit]
-    in_larger_unit = parsed.amount * SECONDS_PER_DURATION_UNIT[parsed.unit] / SECONDS_PER_DURATION_UNIT[larger]
     raise document_error(
         f"{shown(value)} is more than {cap:g} {_UNIT_NAMES[parsed.unit]}.",
         f"A delay in {_UNIT_NAMES[parsed.unit]} is at most {cap:g}{parsed.unit}. PostHog shortens a longer value to {cap:g}{parsed.unit} without an error.",
-        f"Write the duration as {in_larger_unit:g}{larger}.",
+        _suggest_duration(seconds) or f"Use at most {cap:g}{parsed.unit}, or write the delay in a larger unit.",
     )
 
 
 def _duration_fix(value: str) -> str:
     match = _LOOSE_DURATION.match(value) if len(value) <= _MAX_SHOWN_VALUE_LENGTH else None
-    if match:
-        return f"Write the duration as {match.group(1)}{match.group(2)[0].lower()}."
-    return "Write the duration as a number and a unit, for example 30m or 3d."
+    if match is None:
+        return "Write the duration as a number and a unit, for example 30m or 3d."
+    seconds = float(match.group(1)) * SECONDS_PER_DURATION_UNIT[match.group(2)[0].lower()]
+    if seconds == 0:
+        return "Use a number above zero, for example 30m or 3d."
+    if seconds > _MAX_DELAY_SECONDS:
+        return _OVER_30_DAYS_FIX
+    return _suggest_duration(seconds) or "Write the duration as a number and a unit, for example 30m or 3d."
+
+
+def _suggest_duration(seconds: float) -> str | None:
+    """The duration in the largest unit that holds it as a short number within that unit's cap."""
+    for unit in ("d", "h", "m", "s"):
+        amount = seconds / SECONDS_PER_DURATION_UNIT[unit]
+        if 1 <= amount <= MAX_VALUE_FOR_DURATION_UNIT[unit] and round(amount, 2) == amount:
+            return f"Write the duration as {amount:g}{unit}."
+    return None
+
+
+def _only_the_number(value: Any) -> Any:
+    # Strict Literal[1] still takes true and 1.0, since both equal 1.
+    if type(value) is not int:
+        raise PydanticCustomError("unsupported_version", "version is not the number 1")
+    return value
 
 
 def key_from_name(name: str) -> str:
@@ -215,6 +236,10 @@ class _Step(_DocumentModel):
         description="The step id. Defaults to the name in lower case with other characters turned into _. Set it to keep people in place when you rename a step.",
     )
     description: str = Field(default="", description="An optional note about the step.")
+    output_variable: dict[str, Any] | list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Saves the step's result in a workflow variable, as the workflows API takes it: { key, result_path } or a list of those. Later steps read it as {variables.<key>}.",
+    )
 
 
 class DelayStep(_Step):
@@ -328,6 +353,9 @@ class Variable(_DocumentModel):
 
 
 class Exit(_DocumentModel):
+    name: str = Field(
+        default="Exit", min_length=1, max_length=400, description="The exit's name in the workflow editor."
+    )
     reason: str = Field(default="", description="What PostHog records when a run reaches the end.")
     description: str = Field(default="", description="An optional note about the exit.")
 
@@ -335,7 +363,9 @@ class Exit(_DocumentModel):
 class WorkflowDocument(_DocumentModel):
     model_config = ConfigDict(title="PostHog workflow")
 
-    version: Literal[1] = Field(description="The file format version. Always 1.")
+    version: Annotated[Literal[1], BeforeValidator(_only_the_number)] = Field(
+        description="The file format version. Always 1."
+    )
     key: WorkflowKey = Field(description="The workflow's identity in the project. Changing it creates a new workflow.")
     name: str = Field(min_length=1, max_length=400, description="The workflow name.")
     description: str = Field(default="", description="An optional description.")

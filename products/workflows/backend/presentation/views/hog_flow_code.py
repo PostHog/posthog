@@ -76,7 +76,8 @@ class HogFlowCodeErrorSerializer(serializers.Serializer):
 
 class HogFlowCodeErrorsSerializer(serializers.Serializer):
     errors = HogFlowCodeErrorSerializer(  # type: ignore[assignment]
-        many=True, help_text="Every mistake in the file, in file order."
+        many=True,
+        help_text="The mistakes in the file, in file order. After the first 50, one too_many_errors entry says how many more the file has.",
     )
 
 
@@ -135,10 +136,12 @@ class HogFlowCodePlanSerializer(serializers.Serializer):
     added_steps = HogFlowCodeStepSerializer(many=True, help_text="Steps the file adds.")
     changed_steps = HogFlowCodeChangedStepSerializer(many=True, help_text="Steps whose content changes.")
     in_flight_runs = serializers.IntegerField(
-        allow_null=True, help_text="Runs in the workflow now. Null when PostHog could not count them."
+        allow_null=True,
+        help_text="Runs in the workflow now. Null when the file changes nothing, or when PostHog could not count them.",
     )
     position_unknown = serializers.IntegerField(
-        allow_null=True, help_text="Runs whose current step is unknown. Null when PostHog could not count them."
+        allow_null=True,
+        help_text="Runs whose current step is unknown. Null when the file changes nothing, or when PostHog could not count them.",
     )
     discards_draft = serializers.BooleanField(
         help_text="True when the workflow has a staged draft that applying the file would throw away."

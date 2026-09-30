@@ -56,6 +56,7 @@ DefinitionValidator = Callable[[Optional[HogFlow], dict[str, Any]], ValidatedWor
 InFlightCounter = Callable[[HogFlow], Optional[dict[str, Any]]]
 
 _KEY_CONSTRAINT = "unique_key_for_team"
+MAX_REPORTED_ERRORS = 50
 
 
 @frozen
@@ -124,10 +125,24 @@ class WorkflowCode:
         if workflow is None:
             plan = plan_create(_state(validated, content=validated))
         else:
-            counts = self._count_in_flight(workflow)
-            plan = _plan_update(key, workflow, validated, counts, staged=self._stages_active_content(workflow))
+            plan, _counts = self._plan_existing(key, workflow, validated)
         self._refuse_disallowed_status(plan, key)
         return plan
+
+    def _plan_existing(
+        self, key: str, workflow: HogFlow, validated: dict[str, Any]
+    ) -> tuple[CodePlan, Optional[dict[str, Any]]]:
+        """The plan for a stored workflow, and the in-flight counts behind it.
+
+        Counting is a network call, and most files in a repository change nothing on a given run, so an
+        unchanged plan skips it.
+        """
+        staged = self._stages_active_content(workflow)
+        plan = _plan_update(key, workflow, validated, None, staged=staged)
+        if plan.result == WorkflowCodePlanResult.UNCHANGED:
+            return plan, None
+        counts = self._count_in_flight(workflow)
+        return _plan_update(key, workflow, validated, counts, staged=staged), counts
 
     def _apply(self, loaded: LoadedContent) -> WorkflowCodeApplied:
         compiled, key = _compile(loaded, self._team_id)
@@ -160,8 +175,11 @@ class WorkflowCode:
         return _applied(WorkflowCodeApplyResult.CREATED, key, workflow, plan)
 
     def _update(self, compiled: CompiledWorkflow, key: str, workflow: HogFlow) -> WorkflowCodeApplied:
-        # The counting service is a network call, so it runs before the row lock rather than while holding it.
-        counts = self._count_in_flight(workflow)
+        # Planned before the row lock, so the counting service's network call never runs while holding it.
+        plan, counts = self._plan_existing(key, workflow, self._validated(compiled, workflow).validated_data)
+        self._refuse_disallowed_status(plan, key)
+        if plan.result == WorkflowCodePlanResult.UNCHANGED:
+            return _applied(WorkflowCodeApplyResult.UNCHANGED, key, workflow, plan)
         plans: list[CodePlan] = []
 
         def validate(locked: HogFlow, stored: HogFlow, staged: bool) -> Optional[ValidatedWorkflow]:
@@ -370,7 +388,21 @@ def _publish_impact(workflow: HogFlow, validated: dict[str, Any], counts: Option
 def _rejected(invalid: DocumentInvalid, loaded: Optional[LoadedContent]) -> WorkflowCodeRejected:
     located = [_located(error, loaded) for error in invalid.errors]
     located.sort(key=lambda e: (e.line is None, e.line or 0, e.column or 0))
-    return WorkflowCodeRejected(tuple(located))
+    if len(located) <= MAX_REPORTED_ERRORS:
+        return WorkflowCodeRejected(tuple(located))
+    return WorkflowCodeRejected((*located[:MAX_REPORTED_ERRORS], _left_out_errors(len(located) - MAX_REPORTED_ERRORS)))
+
+
+def _left_out_errors(count: int) -> WorkflowCodeError:
+    return WorkflowCodeError(
+        status=WorkflowCodeErrorStatus.TOO_MANY_ERRORS,
+        message=f"The file has {count} more errors than the {MAX_REPORTED_ERRORS} listed here.",
+        why=f"PostHog lists the first {MAX_REPORTED_ERRORS} errors in file order, so one response stays readable.",
+        fix="Fix the errors listed here, then check the file again to see the rest.",
+        path=None,
+        line=None,
+        column=None,
+    )
 
 
 def _located(error: DocumentError, loaded: Optional[LoadedContent]) -> WorkflowCodeError:
