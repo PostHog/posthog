@@ -46,134 +46,9 @@
     scrollbar-width: thin;
 }
 
-.TodayPane__sections {
-    display: flex;
-    flex: 1 1 auto;
-    flex-direction: column;
-    min-height: 0;
-    padding: 0 4px;
-    margin: 18px 0 8px;
-    overflow: hidden;
-}
-
 .TodayPane__heading {
     margin: 26px 8px 8px;
     letter-spacing: 0.08em;
-}
-
-.TodayPaneSection {
-    display: flex;
-    flex: none;
-    flex-direction: column;
-
-    &--divider > .TodayPaneSection__header {
-        border-top: 1px solid var(--today-line);
-    }
-}
-
-.TodayPaneSection__header {
-    position: relative;
-    box-sizing: border-box;
-    display: flex;
-    flex: none;
-    gap: 4px;
-    align-items: center;
-    height: 36px;
-    padding-top: 4px;
-}
-
-.TodayPaneSection__resize {
-    position: absolute;
-    top: -4px;
-    right: 0;
-    left: 0;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    height: 9px;
-    touch-action: none;
-    cursor: row-resize;
-    outline: none;
-}
-
-.TodayPaneSection__resize-line {
-    width: 100%;
-    height: 2px;
-    background: var(--today-focus-border);
-    border-radius: 1px;
-    opacity: 0;
-    transition: opacity 0.16s;
-
-    .TodayPaneSection__resize:hover &,
-    .TodayPaneSection__resize:focus-visible &,
-    .TodayPaneSection__resize--active & {
-        opacity: 1;
-    }
-}
-
-.TodayPaneSection__viewport {
-    flex: none;
-    min-height: 0;
-    overflow: hidden;
-
-    &--animate {
-        transition: height 0.2s var(--today-ease);
-
-        @media (prefers-reduced-motion: reduce) {
-            transition: none;
-        }
-    }
-}
-
-.TodayPaneSection__scroll {
-    height: 100%;
-    overflow-y: auto;
-    scrollbar-color: var(--today-input-border) transparent;
-    scrollbar-width: thin;
-}
-
-.TodayPaneSection__toggle {
-    display: flex;
-    flex: 1 1 auto;
-    gap: 4px;
-    align-items: center;
-    min-width: 0;
-    padding: 4px 8px;
-    text-align: left;
-    border-radius: 6px;
-    transition: color 0.16s;
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            color: var(--today-ink);
-        }
-    }
-}
-
-.TodayPaneSection__caret {
-    flex: 0 0 11px;
-    width: 11px;
-    height: 11px;
-    opacity: 0.7;
-}
-
-.TodayPaneSection__count {
-    margin-left: 2px;
-    font-variant-numeric: tabular-nums;
-    color: var(--today-muted);
-}
-
-.TodayPaneSection__actions {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-}
-
-.TodayPaneSection__body {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    padding-bottom: 8px;
 }
 
 .TodaySpaceFeed {
@@ -191,60 +66,6 @@
     }
 }
 
-.TodayPane__dot {
-    width: 6px;
-    height: 6px;
-    background: var(--today-faint);
-    border-radius: 50%;
-
-    &[data-status='queued'],
-    &[data-status='in_progress'] {
-        background: var(--warning);
-    }
-
-    &[data-status='completed'] {
-        background: var(--success);
-    }
-
-    &[data-status='failed'] {
-        background: var(--danger);
-    }
-
-    &[data-kind='chat'] {
-        background: transparent;
-        border: 1px solid var(--today-faint);
-    }
-}
-
-.TodayPane__add {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 6px 8px;
-    margin-top: 4px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--today-muted);
-    text-align: left;
-    border: 1px dashed var(--today-input-border);
-    border-radius: 8px;
-    transition:
-        color 0.16s,
-        border-color 0.16s;
-
-    svg {
-        width: 13px;
-        height: 13px;
-    }
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            color: var(--today-ink);
-            border-color: var(--today-focus-border);
-        }
-    }
-}
-
 .TodayPane__state {
     display: flex;
     flex-direction: column;
@@ -254,12 +75,6 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--today-muted);
-}
-
-.TodayPane__hash {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    color: var(--today-faint);
 }
 
 .TodayPaneRow {
