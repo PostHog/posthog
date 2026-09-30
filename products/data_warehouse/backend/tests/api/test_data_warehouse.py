@@ -247,6 +247,69 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(syncs[0]["status"], expected_status)
         self.assertEqual(syncs[0]["name"], "charges")
         self.assertEqual(syncs[0]["error"], "it broke")
+        # The source scene keys on a prefixed id, so a bare UUID renders a broken page.
+        self.assertEqual(syncs[0]["url"], f"/data-warehouse/sources/managed-{source.id}")
+
+    def test_data_health_issues_reports_the_sync_type(self) -> None:
+        # A webhook table is pushed to, never pulled, so a caller about scheduled imports needs
+        # to tell it apart rather than calling it stopped.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
+        source = ExternalDataSource.objects.create(
+            source_id="hook-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        ExternalDataSchema.objects.create(
+            name="messages",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+
+        results = self.client.get(endpoint).json()["results"]
+
+        syncs = [issue for issue in results if issue["type"] == "external_data_sync"]
+        self.assertEqual(len(syncs), 1)
+        self.assertEqual(syncs[0]["sync_type"], "webhook")
+
+    def test_completed_activity_filters_by_kind(self) -> None:
+        # Without a kind filter a team with many failing views fills every page with them, and a
+        # caller that only wants imports sees none of its own runs.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        both = self.client.get(f"{endpoint}?outcome=failed&kind=all").json()["results"]
+        imports = self.client.get(f"{endpoint}?outcome=failed&kind=import").json()["results"]
+        models = self.client.get(f"{endpoint}?outcome=failed&kind=model").json()["results"]
+
+        self.assertTrue(all(row["type"] != "Materialized view" for row in imports))
+        self.assertTrue(all(row["type"] == "Materialized view" for row in models))
+        self.assertEqual(len(both), len(imports) + len(models))
+
+    def test_completed_activity_rejects_an_unknown_kind(self) -> None:
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+        response = self.client.get(f"{endpoint}?kind=nonsense")
+        self.assertEqual(response.status_code, 400)
+
+    def test_data_health_issues_links_a_failed_source_with_a_prefixed_id(self) -> None:
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
+        source = ExternalDataSource.objects.create(
+            source_id="broken-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+            status=ExternalDataSource.Status.ERROR,
+        )
+
+        results = self.client.get(endpoint).json()["results"]
+
+        sources = [issue for issue in results if issue["type"] == "source"]
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0]["url"], f"/data-warehouse/sources/managed-{source.id}")
 
     def test_data_health_issues_ignores_a_sync_that_is_switched_off(self) -> None:
         # A table the user turned off is not a problem to report, however it last ended.

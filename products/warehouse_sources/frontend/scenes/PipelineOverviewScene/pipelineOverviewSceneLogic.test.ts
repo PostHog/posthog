@@ -13,10 +13,11 @@ jest.mock('products/data_warehouse/frontend/generated/api', () => ({
 
 jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
     externalDataDestinationsList: jest.fn(),
+    externalDataSourcesList: jest.fn(),
 }))
 
 jest.mock('lib/components/AppMetrics/appMetricsLogic', () => ({
-    loadAppMetricsTotals: jest.fn(),
+    loadAppMetricsTimeSeries: jest.fn(),
 }))
 
 const api = jest.requireMock('products/data_warehouse/frontend/generated/api')
@@ -44,7 +45,8 @@ describe('pipelineOverviewSceneLogic', () => {
         api.dataWarehouseDataHealthIssuesRetrieve.mockResolvedValue({ results: [], count: 0 })
         api.dataWarehouseCompletedActivityRetrieve.mockResolvedValue({ results: [], next: null, previous: null })
         wsApi.externalDataDestinationsList.mockResolvedValue({ results: [] })
-        metrics.loadAppMetricsTotals.mockResolvedValue({})
+        wsApi.externalDataSourcesList.mockResolvedValue({ results: [] })
+        metrics.loadAppMetricsTimeSeries.mockResolvedValue({ labels: [], interval: 'day', timezone: 'UTC', series: [] })
         logic = pipelineOverviewSceneLogic()
         logic.mount()
     })
@@ -150,7 +152,7 @@ describe('pipelineOverviewSceneLogic', () => {
         )
     })
 
-    it('reloads only the run counts when the window changes', async () => {
+    it('leaves the billing-period row total alone when the window changes', async () => {
         // Rows are per billing period and health is current state, so refetching them on a window
         // change would be three wasted requests per click.
         api.dataWarehouseJobStatsRetrieve.mockClear()
@@ -180,16 +182,90 @@ describe('pipelineOverviewSceneLogic', () => {
         expect(api.dataWarehouseCompletedActivityRetrieve).toHaveBeenCalled()
     })
 
-    it('asks for destination rows between two absolute timestamps', async () => {
-        // Both bounds go straight into `toDateTime(...)`, so a relative string or a missing
-        // `dateTo` makes the query throw instead of returning rows.
+    it('asks for each destination by id rather than one breakdown over every instance', async () => {
+        // The breakdown is capped at 100 rows. A team with thousands of tables pushes every
+        // destination out of that cap, which emptied the chart on a real project.
+        logic.unmount()
+        wsApi.externalDataDestinationsList.mockResolvedValue({
+            results: [
+                { id: 'dest-1', name: 'PostHog warehouse', type: 'PostHogWarehouse' },
+                { id: 'dest-2', name: 'Analytics Postgres', type: 'Postgres' },
+            ],
+        })
+        metrics.loadAppMetricsTimeSeries.mockResolvedValue({
+            labels: ['2026-09-27', '2026-09-28'],
+            interval: 'day',
+            timezone: 'UTC',
+            series: [{ name: 'rows_synced', values: [10, 20] }],
+        })
+
+        logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        const [request] = metrics.loadAppMetricsTotals.mock.calls[0]
-        expect(request.metricName).toEqual('rows_synced')
-        expect(request.breakdownBy).toEqual(['instance_id'])
-        expect(Date.parse(request.dateFrom)).not.toBeNaN()
-        expect(Date.parse(request.dateTo)).not.toBeNaN()
-        expect(Date.parse(request.dateFrom)).toBeLessThan(Date.parse(request.dateTo))
+        const asked = metrics.loadAppMetricsTimeSeries.mock.calls.map(([request]: any[]) => request)
+        expect(asked.map((r: any) => r.instanceId).sort()).toEqual(['dest-1', 'dest-2'])
+        expect(asked.every((r: any) => r.breakdownBy === undefined)).toBe(true)
+        // Both bounds go straight into `toDateTime(...)`, so a relative string or a missing
+        // `dateTo` makes the query throw instead of returning rows.
+        asked.forEach((r: any) => {
+            expect(Date.parse(r.dateFrom)).not.toBeNaN()
+            expect(Date.parse(r.dateTo)).not.toBeNaN()
+            expect(Date.parse(r.dateFrom)).toBeLessThan(Date.parse(r.dateTo))
+        })
+        expect(logic.values.rowsByDestination.map((s: any) => s.label)).toEqual([
+            'PostHog warehouse',
+            'Analytics Postgres',
+        ])
+    })
+
+    it('leaves webhook tables out of the health list', async () => {
+        // A webhook table is pushed to on the vendor's schedule, never pulled on ours, so it has
+        // no last sync and cannot have stopped. A real project had 16 of them crowding the list.
+        api.dataWarehouseDataHealthIssuesRetrieve.mockResolvedValue({
+            count: 2,
+            results: [
+                issue({ id: 'a', type: 'external_data_sync', sync_type: 'webhook' }),
+                issue({ id: 'b', type: 'external_data_sync', sync_type: 'incremental' }),
+            ],
+        })
+
+        await expectLogic(logic, () => logic.actions.loadHealthIssues()).toFinishAllListeners()
+
+        expect(logic.values.issuesBySeverity.map((i: any) => i.id)).toEqual(['b'])
+    })
+
+    it('asks the runs endpoint for imports only', async () => {
+        // The endpoint answers for the whole warehouse and pages by time. A team with enough
+        // failing views filled every page with them, so this list rendered empty.
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(api.dataWarehouseCompletedActivityRetrieve).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ outcome: 'failed', kind: 'import' })
+        )
+    })
+
+    it('counts only the tables switched on across every page', async () => {
+        logic.unmount()
+        wsApi.externalDataSourcesList.mockReset()
+        wsApi.externalDataSourcesList
+            .mockResolvedValueOnce({
+                next: '/api/projects/1/external_data_sources/?limit=100&offset=2',
+                results: [
+                    { id: 'a', schemas: [{ should_sync: true }, { should_sync: false }] },
+                    { id: 'b', schemas: [] },
+                ],
+            })
+            .mockResolvedValueOnce({
+                next: null,
+                results: [{ id: 'c', schemas: [{ should_sync: true }, { should_sync: true }] }],
+            })
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.syncingTableCount).toEqual(3)
+        expect(wsApi.externalDataSourcesList).toHaveBeenNthCalledWith(1, expect.anything(), { limit: 100, offset: 0 })
+        expect(wsApi.externalDataSourcesList).toHaveBeenNthCalledWith(2, expect.anything(), { limit: 100, offset: 2 })
     })
 })

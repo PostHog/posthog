@@ -111,9 +111,20 @@ class TestOverrideSurfacesThroughRefresh:
         ModelCostService.reset_instance()
         ModelRegistryService.reset_instance()
 
-    @pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"])
+    @pytest.mark.parametrize(
+        "model,provider,context_window",
+        [
+            ("claude-fable-5", "anthropic", 200_000),
+            ("claude-fable-5-1", "anthropic", 200_000),
+            ("claude-opus-5-5", "anthropic", 200_000),
+            ("claude-sonnet-5-5", "anthropic", 1_000_000),
+            ("gpt-6.1-sol", "openai", 1_050_000),
+        ],
+    )
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
-    def test_refresh_injects_bridge_model_when_upstream_missing(self, mock_get_cost_map: MagicMock, model: str) -> None:
+    def test_refresh_injects_model_when_upstream_missing(
+        self, mock_get_cost_map: MagicMock, model: str, provider: str, context_window: int
+    ) -> None:
         mock_get_cost_map.return_value = {
             "claude-opus-4-8": {
                 "litellm_provider": "anthropic",
@@ -127,11 +138,12 @@ class TestOverrideSurfacesThroughRefresh:
 
         costs = service.get_costs(model)
         assert costs is not None
-        assert costs["litellm_provider"] == "anthropic"
+        assert costs["litellm_provider"] == provider
+        assert costs["max_input_tokens"] == context_window
         assert model in service.get_all_models()
 
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
-    def test_fable_5_listed_for_posthog_code(self, mock_get_cost_map: MagicMock) -> None:
+    def test_bridge_models_listed_for_posthog_code(self, mock_get_cost_map: MagicMock) -> None:
         mock_get_cost_map.return_value = {
             "claude-opus-4-8": {
                 "litellm_provider": "anthropic",
@@ -142,7 +154,7 @@ class TestOverrideSurfacesThroughRefresh:
         ModelCostService.get_instance()._refresh_cache()
 
         settings = MagicMock()
-        settings.openai_api_key = None
+        settings.openai_api_key = "sk-test"
         settings.anthropic_api_key = "sk-ant-test"
         settings.openrouter_api_key = None
         settings.fireworks_api_key = None
@@ -159,6 +171,7 @@ class TestOverrideSurfacesThroughRefresh:
         assert "claude-opus-4-8" in model_ids
         assert "claude-fable-5" in model_ids
         assert "claude-fable-5-1" in model_ids
+        assert "gpt-6.1-sol" in model_ids
 
     @pytest.mark.parametrize("product", ["posthog_code", "background_agents", "slack_app", "workflows"])
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")

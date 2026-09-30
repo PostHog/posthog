@@ -255,7 +255,8 @@ tools:
             created in the PostHog UI). Requires name and feature_flag_key. Feature flag is auto-created — do not create
             one separately, except for device-id bucketing, which this tool cannot set: create the flag first with
             `create-feature-flag`. Defaults: 50/50 control/test, 100% rollout, the team's default stats method. Launch
-            the experiment with the launch tool when ready.
+            the experiment with the launch tool when ready. The description accepts at most 3,000 characters and longer
+            text is rejected, so keep the hypothesis summary short.
         include_params:
             - name
             - description
@@ -331,7 +332,8 @@ tools:
             experiment-prompt-templates for the allowed template keys. Builds one variant per version, each carrying a
             feature flag payload with the prompt name and version so the SDK can resolve which version to serve, and
             attaches one primary metric per template, scoped to the prompt. The feature flag is auto-created — do not
-            create one separately. Launch the experiment with the launch tool when ready.
+            create one separately. Launch the experiment with the launch tool when ready. The description accepts at
+            most 3,000 characters and longer text is rejected, so keep the hypothesis summary short.
         ui_app: experiment
         response:
             include:
@@ -1501,7 +1503,8 @@ tools:
 
 
             Do NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or
-            experiment-ship-variant tools instead.
+            experiment-ship-variant tools instead. The description accepts at most 3,000 characters and longer text is
+            rejected, so keep the hypothesis summary short.
         include_params:
             - name
             - description

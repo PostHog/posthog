@@ -2355,6 +2355,24 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.'
                 ),
+            last_run: zod
+                .union([
+                    zod.object({
+                        task_id: zod.uuid().describe('The task this run belongs to.'),
+                        status: zod
+                            .string()
+                            .describe(
+                                "Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled."
+                            ),
+                        ran_at: zod.iso
+                            .datetime({ offset: true })
+                            .describe('When the run started, or when the task was created if it has no run yet.'),
+                    }),
+                    zod.null(),
+                ])
+                .describe(
+                    'Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.'
+                ),
         })
         .describe('Mixin for serializers to add user access control fields')
         .optional()
@@ -2411,6 +2429,16 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
             .describe('Cancel every in-flight invocation of this workflow, including parked delays and waits.'),
     })
     .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
+
+/**
+ * Whether PostHog may look at this workflow and suggest changes to it.
+ *
+ * Turning it off stops a producer reading the workflow. Suggestions already made are left
+ * alone: someone still has them to resolve.
+ */
+export const HogFlowsOptimizationCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe("Whether PostHog may read this workflow's metrics and suggest changes to it."),
+})
 
 /**
  * Agent-authored changes to this workflow, awaiting a human's decision.

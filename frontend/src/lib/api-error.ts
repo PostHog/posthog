@@ -163,6 +163,8 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
+ * - 409 carrying a `current_version` — an optimistic-concurrency conflict (experiments). The
+ *   editing surface toasts, reloads the fresh state, and keeps the user's unsaved edits.
  * - 404 `Project not found.` / `Organization not found.` — the scope in the URL is gone, so every
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
  *   it does, a poll on the dead scope would otherwise file one exception per tick.
@@ -214,6 +216,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
+        return false
+    }
+    if (status === 409 && failure.data?.current_version !== undefined) {
         return false
     }
     return !isApprovalRequiredError(failure)

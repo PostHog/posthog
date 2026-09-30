@@ -184,6 +184,7 @@ export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): 
     return artefacts.filter(
         (artefact) =>
             artefact.type !== 'implementation_dispatch' &&
+            artefact.type !== 'impact_measurement_plan' &&
             (artefact.type !== 'implementation_handover' ||
                 (artefact.content as ImplementationHandoverContent).status !== 'processing')
     )

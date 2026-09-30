@@ -31,7 +31,7 @@ _LAZY = {
     "is_any_external_data_schema_paused": "logic.data_load.service",
     "is_cdc_enabled_for_team": "logic.data_load.service",
     "cdc_extraction_schedule_exists": "logic.data_load.service",
-    "cdc_extraction_schedule_has_running_action": "logic.data_load.service",
+    "cdc_min_interval": "logic.data_load.service",
     "is_cdc_extraction_schedule_paused": "logic.data_load.service",
     "is_external_data_schedule_paused": "logic.data_load.service",
     "is_custom_source_ai_builder_enabled_for_team": "logic.data_load.service",
