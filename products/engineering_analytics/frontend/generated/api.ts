@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AttentionPullRequestListApi,
     AuthorFrictionDetailApi,
     AuthorFrictionListApi,
     BranchPRMatchApi,
@@ -21,6 +22,7 @@ import type {
     DeliveryComparisonApi,
     DeliverySummaryApi,
     DoraOverviewApi,
+    EngineeringAnalyticsAttentionPullRequestsParams,
     EngineeringAnalyticsAuthorFrictionDetailParams,
     EngineeringAnalyticsAuthorFrictionParams,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
@@ -80,6 +82,39 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
+
+export const getEngineeringAnalyticsAttentionPullRequestsUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsAttentionPullRequestsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/attention_pull_requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/attention_pull_requests/`
+}
+
+/**
+ * Open pull requests that need attention: failing CI, or stuck (open, non-draft, non-bot, older than 7 days). Failing first, then newest, capped; `total` counts every match. The same rules as the ci_cards counts, over the whole open backlog, so an old stuck pull request is never crowded out.
+ */
+export const engineeringAnalyticsAttentionPullRequests = async (
+    projectId: string,
+    params?: EngineeringAnalyticsAttentionPullRequestsParams,
+    options?: RequestInit
+): Promise<AttentionPullRequestListApi> => {
+    return apiMutator<AttentionPullRequestListApi>(getEngineeringAnalyticsAttentionPullRequestsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getEngineeringAnalyticsAuthorFrictionUrl = (
     projectId: string,

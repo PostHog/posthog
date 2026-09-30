@@ -12,6 +12,7 @@ from datetime import datetime
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import (
+    AttentionPullRequestList,
     Author,
     CIStatusRollup,
     PRState,
@@ -23,9 +24,11 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
+from products.engineering_analytics.backend.logic.queries.ci_cards import FAILING_CI_SQL, OPEN_PR_SQL, stuck_pr_sql
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs
 
 _LIMIT = 1000
+_ATTENTION_LIMIT = 15
 # Sparkline cap: enough to read a PR's CI history at a glance without bloating a 1000-row page.
 _PUSH_HISTORY_LIMIT = 20
 
@@ -58,14 +61,15 @@ _SELECT = f"""
         ci.failing_workflows AS failing_workflows,
         coalesce(rp.pushes, 0) AS pushes,
         coalesce(rp.rerun_cycles, 0) AS rerun_cycles
+        __EXTRA_COLUMNS__
     FROM __PR_SOURCE__ AS pr
     LEFT JOIN ci_rollup AS ci ON ci.head_sha = pr.head_sha
     LEFT JOIN runs_by_pr AS rp
         ON rp.repo_owner = pr.repo_owner AND rp.repo_name = pr.repo_name AND rp.pr_number = pr.number
     __READY_JOIN__
-    WHERE __VISIBLE_PRS__
-    ORDER BY pr.created_at DESC
-    LIMIT {_LIMIT + 1}
+    WHERE __ROWS__
+    ORDER BY __ORDER_BY__
+    LIMIT __LIMIT__
 """
 
 
@@ -142,34 +146,82 @@ def query_pr_push_history(
     return {key: samples[::-1] for key, samples in by_pr.items()}
 
 
+def _query_rows(
+    *,
+    curated: CuratedGitHubSource,
+    scope_where: str,
+    rows_where: str,
+    order_by: str,
+    limit: int,
+    query_type: str,
+    placeholders: dict[str, ast.Expr],
+    extra_columns: str = "",
+) -> list[tuple]:
+    """``scope_where`` is over unqualified curated PR columns and must keep every row ``rows_where``
+    keeps, because it prunes the runs rollups (see ``pr_list_rollup_query``)."""
+    ready = curated.ready_to_merge_sql()
+    select = (
+        _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
+        .replace("__READY_JOIN__", ready.join)
+        .replace("__EXTRA_COLUMNS__", extra_columns)
+        .replace("__ROWS__", rows_where)
+        .replace("__ORDER_BY__", order_by)
+        .replace("__LIMIT__", str(limit))
+    )
+    response = curated.run(
+        curated.pr_list_rollup_query(select, pr_scope_where=scope_where),
+        query_type=query_type,
+        placeholders=placeholders,
+    )
+    return list(response.results or [])
+
+
+def _enrich(*, curated: CuratedGitHubSource, rows: list[tuple]) -> list[PullRequestListItem]:
+    # Scope the cost and push-history rollups to exactly the PRs we're about to show (row[0] is
+    # pr.number), so the scans track the page instead of the team's whole CI history.
+    pr_numbers = sorted({int(row[0]) for row in rows})
+    cost_by_pr = query_pr_costs(curated=curated, pr_numbers=pr_numbers)
+    pushes_by_pr = query_pr_push_history(curated=curated, pr_numbers=pr_numbers)
+    return [_map_row(row, cost_by_pr, pushes_by_pr) for row in rows]
+
+
 def query_pull_request_list(
     *, curated: CuratedGitHubSource, date_from: datetime, author: str | None = None
 ) -> PullRequestList:
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     if author:
         placeholders["author"] = ast.Constant(value=author)
-
-    ready = curated.ready_to_merge_sql()
-    select = (
-        _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
-        .replace("__READY_JOIN__", ready.join)
-        .replace("__VISIBLE_PRS__", _visible_prs_where("pr.", author))
-    )
-    response = curated.run(
-        curated.pr_list_rollup_query(select, pr_scope_where=_visible_prs_where("", author)),
+    rows = _query_rows(
+        curated=curated,
+        scope_where=_visible_prs_where("", author),
+        rows_where=_visible_prs_where("pr.", author),
+        order_by="pr.created_at DESC",
+        limit=_LIMIT + 1,
         query_type="engineering_analytics.pull_request_list",
         placeholders=placeholders,
     )
-    rows = response.results or []
-    truncated = len(rows) > _LIMIT
-    visible = rows[:_LIMIT]
-    # Scope the cost and push-history rollups to exactly the PRs we're about to show (row[0] is
-    # pr.number), so the scans track the page instead of the team's whole CI history.
-    pr_numbers = sorted({int(row[0]) for row in visible})
-    cost_by_pr = query_pr_costs(curated=curated, pr_numbers=pr_numbers)
-    pushes_by_pr = query_pr_push_history(curated=curated, pr_numbers=pr_numbers)
-    items = [_map_row(row, cost_by_pr, pushes_by_pr) for row in visible]
-    return PullRequestList(items=items, truncated=truncated, limit=_LIMIT)
+    return PullRequestList(
+        items=_enrich(curated=curated, rows=rows[:_LIMIT]), truncated=len(rows) > _LIMIT, limit=_LIMIT
+    )
+
+
+def query_attention_pull_requests(*, curated: CuratedGitHubSource) -> AttentionPullRequestList:
+    rows = _query_rows(
+        curated=curated,
+        scope_where=OPEN_PR_SQL,
+        rows_where=f"pr.{OPEN_PR_SQL} AND ({FAILING_CI_SQL} OR {stuck_pr_sql('pr.')})",
+        order_by=f"{FAILING_CI_SQL} DESC, pr.created_at DESC",
+        limit=_ATTENTION_LIMIT,
+        query_type="engineering_analytics.attention_pull_requests",
+        placeholders={},
+        # Counted before the LIMIT, so the total covers every match rather than the page.
+        extra_columns=", count() OVER () AS matching",
+    )
+    return AttentionPullRequestList(
+        items=_enrich(curated=curated, rows=[row[:-1] for row in rows]),
+        total=int(rows[0][-1]) if rows else 0,
+        limit=_ATTENTION_LIMIT,
+    )
 
 
 def _map_row(

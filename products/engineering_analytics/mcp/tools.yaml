@@ -9,6 +9,9 @@ feature: engineering_analytics
 url_prefix: /engineering-analytics
 ui_apps: {}
 tools:
+    engineering-analytics-attention-pull-requests:
+        operation: engineering_analytics_attention_pull_requests
+        enabled: false
     engineering-analytics-author-friction:
         operation: engineering_analytics_author_friction
         enabled: false

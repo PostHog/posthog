@@ -12609,6 +12609,136 @@ export namespace Schemas {
       delete_verified_at: string | null;
     }
 
+    export interface Author {
+      /** Login handle of the pull request author. */
+      handle: string;
+      /** Human-readable name; equals the handle in v1. */
+      display_name: string;
+      /** URL of the author's avatar image. */
+      avatar_url: string;
+      /** True if the author is a bot (handle ends in [bot] or is a known bot). */
+      is_bot: boolean;
+    }
+
+    export interface RepoRef {
+      /** Code host provider, e.g. 'github'. */
+      provider: string;
+      /** Repository owner or organization. */
+      owner: string;
+      /** Repository name. */
+      name: string;
+    }
+
+    export interface CIStatusRollup {
+      /** Distinct workflows run on the PR's head SHA. */
+      runs: number;
+      /** Latest runs that completed with conclusion 'success'. */
+      passing: number;
+      /** Latest runs that ended in failure, timeout, startup failure, or staleness. */
+      failing: number;
+      /** Latest runs not yet completed (queued or in progress). */
+      pending: number;
+      /** Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, neutral, or action required. Together with the three counts above this covers every run, so a PR whose CI was entirely cancelled is not readable as passing. */
+      inconclusive: number;
+      /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
+      failing_workflows?: string[];
+    }
+
+    export interface PushCISample {
+      /** Head commit SHA of this push (CI round). */
+      head_sha: string;
+      /** Earliest workflow-run start on this push. */
+      started_at: string;
+      /**
+         * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
+         * @nullable
+         */
+      wall_seconds: number | null;
+      /** True when any latest-per-workflow run on this push ended in a decisive failure. */
+      failed: boolean;
+      /** True when any latest-per-workflow run on this push hasn't completed yet. */
+      pending: boolean;
+    }
+
+    /**
+     * * `open` - OPEN
+     * * `closed` - CLOSED
+     * * `merged` - MERGED
+     */
+    export type EngineeringAnalyticsPRStateEnum = typeof EngineeringAnalyticsPRStateEnum[keyof typeof EngineeringAnalyticsPRStateEnum];
+
+
+    export const EngineeringAnalyticsPRStateEnum = {
+      Open: 'open',
+      Closed: 'closed',
+      Merged: 'merged',
+    } as const;
+
+    export interface PullRequestListItem {
+      /** The pull request author. */
+      author: Author;
+      /** Repository the pull request belongs to. */
+      repo: RepoRef;
+      /** CI status from the latest workflow runs on the head SHA. */
+      ci: CIStatusRollup;
+      /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
+      push_history: PushCISample[];
+      /** Pull request number within the repository. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Derived state: 'open', 'closed', or 'merged'.
+       *
+       * * `open` - OPEN
+       * * `closed` - CLOSED
+       * * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True if the pull request is a draft. */
+      is_draft: boolean;
+      /** When the pull request was opened. */
+      created_at: string;
+      /**
+         * When the pull request was merged, or null.
+         * @nullable
+         */
+      merged_at: string | null;
+      /**
+         * Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.
+         * @nullable
+         */
+      open_to_merge_seconds: number | null;
+      /**
+         * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
+         * @nullable
+         */
+      ready_to_merge_seconds: number | null;
+      /** GitHub label names on the pull request. */
+      labels: string[];
+      /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
+      pushes: number;
+      /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+      rerun_cycles: number;
+      /**
+         * Estimated CI cost in USD summed over this PR's jobs (billable runners only). Null when nothing was costable or the job-level source isn't synced.
+         * @nullable
+         */
+      estimated_cost_usd?: number | null;
+      /**
+         * Billable (self-hosted) minutes summed over this PR's jobs. Null when the job source isn't synced.
+         * @nullable
+         */
+      billable_minutes?: number | null;
+    }
+
+    export interface AttentionPullRequestList {
+      /** Open pull requests needing attention, failing CI first, then newest, capped at `limit`. */
+      items: PullRequestListItem[];
+      /** Number of open pull requests needing attention, including the ones past the cap. */
+      total: number;
+      /** Maximum number of pull requests returned in `items`. */
+      limit: number;
+    }
+
     export interface AttributeBreakdownRow {
       count: number;
       error_count: number;
@@ -12730,17 +12860,6 @@ export namespace Schemas {
       Oauth: 'oauth',
       Credentials: 'credentials',
     } as const;
-
-    export interface Author {
-      /** Login handle of the pull request author. */
-      handle: string;
-      /** Human-readable name; equals the handle in v1. */
-      display_name: string;
-      /** URL of the author's avatar image. */
-      avatar_url: string;
-      /** True if the author is a bot (handle ends in [bot] or is a known bot). */
-      is_bot: boolean;
-    }
 
     /**
      * * `ci` - CI
@@ -18363,15 +18482,6 @@ export namespace Schemas {
       text: string;
     }
 
-    export interface RepoRef {
-      /** Code host provider, e.g. 'github'. */
-      provider: string;
-      /** Repository owner or organization. */
-      owner: string;
-      /** Repository name. */
-      name: string;
-    }
-
     export interface CIJobFailureLog {
       /** The thinned failure-log lines in original order, with omission markers. */
       lines: CIFailureLogLine[];
@@ -18501,21 +18611,6 @@ export namespace Schemas {
     export interface CISignalsConfigUpdate {
       /** Enable or disable every CI signal detector atomically. */
       enabled: boolean;
-    }
-
-    export interface CIStatusRollup {
-      /** Distinct workflows run on the PR's head SHA. */
-      runs: number;
-      /** Latest runs that completed with conclusion 'success'. */
-      passing: number;
-      /** Latest runs that ended in failure, timeout, startup failure, or staleness. */
-      failing: number;
-      /** Latest runs not yet completed (queued or in progress). */
-      pending: number;
-      /** Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, neutral, or action required. Together with the three counts above this covers every run, so a PR whose CI was entirely cancelled is not readable as passing. */
-      inconclusive: number;
-      /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
-      failing_workflows?: string[];
     }
 
     /**
@@ -37722,20 +37817,6 @@ export namespace Schemas {
       flaky_count: number;
       window_days: number;
     }
-
-    /**
-     * * `open` - OPEN
-     * * `closed` - CLOSED
-     * * `merged` - MERGED
-     */
-    export type EngineeringAnalyticsPRStateEnum = typeof EngineeringAnalyticsPRStateEnum[keyof typeof EngineeringAnalyticsPRStateEnum];
-
-
-    export const EngineeringAnalyticsPRStateEnum = {
-      Open: 'open',
-      Closed: 'closed',
-      Merged: 'merged',
-    } as const;
 
     /**
      * * `allow` - Allow
@@ -85314,78 +85395,6 @@ export namespace Schemas {
       window_days: number;
     }
 
-    export interface PushCISample {
-      /** Head commit SHA of this push (CI round). */
-      head_sha: string;
-      /** Earliest workflow-run start on this push. */
-      started_at: string;
-      /**
-         * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
-         * @nullable
-         */
-      wall_seconds: number | null;
-      /** True when any latest-per-workflow run on this push ended in a decisive failure. */
-      failed: boolean;
-      /** True when any latest-per-workflow run on this push hasn't completed yet. */
-      pending: boolean;
-    }
-
-    export interface PullRequestListItem {
-      /** The pull request author. */
-      author: Author;
-      /** Repository the pull request belongs to. */
-      repo: RepoRef;
-      /** CI status from the latest workflow runs on the head SHA. */
-      ci: CIStatusRollup;
-      /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
-      push_history: PushCISample[];
-      /** Pull request number within the repository. */
-      number: number;
-      /** Pull request title. */
-      title: string;
-      /** Derived state: 'open', 'closed', or 'merged'.
-       *
-       * * `open` - OPEN
-       * * `closed` - CLOSED
-       * * `merged` - MERGED */
-      state: EngineeringAnalyticsPRStateEnum;
-      /** True if the pull request is a draft. */
-      is_draft: boolean;
-      /** When the pull request was opened. */
-      created_at: string;
-      /**
-         * When the pull request was merged, or null.
-         * @nullable
-         */
-      merged_at: string | null;
-      /**
-         * Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.
-         * @nullable
-         */
-      open_to_merge_seconds: number | null;
-      /**
-         * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
-         * @nullable
-         */
-      ready_to_merge_seconds: number | null;
-      /** GitHub label names on the pull request. */
-      labels: string[];
-      /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
-      pushes: number;
-      /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
-      rerun_cycles: number;
-      /**
-         * Estimated CI cost in USD summed over this PR's jobs (billable runners only). Null when nothing was costable or the job-level source isn't synced.
-         * @nullable
-         */
-      estimated_cost_usd?: number | null;
-      /**
-         * Billable (self-hosted) minutes summed over this PR's jobs. Null when the job source isn't synced.
-         * @nullable
-         */
-      billable_minutes?: number | null;
-    }
-
     export interface PullRequestList {
       /** Pull requests, newest first, capped at `limit`. */
       items: PullRequestListItem[];
@@ -113954,6 +113963,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EngineeringAnalyticsAttentionPullRequestsParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsAuthorFrictionParams = {
