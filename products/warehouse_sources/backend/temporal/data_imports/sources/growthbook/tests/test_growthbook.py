@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -35,7 +37,7 @@ def test_pagination_and_resume(
     http.add(responses.GET, url, json={"features": [first], "hasMore": True, "nextOffset": offset + 7})
     http.add(responses.GET, url, json={"features": [last], "hasMore": False, "nextOffset": None})
     result = GrowthBookSource().source_for_pipeline(config, manager, inputs)
-    batches = iter(result.items())
+    batches = iter(cast(Iterable[Any], result.items()))
     assert next(batches) == [first]
     manager.save_state.assert_not_called()
     assert next(batches) == [last]
@@ -84,10 +86,12 @@ def test_table_responses_and_full_refresh_requests(
     inputs.schema_name = table
     inputs.db_incremental_field_last_value = "2099-01-01T00:00:00Z"
     rows = [{"id": "example-record", "dateCreated": "2025-01-01T00:00:00Z"}]
-    payload = {selector: rows} if table == "environments" else {selector: rows, "hasMore": False, "nextOffset": None}
+    payload: dict[str, Any] = (
+        {selector: rows} if table == "environments" else {selector: rows, "hasMore": False, "nextOffset": None}
+    )
     http.add(responses.GET, f"https://api.growthbook.io/api/v1/{path}", json=payload)
     result = GrowthBookSource().source_for_pipeline(config, manager, inputs)
-    assert list(result.items()) == [rows]
+    assert list(cast(Iterable[Any], result.items())) == [rows]
     assert result.name == table
     assert result.primary_keys == ["id"]
     assert result.partition_keys == partition_keys
@@ -108,14 +112,14 @@ def test_empty_collection_or_missing_envelope(
     http: responses.RequestsMock,
     empty: bool,
 ) -> None:
-    payload = {"features": [], "nextOffset": None, "hasMore": False} if empty else {"unexpected": []}
+    payload: dict[str, Any] = {"features": [], "nextOffset": None, "hasMore": False} if empty else {"unexpected": []}
     http.add(responses.GET, "https://api.growthbook.io/api/v2/features", json=payload)
     result = GrowthBookSource().source_for_pipeline(config, manager, inputs)
     if empty:
-        assert list(result.items()) == []
+        assert list(cast(Iterable[Any], result.items())) == []
     else:
         with pytest.raises(ValueError, match="matched nothing"):
-            list(result.items())
+            list(cast(Iterable[Any], result.items()))
     assert len(http.calls) == 1
     manager.save_state.assert_not_called()
 
@@ -133,13 +137,15 @@ def test_http_error_classification(
     source = GrowthBookSource()
     if status in (401, 403):
         with pytest.raises(HTTPError) as error:
-            list(source.source_for_pipeline(config, manager, inputs).items())
+            list(cast(Iterable[Any], source.source_for_pipeline(config, manager, inputs).items()))
         assert error_message_matches(str(error.value), source.get_non_retryable_errors())
         assert len(http.calls) == 1
     else:
         http.add(responses.GET, url, json={"features": [{"id": "recovered"}], "nextOffset": None})
-        with patch.object(RESTClient._send_request.retry, "sleep"):
-            assert list(source.source_for_pipeline(config, manager, inputs).items()) == [[{"id": "recovered"}]]
+        with patch.object(cast(Any, RESTClient._send_request).retry, "sleep"):
+            assert list(cast(Iterable[Any], source.source_for_pipeline(config, manager, inputs).items())) == [
+                [{"id": "recovered"}]
+            ]
         assert len(http.calls) == 2
 
 
@@ -158,5 +164,5 @@ def test_self_hosted_url_and_redirect_rejection(
         headers={"Location": "https://other.example.com/api/v2/features"},
     )
     with pytest.raises(ValueError, match="redirect"):
-        list(GrowthBookSource().source_for_pipeline(config, manager, inputs).items())
+        list(cast(Iterable[Any], GrowthBookSource().source_for_pipeline(config, manager, inputs).items()))
     assert len(http.calls) == 1
