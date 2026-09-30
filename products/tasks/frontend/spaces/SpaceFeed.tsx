@@ -14,15 +14,15 @@ import {
     cn,
 } from '@posthog/quill'
 
-import { TodaySessionRow } from '~/layout/today/TodaySessionRow'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 
+import { SpaceFeedCard } from './SpaceFeedCard'
 import { spaceSceneLogic } from './spaceSceneLogic'
 
 export function SpaceFeed({ id }: { id: string }): JSX.Element {
-    const { feedGroups, sessionsLoading, sessionsUnavailable } = useValues(spaceSceneLogic({ id }))
+    const { feedGroups, sessionsById, sessionsLoading, sessionsUnavailable } = useValues(spaceSceneLogic({ id }))
     const { loadSessions } = useActions(spaceSceneLogic({ id }))
-    const { pinnedItems } = useValues(todaySpacesLogic)
+    const { pinnedItems, unreadSessionIds } = useValues(todaySpacesLogic)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
 
     if (sessionsLoading && !feedGroups.length) {
@@ -69,21 +69,22 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
         )
     }
     return (
-        <div className="flex max-w-3xl flex-col gap-px">
+        <div className="flex max-w-3xl flex-col gap-2">
             {feedGroups.map((group, index) => (
                 <Fragment key={group.key}>
-                    <Text size="xs" variant="muted" className={cn('block px-2 pb-1', index === 0 ? 'pt-1' : 'pt-3')}>
+                    <Text size="xs" variant="muted" className={cn('block px-1', index === 0 ? 'pt-1' : 'pt-4')}>
                         {group.label}
                     </Text>
-                    {group.items.map((item) => (
-                        <TodaySessionRow
-                            key={item.id}
-                            item={item}
-                            pinned={pinnedIds.has(item.id)}
-                            dataAttr="today-space-feed-session"
-                            surface="feed"
-                        />
-                    ))}
+                    {group.items.map((item) =>
+                        sessionsById[item.id] ? (
+                            <SpaceFeedCard
+                                key={item.id}
+                                task={sessionsById[item.id]}
+                                pinned={pinnedIds.has(item.id)}
+                                unread={unreadSessionIds.has(item.id)}
+                            />
+                        ) : null
+                    )}
                 </Fragment>
             ))}
         </div>

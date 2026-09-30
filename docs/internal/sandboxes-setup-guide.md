@@ -188,13 +188,12 @@ per-run dollar cap. Two JSON object settings can override it:
 
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES` maps team IDs to caps.
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES` maps AI product names to
-  caps and defaults to
-  `{"signals_implementation": "15", "signals_inbox": "75", "signals_chat": "30"}`.
+  caps. It is merged onto the built-in `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS`
+  map in `posthog/settings/temporal.py`, and its entry wins per product.
 
-A product override takes precedence over a team override, which takes precedence
-over the default cap. Set the product override to `{}` to disable the built-in
-implementation override. An empty environment value is treated as unset and
-restores the built-in map.
+A product cap takes precedence over a team override, which takes precedence over
+the default cap. An invalid entry, or a value that is not a JSON object, is
+reported to error tracking and ignored, so the product keeps its built-in cap.
 
 ### Which gateway a sandbox run uses
 
@@ -208,8 +207,31 @@ When a run lands on the Python gateway unexpectedly, check those two variables f
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
 
+### ReviewHog project access
+
+The boolean `review-hog` feature flag controls the Code review UI and all project ReviewHog APIs,
+including for staff. Normal membership and API scopes still apply. Set every release condition to the
+**project** group, match its **id** property against the allowed project IDs, and use 100% rollout.
+Replace broader conditions and include existing projects before deployment. Use the `id` property,
+since frontend and backend group keys differ.
+The property identifies the active environment: explicitly include every environment that should have
+access. A parent project's flag does not enable its child environments, even though ReviewHog stores
+their settings and reviews under the shared parent project.
+
+Newly enabled projects get manual review and resolution. The first `REVIEWHOG_TEAM_IDS` entry retains
+Flash and all automation UI (`show_internal_features`); other projects do not query Stamphog.
+Existing Inbox or Stamphog opt-ins remain visible in other projects until the user switches them off.
+Each project needs a GitHub App integration covering the repository; review skills seed automatically.
+Existing automation routing and label secrets stay unchanged.
+
+Use resolution only for explicitly enabled trusted projects reviewing repositories their teams own.
+Ownership does not authenticate commenters: operators must assess repository and comment trust before
+enabling resolution. The current risk acceptance covers this limited manual rollout, including the
+missing commenter authorization and the post-push path check. Public or untrusted use still requires the hardening listed in
+[ReviewHog's architecture](../../products/review_hog/ARCHITECTURE.md#status--next).
+
 ReviewHog Flash uses `gpt-6-luna` for review, blind-spot checks, and validation.
-The **ReviewHog Flash - Experimental** subsection under **What gets reviewed** on the Code review page groups the automatic Flash review toggle and **Flash strength** setting.
+The configured internal project's **ReviewHog Flash - Experimental** subsection under **What gets reviewed** groups the automatic Flash review toggle and **Flash strength** setting.
 These settings apply only to Flash reviews.
 **Flash strength** selects **Medium** (`medium`, the default) or **Extra high** (`xhigh`) for all of your Flash reviews, including automatic, UI, and CLI requests.
 Each turn saves the effort it starts with, so a settings change applies to later turns.
@@ -217,11 +239,11 @@ The shared `FLASH_ARM` and `flash_arm_for_effort` in `products/review_hog/backen
 Flash uses the existing `review_hog` model allowance.
 Both review modes instruct the agent to fetch pinned review and validation skills through the PostHog MCP with `skill-get`.
 The agent can fetch referenced bundled files with `skill-file-get`.
-Choose **Review in Flash mode** from the Code review page's review menu to run it for one turn without changing the PR's full-review configuration.
+On the configured internal project, choose **Review in Flash mode** from the review menu to run it for one turn without changing the PR's full-review configuration.
 Flash requests preserve an existing report's review tier, including when they join a running review.
 Flash labels its GitHub messages with `FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review` and never starts comment resolution.
 
-**Review all your PRs in Flash mode** is off by default.
+**Review all your PRs in Flash mode** is off by default and shown only on the configured internal project.
 Turn it on in Code review to review PRs you author in `PostHog/posthog` when they open or receive new commits, including drafts.
 The head branch must belong to `PostHog/posthog`; fork PRs are excluded.
 Enabling it does not review existing PRs immediately; an existing PR becomes eligible on its next push.

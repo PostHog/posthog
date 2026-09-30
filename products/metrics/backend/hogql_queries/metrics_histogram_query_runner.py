@@ -31,12 +31,8 @@ from posthog.shared_link_user import SharedLinkUser
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
-from products.metrics.backend.metric_query_runner import (
-    _INTERVAL_LADDER,
-    _QUERY_SETTINGS,
-    MetricQueryRunner,
-    _interval_step,
-)
+from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -128,7 +124,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         )
 
         try:
-            runner = MetricQueryRunner(
+            runner = build_metric_query_runner(
                 team=self.team,
                 metric_name=self.query.metricName,
                 aggregation="histogram_quantile",

@@ -758,6 +758,21 @@ class TestExperimentService(APIBaseTest):
             ("non_object", [[1]], "Saved metric must be an object"),
             ("metadata_not_object", [{"id": 1, "metadata": "primary"}], "Metadata must be an object"),
             ("metadata_missing_type", [{"id": 1, "metadata": {"xxx": "primary"}}], "Metadata must have a type key"),
+            (
+                "breakdown_limit_not_a_number",
+                [{"id": 1, "metadata": {"type": "primary", "breakdown_limit": "abc"}}],
+                "Invalid saved metric metadata at index 0: [{'loc': ('breakdown_limit',)",
+            ),
+            (
+                "unknown_attribution_type",
+                [{"id": 1, "metadata": {"type": "primary", "breakdownAttributionType": "bogus"}}],
+                "Invalid saved metric metadata at index 0: [{",
+            ),
+            (
+                "breakdown_without_property",
+                [{"id": 1, "metadata": {"type": "primary", "breakdowns": [{"type": "event"}]}}],
+                "Invalid saved metric metadata at index 0: [{'loc': ('breakdowns', 0, 'property')",
+            ),
         ]
     )
     def test_create_experiment_validates_saved_metrics_payload(

@@ -16,7 +16,7 @@ const SPACES = [
     {
         id: 'space-me',
         name: 'me',
-        channel_type: 'private',
+        channel_type: 'personal',
         github_integration: null,
         repositories: [],
         auto_archive_after_days: null,
@@ -71,7 +71,11 @@ const PINNED_SESSIONS = [
         title: 'Fix the flaky checkout test',
         archived: false,
         last_activity_at: '2026-09-28T17:40:00Z',
-        latest_run: { status: 'in_progress' },
+        latest_run: { id: 'run-pinned', status: 'in_progress', environment: 'cloud', output: null },
+        channel: 'space-checkout',
+        description_preview: 'The checkout test fails about once in ten runs. Find the race and make the test stable.',
+        repository: 'example-org/webapp',
+        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
     },
 ]
 
@@ -79,17 +83,30 @@ const RECENT_SESSIONS = [
     ...PINNED_SESSIONS,
     {
         id: 'task-1',
+        channel: 'space-checkout',
         title: 'Add a retry to the billing webhook',
         archived: false,
         last_activity_at: '2026-09-28T18:05:00Z',
-        latest_run: { status: 'completed' },
+        latest_run: {
+            id: 'run-1',
+            status: 'completed',
+            environment: 'cloud',
+            output: { pr_url: 'https://github.com/example-org/webapp/pull/421' },
+        },
+        description_preview: 'Retry the billing webhook three times with a backoff before it reports a failure.',
+        repository: 'example-org/webapp',
+        created_by: { id: 179, first_name: 'John', last_name: 'Baker', email: 'john@example.com' },
     },
     {
         id: 'task-2',
+        channel: 'space-checkout',
         title: 'Investigate the drop in trial starts',
         archived: false,
         last_activity_at: '2026-09-27T11:20:00Z',
-        latest_run: { status: 'failed' },
+        latest_run: { status: 'failed', environment: 'cloud', output: null },
+        description_preview: 'Trial starts dropped last week. Find the step where people leave.',
+        repository: null,
+        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
     },
 ]
 
@@ -189,6 +206,24 @@ const meta: Meta = {
                           : []
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
+                '/api/projects/:team_id/task_activity/': {
+                    results: [
+                        {
+                            id: 'activity-task-2',
+                            task_id: 'task-2',
+                            task_title: 'Investigate the drop in trial starts',
+                            channel_id: 'space-checkout',
+                            channel_name: 'checkout',
+                            activity_at: '2026-09-28T17:00:00Z',
+                            activity_kind: 'completed',
+                            snippet: '',
+                            latest_comment_id: null,
+                            is_unread: true,
+                        },
+                    ],
+                    unread_count: 1,
+                    next_before: null,
+                },
                 '/api/environments/:team_id/conversations/': { results: CONVERSATIONS, next: null },
                 '/api/environments/:team_id/file_system/': ({ request }) => {
                     const type = new URL(request.url).searchParams.get('type')
@@ -197,6 +232,22 @@ const meta: Meta = {
                 },
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
             },
+            post: {
+                '/api/projects/:team_id/tasks/summaries/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'task-1',
+                            latest_run: {
+                                pr_url: 'https://github.com/example-org/webapp/pull/421',
+                                pr_state: 'merged',
+                            },
+                        },
+                    ],
+                },
+            },
         }),
     ],
     parameters: {
@@ -204,7 +255,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-09-28 18:30:00',
         pageUrl: urls.projectHomepage(),
-        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS],
         testOptions: { waitForLoadersToDisappear: true },
     },
 }
