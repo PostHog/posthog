@@ -18,7 +18,7 @@ export interface playerSettingsLogicValues {
     autoplayDirection: AutoplayDirection
     hideRecordingsMenuLabelFor: (
         option: HideViewedRecordingsOptions
-    ) => 'Hide all viewed recordings' | 'Hide my viewed recordings' | 'Viewed and unviewed recordings'
+    ) => 'All recordings' | 'Hide all viewed recordings' | 'Hide my viewed recordings'
     hideViewedRecordings: HideViewedRecordingsOptions
     isPlaylistCollapsed: boolean
     isVerticallyStacked: boolean
@@ -226,7 +226,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                         case 'any-user':
                             return 'Hide all viewed recordings'
                         default:
-                            return 'Viewed and unviewed recordings'
+                            return 'All recordings'
                     }
                 }
             },

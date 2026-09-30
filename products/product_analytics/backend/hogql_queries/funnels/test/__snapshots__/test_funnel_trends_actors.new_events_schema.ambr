@@ -21,7 +21,7 @@
                   if(equals(e.event, 'step one'), 1, 0) AS step_0,
                   if(equals(e.event, 'step two'), 1, 0) AS step_1,
                   if(equals(e.event, 'step three'), 1, 0) AS step_2,
-                  [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))))), '')] AS prop_basic,
+                  [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -51,7 +51,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown[new_events_schema.2]
@@ -76,7 +77,7 @@
                   if(equals(e.event, 'step one'), 1, 0) AS step_0,
                   if(equals(e.event, 'step two'), 1, 0) AS step_1,
                   if(equals(e.event, 'step three'), 1, 0) AS step_2,
-                  [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))))), '')] AS prop_basic,
+                  [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -106,7 +107,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown[new_events_schema]
@@ -131,7 +133,7 @@
                   if(equals(e.event, 'step one'), 1, 0) AS step_0,
                   if(equals(e.event, 'step two'), 1, 0) AS step_1,
                   if(equals(e.event, 'step three'), 1, 0) AS step_2,
-                  [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))))), '')] AS prop_basic,
+                  [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -161,7 +163,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recording_when_converting_step_has_no_session_id[new_events_schema]
@@ -222,7 +225,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recordings[new_events_schema]
@@ -283,7 +287,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_drop_off[new_events_schema]
@@ -344,7 +349,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_no_to_step[new_events_schema]
@@ -405,6 +411,7 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
