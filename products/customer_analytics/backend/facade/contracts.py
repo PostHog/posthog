@@ -59,6 +59,12 @@ class PinnedAccountProperty:
     id: UUID
 
 
+class InvalidPinnedAccountProperties(ValueError):
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
 TASK_DIGEST_SEND_TIME_FORMAT = "%H:%M"
 
 

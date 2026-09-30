@@ -18117,6 +18117,12 @@
                         }
                     ]
                 },
+                "default_pinned_properties": {
+                    "items": {
+                        "$ref": "#/definitions/CustomerAnalyticsPinnedProperty"
+                    },
+                    "type": "array"
+                },
                 "payment_event": {
                     "anyOf": [
                         {
@@ -18165,6 +18171,20 @@
                 "subscription_event",
                 "payment_event"
             ],
+            "type": "object"
+        },
+        "CustomerAnalyticsPinnedProperty": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": ["custom_property", "relationship"],
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "id"],
             "type": "object"
         },
         "DangerousOperationResponse": {
