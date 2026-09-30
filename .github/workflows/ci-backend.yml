@@ -4232,7 +4232,8 @@ jobs:
                       .github/scripts/ci_backend_depot_failures.py
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
-            # The relay prints a failed run's steps and log lines with the Depot CLI.
+            # The relay reads a failed run's steps and log lines with the Depot CLI. Without
+            # the CLI, the relay prints a warning and still reports the verdict.
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
               if: needs.changes.outputs.engine == 'depot'
               continue-on-error: true
