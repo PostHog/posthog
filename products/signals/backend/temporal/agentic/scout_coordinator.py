@@ -811,7 +811,7 @@ def _resume_background_configs(
 
 def _background_interval(background: BackgroundEnrollment, band: int | None) -> int | None:
     """The interval a background config gets, or `None` to keep the model default."""
-    interval = background.interval_minutes if band is None else background.band_interval_minutes(band)
+    interval = background.band_interval_minutes(band)
     if interval is not None and MIN_RUN_INTERVAL_MINUTES <= interval <= MAX_RUN_INTERVAL_MINUTES:
         return interval
     return None

@@ -260,8 +260,8 @@ class BackgroundEnrollment:
     # Only the bands with a valid entry. A missing band samples no project.
     bands: Mapping[int, BackgroundBand] = field(default_factory=dict)
 
-    def band_interval_minutes(self, band: int) -> int | None:
-        entry = self.bands.get(band)
+    def band_interval_minutes(self, band: int | None) -> int | None:
+        entry = self.bands.get(band) if band is not None else None
         if entry is not None and entry.interval_minutes is not None:
             return entry.interval_minutes
         return self.interval_minutes
