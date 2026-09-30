@@ -2,7 +2,7 @@ import json
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -758,7 +758,7 @@ class TestHyperCacheSecondaryCache(BaseTest):
 
         # The mirrored delete must also swallow the failure and still drop the primary entry.
         hc.delete_cache_entry(team_id, kinds=["redis"])
-        broken.delete_many.assert_called()
+        broken.delete.assert_called()
         assert caches["flags_dedicated"].get(cache_key) is None
 
     @parameterized.expand([("etag", True), ("no_etag", False)])
@@ -852,6 +852,21 @@ class TestHyperCacheSecondaryCache(BaseTest):
         assert caches["flags_dedicated"].get(etag_key) is None
         assert caches["default"].get(cache_key) is None
         assert caches["default"].get(etag_key) is None
+
+    def test_delete_sends_one_key_per_command_etag_first(self):
+        # A cluster rejects a multi-key DEL whose keys hash to different slots.
+        hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
+        hc.cache_client = Mock()
+        hc.cache_client.delete_many.side_effect = RuntimeError("CROSSSLOT Keys in request don't hash to the same slot")
+        team_id = self.team.id
+
+        hc.delete_cache_entry(team_id, kinds=["redis"])
+
+        assert hc.cache_client.delete.call_args_list == [
+            call(hc.get_etag_key(team_id)),
+            call(hc.get_cache_key(team_id)),
+        ]
+        hc.cache_client.delete_many.assert_not_called()
 
     def test_unknown_secondary_alias_falls_back_to_no_op(self):
         """A secondary_cache_alias not in settings.CACHES is silently ignored."""
@@ -1424,7 +1439,7 @@ class TestHyperCacheRemoveExpiryTracking(BaseTest):
 
         hc = self._make_hypercache(token_based=False)
         hc.cache_client = Mock()
-        hc.cache_client.delete_many.side_effect = ConnectionError("Redis unavailable")
+        hc.cache_client.delete.side_effect = ConnectionError("Redis unavailable")
 
         with pytest.raises(ConnectionError):
             hc.clear_cache(42)

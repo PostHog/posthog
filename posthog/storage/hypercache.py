@@ -2,7 +2,7 @@ import json
 import time
 import hashlib
 from collections.abc import Callable
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 from django.core.cache import cache, caches
@@ -615,15 +615,18 @@ class HyperCache:
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
-                # One DEL per cache drops the payload and its ETag together. A reader that
-                # checks the ETag first would otherwise answer 304 for a payload that is
-                # already gone. The ETag key goes even when enable_etag is off, to clear a
-                # stale ETag from when it was on.
-                redis_keys = [cache_key, self.get_etag_key(key)]
-                # Mirror the delete so the secondary never serves an entry the primary dropped,
-                # and mirror first so a primary failure cannot block it.
-                self._mirror_to_secondary(lambda c: c.delete_many(redis_keys))
-                self.cache_client.delete_many(redis_keys)
+                # One key per DEL: on a cluster the two keys can sit in different slots. The ETag
+                # goes first, so a reader that checks it never answers 304 for a dropped payload.
+                # It goes even when enable_etag is off, to clear a stale ETag from when it was on.
+                redis_keys = (self.get_etag_key(key), cache_key)
+
+                def delete_each(client: Any) -> None:
+                    for redis_key in redis_keys:
+                        client.delete(redis_key)
+
+                # Mirror first so a primary failure cannot block the secondary.
+                self._mirror_to_secondary(delete_each)
+                delete_each(self.cache_client)
             if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(cache_key)
         finally:

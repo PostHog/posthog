@@ -22,6 +22,7 @@ from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token, generate_random_token_secret, hash_key_value
 from posthog.redis import get_client
 from posthog.settings.utils import generate_rsa_private_key_pem
+from posthog.storage import gateway_credential_cache
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_FIELDS,
     GATEWAY_CREDENTIAL_LAST_USED_KEY,
@@ -500,6 +501,29 @@ class TestGatewayCredentialRefresh(GatewayCredentialTestMixin):
         self.assertIsNotNone(self._read_blob(credential_hash(secret_key)))
         self.assertIsNotNone(self._read_blob(credential_hash(oauth)))
         self.assertIsNone(self._read_blob(credential_hash(ignored)))
+
+    def test_refresh_continues_past_a_failing_credential(self):
+        first, _ = self._make_secret_key([GATEWAY_SCOPE])
+        second, _ = self._make_secret_key([GATEWAY_SCOPE])
+        real_project = gateway_credential_cache.project_gateway_credential
+        seen: list = []
+
+        def fail_first(credential, memo=None):
+            seen.append(credential)
+            if len(seen) == 1:
+                raise RuntimeError("CROSSSLOT Keys in request don't hash to the same slot")
+            real_project(credential, memo)
+
+        with (
+            patch.object(gateway_credential_cache, "project_gateway_credential", side_effect=fail_first),
+            patch.object(gateway_credential_cache, "capture_exception") as capture,
+        ):
+            projected = refresh_all_gateway_credentials()
+
+        self.assertEqual(projected, len(seen) - 1)
+        capture.assert_called_once()
+        survivor = second if seen[0].pk == first.pk else first
+        self.assertIsNotNone(self._read_blob(credential_hash(survivor)))
 
 
 class TestGatewayCredentialTasks(GatewayCredentialTestMixin):

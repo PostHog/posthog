@@ -31,6 +31,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
+from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -429,11 +430,23 @@ def refresh_all_gateway_credentials() -> int:
     )
 
     count = 0
+    failed = 0
+    first_error: Exception | None = None
     for queryset in querysets:
         for credential in queryset.iterator(chunk_size=1000):
-            project_gateway_credential(credential, memo)
+            # One failing credential must not leave the rest of the run unrefreshed: secret-key
+            # blobs expire within hours without this refresh.
+            try:
+                project_gateway_credential(credential, memo)
+            except Exception as e:
+                failed += 1
+                first_error = first_error or e
+                continue
             count += 1
 
+    if first_error is not None:
+        logger.warning("gateway_credential refresh skipped failing credentials", failed=failed, projected=count)
+        capture_exception(first_error)
     return count
 
 

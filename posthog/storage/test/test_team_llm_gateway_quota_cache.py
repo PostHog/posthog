@@ -474,6 +474,19 @@ class TestReconcileQuotaProjection(QuotaProjectionTestMixin):
         self.assertEqual(second, {"candidates": 1, "written": 1, "cleared": 0, "failed": 0})
         self.assertEqual(projected_team_ids(), {self.team.id})
 
+    def test_reconcile_reads_one_key_per_command(self, mock_settings):
+        # A cluster rejects an MGET whose keys hash to different slots.
+        mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
+        # A reachable deactivated org with no blob is the path that checks blob presence.
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        with patch.object(
+            hypercache.cache_client, "get_many", side_effect=RuntimeError("CROSSSLOT Keys in request don't hash")
+        ):
+            reconcile_quota_projection()
+        blob = get_team_quota_blob(self.team)
+        assert blob is not None
+        self.assertTrue(blob["org_deactivated"])
+
     def test_reconcile_counts_failed_writes_and_clears_apart(self, mock_settings):
         mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
         stray = Team.objects.create(organization=self.organization, name="stray")
