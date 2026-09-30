@@ -123,7 +123,7 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                     <TabsContent value="feed">
                         <SpaceFeed id={id} />
                     </TabsContent>
-                    <TabsContent value="settings" data-not-quill>
+                    <TabsContent value="settings">
                         <SpaceSettings key={space?.id} id={id} />
                     </TabsContent>
                 </Tabs>

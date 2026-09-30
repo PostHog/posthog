@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { toast } from '@posthog/quill'
 
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -214,7 +214,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 actions.spaceSaved(await taskChannelsPartialUpdate(String(values.currentTeamId), props.id, patch))
                 actions.loadSpaces()
             } catch (error) {
-                lemonToast.error((error as { detail?: string }).detail ?? 'Couldn’t save this change. Try again.')
+                toast.error({ title: (error as { detail?: string }).detail ?? 'Couldn’t save this change. Try again.' })
                 actions.savingFinished()
             }
         },
@@ -224,7 +224,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 actions.savingFinished()
                 actions.loadSpaces()
             } catch {
-                lemonToast.error(`Couldn’t ${starred ? 'star' : 'unstar'} this space. Try again.`)
+                toast.error({ title: `Couldn’t ${starred ? 'star' : 'unstar'} this space. Try again.` })
                 actions.loadSpace()
                 actions.savingFinished()
             }
@@ -232,11 +232,13 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         deleteSpace: async () => {
             try {
                 await taskChannelsDestroy(String(values.currentTeamId), props.id)
-                lemonToast.success('Space deleted')
+                toast.success({ title: 'Space deleted' })
                 actions.loadSpaces()
                 router.actions.push(urls.projectHomepage())
             } catch (error) {
-                lemonToast.error((error as { detail?: string }).detail ?? 'Couldn’t delete this space. Try again.')
+                toast.error({
+                    title: (error as { detail?: string }).detail ?? 'Couldn’t delete this space. Try again.',
+                })
                 actions.savingFinished()
             }
         },
