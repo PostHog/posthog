@@ -43,7 +43,13 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
     )
 }
 
-export function CommentOnRecordingButton({ className }: { className?: string }): JSX.Element {
+export function CommentOnRecordingButton({
+    className,
+    'data-attr': dataAttr,
+}: {
+    className?: string
+    'data-attr'?: string
+}): JSX.Element {
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
     const { isCommenting } = useValues(sessionRecordingPlayerLogic)
 
@@ -69,7 +75,7 @@ export function CommentOnRecordingButton({ className }: { className?: string }):
                         </>
                     )
                 }
-                data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
+                data-attr={dataAttr ?? (isCommenting ? 'stop-annotating-recording' : 'annotate-recording')}
                 active={isCommenting}
                 icon={<IconComment className={cn('text-lg', className)} />}
             />

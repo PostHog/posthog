@@ -50,7 +50,12 @@ export function FilterPill<T extends string>({
                             />
                         )}
                         {filteredOptions.map((opt) => (
-                            <LemonButton key={opt.value} fullWidth onClick={() => toggle(opt.value)}>
+                            <LemonButton
+                                data-attr="vision-filter-pill-toggle-option"
+                                key={opt.value}
+                                fullWidth
+                                onClick={() => toggle(opt.value)}
+                            >
                                 <LemonCheckbox
                                     checked={value.includes(opt.value)}
                                     className="pointer-events-none mr-2"

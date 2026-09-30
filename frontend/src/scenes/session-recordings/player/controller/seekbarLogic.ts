@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 import { MutableRefObject } from 'react'
 
 import { clamp } from 'lib/utils/numbers'
@@ -262,6 +263,7 @@ export const seekbarLogic = kea<seekbarLogicType>([
                 const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
                 actions.handleSeek(newX)
             }
+            posthog.capture('recording player seekbar scrubbed')
             actions.endScrub()
         },
         handleDown: ({ event }) => {

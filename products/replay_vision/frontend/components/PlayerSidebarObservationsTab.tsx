@@ -78,6 +78,7 @@ function ScannerPicker({
                 <div className="w-80">
                     <div className="p-1 border-b">
                         <LemonInput
+                            data-attr="vision-observations-tab-search"
                             type="search"
                             size="small"
                             placeholder="Search scanners…"
@@ -92,7 +93,12 @@ function ScannerPicker({
                                 <Spinner /> Loading scanners…
                             </div>
                         ) : scanners.length === 0 ? (
-                            <Link to={urls.replayVision()} target="_blank" className="block px-2 py-3 text-sm">
+                            <Link
+                                data-attr="vision-observations-open-scanners"
+                                to={urls.replayVision()}
+                                target="_blank"
+                                className="block px-2 py-3 text-sm"
+                            >
                                 No scanners yet — create one
                             </Link>
                         ) : filteredScanners.length === 0 ? (
@@ -398,7 +404,11 @@ const FocusPane = forwardRef<
                                 {showText ? `Hide ${textLabel}` : `Show ${textLabel}`}
                             </LemonButton>
                         )}
-                        <Link to={urls.replayVisionObservation(observation.id)} className="text-xs ml-auto">
+                        <Link
+                            data-attr="vision-observation-open-from-sidebar"
+                            to={urls.replayVisionObservation(observation.id)}
+                            className="text-xs ml-auto"
+                        >
                             View details
                         </Link>
                     </div>

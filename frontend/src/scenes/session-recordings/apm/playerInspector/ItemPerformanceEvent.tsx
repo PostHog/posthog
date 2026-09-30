@@ -101,7 +101,9 @@ function emptyPayloadMessage(
     ) : (
         <>
             Payload capture is disabled.{' '}
-            <Link to={urls.settings('project-replay', 'replay-network')}>Enable it here</Link>
+            <Link data-attr="network-event-open-settings" to={urls.settings('project-replay', 'replay-network')}>
+                Enable it here
+            </Link>
         </>
     )
 }
@@ -315,6 +317,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
             <LemonDivider dashed />
 
             <LemonTabs
+                data-attr="network-event-detail-tabs"
                 size="small"
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
@@ -473,7 +476,12 @@ export function HeadersDisplay({
             ) : (
                 <>
                     Headers capture is disabled.{' '}
-                    <Link to={urls.settings('project-replay', 'replay-network')}>Enable it here</Link>
+                    <Link
+                        data-attr="network-event-open-settings-footer"
+                        to={urls.settings('project-replay', 'replay-network')}
+                    >
+                        Enable it here
+                    </Link>
                 </>
             )}
         </div>
