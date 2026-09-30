@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
+import { IconX } from '@posthog/icons'
 import { LemonDropdown } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
-import { MemberSelectRow } from './MemberSelectRow'
+import { MemberSelectMultipleOptions } from './MemberSelectMultipleOptions'
 
 export type MemberSelectMultiplePopoverProps = {
     /** Currently selected member user ids. */
@@ -31,23 +31,11 @@ export function MemberSelectMultiplePopover({
     label = 'Created by',
     borderless = false,
 }: MemberSelectMultiplePopoverProps): JSX.Element {
-    const { me, selectableMembers, membersLoading, search } = useValues(membersLogic)
+    const { me } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
 
     const hasSelection = value.length > 0
-    const currentUserId = me?.user.id
-    const members = selectableMembers()
-    const isFilteredToCurrentUser = hasSelection && value.length === 1 && value[0] === currentUserId
-
-    const toggleMember = (userId: number): void => {
-        const selected = new Set(value)
-        if (selected.has(userId)) {
-            selected.delete(userId)
-        } else {
-            selected.add(userId)
-        }
-        onChange(Array.from(selected))
-    }
+    const isFilteredToCurrentUser = hasSelection && value.length === 1 && value[0] === me?.user.id
 
     return (
         <LemonDropdown
@@ -61,58 +49,27 @@ export function MemberSelectMultiplePopover({
                     setSearch('')
                 }
             }}
-            overlay={
-                <div className="max-w-100 deprecated-space-y-2">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search"
-                        autoFocus
-                        value={search}
-                        onChange={setSearch}
-                        fullWidth
-                    />
-                    <ul className="deprecated-space-y-px">
-                        {members.map((member) => (
-                            <MemberSelectRow
-                                key={member.user.uuid}
-                                member={member}
-                                isYou={member.user.uuid === me?.user.uuid}
-                                onClick={() => toggleMember(member.user.id)}
-                                checked={value.includes(member.user.id)}
-                            />
-                        ))}
-                        {membersLoading ? (
-                            <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : members.length === 0 ? (
-                            <div className="p-2 text-secondary italic truncate border-t">
-                                {search ? <span>No matches</span> : <span>No users</span>}
-                            </div>
-                        ) : null}
-                        {hasSelection && (
-                            <>
-                                <div className="my-1 border-t" />
-                                <li>
-                                    <LemonButton
-                                        fullWidth
-                                        role="menuitem"
-                                        size="small"
-                                        onClick={() => onChange([])}
-                                        type="tertiary"
-                                    >
-                                        Clear selection
-                                    </LemonButton>
-                                </li>
-                            </>
-                        )}
-                    </ul>
-                </div>
-            }
+            overlay={<MemberSelectMultipleOptions value={value} onChange={onChange} />}
         >
             <LemonButton
                 size="small"
                 type="secondary"
                 status={borderless && !hasSelection ? 'alt' : 'default'}
                 active={hasSelection}
+                sideAction={
+                    hasSelection
+                        ? {
+                              icon: <IconX />,
+                              tooltip: 'Clear selection',
+                              divider: false,
+                              'data-attr': 'member-filter-clear-x',
+                              onClick: (e) => {
+                                  e.stopPropagation()
+                                  onChange([])
+                              },
+                          }
+                        : null
+                }
             >
                 {isFilteredToCurrentUser ? `${label} you` : hasSelection ? `${label} (${value.length})` : label}
             </LemonButton>
