@@ -241,7 +241,7 @@ def _use_feedback_tickets(user: User) -> bool:
         return (
             posthoganalytics.feature_enabled(
                 "desktop-feedback-conversations",
-                str(user.uuid),
+                user.distinct_id or user.email,
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )

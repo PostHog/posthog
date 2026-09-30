@@ -117,6 +117,10 @@ class TestDesktopFeedback(APIBaseTest):
             assert not TicketAssignment.objects.filter(ticket=ticket).exists()
             capture_assigned.assert_not_called()
         assert ticket.distinct_id == (distinct_id or self.user.email)
+        flag_identities = [
+            call.args[1] for call in self.flag.call_args_list if call.args[0] == "desktop-feedback-conversations"
+        ]
+        assert flag_identities == [ticket.distinct_id]
         assert ticket.email_from == self.user.email
         assert ticket.channel_source == "email"
         assert ticket.session_context == {
