@@ -153,7 +153,7 @@ class WorkflowWriter:
             else:
                 self.write_live(instance, before_update, validated, **(_CLEARED_DRAFT if clears_staged_draft else {}))
                 if clears_staged_draft:
-                    unstage_workflow_proposals(team_id=instance.team_id, hog_flow_id=instance.id)
+                    unstage_workflow_proposals(hog_flow_id=instance.id)
 
         if not options.stage_as_draft:
             self.after_live_write(before_update, instance)
@@ -231,7 +231,7 @@ class WorkflowWriter:
         instance.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
         # An edit over an approved draft may undo the suggestion, and publish reads approved as shipped.
-        unstage_workflow_proposals(team_id=instance.team_id, hog_flow_id=instance.id)
+        unstage_workflow_proposals(hog_flow_id=instance.id)
 
     def stage_revision_bump(self, instance: HogFlow, before: HogFlow, validated_data: dict) -> bool:
         """Set the next version on `instance` when the content changed. Call it inside the locked write transaction."""

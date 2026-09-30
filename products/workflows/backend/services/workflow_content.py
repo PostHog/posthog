@@ -47,7 +47,7 @@ def trigger_has_audience(trigger: Optional[dict]) -> bool:
     return (trigger or {}).get("type") == "batch"
 
 
-def unstage_workflow_proposals(*, team_id: int, hog_flow_id: UUID) -> None:
+def unstage_workflow_proposals(*, hog_flow_id: UUID) -> None:
     """Put every approved suggestion back in the queue, because the draft it was approved into is
     about to be replaced.
 
@@ -57,6 +57,8 @@ def unstage_workflow_proposals(*, team_id: int, hog_flow_id: UUID) -> None:
     a version that never carried it. A suggestion whose change survives the replacement comes back
     to the queue too, which costs a person one more approval rather than a wrong history entry.
     """
-    WorkflowProposal.objects.filter(
-        team_id=team_id, hog_flow_id=hog_flow_id, status=WorkflowProposal.Status.APPROVED
-    ).update(status=WorkflowProposal.Status.SUGGESTED, resolved_at=None, resolved_by=None)
+    # A suggestion stores its project's canonical team id, not a child environment's. A filter on the
+    # workflow's `team_id` matches nothing in a child environment, so the caller's team scope filters.
+    WorkflowProposal.objects.filter(hog_flow_id=hog_flow_id, status=WorkflowProposal.Status.APPROVED).update(
+        status=WorkflowProposal.Status.SUGGESTED, resolved_at=None, resolved_by=None
+    )

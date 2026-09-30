@@ -5376,7 +5376,7 @@ class HogFlowViewSet(
             locked.draft = None
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
-            unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.id)
+            unstage_workflow_proposals(hog_flow_id=locked.id)
             # updated_at (auto_now) is deliberately bumped: without a fresh live stamp the
             # resource_edited broadcast carries the old updated_at — older than the draft stamp
             # concurrent editors loaded, so they'd ignore the discard, and their next draft save
@@ -5454,7 +5454,7 @@ class HogFlowViewSet(
             before_update = HogFlow.objects.get(pk=instance.pk)
             locked.draft = dict(revision.content)
             locked.draft_updated_at = timezone.now()
-            unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.id)
+            unstage_workflow_proposals(hog_flow_id=locked.id)
             # Revision snapshots carry no secrets (they're stripped before snapshotting), so the
             # restored draft re-attaches from the live encrypted_inputs on the follow-up publish.
             # Clear any stale draft secrets from a prior draft so they can't bleed into this one.
@@ -5676,7 +5676,7 @@ class HogFlowViewSet(
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
             # The new draft replaces what was staged; an earlier approval stays only if the draft still carries it.
-            unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.id)
+            unstage_workflow_proposals(hog_flow_id=locked.id)
 
             locked_proposal.status = WorkflowProposal.Status.APPROVED
             locked_proposal.resolved_at = timezone.now()

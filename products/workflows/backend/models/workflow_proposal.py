@@ -103,7 +103,8 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDModel):
     )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # Mirrors the workflow's team, as HogFlowRevision does: fail-closed reads filter on this row's team_id.
+        # Takes the workflow's team, as HogFlowRevision does, and RootTeamMixin.save() then stores that
+        # team's canonical (project) id. Fail-closed reads filter on this row's team_id.
         self.team_id = self.hog_flow.team_id
         super().save(*args, **kwargs)
 
