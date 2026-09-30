@@ -75,7 +75,7 @@ const PINNED_SESSIONS = [
         channel: 'space-checkout',
         description_preview: 'The checkout test fails about once in ten runs. Find the race and make the test stable.',
         repository: 'example-org/webapp',
-        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
+        created_by: { id: 1, uuid: 'user-ada', first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
     },
 ]
 
@@ -95,7 +95,7 @@ const RECENT_SESSIONS = [
         },
         description_preview: 'Retry the billing webhook three times with a backoff before it reports a failure.',
         repository: 'example-org/webapp',
-        created_by: { id: 179, first_name: 'John', last_name: 'Baker', email: 'john@example.com' },
+        created_by: { id: 179, uuid: 'user-john', first_name: 'John', last_name: 'Baker', email: 'john@example.com' },
     },
     {
         id: 'task-2',
@@ -106,8 +106,24 @@ const RECENT_SESSIONS = [
         latest_run: { status: 'failed', environment: 'cloud', output: null },
         description_preview: 'Trial starts dropped last week. Find the step where people leave.',
         repository: null,
-        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
+        created_by: { id: 1, uuid: 'user-ada', first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
     },
+]
+
+// The unfiltered team-wide page the sidebar reads presence from: a teammate is working in the space right now.
+const TEAM_SESSIONS = [
+    {
+        id: 'task-teammate',
+        channel: 'space-checkout',
+        title: 'Speed up the checkout page',
+        archived: false,
+        last_activity_at: '2026-09-28T18:28:00Z',
+        latest_run: { id: 'run-teammate', status: 'in_progress', environment: 'cloud', output: null },
+        description_preview: 'The checkout page takes too long to load. Find the slow requests.',
+        repository: 'example-org/webapp',
+        created_by: { id: 7, uuid: 'user-grace', first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.com' },
+    },
+    ...RECENT_SESSIONS,
 ]
 
 const LIBRARY = [
@@ -203,7 +219,9 @@ const meta: Meta = {
                         ? PINNED_SESSIONS
                         : params.get('created_by') || params.get('channel') === 'space-checkout'
                           ? RECENT_SESSIONS
-                          : []
+                          : params.get('channel')
+                            ? []
+                            : TEAM_SESSIONS
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {

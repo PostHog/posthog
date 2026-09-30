@@ -9,6 +9,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
+import { SpacePresenceAvatars } from 'products/tasks/frontend/spaces/SpacePresenceAvatars'
 
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
@@ -35,6 +36,7 @@ export function TodaySpacesSidebar(): JSX.Element {
         collapsedSections,
         unreadSessionIds,
         unreadSpaceIds,
+        spacePresence,
     } = useValues(todaySpacesLogic)
     const { loadSpaces, loadRecentTasks, toggleSection, setRecentSearchOpen, clearRecentSearchAndFilters } =
         useActions(todaySpacesLogic)
@@ -267,27 +269,32 @@ export function TodaySpacesSidebar(): JSX.Element {
                             loadError('Spaces didn’t load.', loadSpaces, 'today-spaces-retry')
                         ) : (
                             <>
-                                {visibleSpaces.map((space) => (
-                                    <TodaySpacesRow
-                                        key={space.id}
-                                        label={spaceLabel(space)}
-                                        icon={
-                                            isLockedSpace(space) ? (
-                                                <IconLock className="text-muted-foreground" />
-                                            ) : (
-                                                <span aria-hidden className="font-mono text-muted-foreground">
-                                                    #
-                                                </span>
-                                            )
-                                        }
-                                        to={urls.taskSpace(space.id)}
-                                        active={location.pathname.includes(urls.taskSpace(space.id))}
-                                        dataAttr="today-space-row"
-                                        action={<TodaySpaceActions space={space} />}
-                                        actionCount={2}
-                                        unread={unreadSpaceIds.has(space.id)}
-                                    />
-                                ))}
+                                {visibleSpaces.map((space) => {
+                                    const presence = spacePresence[space.id]
+                                    return (
+                                        <TodaySpacesRow
+                                            key={space.id}
+                                            label={spaceLabel(space)}
+                                            icon={
+                                                isLockedSpace(space) ? (
+                                                    <IconLock className="text-muted-foreground" />
+                                                ) : (
+                                                    <span aria-hidden className="font-mono text-muted-foreground">
+                                                        #
+                                                    </span>
+                                                )
+                                            }
+                                            to={urls.taskSpace(space.id)}
+                                            active={location.pathname.includes(urls.taskSpace(space.id))}
+                                            dataAttr="today-space-row"
+                                            action={<TodaySpaceActions space={space} />}
+                                            actionCount={2}
+                                            badge={presence ? <SpacePresenceAvatars presence={presence} /> : null}
+                                            badgeCount={Math.min(presence?.people.length ?? 1, 3) as 1 | 2 | 3}
+                                            unread={unreadSpaceIds.has(space.id)}
+                                        />
+                                    )
+                                })}
                                 {visibleSpaces.length <= 1 && (
                                     <Button
                                         variant="outline"

@@ -1,0 +1,35 @@
+import { AvatarGroup, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+
+import { SpacePresence } from './spacePresence'
+import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
+
+/** Who has been active in a space lately, like PostHog Desktop. A pulsing dot marks who is working right now. */
+export function SpacePresenceAvatars({ presence }: { presence: SpacePresence }): JSX.Element | null {
+    if (!presence.people.length) {
+        return null
+    }
+    return (
+        <AvatarGroup stacked reverse size="xs" data-attr="today-space-presence">
+            {presence.people.map((person) => {
+                const live = presence.liveUuids.includes(person.uuid)
+                const label = live ? `${taskUserName(person)} is working here now` : taskUserName(person)
+                return (
+                    <Tooltip key={person.uuid}>
+                        <TooltipTrigger
+                            render={<span role="img" aria-label={label} className="relative flex shrink-0" />}
+                        >
+                            <TaskUserAvatar user={person} />
+                            {live && (
+                                <span className="absolute right-0 bottom-0 flex size-2 items-center justify-center">
+                                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
+                                    <span className="relative inline-flex size-1.5 rounded-full bg-primary ring-1 ring-background" />
+                                </span>
+                            )}
+                        </TooltipTrigger>
+                        <TooltipContent>{label}</TooltipContent>
+                    </Tooltip>
+                )
+            })}
+        </AvatarGroup>
+    )
+}

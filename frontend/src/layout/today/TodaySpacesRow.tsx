@@ -6,6 +6,9 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { TodayOverflowText } from './TodayOverflowText'
 
+// The label's right padding for the icon-sized slots that sit over the end of the row.
+const TRAILING_PADDING = ['', 'pr-8', 'pr-12', 'pr-16', 'pr-20', 'pr-24'] as const
+
 interface TodaySpacesRowProps {
     label: string
     icon: JSX.Element
@@ -15,8 +18,8 @@ interface TodaySpacesRowProps {
     action?: JSX.Element | null
     /** Stays visible at the end of the row, after the hover action. */
     badge?: JSX.Element | null
-    /** How many stacked badges `badge` holds, so the label truncates before them. */
-    badgeCount?: 1 | 2
+    /** How many icon-sized slots `badge` takes, so the label truncates before them. */
+    badgeCount?: 1 | 2 | 3
     /** How many icon buttons `action` holds, so the label truncates before them. */
     actionCount?: 1 | 2
     unread?: boolean
@@ -40,6 +43,7 @@ export function TodaySpacesRow({
     unreadDot = true,
     ticker = false,
 }: TodaySpacesRowProps): JSX.Element {
+    const trailingSlots = (action ? actionCount : 0) + (badge ? badgeCount : 0)
     const [hovered, setHovered] = useState(false)
     const [keyboardFocused, setKeyboardFocused] = useState(false)
     return (
@@ -64,8 +68,7 @@ export function TodaySpacesRow({
                 className={cn(
                     'min-w-0 text-xs font-medium text-foreground',
                     active && 'bg-fill-selected',
-                    action && !badge && (actionCount === 2 ? 'pr-12' : 'pr-8'),
-                    badge && (badgeCount === 2 ? 'pr-16' : 'pr-12')
+                    TRAILING_PADDING[trailingSlots]
                 )}
             >
                 <span className="flex size-3.5 shrink-0 items-center justify-center">{icon}</span>
