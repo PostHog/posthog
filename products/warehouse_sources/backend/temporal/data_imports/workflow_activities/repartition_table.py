@@ -798,6 +798,43 @@ def _rewrite_rows_written(schema: ExternalDataSchema) -> int:
     return int((schema.repartition_rewrite or {}).get("rows_written") or 0)
 
 
+def _rewrite_checkpoint_id(schema: ExternalDataSchema) -> str | None:
+    """Which rewrite the current checkpoint belongs to, or None when there is no checkpoint.
+
+    The temp table is claim-scoped, so a rewrite that discards its checkpoint and restarts from row 0
+    builds a different one while a resume keeps the URI it inherited — which makes the URI the
+    identity of a rewrite across runs. Compared only, never reported: it carries the team's bucket and
+    table names.
+    """
+    return (schema.repartition_rewrite or {}).get("temp_uri")
+
+
+def _rewrite_advanced_past(
+    schema: ExternalDataSchema, pending: dict[str, Any], rows_key: str, rewrite_key: str
+) -> bool:
+    """Whether the checkpoint now stands further on than the stamp under `rows_key`/`rewrite_key`.
+
+    A cumulative row count alone cannot answer this, because it is not monotonic across runs. A
+    checkpoint is only resumable while live is byte-identical to when it was written, and the sync's
+    own merge commits to live after every swallowed repartition failure, so a later run routinely
+    discards it and rebuilds from row 0. The fresh checkpoint then reads *below* the stamp, and an
+    attempt that streamed hundreds of thousands of rows records as a stall — the same
+    non-monotonicity `_handle_budget_exceeded` weighs `had_prior_checkpoint` against. So a checkpoint
+    belonging to a different rewrite than the stamp's is ground this attempt broke, and only one on
+    the same rewrite is judged by its row count.
+
+    A stamp written before the rewrite id existed carries nothing to compare, so it keeps the
+    row-count reading it was written for.
+    """
+    rows_stamp = pending.get(rows_key)
+    if rows_stamp is None:
+        return False
+    current = _rewrite_checkpoint_id(schema)
+    if rewrite_key in pending and current is not None and current != pending[rewrite_key]:
+        return _rewrite_rows_written(schema) > 0
+    return _rewrite_rows_written(schema) > int(rows_stamp)
+
+
 def _last_run_advanced_rewrite(schema: ExternalDataSchema, pending: dict[str, Any] | None) -> bool:
     """Whether the last sync run left the rewrite checkpoint further along than it found it.
 
@@ -815,10 +852,9 @@ def _last_run_advanced_rewrite(schema: ExternalDataSchema, pending: dict[str, An
     """
     if pending is None:
         return False
-    started_from = pending.get("run_rows")
-    if started_from is None:
-        started_from = pending.get("attempt_rows")
-    return started_from is not None and _rewrite_rows_written(schema) > int(started_from)
+    if pending.get("run_rows") is not None:
+        return _rewrite_advanced_past(schema, pending, "run_rows", "run_rewrite_id")
+    return _rewrite_advanced_past(schema, pending, "attempt_rows", "attempt_rewrite_id")
 
 
 def _clear_attempts_after_progress(
@@ -858,8 +894,9 @@ def _retrying_a_killed_attempt(schema: ExternalDataSchema, pending: dict[str, An
         return False
     if pending.get("charged_job_id") != job_id:
         return False
-    started_from = pending.get("attempt_rows")
-    return started_from is not None and _rewrite_rows_written(schema) <= int(started_from)
+    if pending.get("attempt_rows") is None:
+        return False
+    return not _rewrite_advanced_past(schema, pending, "attempt_rows", "attempt_rewrite_id")
 
 
 def _give_up(
@@ -936,16 +973,24 @@ def _charge_attempt(
     or not: an attempt killed outright records nothing itself, so that stamp is the only thing a
     retry can judge the attempt it retries against (see `_retrying_a_killed_attempt`). `run_rows` is
     the same reading kept once per charged run, so the give-up check weighs the run the cap actually
-    counted rather than whichever retry happened to end it (see `_last_run_advanced_rewrite`).
+    counted rather than whichever retry happened to end it (see `_last_run_advanced_rewrite`). Each
+    stamp records which rewrite that reading came from too, because the reading alone is not
+    comparable across a restart (see `_rewrite_advanced_past`).
     """
     if pending is None:
         return None
     prior = int(pending.get("attempts", 0))
     already_charged = pending.get("charged_job_id") == job_id
     rows_at_start = _rewrite_rows_written(schema)
-    marker = {**pending, "attempt_rows": rows_at_start}
+    rewrite_at_start = _rewrite_checkpoint_id(schema)
+    marker = {**pending, "attempt_rows": rows_at_start, "attempt_rewrite_id": rewrite_at_start}
     if not already_charged:
-        marker |= {"attempts": prior + 1, "charged_job_id": job_id, "run_rows": rows_at_start}
+        marker |= {
+            "attempts": prior + 1,
+            "charged_job_id": job_id,
+            "run_rows": rows_at_start,
+            "run_rewrite_id": rewrite_at_start,
+        }
     try:
         schema.set_repartition_pending(marker)
     except Exception:
