@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -13,6 +14,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.schema_enums import ProductKey
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -49,6 +51,21 @@ class AppMetricsTotalsResponse:
 class AppMetricsTotalsResponseSerializer(DataclassSerializer):
     class Meta:
         dataclass = AppMetricsTotalsResponse
+
+
+@frozen
+class MetricSeries:
+    """Which app-metric rows a read covers. Both fields are strings, so naming them keeps a caller
+    from passing the id where the source goes."""
+
+    app_source: str
+    app_source_id: str
+
+
+# Query parameters that pick a narrower series than the object's whole history. An endpoint whose
+# serializer does not declare one refuses it, because dropping it silently answers from the whole
+# history under the name of the narrower number.
+SERIES_NARROWING_PARAMS = frozenset({"version"})
 
 
 class AppMetricsRequestSerializer(serializers.Serializer):
@@ -252,14 +269,21 @@ def fetch_app_metric_totals_by_source(
     before: Optional[datetime] = None,
     name: Optional[list[str]] = None,
     hour_aligned: bool = False,
+    app_source_ids: Optional[list[str]] = None,
+    instance_id: Optional[str] = None,
 ) -> dict[str, dict[str, int]]:
     """Per-`app_source_id` metric totals for a whole team in one grouped query.
 
-    Unlike `fetch_app_metric_totals` (single object), this drops the `app_source_id`
-    filter and groups by it, so callers get counts for every object at once — e.g. a
-    failure overview across all workflows. Returns `{app_source_id: {metric_name: count}}`.
+    Unlike `fetch_app_metric_totals` (single object), this groups by `app_source_id` instead of
+    filtering to one, so callers get counts for every object at once — e.g. a failure overview across
+    all workflows, or one workflow's versions side by side. Narrow it with `app_source_ids` and
+    `instance_id`. Returns `{app_source_id: {metric_name: count}}`.
     """
     name = name or ["succeeded", "failed"]
+    # An empty list asks for nothing, so answer nothing. Falling through would drop the condition and
+    # return every object's counts for the team, which reads as the caller's numbers.
+    if app_source_ids is not None and not app_source_ids:
+        return {}
 
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
@@ -276,6 +300,8 @@ def fetch_app_metric_totals_by_source(
         "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
         "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
         "name": name,
+        "app_source_ids": app_source_ids,
+        "instance_id": instance_id,
     }
 
     clickhouse_query = f"""
@@ -286,6 +312,8 @@ def fetch_app_metric_totals_by_source(
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
+        {"AND app_source_id IN %(app_source_ids)s" if app_source_ids else ""}
+        {"AND instance_id = %(instance_id)s" if instance_id else ""}
         {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
         {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
         AND metric_name IN %(name)s
@@ -454,6 +482,8 @@ def fetch_app_metric_daily_totals_by_team(
 
 
 class AppMetricsMixin(viewsets.GenericViewSet):
+    metrics_request_serializer_class: type[AppMetricsRequestSerializer] = AppMetricsRequestSerializer
+
     app_source: str  # Should be set by the inheriting class
 
     def get_app_metrics_instance_id(self) -> Optional[str]:
@@ -467,7 +497,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
     @action(detail=True, methods=["GET"])
     def metrics(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-        param_serializer = AppMetricsRequestSerializer(data=request.query_params)
+        param_serializer = self._metrics_params(request)
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
@@ -490,10 +520,11 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         after_date, _, _ = relative_date_parse_with_delta_mapping(params.get("after", "-7d"), team.timezone_info)
         before_date, _, _ = relative_date_parse_with_delta_mapping(params.get("before", "-0d"), team.timezone_info)
 
+        series = self._metric_series_for(obj, params)
         data = fetch_app_metrics_trends(
             team_id=self.team_id,  # type: ignore
-            app_source=self.app_source,
-            app_source_id=str(obj.id),
+            app_source=series.app_source,
+            app_source_id=series.app_source_id,
             # From request params
             instance_id=instance_id,
             interval=params.get("interval", "day"),
@@ -507,11 +538,25 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         serializer = AppMetricResponseSerializer(instance=data)
         return Response(serializer.data)
 
+    def _metrics_params(self, request: Request) -> AppMetricsRequestSerializer:
+        serializer = self.metrics_request_serializer_class(data=request.query_params)
+        # A serializer ignores a parameter it does not declare, so a narrowing parameter this endpoint
+        # cannot honour is refused rather than dropped.
+        for param in SERIES_NARROWING_PARAMS & request.query_params.keys():
+            if param not in serializer.fields:
+                raise serializers.ValidationError({param: f"This endpoint does not record metrics per {param}."})
+        return serializer
+
+    def _metric_series_for(self, obj, params: Mapping[str, Any]) -> MetricSeries:
+        """The series this request reads. A viewset that also records a narrower series overrides
+        this and keys it on the narrowing parameters its own serializer declares."""
+        return MetricSeries(app_source=self.app_source, app_source_id=str(obj.id))
+
     @extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer)
     @action(detail=True, methods=["GET"], url_path="metrics/totals")
     def metrics_totals(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-        param_serializer = AppMetricsRequestSerializer(data=request.query_params)
+        param_serializer = self._metrics_params(request)
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
@@ -534,10 +579,11 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], team.timezone_info)
 
+        series = self._metric_series_for(obj, params)
         data = fetch_app_metric_totals(
             team_id=self.team_id,  # type: ignore
-            app_source=self.app_source,
-            app_source_id=str(obj.id),
+            app_source=series.app_source,
+            app_source_id=series.app_source_id,
             # From request params
             after=after_date,
             before=before_date,
