@@ -6224,6 +6224,14 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     return qs
 
 
+def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
+    from products.tasks.backend.logic.task_review import (  # noqa: PLC0415 — keep GitHub integration deps off the api import path
+        task_review as build_task_review,
+    )
+
+    return build_task_review(team_id, task_id, user_id, page)
+
+
 def get_task_detail(
     task_id: str | UUID, team_id: int, user_id: int | None, *, bypass_visibility: bool = False
 ) -> contracts.TaskDetailDTO | None:
@@ -8643,7 +8651,10 @@ def run_task(
         )
     warm_run = (
         None
-        if pipeline_rerun or scheduled_at is not None or run_source == RunSource.AGENT
+        if pipeline_rerun
+        or scheduled_at is not None
+        or run_source == RunSource.AGENT
+        or validated_data.get("client_platform") == "mobile"
         else _idling_warm_run_for_task(task)
     )
     # A warm sandbox was started before the plan choice, so it holds no run-scoped subscription token.
@@ -8774,6 +8785,7 @@ def run_task(
         extra_state = extra_state or {}
         extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
     for key, value in (
+        ("client_platform", validated_data.get("client_platform")),
         ("initial_permission_mode", initial_permission_mode),
         ("rtk_enabled", validated_data.get("rtk_enabled")),
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
@@ -8788,6 +8800,8 @@ def run_task(
         assert previous_run is not None and previous_state is not None
         prev_state = previous_state
         extra_state = extra_state or {}
+        if not extra_state.get("client_platform") and (previous_run.state or {}).get("client_platform") == "mobile":
+            extra_state["client_platform"] = "mobile"
         if previous_run.task_summary:
             extra_state[PRIOR_RUN_SUMMARY_STATE_KEY] = previous_run.task_summary
         if previous_run.task_tags:
