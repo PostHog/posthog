@@ -1,5 +1,6 @@
+import importlib
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db.models import F
@@ -37,9 +38,6 @@ from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
 )
-from products.workflows.backend.services.workflow_code.renderer import render_workflow as render_workflow_code
-from products.workflows.backend.services.workflow_code.schema import workflow_document_schema as workflow_code_schema
-from products.workflows.backend.services.workflow_code.service import WorkflowCode
 from products.workflows.backend.services.workflow_code.yaml_loader import MAX_CONTENT_BYTES as MAX_WORKFLOW_CODE_BYTES
 from products.workflows.backend.services.workflow_content import (
     DRAFT_CONTENT_FIELDS,
@@ -61,6 +59,13 @@ from products.workflows.backend.utils.email_sending_tiers import (
     max_email_sending_tier,
 )
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
+
+if TYPE_CHECKING:
+    from products.workflows.backend.services.workflow_code.renderer import render_workflow as render_workflow_code
+    from products.workflows.backend.services.workflow_code.schema import (
+        workflow_document_schema as workflow_code_schema,
+    )
+    from products.workflows.backend.services.workflow_code.service import WorkflowCode
 
 __all__ = [
     "MIN_EMAIL_SENDING_TIER",
@@ -95,6 +100,27 @@ __all__ = [
     "unstage_workflow_proposals",
     "workflow_code_schema",
 ]
+
+
+# The workflow file modules import posthog.schema, which must stay off the django.setup() path that
+# reaches this facade. Name -> (module, attribute).
+_LAZY_WORKFLOW_CODE = {
+    "WorkflowCode": ("service", "WorkflowCode"),
+    "render_workflow_code": ("renderer", "render_workflow"),
+    "workflow_code_schema": ("schema", "workflow_document_schema"),
+}
+
+
+# Hidden from type checkers, which then see only the TYPE_CHECKING imports and still reject unknown names.
+if not TYPE_CHECKING:
+
+    def __getattr__(name: str) -> Any:
+        try:
+            module_name, attribute = _LAZY_WORKFLOW_CODE[name]
+        except KeyError:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
+        module = importlib.import_module(f"products.workflows.backend.services.workflow_code.{module_name}")
+        return getattr(module, attribute)
 
 
 class WorkflowNotFound(Exception):
