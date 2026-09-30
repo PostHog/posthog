@@ -241,6 +241,18 @@ def _email_template() -> dict:
     return template
 
 
+def _sync_templates() -> None:
+    sync_template_to_db(_webhook_template_with_signing_secret())
+    sync_template_to_db(_email_template())
+
+
+def _create_keyed_workflow(client: Any, team: Team, key: str, definition: dict[str, Any]) -> HogFlow:
+    response = client.post(f"/api/projects/{team.id}/hog_flows", definition, format="json")
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+    HogFlow.objects.filter(id=response.json()["id"]).update(key=key)
+    return HogFlow.objects.get(id=response.json()["id"])
+
+
 def _in_flight(by_action: dict[str, int]) -> MagicMock:
     response = MagicMock(status_code=200)
     response.json.return_value = {"count": sum(by_action.values()), "by_action": by_action, "position_unknown": 0}
@@ -248,10 +260,10 @@ def _in_flight(by_action: dict[str, int]) -> MagicMock:
 
 
 class TestHogFlowCodeCheck(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        sync_template_to_db(_webhook_template_with_signing_secret())
-        sync_template_to_db(_email_template())
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        _sync_templates()
 
     def _check(self, content: str, **kwargs: Any) -> Any:
         return self.client.post(
@@ -259,11 +271,7 @@ class TestHogFlowCodeCheck(APIBaseTest):
         )
 
     def _create_workflow(self, key: str, definition: dict[str, Any], team: Optional[Team] = None) -> HogFlow:
-        team = team or self.team
-        response = self.client.post(f"/api/projects/{team.id}/hog_flows", definition, format="json")
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        HogFlow.objects.filter(id=response.json()["id"]).update(key=key)
-        return HogFlow.objects.get(id=response.json()["id"])
+        return _create_keyed_workflow(self.client, team or self.team, key, definition)
 
     def test_code_schema_is_a_draft_2020_12_schema_the_sample_satisfies(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/code_schema/")
@@ -290,10 +298,19 @@ class TestHogFlowCodeCheck(APIBaseTest):
         assert plan["removed_steps"] == []
         assert response.json()["warnings"] == []
 
-    def test_check_of_a_file_matching_the_stored_workflow_is_unchanged(self) -> None:
+    @parameterized.expand([("as_the_api_stores_it", False), ("as_the_editor_stores_it", True)])
+    def test_check_of_a_file_matching_the_stored_workflow_is_unchanged(self, _name: str, editor_shape: bool) -> None:
         workflow = self._create_workflow("trial-upgrade-nudge", SAMPLE_DEFINITION)
         stored_email = next(a for a in workflow.actions if a["id"] == "thank_the_new_customer")
         assert "design" in stored_email["config"]["inputs"]["email"]["value"]
+        if editor_shape:
+            HogFlow.objects.filter(id=workflow.id).update(
+                actions=[
+                    {**action, "created_at": 1700000000000, "updated_at": 1700000000000} for action in workflow.actions
+                ],
+                edges=list(reversed(workflow.edges)),
+                variables=None,
+            )
 
         response = self._check(SAMPLE)
 
@@ -313,7 +330,7 @@ class TestHogFlowCodeCheck(APIBaseTest):
     def test_check_of_a_renamed_step_reports_where_its_people_go_and_how_to_keep_them(self, mock_count) -> None:
         workflow = self._create_workflow("trial-upgrade-nudge", SAMPLE_DEFINITION)
         mock_count.return_value = _in_flight({"wait_three_days": 41, "which_plan": 16})
-        revisions_before = HogFlowRevision.objects.filter(hog_flow=workflow).count()
+        revisions_before = HogFlowRevision.objects.for_team(self.team.id).filter(hog_flow=workflow).count()
         activity_before = ActivityLog.objects.filter(scope="HogFlow").count()
 
         response = self._check(SAMPLE.replace("name: Wait three days", "name: Wait a few days"))
@@ -337,7 +354,7 @@ class TestHogFlowCodeCheck(APIBaseTest):
 
         workflow.refresh_from_db()
         assert [a["id"] for a in workflow.actions][1] == "wait_three_days"
-        assert HogFlowRevision.objects.filter(hog_flow=workflow).count() == revisions_before
+        assert HogFlowRevision.objects.for_team(self.team.id).filter(hog_flow=workflow).count() == revisions_before
         assert ActivityLog.objects.filter(scope="HogFlow").count() == activity_before
         assert HogFlow.objects.filter(team=self.team).count() == 1
 
@@ -548,15 +565,13 @@ class TestHogFlowCodeCheckObjectAccess(APIBaseTest):
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
-        sync_template_to_db(_webhook_template_with_signing_secret())
-        sync_template_to_db(_email_template())
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", SAMPLE_DEFINITION, format="json")
-        HogFlow.objects.filter(id=response.json()["id"]).update(key="trial-upgrade-nudge")
+        _sync_templates()
+        workflow = _create_keyed_workflow(self.client, self.team, "trial-upgrade-nudge", SAMPLE_DEFINITION)
         outsider = User.objects.create_and_join(self.organization, "outsider@example.com", "testtest")
         AccessControl.objects.create(
             team=self.team,
             resource="hog_flow",
-            resource_id=response.json()["id"],
+            resource_id=str(workflow.id),
             access_level="none",
             organization_member=OrganizationMembership.objects.get(user=outsider, organization=self.organization),
         )

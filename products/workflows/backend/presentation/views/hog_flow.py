@@ -175,6 +175,7 @@ from products.workflows.backend.presentation.views.hog_flow_batch_job import (
     HogFlowBatchJobCancelResponseSerializer,
     HogFlowBatchJobSerializer,
 )
+from products.workflows.backend.presentation.views.hog_flow_code import HogFlowCodeMixin
 from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
@@ -4562,7 +4563,12 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
     )
 )
 class HogFlowViewSet(
-    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    HogFlowCodeMixin,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_flow"
     scope_object_read_actions = [
@@ -4581,6 +4587,8 @@ class HogFlowViewSet(
         "revision_detail",
         "proposal_detail",
         "proposal_outcome",
+        "code_schema",
+        "code_check",
     ]
     scope_object_write_actions = [
         "create",
