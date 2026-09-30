@@ -1111,9 +1111,13 @@ function FullRefreshIntervalField({
                     min={1}
                     max={MAX_FULL_REFRESH_INTERVAL_DAYS}
                     value={draftFullRefreshDays ?? NaN}
-                    onChange={(value) =>
-                        setDraftFullRefreshDays(value === undefined || Number.isNaN(value) ? null : value)
-                    }
+                    onChange={(value) => {
+                        const days = value === undefined || Number.isNaN(value) ? null : value
+                        setDraftFullRefreshDays(days)
+                        if (days === null) {
+                            setDraftFullRefreshTime(null)
+                        }
+                    }}
                     placeholder="Off"
                     className="w-24"
                     disabledReason={accessDisabledReason}

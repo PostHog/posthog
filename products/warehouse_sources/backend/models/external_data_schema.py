@@ -295,7 +295,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         null=True,
         blank=True,
         help_text="When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour "
-        "before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.",
+        "before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one "
+        "interval ahead, onto full_refresh_time_of_day when that is set.",
     )
     full_refresh_time_of_day = models.TimeField(
         null=True,
@@ -1101,7 +1102,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             anchor -= timedelta(days=1)
         self.next_full_refresh_at = anchor + interval
 
-    def scheduled_full_refresh_due(self) -> bool:
+    def scheduled_full_refresh_due(self, now: datetime | None = None) -> bool:
         if (
             self.full_refresh_interval_days is None
             or self.next_full_refresh_at is None
@@ -1113,7 +1114,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         slack = SCHEDULED_FULL_REFRESH_MAX_SLACK
         if self.sync_frequency_interval is not None:
             slack = min(slack, self.sync_frequency_interval / 2)
-        return timezone.now() >= self.next_full_refresh_at - slack
+        return (now or timezone.now()) >= self.next_full_refresh_at - slack
 
     def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
         removes = [

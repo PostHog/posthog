@@ -16,4 +16,13 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
+        migrations.AlterField(
+            model_name="externaldataschema",
+            name="next_full_refresh_at",
+            field=models.DateTimeField(
+                blank=True,
+                help_text="When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one interval ahead, onto full_refresh_time_of_day when that is set.",
+                null=True,
+            ),
+        ),
     ]

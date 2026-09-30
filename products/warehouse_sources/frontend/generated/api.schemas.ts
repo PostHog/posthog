@@ -340,7 +340,7 @@ export interface ExternalDataSchemaApi {
      */
     sync_time_of_day?: string | null
     /**
-     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or from the latest occurrence of full_refresh_time_of_day, when that is set), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
      * @minimum 1
      * @maximum 90
      * @nullable
@@ -352,7 +352,7 @@ export interface ExternalDataSchemaApi {
      */
     full_refresh_time_of_day?: string | null
     /**
-     * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.
+     * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one interval ahead, onto full_refresh_time_of_day when that is set.
      * @nullable
      */
     readonly next_full_refresh_at: string | null
@@ -525,7 +525,7 @@ export interface PatchedExternalDataSchemaApi {
      */
     sync_time_of_day?: string | null
     /**
-     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or from the latest occurrence of full_refresh_time_of_day, when that is set), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
      * @minimum 1
      * @maximum 90
      * @nullable
@@ -537,7 +537,7 @@ export interface PatchedExternalDataSchemaApi {
      */
     full_refresh_time_of_day?: string | null
     /**
-     * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.
+     * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one interval ahead, onto full_refresh_time_of_day when that is set.
      * @nullable
      */
     readonly next_full_refresh_at?: string | null
