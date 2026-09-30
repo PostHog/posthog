@@ -1871,6 +1871,19 @@ class AccountViewSet(
                 )
             except (api.Account_DoesNotExist, api.ResourceForbiddenError):
                 return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            if not api.is_person_group_membership_ready(self.team_id):
+                outcome = "not_ready"
+                return Response(
+                    AccountPersonsResponseSerializer(
+                        {
+                            "results": [],
+                            "limit": params["limit"],
+                            "offset": params["offset"],
+                            "has_more": False,
+                            "membership_ready": False,
+                        }
+                    ).data
+                )
             with slo_operation(
                 spec=SloSpec(
                     distinct_id=str(getattr(request.user, "distinct_id", None) or self.team.uuid),

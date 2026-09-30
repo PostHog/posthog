@@ -1286,6 +1286,8 @@ export namespace Schemas {
     }
 
     export interface AccountPersonsResponse {
+      /** Whether account membership data is ready. When false, results are empty. Try again later. */
+      readonly membership_ready: boolean;
       /** Current persons associated with this account. */
       results: AccountPerson[];
       /** Requested page size. */

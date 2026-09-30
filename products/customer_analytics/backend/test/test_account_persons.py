@@ -29,6 +29,7 @@ from posthog.test.persons import add_distinct_id, create_person, delete_person
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.customer_analytics.backend.hogql_queries.account_persons import membership_source_query
+from products.customer_analytics.backend.models import PersonGroupMembershipState, PersonGroupMembershipStatus
 from products.customer_analytics.backend.presentation.views.account_persons_serializers import (
     AccountPersonsQuerySerializer,
 )
@@ -73,6 +74,12 @@ class TestAccountPersons(ClickhouseTestMixin, APIBaseTest):
         self.flag = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
         self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
+        eligibility_flag = patch("posthoganalytics.feature_enabled", return_value=True)
+        eligibility_flag.start()
+        self.addCleanup(eligibility_flag.stop)
+        PersonGroupMembershipState.objects.for_team(self.team.id).create(
+            team_id=self.team.id, status=PersonGroupMembershipStatus.READY, group_type_index=0
+        )
         self.team.person_display_name_properties = ["name", "email"]
         self.team.save()
         config = self.team.customer_analytics_config
@@ -139,6 +146,7 @@ class TestAccountPersons(ClickhouseTestMixin, APIBaseTest):
 
     def test_page_aggregates_parts_and_current_distinct_ids(self) -> None:
         first = self.get(limit=1, select=["tier", "email"])
+        assert first["membership_ready"] is True
         assert first["has_more"]
         assert first["offset"] == 0
         alice = first["results"][0]
@@ -316,6 +324,23 @@ class TestAccountPersons(ClickhouseTestMixin, APIBaseTest):
             REGISTRY.get_sample_value("customer_analytics_account_persons_selected_property_count_sum")
             == selected_sum + 1
         )
+
+    @parameterized.expand([(None,), *((status,) for status in PersonGroupMembershipStatus if status != "ready")])
+    def test_unready_membership_returns_an_empty_page(self, status: str | None) -> None:
+        state = PersonGroupMembershipState.objects.for_team(self.team.id)
+        if status is None:
+            state.all().delete()
+        else:
+            state.update(status=status)
+        assert self.get(limit=10, offset=20, search="Alice") == {
+            "membership_ready": False,
+            "results": [],
+            "limit": 10,
+            "offset": 20,
+            "has_more": False,
+        }
+        self.client.force_login(User.objects.create_and_join(self.organization, "viewer@example.com", None))
+        assert self.client.get(self.url.replace(str(self.account.id), "not-a-uuid")).status_code == 404
 
     def test_flag_and_validation_gate(self) -> None:
         assert self.client.get(self.url, data={"limit": 0}).status_code == 400

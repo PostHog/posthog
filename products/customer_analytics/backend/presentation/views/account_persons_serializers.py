@@ -100,6 +100,11 @@ class AccountPersonSerializer(serializers.Serializer):
 
 
 class AccountPersonsResponseSerializer(serializers.Serializer):
+    membership_ready = serializers.BooleanField(
+        read_only=True,
+        default=True,
+        help_text="Whether account membership data is ready. When false, results are empty. Try again later.",
+    )
     results = AccountPersonSerializer(many=True, help_text="Current persons associated with this account.")
     limit = serializers.IntegerField(help_text="Requested page size.")
     offset = serializers.IntegerField(help_text="Requested page offset.")
