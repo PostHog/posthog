@@ -194,12 +194,12 @@ export interface experimentWizardLogicMeta {
         isLastStep: (currentStep: ExperimentWizardStep) => boolean
         isFirstStep: (currentStep: ExperimentWizardStep) => boolean
         persistQuestionError: (
-            persistQuestionShown: any,
+            persistQuestionShown: boolean,
             linkedFeatureFlag: FeatureFlagType | null,
             experiment: Experiment & {
                 feature_flag_filters?: FeatureFlagFilters
             },
-            currentTeam: any,
+            currentTeam: TeamPublicType | TeamType | null,
             departedSteps: Record<string, boolean>
         ) => string | undefined
         stepValidationErrors: (
@@ -209,7 +209,7 @@ export interface experimentWizardLogicMeta {
             featureFlagKeyValidation: FeatureFlagKeyValidation | null,
             linkedFeatureFlag: FeatureFlagType | null,
             departedSteps: Record<string, boolean>,
-            persistQuestionError: any
+            persistQuestionError: string | undefined
         ) => Record<ExperimentWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<ExperimentWizardStep, string[]>,
