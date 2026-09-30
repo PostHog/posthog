@@ -17,10 +17,10 @@ export interface PlatformAlertListViewProps {
 }
 
 function groupsLabel(alert: PlatformAlertData): string {
-    if (alert.alerts.length <= 1) {
+    if (alert.alerts.every((group) => !group.grouping_key)) {
         return 'Ungrouped'
     }
-    return `${alert.alerts.length} groups`
+    return `${alert.alerts.length} group${alert.alerts.length === 1 ? '' : 's'}`
 }
 
 export function PlatformAlertListView({ data, onPlatformAlertClick }: PlatformAlertListViewProps): ReactElement {
