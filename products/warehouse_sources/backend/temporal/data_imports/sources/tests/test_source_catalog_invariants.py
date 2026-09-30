@@ -60,7 +60,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Fintoc",
     "FlyIo",
     "Groq",
-    "GrowthBook",
     "Gumloop",
     "Hatchet",
     "Hetzner",
