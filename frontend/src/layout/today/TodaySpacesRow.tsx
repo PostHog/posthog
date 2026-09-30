@@ -29,7 +29,7 @@ export function TodaySpacesRow({ label, icon, to, active, dataAttr, action, badg
                     badge && 'pr-24'
                 )}
             >
-                <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
+                <span className="flex size-3.5 shrink-0 items-center justify-center">{icon}</span>
                 <span className="min-w-0 flex-1 truncate">{label}</span>
             </Button>
             {(action || badge) && (
