@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1388_activitylog_credential"),
-        ("workflows", "0026_workflowproposal"),
+        ("workflows", "0028_workflowproposal_uuid7"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
