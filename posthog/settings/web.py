@@ -148,6 +148,7 @@ INSTALLED_APPS = [
     "axes",
     "django_structlog",
     "drf_spectacular",
+    "drf_spectacular_sidecar",
     *PRODUCTS_APPS,
     "django_otp",
     "django_otp.plugins.otp_static",
@@ -550,6 +551,12 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "OAS_VERSION": "3.1.0",
+    # drf-spectacular loads the Swagger and Redoc UIs from a public CDN by default. The app policy
+    # refuses that CDN, which leaves both pages blank, and a third-party script on this origin
+    # would run with the visitor's session. The sidecar package serves them from our static files.
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
     "SERVERS": [
         {"url": "https://us.posthog.com", "description": "PostHog Cloud US"},
         {"url": "https://eu.posthog.com", "description": "PostHog Cloud EU"},
