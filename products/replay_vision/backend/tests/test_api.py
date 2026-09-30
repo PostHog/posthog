@@ -32,7 +32,11 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.experiments.backend.models.experiment import Experiment
-from products.replay_vision.backend.api.scanners import ReplayScannerSerializer, WatchFeedQuerySerializer
+from products.replay_vision.backend.api.scanners import (
+    WATCH_FEED_CANDIDATE_CAP,
+    ReplayScannerSerializer,
+    WatchFeedQuerySerializer,
+)
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
@@ -4849,6 +4853,31 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             },
         )
         # The 100 routine rows are filler: they pad the one finding only to the feed's floor.
+        self.assertEqual(len(items), 3)
+
+    def test_the_jev_bypass_filters_before_it_caps(self) -> None:
+        # The cache knows nothing about the request's filters: cached watchable ids that match no
+        # candidate row must not use up the bypass and push out a lower-probability row that does.
+        scanner = self._create_scanner(name="m")
+        interesting = self._monitor_result("yes")
+        interesting["model_output"]["reasoning"] = "the checkout flow needle"
+        old_interesting = self._succeeded_observation(scanner, "old-interesting", 60 * 24 * 2, interesting)
+        for index in range(100):
+            routine = self._monitor_result("no")
+            routine["model_output"]["reasoning"] = "the checkout flow needle"
+            self._succeeded_observation(scanner, f"routine-{index}", index + 1, routine)
+        # More cached watchable ids than the old pre-filter slice kept, all rated above the one row
+        # that matches the search and none of them a real observation.
+        watchable = {str(uuid.uuid4()): 0.9 for _ in range(WATCH_FEED_CANDIDATE_CAP)}
+        watchable[str(old_interesting.id)] = 0.6
+        store_watch_ranks(self.team.id, scanner.id, set(watchable), watchable, {}, "jevk5-fp8-0.2")
+
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
+        with patch(ranker, return_value="jev"):
+            resp = self.client.get(f"{self.feed_url}?search=needle")
+        items = resp.json()["results"]
+        self.assertEqual(items[0]["observation"]["session_id"], "old-interesting")
+        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.6})
         self.assertEqual(len(items), 3)
 
     def test_viewed_orders_within_tiers_but_never_sinks_a_signal_below_plain_rows(self) -> None:

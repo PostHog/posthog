@@ -1451,6 +1451,9 @@ WATCH_FEED_CANDIDATE_CAP = 1000
 # the whole cap and quiet scanners lose not just feed slots but their own baselines — "unusual for
 # this scanner lately" silently stops firing for exactly the scanners the cap crowded out.
 WATCH_FEED_PER_SCANNER_CAP = 100
+# Ids per query when the jev feed fetches cached watchable rows the recency slice cut off. Keeps
+# each id__in list bounded while the walk stops as soon as the page is covered.
+WATCH_FEED_BYPASS_CHUNK = 200
 
 
 class WatchFeedReason(models.TextChoices):
@@ -2340,8 +2343,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             jev_rows = list(candidate_rows)
             # The recency slice above holds only each scanner's newest rows, which on a high-volume
             # scanner covers minutes. The sweep judged the whole window, so fetch the watchable rows
-            # the slice cut off; `candidates` already carries the team, scanner, date, and search
-            # filters, so nothing outside the request's scope can enter.
+            # the slice cut off, walking the cache in probability-descending chunks. Each chunk goes
+            # through `candidates` — team, scanner, date, and search — so nothing outside the
+            # request's scope can enter, and a cached id that matches no candidate row cannot use up
+            # the page: slicing the cache before filtering would let high-probability non-matches
+            # push out matching rows. The walk stops once the page is covered, and the cache itself
+            # bounds it (at most a window's judged rows per readable scanner).
             watchable_missing = sorted(
                 (
                     UUID(observation_id)
@@ -2350,14 +2357,20 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 ),
                 key=lambda observation_id: probabilities[str(observation_id)],
                 reverse=True,
-            )[:WATCH_FEED_CANDIDATE_CAP]
+            )
             loaded_ids = {row["id"] for row in jev_rows}
-            if missing := [observation_id for observation_id in watchable_missing if observation_id not in loaded_ids]:
-                jev_rows += list(
-                    candidates.filter(id__in=missing)
+            missing = [observation_id for observation_id in watchable_missing if observation_id not in loaded_ids]
+            needed = params["limit"]
+            for start in range(0, len(missing), WATCH_FEED_BYPASS_CHUNK):
+                if needed <= 0:
+                    break
+                fetched = list(
+                    candidates.filter(id__in=missing[start : start + WATCH_FEED_BYPASS_CHUNK])
                     .annotate(feed_viewed=viewed)
                     .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
                 )
+                jev_rows += fetched
+                needed -= len(fetched)
             ranked = rank_watch_feed_by_jev(jev_rows, probabilities)[: params["limit"]]
         else:
             ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
