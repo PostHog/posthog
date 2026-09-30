@@ -65,7 +65,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Hatchet",
     "Hetzner",
     "HeyGen",
-    "KapaAI",
     "Kernel",
     "Linode",
     "Maxio",

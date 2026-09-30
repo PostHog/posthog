@@ -411,6 +411,7 @@ the row lists both.
 | k6_cloud                         | HTTP                        | requests                                                        | ✅                          |
 | kalshi                           | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | kandji                           | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
+| kapa_ai                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | katana                           | HTTP                        | requests                                                        | ✅                          |
 | kernel                           | HTTP                        | requests                                                        | ✅                          |
 | kickscale                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1157,7 +1158,6 @@ doesn't conflict with concurrent PRs.
 - kafka
 - kajabi
 - kameleoon
-- kapa_ai
 - kaufland_marketplace
 - keka
 - kestra
