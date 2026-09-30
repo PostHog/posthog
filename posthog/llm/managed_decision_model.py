@@ -28,7 +28,8 @@ def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptRes
     from posthog.models import Team
     from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-    team = Team.objects.only("id").get(id=POSTHOG_PROMPTS_TEAM_ID)
+    # Unsaved instance: the cache helper below only reads team.id, so this avoids a query per lookup.
+    team = Team(id=POSTHOG_PROMPTS_TEAM_ID)
     label = PROMPT_LABEL if version is None else None
     serialized = get_prompt_by_name_from_cache(team, prompt_name, version=version, label=label)
     if serialized is None:
