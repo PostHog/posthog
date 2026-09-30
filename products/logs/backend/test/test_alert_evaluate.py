@@ -144,7 +144,9 @@ class TestLogsAlertEvaluation(LogsAlertEvaluationTestCase):
         self._record(evaluation)
 
         query.assert_called_once()
-        assert evaluation.previews == ()
+        # The announcement is held; the incident it opens is not, so delivery hears an incident-only transition.
+        (preview,) = evaluation.previews
+        assert [(t.notification, t.incident) for t in preview.transitions] == [("none", "open")]
         with team_scope(self.team.id):
             alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
             configuration.refresh_from_db()
@@ -280,6 +282,40 @@ class TestLogsHogConditions(LogsAlertEvaluationTestCase):
         by_id = {o.configuration_id: o for o in evaluation.outcomes}
         assert by_id[looping.id].consecutive_failures == 1
         assert by_id[healthy.id].new_state == "firing"
+
+
+class TestLogsOnCallLifecycle(LogsAlertEvaluationTestCase):
+    def test_a_held_resolve_still_carries_the_incident_close(self) -> None:
+        configuration = self._configuration(cooldown_minutes=60)
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(
+                team=self.team,
+                configuration=configuration,
+                grouping_key="",
+                state=PlatformAlert.State.FIRING,
+                last_notified_at=self.cutoff - timedelta(minutes=1),
+            )
+        clear = {str(configuration.id): [BucketedCount(timestamp=self.cutoff, count=0)]}
+
+        with (
+            patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
+            patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
+        ):
+            query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
+                per_alert=clear, query_duration_ms=1
+            )
+            evaluation = evaluate_logs_batch(self.team.id, self._slot(), self.cutoff)
+
+        (preview,) = evaluation.previews
+        assert [(t.notification, t.incident) for t in preview.transitions] == [("none", "close")]
+
+    def test_a_late_evaluation_counts_as_missed(self) -> None:
+        late = self._configuration(next_check_at=self.cutoff - timedelta(minutes=30))
+
+        with patch(f"{_MODULE}.increment_missed_evaluations") as missed:
+            self._run(late)
+
+        assert missed.call_count == 1
 
 
 class TestEvaluationTimeoutLadder(SimpleTestCase):

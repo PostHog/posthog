@@ -86,6 +86,12 @@ class MetricsAlertEvaluationTestCase(APIBaseTest):
         with team_scope(self.team.id):
             return PlatformAlert.objects.get(configuration=configuration, grouping_key="")
 
+    def _grouped(self, api: float | None, web: float | None) -> list[MetricSeries]:
+        return [
+            _series([api], end=self.due_at, step=timedelta(minutes=5), labels={"service_name": "api"}),
+            _series([web], end=self.due_at, step=timedelta(minutes=5), labels={"service_name": "web"}),
+        ]
+
 
 class TestMetricsAlertEvaluation(MetricsAlertEvaluationTestCase):
     def test_a_breaching_series_fires_and_records_its_own_state(self) -> None:
@@ -241,12 +247,6 @@ class TestMetricsAlertEvaluation(MetricsAlertEvaluationTestCase):
         assert evaluation.outcomes[0].new_state == "broken"
         query.assert_not_called()
 
-    def _grouped(self, api: float | None, web: float | None) -> list[MetricSeries]:
-        return [
-            _series([api], end=self.due_at, step=timedelta(minutes=5), labels={"service_name": "api"}),
-            _series([web], end=self.due_at, step=timedelta(minutes=5), labels={"service_name": "web"}),
-        ]
-
     def test_each_label_set_fires_on_its_own(self) -> None:
         configuration = self._configuration()
 
@@ -290,7 +290,8 @@ class TestMetricsAlertEvaluation(MetricsAlertEvaluationTestCase):
 
         evaluation, _ = self._run(configuration, series=self._grouped(api=500.0, web=500.0))
 
-        assert evaluation.previews == ()
+        (preview,) = evaluation.previews
+        assert {(t.notification, t.incident) for t in preview.transitions} == {("none", "open")}
         assert {o.grouping_key: o.new_state for o in evaluation.outcomes if o.grouping_key} == {
             grouping_key_for({"service_name": "api"}): "firing",
             grouping_key_for({"service_name": "web"}): "firing",
@@ -500,3 +501,130 @@ class TestMetricsHogConditions(MetricsAlertEvaluationTestCase):
         with team_scope(self.team.id):
             second.refresh_from_db()
         assert second.next_check_at == self.due_at
+
+
+class TestMetricsOnCallLifecycle(MetricsAlertEvaluationTestCase):
+    def test_a_late_evaluation_counts_as_missed_once_per_check(self) -> None:
+        on_time = self._configuration(next_check_at=self.due_at)
+        late = self._configuration(next_check_at=self.due_at - timedelta(minutes=20))
+        late_grouped = self._grouped(api=500.0, web=500.0)
+
+        with patch(f"{_MODULE}.increment_missed_evaluations") as missed:
+            self._run(on_time)
+            self._run(
+                late, series=[_series([500.0], end=self.due_at - timedelta(minutes=20), step=timedelta(minutes=5))]
+            )
+            self._run(late, series=late_grouped)
+
+        assert missed.call_count == 2
+
+    def test_the_no_data_policy_comes_from_the_source_config(self) -> None:
+        configuration = self._configuration(
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
+                "no_data_policy": "breach",
+            }
+        )
+
+        evaluation, _ = self._run(configuration, series=[_series([None], end=self.due_at, step=timedelta(minutes=5))])
+
+        assert [t.notification for p in evaluation.previews for t in p.transitions] == ["fire"]
+
+    def test_keep_firing_windows_comes_from_the_source_config_and_fetches_enough_history(self) -> None:
+        configuration = self._configuration(
+            evaluation_periods=1,
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
+                "keep_firing_windows": 1,
+            },
+        )
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(
+                team=self.team, configuration=configuration, grouping_key="", state=PlatformAlert.State.FIRING
+            )
+
+        evaluation, query = self._run(
+            configuration, series=[_series([1.0, 500.0], end=self.due_at, step=timedelta(minutes=5))]
+        )
+
+        assert query.call_args.kwargs["request"].date_from == self.due_at - timedelta(minutes=10)
+        assert evaluation.outcomes[0].new_state == "firing"
+        assert evaluation.previews == ()
+
+    def test_a_hog_condition_gets_the_history_that_keep_firing_needs(self) -> None:
+        configuration = self._configuration(
+            evaluation_periods=1,
+            condition_type="hog",
+            condition_bytecode=compile_condition_bytecode("return value > 100"),
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
+                "keep_firing_windows": 1,
+            },
+        )
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(
+                team=self.team, configuration=configuration, grouping_key="", state=PlatformAlert.State.FIRING
+            )
+
+        evaluation, _ = self._run(
+            configuration, series=[_series([1.0, 500.0], end=self.due_at, step=timedelta(minutes=5))]
+        )
+
+        assert evaluation.outcomes[0].new_state == "firing"
+        assert evaluation.previews == ()
+
+    def test_the_no_data_policy_applies_to_prior_windows(self) -> None:
+        configuration = self._configuration(
+            evaluation_periods=3,
+            datapoints_to_alarm=2,
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
+                "no_data_policy": "breach",
+            },
+        )
+
+        evaluation, _ = self._run(
+            configuration, series=[_series([None, None, None], end=self.due_at, step=timedelta(minutes=5))]
+        )
+
+        assert [t.notification for p in evaluation.previews for t in p.transitions] == ["fire"]
+
+    def test_a_vanished_group_follows_the_no_data_policy(self) -> None:
+        configuration = self._configuration(
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
+                "no_data_policy": "breach",
+            }
+        )
+        first, _ = self._run(configuration, series=self._grouped(api=1.0, web=1.0))
+        self._record(first)
+        with team_scope(self.team.id):
+            configuration.next_check_at = self.due_at
+            configuration.save(update_fields=["next_check_at"])
+
+        second, _ = self._run(configuration, series=self._grouped(api=1.0, web=None)[:1])
+
+        by_key = {o.grouping_key: o for o in second.outcomes}
+        assert by_key[grouping_key_for({"service_name": "web"})].new_state == "firing"
+        assert by_key[grouping_key_for({"service_name": "web"})].incident == "open"
+
+    def test_a_first_fire_opens_an_incident_and_a_clear_closes_it_even_inside_cooldown(self) -> None:
+        configuration = self._configuration(cooldown_minutes=60)
+
+        fired, _ = self._run(configuration)
+        self._record(fired)
+        with team_scope(self.team.id):
+            configuration.next_check_at = self.due_at
+            configuration.save(update_fields=["next_check_at"])
+        cleared, _ = self._run(configuration, series=[_series([1.0], end=self.due_at, step=timedelta(minutes=5))])
+
+        assert (fired.outcomes[0].incident, fired.previews[0].transitions[0].incident) == ("open", "open")
+        # The resolve announcement is held by the cooldown; the incident still closes and delivery still hears it.
+        assert cleared.outcomes[0].incident == "close"
+        (preview,) = cleared.previews
+        assert [(t.notification, t.incident) for t in preview.transitions] == [("none", "close")]

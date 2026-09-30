@@ -216,6 +216,8 @@ class PlatformAlertOutcome:
     grouping_key: str = ""
     # The group's row is removed: a label set the query no longer returns and that holds nothing.
     retire: bool = False
+    # "open", "close" or "none": what a paging destination does, independent of any announcement.
+    incident: str = "none"
 
 
 @frozen
@@ -227,6 +229,7 @@ class GroupTransition:
     notification: str
     labels: dict[str, str] = field(default_factory=dict)
     value: float | None = None
+    incident: str = "none"
 
 
 @frozen
