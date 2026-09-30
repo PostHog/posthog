@@ -398,7 +398,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(serializer.data)
 
     @extend_schema(responses={200: {"type": "object", "properties": {"text": {"type": "string"}}}})
-    @action(detail=True, methods=["get"], url_path="text")
+    @action(detail=True, methods=["get"], url_path="text", required_scopes=["business_knowledge:read"])
     def text(self, request: Request, pk: str, **kwargs) -> Response:
         try:
             source_id = UUID(pk)
@@ -417,7 +417,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response({"text": content})
 
     @extend_schema(responses={200: KnowledgeSourceSerializer})
-    @action(detail=True, methods=["post"], url_path="refresh")
+    @action(detail=True, methods=["post"], url_path="refresh", required_scopes=["business_knowledge:write"])
     def refresh(self, request: Request, pk: str, **kwargs) -> Response:
         try:
             source_id = UUID(pk)

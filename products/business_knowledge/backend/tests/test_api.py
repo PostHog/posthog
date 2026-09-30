@@ -605,6 +605,48 @@ class TestKnowledgeDocumentWindowScopes(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestKnowledgeSourceActionScopes(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
+        self.text_source = logic.create_text_source(
+            team_id=self.team.id, created_by_id=self.user.id, name="Docs", text="Refund policy."
+        )
+        self.url_source = KnowledgeSource.objects.unscoped().create(
+            team=self.team,
+            name="Site",
+            source_type="url",
+            status="ready",
+            source_url="https://example.com",
+        )
+
+    def _auth_with_pak(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    @parameterized.expand(
+        [("business_knowledge:read", status.HTTP_200_OK), ("insight:read", status.HTTP_403_FORBIDDEN)]
+    )
+    def test_text_scope(self, _ff, scope: str, expected_status: int) -> None:
+        self._auth_with_pak([scope])
+        response = self.client.get(f"{self.url}{self.text_source.id}/text/")
+        assert response.status_code == expected_status, response.content
+
+    @parameterized.expand(
+        [
+            ("business_knowledge:write", status.HTTP_200_OK),
+            ("business_knowledge:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("products.business_knowledge.backend.api.views.KnowledgeSourceViewSet._start_background_refresh")
+    def test_refresh_scope(self, scope: str, expected_status: int, _refresh, _ff) -> None:
+        self._auth_with_pak([scope])
+        response = self.client.post(f"{self.url}{self.url_source.id}/refresh/")
+        assert response.status_code == expected_status, response.content
+
+
 # ---------------------------------------------------------------------------
 # Search endpoint
 # ---------------------------------------------------------------------------
