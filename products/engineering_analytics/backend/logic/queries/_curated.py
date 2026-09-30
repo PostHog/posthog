@@ -678,7 +678,11 @@ class ConcurrentReads:
         future: Future[T] = Future()
 
         def run_read() -> None:
-            future.set_result(read())
+            try:
+                future.set_result(read())
+            except Exception as error:
+                future.set_exception(error)
+                raise
 
         self._work.append(run_read)
         return future

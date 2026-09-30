@@ -28,8 +28,10 @@ class TestConcurrentReads(SimpleTestCase):
             raise ValueError("read failed")
 
         reads = ConcurrentReads()
-        reads.submit(lambda: 1)
-        reads.submit(fail)
+        succeeded = reads.submit(lambda: 1)
+        failed = reads.submit(fail)
 
         with pytest.raises(ValueError, match="read failed"):
             reads.run()
+        assert succeeded.result() == 1
+        assert isinstance(failed.exception(timeout=0), ValueError)
