@@ -34,6 +34,7 @@ from posthog.schema import HogQLQueryResponse
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.metadata import get_table_names
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -673,25 +674,15 @@ class CuratedGitHubSource:
         return {**values, **loaded}
 
     def _may_read_every_table_in(self, sql: str) -> bool:
-        # A table name that is part of a longer name adds one more table to check. So a match on the
-        # text can refuse a cached value, but it can never serve a value that the query would deny.
-        tables = [
-            table
-            for table in (
-                self._tables.pull_requests,
-                self._tables.workflow_runs,
-                self._tables.workflow_jobs,
-                self._tables.team_members,
-                self._tables.issue_events,
-                self._tables.deployments,
-                self._tables.deployment_statuses,
-                self._tables.reviews,
-                self._depot_job_attempts_table.table if self._depot_job_attempts_table else None,
-            )
-            if table and table in sql
-        ]
+        # The cached value was computed with another reader's access. Warehouse access is granted per
+        # table, so the value is served only when this reader's catalog grants every table the query
+        # names, which is the decision the query itself would get (see posthog/hogql/ACCESS_CONTROL.md,
+        # "Query cache partitioning").
         catalog = self._catalog()
-        return not any(catalog.is_table_access_denied(table) for table in tables)
+        return all(
+            catalog.has_table(table) and not catalog.is_table_access_denied(table)
+            for table in get_table_names(parse_select(sql))
+        )
 
     def run(
         self,

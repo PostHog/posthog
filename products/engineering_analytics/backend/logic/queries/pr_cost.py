@@ -218,6 +218,9 @@ _COSTS_BY_PR_SELECT = f"""
 # A PR's lifetime cost changes only when its CI runs, and cost is an estimate beside the live CI status,
 # so a figure up to this old serves repeat views of the same PRs without the full jobs scan.
 _PR_COSTS_CACHE_SECONDS = 300
+# The cached value is the grouped SQL row (repo owner, repo name, then the five cost columns), not a
+# PRCostAggregate, because the cache key covers the SQL but not the Python classes that read the row.
+_CostRow = tuple[str, str, float | None, float | None, int | None, int | None, int | None]
 
 
 def query_pr_costs(
@@ -246,15 +249,15 @@ def query_pr_costs(
         .replace("__RUN_FROM__", run_from_clause)
     )
 
-    def load(numbers: list[int]) -> dict[int, tuple[tuple[str, str, PRCostAggregate], ...]]:
+    def load(numbers: list[int]) -> dict[int, tuple[_CostRow, ...]]:
         response = curated.run(
             sql,
             query_type="engineering_analytics.pr_costs",
             placeholders={**placeholders, "pr_numbers": ast.Constant(value=numbers)},
         )
-        by_number: dict[int, list[tuple[str, str, PRCostAggregate]]] = {number: [] for number in numbers}
+        by_number: dict[int, list[_CostRow]] = {number: [] for number in numbers}
         for repo_owner, repo_name, pr_number, *agg in response.results or []:
-            by_number[int(pr_number)].append((repo_owner, repo_name, _aggregate(*agg)))
+            by_number[int(pr_number)].append((repo_owner, repo_name, *agg))
         # A PR without costed jobs is stored too, so it does not bring the full jobs scan back on every view.
         return {number: tuple(costs) for number, costs in by_number.items()}
 
@@ -263,9 +266,9 @@ def query_pr_costs(
     else:
         costs_by_number = load(pr_numbers)
     return {
-        (repo_owner, repo_name, number): aggregate
+        (repo_owner, repo_name, number): _aggregate(billable, cost, costed, unsettled, excluded)
         for number, costs in costs_by_number.items()
-        for repo_owner, repo_name, aggregate in costs
+        for repo_owner, repo_name, billable, cost, costed, unsettled, excluded in costs
     }
 
 

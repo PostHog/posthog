@@ -357,7 +357,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             with mock.patch.object(CuratedGitHubSource, "run", autospec=True, wraps=CuratedGitHubSource.run) as run:
                 result = api.list_pull_requests(team=self.team)
             queries = [
-                call for call in run.call_args_list if call.kwargs["query_type"] == "engineering_analytics.pr_costs"
+                call for call in run.call_args_list if call.kwargs.get("query_type") == "engineering_analytics.pr_costs"
             ]
             return result, len(queries)
 
