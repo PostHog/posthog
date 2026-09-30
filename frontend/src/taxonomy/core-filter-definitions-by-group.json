@@ -2265,6 +2265,14 @@
             ],
             "label": "MCP exec inner tool catalog"
         },
+        "$mcp_exec_target_tool": {
+            "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
+            "examples": [
+                "experiment-get",
+                "unrecognized"
+            ],
+            "label": "MCP exec target tool"
+        },
         "$mcp_exec_tool_call_description": {
             "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
             "examples": [
@@ -2280,6 +2288,32 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP exec inner tool name"
+        },
+        "$mcp_exec_verb": {
+            "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
+            "examples": [
+                "call",
+                "info",
+                "unrecognized"
+            ],
+            "label": "MCP exec verb"
+        },
+        "$mcp_input_aliases_used": {
+            "description": "Declared parameter aliases the call relied on, as `alias:canonical` (for example `experimentId:id`). Present only when the call did not send the canonical name and used one of its aliases instead. Both names come from the tool's own alias map. Recorded by the @posthog/mcp SDK helper. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": [
+                "experimentId:id",
+                "flagKey:key"
+            ],
+            "label": "MCP input aliases used"
+        },
+        "$mcp_input_keys": {
+            "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Recorded by the @posthog/mcp SDK helper: names the tool declares, including its aliases, capped at 20. Undeclared names become one `[redacted]` entry. Names only, never values. Group by it with $mcp_input_aliases_used to see how agents spell a parameter.",
+            "examples": [
+                "id",
+                "experimentId",
+                "filters, key, name"
+            ],
+            "label": "MCP input keys"
         },
         "$mcp_intent": {
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
@@ -2416,6 +2450,13 @@
             ],
             "label": "MCP scope preset"
         },
+        "$mcp_server_build": {
+            "description": "The exact immutable build identifier that the MCP host supplies, such as a Git commit SHA or container image digest. Use it to connect an event to deployed code when one server version has multiple builds.",
+            "examples": [
+                "b3b941584bae0123"
+            ],
+            "label": "MCP server build"
+        },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": [
@@ -2488,6 +2529,14 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_validation_fields": {
+            "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
+            "examples": [
+                "id:invalid_type",
+                "filters.groups:required"
+            ],
+            "label": "MCP validation fields"
         },
         "$mcp_vendor_client": {
             "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
@@ -4685,6 +4734,14 @@
             ],
             "label": "MCP exec inner tool catalog"
         },
+        "$mcp_exec_target_tool": {
+            "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
+            "examples": [
+                "experiment-get",
+                "unrecognized"
+            ],
+            "label": "MCP exec target tool"
+        },
         "$mcp_exec_tool_call_description": {
             "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
             "examples": [
@@ -4700,6 +4757,32 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP exec inner tool name"
+        },
+        "$mcp_exec_verb": {
+            "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
+            "examples": [
+                "call",
+                "info",
+                "unrecognized"
+            ],
+            "label": "MCP exec verb"
+        },
+        "$mcp_input_aliases_used": {
+            "description": "Declared parameter aliases the call relied on, as `alias:canonical` (for example `experimentId:id`). Present only when the call did not send the canonical name and used one of its aliases instead. Both names come from the tool's own alias map. Recorded by the @posthog/mcp SDK helper. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": [
+                "experimentId:id",
+                "flagKey:key"
+            ],
+            "label": "MCP input aliases used"
+        },
+        "$mcp_input_keys": {
+            "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Recorded by the @posthog/mcp SDK helper: names the tool declares, including its aliases, capped at 20. Undeclared names become one `[redacted]` entry. Names only, never values. Group by it with $mcp_input_aliases_used to see how agents spell a parameter.",
+            "examples": [
+                "id",
+                "experimentId",
+                "filters, key, name"
+            ],
+            "label": "MCP input keys"
         },
         "$mcp_intent": {
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
@@ -4836,6 +4919,13 @@
             ],
             "label": "MCP scope preset"
         },
+        "$mcp_server_build": {
+            "description": "The exact immutable build identifier that the MCP host supplies, such as a Git commit SHA or container image digest. Use it to connect an event to deployed code when one server version has multiple builds.",
+            "examples": [
+                "b3b941584bae0123"
+            ],
+            "label": "MCP server build"
+        },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": [
@@ -4908,6 +4998,14 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_validation_fields": {
+            "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
+            "examples": [
+                "id:invalid_type",
+                "filters.groups:required"
+            ],
+            "label": "MCP validation fields"
         },
         "$mcp_vendor_client": {
             "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
@@ -7597,6 +7695,14 @@
             ],
             "label": "MCP exec inner tool catalog"
         },
+        "$mcp_exec_target_tool": {
+            "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
+            "examples": [
+                "experiment-get",
+                "unrecognized"
+            ],
+            "label": "MCP exec target tool"
+        },
         "$mcp_exec_tool_call_description": {
             "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
             "examples": [
@@ -7612,6 +7718,32 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP exec inner tool name"
+        },
+        "$mcp_exec_verb": {
+            "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
+            "examples": [
+                "call",
+                "info",
+                "unrecognized"
+            ],
+            "label": "MCP exec verb"
+        },
+        "$mcp_input_aliases_used": {
+            "description": "Declared parameter aliases the call relied on, as `alias:canonical` (for example `experimentId:id`). Present only when the call did not send the canonical name and used one of its aliases instead. Both names come from the tool's own alias map. Recorded by the @posthog/mcp SDK helper. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": [
+                "experimentId:id",
+                "flagKey:key"
+            ],
+            "label": "MCP input aliases used"
+        },
+        "$mcp_input_keys": {
+            "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Recorded by the @posthog/mcp SDK helper: names the tool declares, including its aliases, capped at 20. Undeclared names become one `[redacted]` entry. Names only, never values. Group by it with $mcp_input_aliases_used to see how agents spell a parameter.",
+            "examples": [
+                "id",
+                "experimentId",
+                "filters, key, name"
+            ],
+            "label": "MCP input keys"
         },
         "$mcp_intent": {
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
@@ -7748,6 +7880,13 @@
             ],
             "label": "MCP scope preset"
         },
+        "$mcp_server_build": {
+            "description": "The exact immutable build identifier that the MCP host supplies, such as a Git commit SHA or container image digest. Use it to connect an event to deployed code when one server version has multiple builds.",
+            "examples": [
+                "b3b941584bae0123"
+            ],
+            "label": "MCP server build"
+        },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": [
@@ -7820,6 +7959,14 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_validation_fields": {
+            "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
+            "examples": [
+                "id:invalid_type",
+                "filters.groups:required"
+            ],
+            "label": "MCP validation fields"
         },
         "$mcp_vendor_client": {
             "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
