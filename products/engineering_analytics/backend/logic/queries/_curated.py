@@ -616,7 +616,6 @@ class CuratedGitHubSource:
         user = uac.user if uac is not None else None
         bypass_warehouse_access_control = uac is None
         if self._database is None:
-            # Building the catalog is slow, and every query of one request reads the same one.
             self._database = Database.create_for(
                 team=self._team,
                 user=user,
