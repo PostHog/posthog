@@ -1226,7 +1226,7 @@ describe('survey utils', () => {
             // Filtering on the raw event expression would discard a submission whose matching
             // answer arrived on a non-final event.
             expect(query).toContain('(toFloat(trim(q0_answer)) IN (2))')
-            expect(query).not.toContain("getSurveyResponse(0, 'q-rating')))")
+            expect(query).not.toContain("toFloat(trim(getSurveyResponse(0, 'q-rating')))")
             expect(query).toContain("uuid NOT IN ('archived-uuid')")
         })
 
