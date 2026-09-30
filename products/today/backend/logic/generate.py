@@ -31,12 +31,14 @@ def _load(team_id: int, briefing_id: str) -> tuple[DailyBriefing, Team, User]:
 
 
 def collect_and_draft(*, team_id: int, briefing_id: str) -> bool:
-    """Collect, rank and store the fact sheet and the draft. False when the person may not get one."""
+    """Collect, rank and store the fact sheet and the draft.
+
+    False when the person may not get a briefing. The flag can turn off after the row was created,
+    so the row is deleted then: a briefing nobody can open is not worth keeping.
+    """
     briefing, team, user = _load(team_id, briefing_id)
     if not is_enabled_for(user, team):
-        briefing.status = BriefingStatus.FAILED
-        briefing.error = "The today-rail-nav flag is off for this person."
-        briefing.save(update_fields=["status", "error"])
+        briefing.delete()
         return False
     ctx = SourceContext(team=team, user=user, now=timezone.now())
     collected = collect_all(ctx)

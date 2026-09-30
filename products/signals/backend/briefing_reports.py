@@ -11,6 +11,9 @@ from enum import StrEnum
 
 from django.db.models import Q
 
+import pydantic
+import structlog
+
 from posthog.dataclasses import frozen
 from posthog.models import User
 
@@ -21,8 +24,11 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_claims import reports_with_active_claim
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 
+logger = structlog.get_logger(__name__)
+
 _OPEN_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
 _SUMMARY_LIMIT = 300
+PR_MERGED_HEAD = "pr_merged"
 
 
 class BriefingReportRelation(StrEnum):
@@ -42,6 +48,9 @@ class BriefingReport:
     priority: str | None
     has_implementation_pr: bool
     updated_at: datetime
+    # The served ranking model's chance that the report ends with a merged PR. None when the
+    # report has no score yet, or the model's pr_merged head is not readable.
+    pr_merged_probability: float | None
 
 
 @frozen
@@ -72,6 +81,56 @@ def _priorities(report_ids: Sequence[str]) -> dict[str, str]:
         if isinstance(priority, str):
             latest[key] = priority
     return latest
+
+
+class _ServedHead(pydantic.BaseModel):
+    head: str
+    readable: bool = False
+
+
+class _ServedMetadata(pydantic.BaseModel):
+    heads: list[_ServedHead] = []
+
+
+class _ServedResult(pydantic.BaseModel):
+    scores: dict[str, float] = {}
+    metadata: _ServedMetadata = _ServedMetadata()
+
+
+class _ScoreSummary(pydantic.BaseModel):
+    """The parts of a `ranking_score` artefact the briefing reads. Pydantic drops the rest."""
+
+    served_key: str
+    results: dict[str, _ServedResult]
+
+
+def _pr_merged_probabilities(report_ids: Sequence[str]) -> dict[str, float]:
+    """The served model's `pr_merged` probability from each report's latest score.
+
+    A head without a holdout AUC is not readable, so its probability is left out rather than
+    trusted. The inbox serializer applies the same readability rule.
+    """
+    latest = (
+        SignalReportArtefact.objects.filter(
+            report_id__in=report_ids, type=SignalReportArtefact.ArtefactType.RANKING_SCORE
+        )
+        .order_by("report_id", "-created_at")
+        .distinct("report_id")
+        .values_list("report_id", "content")
+    )
+    probabilities: dict[str, float] = {}
+    for report_id, content in latest:
+        try:
+            summary = _ScoreSummary.model_validate_json(content)
+            served = summary.results[summary.served_key]
+        except (pydantic.ValidationError, KeyError):
+            logger.warning("signals.briefing.ranking_score_unreadable", report_id=str(report_id))
+            continue
+        readable = {head.head for head in served.metadata.heads if head.readable}
+        probability = served.scores.get(PR_MERGED_HEAD)
+        if probability is not None and PR_MERGED_HEAD in readable:
+            probabilities[str(report_id)] = probability
+    return probabilities
 
 
 def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int = 5) -> list[BriefingReport]:
@@ -123,7 +182,9 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int 
             if key not in seen:
                 seen.add(key)
                 picked.append((relation, report))
-    priorities = _priorities([str(report.id) for _, report in picked])
+    picked_ids = [str(report.id) for _, report in picked]
+    priorities = _priorities(picked_ids)
+    merge_chances = _pr_merged_probabilities(picked_ids)
     with_pr = set(
         SignalReport.objects.filter(team_id=team_id, id__in=[report.id for _, report in picked])
         .filter(implementation_pr_report_filter(team_id=team_id))
@@ -148,6 +209,7 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int 
                 priority=priority,
                 has_implementation_pr=report.id in with_pr,
                 updated_at=report.updated_at,
+                pr_merged_probability=merge_chances.get(str(report.id)),
             )
         )
     return results

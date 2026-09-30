@@ -16,7 +16,7 @@ from posthog.temporal.common.client import async_connect
 from ..facade.enums import BriefingStatus, BriefingTrigger
 from ..logic import generate
 from ..logic.briefings import create_briefing
-from ..logic.eligibility import is_due, local_day
+from ..logic.eligibility import is_due, is_enabled_for, local_day
 from ..models import DailyBriefing
 from .inputs import (
     GENERATE_WORKFLOW_NAME,
@@ -87,7 +87,8 @@ def _due_briefings() -> list[DailyBriefing]:
             continue
         team = Team.objects.get(id=team_id)
         user = User.objects.filter(id=user_id, is_active=True).first()
-        if user is None:
+        # Someone who opened Today may have lost the flag since. They get no row and no workflow.
+        if user is None or not is_enabled_for(user, team):
             continue
         created.append(
             create_briefing(

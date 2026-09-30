@@ -20,6 +20,23 @@ _REASON = {
 _PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
 
 
+def _sort_key(report: signals.BriefingReport) -> tuple[float, ...]:
+    """Relation first. Inside a relation: P0, then the higher chance of a merged PR, then priority, then newest.
+
+    A report without a score (not scored yet, or scoring is off) follows the scored ones, so with
+    no scores at all the order falls back to priority.
+    """
+    merge_chance = report.pr_merged_probability
+    return (
+        _RELATION_ORDER[report.relation],
+        0 if report.priority == "P0" else 1,
+        0 if merge_chance is not None else 1,
+        -(merge_chance or 0.0),
+        _PRIORITY_ORDER.get(report.priority or "", 5),
+        -report.updated_at.timestamp(),
+    )
+
+
 def collect(ctx: SourceContext) -> list[Candidate]:
     reports = signals.reports_for_briefing(team_id=ctx.team.id, user_id=ctx.user.id)
     return [
@@ -30,11 +47,7 @@ def collect(ctx: SourceContext) -> list[Candidate]:
             reason=_REASON[report.relation],
             title=report.title,
             url=app_url(ctx.team.id, f"inbox/{report.report_id}"),
-            sort_key=(
-                _RELATION_ORDER[report.relation],
-                _PRIORITY_ORDER.get(report.priority or "", 5),
-                -report.updated_at.timestamp(),
-            ),
+            sort_key=_sort_key(report),
             facts={
                 "priority": report.priority,
                 "status": report.status,

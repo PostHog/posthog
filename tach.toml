@@ -139,6 +139,7 @@ depends_on = [
     "products.streamlit_apps",
     "products.surveys",
     "products.tasks",
+    "products.today",
     "products.tracing",
     "products.user_interviews",
     "products.visual_review",

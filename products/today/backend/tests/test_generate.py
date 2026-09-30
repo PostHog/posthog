@@ -1,6 +1,8 @@
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -9,8 +11,9 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter
-from products.today.backend.logic.generate import write_and_check
+from products.today.backend.logic.generate import collect_and_draft, write_and_check
 from products.today.backend.models import DailyBriefing
+from products.today.backend.temporal.activities import _due_briefings
 from products.today.backend.tests.conftest import PRODUCT_DATABASES, TodayTeamScopedTestMixin
 from products.today.backend.tests.test_checks import FACT_SHEET, VALID
 
@@ -78,3 +81,44 @@ class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
         self.briefing.refresh_from_db()
         write.assert_not_called()
         assert (self.briefing.status, self.briefing.content) == (BriefingStatus.READY, self.draft)
+
+
+FLAG = "products.today.backend.logic.eligibility.posthoganalytics.feature_enabled"
+
+
+class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):
+    databases = PRODUCT_DATABASES
+
+    def _viewer_row(self) -> DailyBriefing:
+        return DailyBriefing.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=date(2026, 9, 29),
+            timezone="Europe/Prague",
+            trigger=BriefingTrigger.FIRST_OPEN,
+            status=BriefingStatus.READY,
+            last_viewed_at=datetime(2026, 9, 29, 9, 0, tzinfo=UTC),
+        )
+
+    @parameterized.expand([("flag on", True, 1), ("flag off", False, 0)])
+    def test_scheduler_creates_a_row_only_with_the_flag(self, _name: str, enabled: bool, expected_rows: int) -> None:
+        self._viewer_row()
+
+        # 07:50 in Prague, inside the window before the 8:00 day start.
+        with (
+            time_machine.travel(datetime(2026, 9, 30, 5, 50, tzinfo=UTC), tick=False),
+            patch(FLAG, return_value=enabled),
+        ):
+            created = _due_briefings()
+
+        assert len(created) == expected_rows
+        assert DailyBriefing.objects.for_team(self.team.id).filter(local_day=date(2026, 9, 30)).count() == expected_rows
+
+    def test_collection_deletes_the_row_when_the_flag_turned_off(self) -> None:
+        briefing = self._viewer_row()
+
+        with patch(FLAG, return_value=False):
+            eligible = collect_and_draft(team_id=self.team.id, briefing_id=str(briefing.id))
+
+        assert eligible is False
+        assert not DailyBriefing.objects.for_team(self.team.id).filter(id=briefing.id).exists()

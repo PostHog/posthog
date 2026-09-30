@@ -28,9 +28,7 @@ class TestWeekOverWeek(SimpleTestCase):
     def test_weekly_series_skips_the_week_in_progress(self) -> None:
         weeks = ["2026-09-09", "2026-09-16", "2026-09-23", "2026-09-28"]
 
-        movement = week_over_week(
-            label="Spend", interval="week", days=weeks, data=[1, 2000, 1500, 999], today=TODAY
-        )
+        movement = week_over_week(label="Spend", interval="week", days=weeks, data=[1, 2000, 1500, 999], today=TODAY)
 
         assert movement is not None
         assert (movement.previous, movement.current, movement.pct_change) == (2000, 1500, -25.0)

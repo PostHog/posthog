@@ -3,11 +3,10 @@
 import json
 import uuid
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 import structlog
-from anthropic.types import TextBlock
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from posthog.llm.gateway_client import build_anthropic_client
 from posthog.models import Team, User
@@ -15,7 +14,10 @@ from posthog.models import Team, User
 logger = structlog.get_logger(__name__)
 
 MODEL = "claude-opus-5-5"
-MAX_OUTPUT_TOKENS = 2000
+# Opus 5.5 always thinks, and thinking tokens count toward this cap.
+MAX_OUTPUT_TOKENS = 8000
+# The items and their order are chosen by code, so the writer needs little reasoning.
+EFFORT: Literal["low"] = "low"
 # Estimated list price per million tokens (input, output), for the admin cost column only.
 # The gateway's $ai_generation event carries the billed cost.
 _PRICE_PER_MILLION = (Decimal(4), Decimal(20))
@@ -41,23 +43,37 @@ What to write:
   - Leave out a paragraph that has no items.
   - A linked segment names exactly one item with its item_key: a natural phrase of at most 8 words that starts with a word. Every item with in_text true is linked exactly once. Items without it are not in the text. Only the top item has highlight true.
   - Text segments include their own spaces.
-- "labels": one per item key, for all items: a left-bar label of at most 6 words that says what it is.
-- "signals": one per item key, for all items: the short fact under the label, at most 40 characters, with a number from the fact sheet when there is one.
-
-Return only one JSON object: {"headline": "...", "paragraphs": [[...]], "labels": {"<item key>": "..."}, "signals": {"<item key>": "..."}}."""
+- "items": one entry per item in the fact sheet, in/not in the text alike:
+  - "label": a left-bar label of at most 6 words that says what it is.
+  - "signal": the short fact under the label, at most 40 characters, with a number from the fact sheet when there is one."""
 
 
 class _Segment(BaseModel):
     text: str
-    item_key: str | None = None
-    highlight: bool = False
+    item_key: str | None
+    highlight: bool
 
 
+class _ItemText(BaseModel):
+    item_key: str
+    label: str
+    signal: str
+
+
+# Structured outputs accept no free-form maps, so labels and signals come back as a list of items.
 class WriterOutput(BaseModel):
     headline: str
     paragraphs: list[list[_Segment]]
-    labels: dict[str, str] = Field(default_factory=dict)
-    signals: dict[str, str] = Field(default_factory=dict)
+    items: list[_ItemText]
+
+    def to_content(self) -> dict[str, Any]:
+        """The stored content shape, which the draft, the checks and the API share."""
+        return {
+            "headline": self.headline,
+            "paragraphs": [[segment.model_dump() for segment in paragraph] for paragraph in self.paragraphs],
+            "labels": {item.item_key: item.label for item in self.items},
+            "signals": {item.item_key: item.signal for item in self.items},
+        }
 
 
 class WriterError(Exception):
@@ -69,16 +85,6 @@ def _user_message(fact_sheet: dict[str, Any], problems: list[str] | None) -> str
     if problems:
         message += "\n\nYour previous answer broke these rules. Fix all of them:\n- " + "\n- ".join(problems)
     return message
-
-
-def _parse(text: str) -> WriterOutput:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
-    try:
-        return WriterOutput.model_validate_json(cleaned)
-    except ValidationError as error:
-        raise WriterError(f"writer returned invalid JSON: {error}") from error
 
 
 def write(
@@ -93,16 +99,22 @@ def write(
         distinct_id=str(user.distinct_id),
         team_id=team.id,
     )
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=MAX_OUTPUT_TOKENS,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": _user_message(fact_sheet, problems)}],
-    )
-    text = "".join(block.text for block in response.content if isinstance(block, TextBlock))
-    output = _parse(text)
+    try:
+        response = client.messages.parse(
+            model=MODEL,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": _user_message(fact_sheet, problems)}],
+            output_config={"effort": EFFORT},
+            output_format=WriterOutput,
+        )
+    except ValidationError as error:
+        # The SDK validates the text while it parses. A refusal or a cut-off answer does not match the schema.
+        raise WriterError(f"writer output did not match the schema: {error}") from error
     usage = response.usage
     cost = (
         Decimal(usage.input_tokens) * _PRICE_PER_MILLION[0] + Decimal(usage.output_tokens) * _PRICE_PER_MILLION[1]
     ) / Decimal(1_000_000)
-    return output.model_dump(), cost
+    if response.stop_reason != "end_turn" or response.parsed_output is None:
+        raise WriterError(f"writer stopped with {response.stop_reason} and no valid output")
+    return response.parsed_output.to_content(), cost
