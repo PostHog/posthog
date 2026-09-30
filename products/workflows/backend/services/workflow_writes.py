@@ -104,7 +104,7 @@ class WorkflowWriter:
     report_usage: WorkflowUsageReporter
 
     def create(self, validated: ValidatedWorkflow) -> HogFlow:
-        workflow = validated.save(created_by=self.user, team_id=self.team.id)
+        workflow = validated.save(created_by=self.user)
         self._log_activity(workflow, "created", detail_type="standard")
         self.announce_edited(workflow)
         return workflow

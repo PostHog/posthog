@@ -3434,6 +3434,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         validated_data["encrypted_inputs"] = strip_secrets_from_content(validated_data, template_cache={})
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
+        # The route's team, not the view's `team`: a form body's `token` switches `team` to that
+        # environment, while `@current` still addresses the user's current team.
+        validated_data["team_id"] = self.context["team_id"]
         self._strip_secret_inputs(validated_data)
         return super().create(validated_data=validated_data)
 
