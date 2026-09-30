@@ -5352,7 +5352,7 @@ class HogFlowViewSet(
         # Version history: one snapshot per live-content change, newest first. Content is fetched
         # per-version via the detail endpoint — the list stays light.
         instance = self.get_object()
-        page = self.paginate_queryset(_RevisionPages(instance.pk))
+        page = self.paginate_queryset(cast(Sequence[Any], _RevisionPages(instance.pk)))
         return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
 
     @extend_schema(
