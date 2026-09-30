@@ -31,6 +31,7 @@ import re
 import sys
 import json
 import time
+import subprocess
 import http.client
 import urllib.error
 import urllib.parse
@@ -40,6 +41,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Protocol
+
+from ci_backend_depot_failures import read_failures, render
 
 DEPOT_APP_ID = 219785
 DEPOT_ORG = "ntsdt08fpt"
@@ -454,6 +457,13 @@ def main(argv: Sequence[str]) -> int:
         return 1
     code, lines = relay_gate(result, event, env.get("GITHUB_RUN_ID", ""))
     sys.stdout.writelines(f"{line}\n" for line in lines)
+    if code and (workflow := CheckRun(0, "", result.details_url).depot_workflow) and env.get("DEPOT_TOKEN"):
+        try:
+            failures = read_failures(DEPOT_ORG, workflow)
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
+            sys.stdout.write(f"::warning::Cannot read the Depot failure details: {type(error).__name__}\n")
+            failures = []
+        sys.stdout.writelines(f"{line}\n" for line in render(failures))
     return code
 
 

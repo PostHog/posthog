@@ -33,7 +33,6 @@ PYTHON_ONLY_ALLOWLIST: dict[str, str] = {
     "between": "Range comparison, only used in HogQL insights queries",
     "not_between": "Range comparison, only used in HogQL insights queries",
     "min": "Alias for gte, only used in HogQL insights queries",
-    "max": "Alias for lte, only used in HogQL insights queries",
     "is_cleaned_path_exact": "Path normalization, only used in HogQL path analysis",
 }
 
