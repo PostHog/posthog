@@ -6714,8 +6714,18 @@ export const ExperimentsCreateBody = () => zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -12685,8 +12695,18 @@ export const ExperimentsPartialUpdateBody = () => zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -18627,8 +18647,18 @@ export const ExperimentsDuplicateCreateBody = () => zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()

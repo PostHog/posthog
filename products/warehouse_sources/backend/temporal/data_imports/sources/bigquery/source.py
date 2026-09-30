@@ -410,6 +410,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # every retry. The user must update the source's column selection to match the table's
             # current schema. Matched on the stable wording, not the volatile list of column names.
             "do not exist in the table schema": "BigQuery couldn't read this table because it referenced columns that no longer exist on it — usually columns selected for syncing were renamed or removed. Retrying won't help — please update the source's column selection to match the table's current schema, then reconnect the source.",
+            # Raised as a 400 BadRequest from `jobs.getQueryResults` (the same poll `_with_job_not_
+            # found_retry` in `bigquery.py` awaits) when the table or view being synced is guarded by
+            # a deprecation check the customer's own BigQuery team added to it — a query against that
+            # relation deliberately errors to redirect callers to its replacement. It's a deterministic
+            # property of which table the source reads, not of our query shape: the same table fails
+            # identically on every retry until the source is pointed at the replacement. Matched on
+            # BigQuery's stable "Deprecated legacy table/view" wording, not the volatile project name
+            # or job id that surround it.
+            "Deprecated legacy table/view": "BigQuery rejected a query for this source because the table or view it reads has been marked deprecated by your BigQuery team, in favor of a newer replacement. Retrying won't help — please update this source to sync the replacement table or view, then reconnect the source.",
         }
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:

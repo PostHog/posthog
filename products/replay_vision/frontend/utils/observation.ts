@@ -39,7 +39,19 @@ export function readConfidence(obs: ReplayObservationApi): number | null {
     return typeof raw === 'number' ? raw : null
 }
 
+export type ConfidenceLevel = { type: 'success' | 'warning' | 'danger'; label: 'High' | 'Medium' | 'Low' }
+
+export function confidenceLevel(value: number): ConfidenceLevel {
+    return value >= 0.8
+        ? { type: 'success', label: 'High' }
+        : value >= 0.5
+          ? { type: 'warning', label: 'Medium' }
+          : { type: 'danger', label: 'Low' }
+}
+
 export type MonitorVerdict = 'yes' | 'no' | 'inconclusive'
+
+export const VERDICT_LABEL: Record<MonitorVerdict, string> = { yes: 'Yes', no: 'No', inconclusive: 'Inconclusive' }
 
 export function readVerdict(obs: ReplayObservationApi): MonitorVerdict | null {
     const raw = readModelOutput(obs)?.verdict

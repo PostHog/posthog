@@ -92,6 +92,27 @@ export function isPiTurnError(event: Record<string, unknown>): boolean {
     return piTurnCompleted !== null && piTurnCompleted['stopReason'] === PI_STOP_REASON_ERROR
 }
 
+export function turnCompletedSuccessfully(event: Record<string, unknown>): boolean {
+    if (event['type'] === PI_EVENT_TYPE) {
+        const piTurnCompleted = asPiTurnCompletedEvent(event)
+        return piTurnCompleted !== null && piTurnCompleted['stopReason'] === STOP_REASON_END_TURN
+    }
+    if (event['type'] !== ACP_NOTIFICATION_TYPE) {
+        return false
+    }
+    const notification = event['notification']
+    if (typeof notification !== 'object' || notification === null) {
+        return false
+    }
+    const notif = notification as Record<string, unknown>
+    const payload = notif['method'] === TURN_COMPLETE_METHOD ? notif['params'] : notif['result']
+    return (
+        typeof payload === 'object' &&
+        payload !== null &&
+        (payload as Record<string, unknown>)['stopReason'] === STOP_REASON_END_TURN
+    )
+}
+
 export function isIdleResumeTurnComplete(event: Record<string, unknown>): boolean {
     if (event['type'] !== ACP_NOTIFICATION_TYPE) {
         return false
@@ -212,10 +233,11 @@ function fireCallback(
     options: {
         releaseClaim?: () => Promise<void>
         turnCompleted?: boolean
+        turnSucceeded?: boolean
         budgetSteer?: { sequence: number; timestamp?: string; params: Record<string, unknown> }
     } = {}
 ): void {
-    const { releaseClaim, turnCompleted, budgetSteer } = options
+    const { releaseClaim, turnCompleted, turnSucceeded, budgetSteer } = options
     if (!config.djangoCallbackBaseUrl) {
         // Dev environment without AGENT_PROXY_DJANGO_CALLBACK_URL — skip silently.
         void releaseMilestoneClaim(releaseClaim, runId, kind)
@@ -243,6 +265,7 @@ function fireCallback(
         task_id: taskId,
         team_id: teamId,
         turn_completed: turnCompleted,
+        turn_succeeded: turnSucceeded,
     })
 
     const headers: Record<string, string> = {
@@ -376,6 +399,7 @@ export async function heartbeatWorkflowIfNeeded(
             // dispatch the push notification for interactive mode runs.
             fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config, {
                 turnCompleted: !isIdleResumeTurnComplete(event),
+                turnSucceeded: turnCompletedSuccessfully(event),
             })
         }
         return

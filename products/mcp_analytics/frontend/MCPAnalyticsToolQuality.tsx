@@ -62,7 +62,7 @@ function ChartsScopeHeader(): JSX.Element {
     if (!selectedTool) {
         return (
             <div className="text-sm text-secondary">
-                Trends across all tools in scope — select a row above to drill down.
+                Trends across all tools in scope. Select a tool in the table below to drill down.
             </div>
         )
     }

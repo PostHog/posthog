@@ -1,5 +1,5 @@
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Final, Literal, Optional, TypedDict, TypeVar
 
 from django.conf import settings
@@ -148,6 +148,8 @@ async def call_llm(
     ai_product: Optional[str] = None,
     model: Optional[str] = None,
     cache_system_prompt: bool = False,
+    trace_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
 ) -> T:
     model = model or MATCHING_MODEL
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
@@ -166,6 +168,8 @@ async def call_llm(
             ai_stage=stage,
             team_id=team_id,
             use_bedrock_fallback=True,
+            trace_id=trace_id,
+            properties=properties,
         )
     else:
         client = get_async_anthropic_gateway_client(product="signals", team_id=team_id, use_bedrock_fallback=True)

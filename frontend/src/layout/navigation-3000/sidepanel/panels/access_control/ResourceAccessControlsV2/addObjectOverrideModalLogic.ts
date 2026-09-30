@@ -130,8 +130,10 @@ export interface addObjectOverrideModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -174,6 +176,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session',
         resourceId: string,
         level: AccessControlLevel | null
@@ -252,8 +255,10 @@ export interface addObjectOverrideModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -296,6 +301,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
         resourceId: string
     } // accessDetailLogic
@@ -395,8 +401,10 @@ export interface addObjectOverrideModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -439,6 +447,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     }
     openModal: () => {
@@ -522,8 +531,10 @@ export interface addObjectOverrideModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -566,6 +577,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     }
     setLevel: (level: AccessControlLevel) => {
@@ -648,8 +660,10 @@ export interface addObjectOverrideModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -692,6 +706,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     }
     setSearch: (search: string) => {
@@ -795,8 +810,10 @@ export interface addObjectOverrideModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -839,6 +856,7 @@ export interface addObjectOverrideModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
             objectId: string | null
         ) => AccessObjectRule | null

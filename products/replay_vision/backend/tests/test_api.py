@@ -21,6 +21,7 @@ from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.event_usage import EventSource
+from posthog.llm.system_one import NoulAnswer, SystemOneResult
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, changes_between, replay_scanner_machine_fields
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -3574,6 +3575,46 @@ class TestObservationSearchAction(_VisionAPITestCase):
             [(str(second.id), 0.1, "user rage-clicked"), (str(first.id), 0.3, "")],
         )
         self.assertFalse(resp.json()["truncated"])
+
+    @patch("products.replay_vision.backend.search.RERANK_CANDIDATES", 2)
+    @patch("products.replay_vision.backend.search_rerank.build_system_one_client")
+    @patch("products.replay_vision.backend.search.rank_observations")
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_search_reranks_only_readable_results(
+        self, mock_embed: MagicMock, mock_rank: MagicMock, mock_client: MagicMock
+    ) -> None:
+        first = self._create_succeeded_observation("sess-1")
+        second = self._create_succeeded_observation("sess-2")
+        tail = self._create_succeeded_observation("sess-3")
+        ReplayObservation.objects.filter(pk=second.id).update(scanner_result={"model_output": {"reasoning": "exact"}})
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        mock_rank.return_value = [
+            ObservationMatch(observation_id=str(first.id), distance=0.1, matched_content="topic only"),
+            ObservationMatch(observation_id=str(uuid7()), distance=0.2, matched_content="unreadable"),
+            ObservationMatch(observation_id=str(second.id), distance=0.3, matched_content="bare tag"),
+            ObservationMatch(observation_id=str(tail.id), distance=0.4, matched_content="past the head"),
+        ]
+        sent_texts: list[str] = []
+
+        def decide(*, state: dict, questions: dict) -> SystemOneResult:
+            texts = [state["observations"][f"o{i}"] for i in range(len(questions))]
+            sent_texts.extend(texts)
+            return SystemOneResult(
+                model="jev",
+                answers={f"q{i}": NoulAnswer(probability=0.9 if t == "exact" else 0.1) for i, t in enumerate(texts)},
+                input_tokens=1,
+            )
+
+        mock_client.return_value.decide.side_effect = decide
+
+        resp = self.client.get(f"{self.search_url}?q=confused users")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(
+            [r["observation"]["id"] for r in resp.json()["results"]], [str(second.id), str(first.id), str(tail.id)]
+        )
+        self.assertTrue(resp.json()["reranked"])
+        self.assertEqual(sorted(sent_texts), ["exact", "topic only"])
 
     @patch("products.replay_vision.backend.search.rank_observations")
     @patch("products.replay_vision.backend.search.generate_embedding")

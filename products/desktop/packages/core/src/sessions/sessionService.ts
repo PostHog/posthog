@@ -150,6 +150,7 @@ import { selectSessionsToEvict } from "./sessionEviction";
 import { createBaseSession } from "./sessionFactory";
 import { type ParsedSessionLogs, parseSessionLogContent } from "./sessionLogs";
 import {
+  classifySessionStartError,
   readSessionStartupPhase,
   type SessionStartupPhase,
 } from "./sessionStartup";
@@ -2132,6 +2133,7 @@ export class SessionService {
       this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
         task_id: taskId,
         error_type: "connect_failed",
+        ...classifySessionStartError(message),
       });
 
       const taskRunId = latestRun?.id ?? `error-${taskId}`;
@@ -2447,6 +2449,11 @@ export class SessionService {
         return true;
       } else {
         this.d.log.warn("Reconnect returned null", { taskId, taskRunId });
+        this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+          task_id: taskId,
+          error_type: "reconnect_failed",
+          failure_reason: "other",
+        });
         this.setErrorSession(
           taskId,
           taskRunId,
@@ -2459,6 +2466,11 @@ export class SessionService {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.d.log.warn("Reconnect failed", { taskId, error: errorMessage });
+      this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+        task_id: taskId,
+        error_type: "reconnect_failed",
+        ...classifySessionStartError(errorMessage),
+      });
       this.setErrorSession(
         taskId,
         taskRunId,

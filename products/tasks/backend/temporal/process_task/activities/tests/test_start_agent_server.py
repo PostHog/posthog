@@ -668,6 +668,26 @@ def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> Non
     assert _resolve_protected_base_branch(context) == expected
 
 
+@pytest.mark.parametrize(
+    "stack_base_branch,expected",
+    [
+        # A stacked run starts on the lower layer's head: protect that head as the PR base.
+        ("posthog-self-driving/layer-one-abc123", "posthog-self-driving/layer-one-abc123"),
+        # The marker names another branch, so the run moved on and the open PR lookup decides.
+        ("posthog-self-driving/other-def456", "master"),
+    ],
+)
+def test_resolve_protected_base_branch_for_stacked_run(mocker, stack_base_branch, expected) -> None:
+    _mock_github_integration(mocker, pr_base="master")
+    context = _context(
+        github_integration_id=42,
+        repository="PostHog/posthog",
+        branch="posthog-self-driving/layer-one-abc123",
+        state={"stack_base_branch": stack_base_branch},
+    )
+    assert _resolve_protected_base_branch(context) == expected
+
+
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
     get = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",

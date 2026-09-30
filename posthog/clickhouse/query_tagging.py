@@ -289,6 +289,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         case (
             NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
             | NodeKind.MCP_MODEL_BREAKDOWN_QUERY
+            | NodeKind.MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALLS_AND_ERRORS_QUERY
             | NodeKind.MCP_TOOL_TOP_USERS_QUERY
@@ -539,6 +540,14 @@ class QueryTags(BaseModel):
     contains_user_hogql: Optional[bool] = None
 
     hogql_features: Optional[HogQLFeatures] = None
+
+    # Structural hash of the HogQL AST with literals stripped (posthog/hogql/cost/fingerprint.py), so
+    # query_log can group actual cost by plan shape and join it to the estimate recorded below.
+    plan_fingerprint: Optional[str] = None
+    # Set by the HogQL cost planner before execution and compared against read_rows / read_bytes in
+    # query_log to calibrate it. None until the estimator runs.
+    estimated_rows: Optional[int] = None
+    estimated_bytes: Optional[int] = None
 
     modifiers: Optional[object] = None
     number_of_entities: Optional[int] = None

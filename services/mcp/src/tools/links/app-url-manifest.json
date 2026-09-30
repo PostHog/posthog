@@ -239,6 +239,21 @@
         "params": [],
         "scope": "global"
     },
+    "autoresearch": {
+        "template": "/autoresearch",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchNew": {
+        "template": "/autoresearch/new",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchPipeline": {
+        "template": "/autoresearch/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "batchExport": {
         "template": "/pipeline/batch-exports/{id}",
         "params": ["id"],
@@ -271,6 +286,11 @@
     },
     "businessKnowledge": {
         "template": "/business-knowledge",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgePlayground": {
+        "template": "/business-knowledge/playground",
         "params": [],
         "scope": "project"
     },
@@ -682,6 +702,11 @@
     "errorTrackingIssue": {
         "template": "/error_tracking/{id}",
         "params": ["id"],
+        "scope": "project"
+    },
+    "etlOverview": {
+        "template": "/etl",
+        "params": [],
         "scope": "project"
     },
     "event": {

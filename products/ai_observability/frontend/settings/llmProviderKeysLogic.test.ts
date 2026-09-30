@@ -16,6 +16,9 @@ describe('normalizeLLMProvider', () => {
         ['zeabur ai hub', 'zeabur'],
         ['zeabur-ai-hub', 'zeabur'],
         ['zeabur', 'zeabur'],
+        ['openai-compatible', 'openai_compatible'],
+        ['openai compatible', 'openai_compatible'],
+        ['openai_compatible', 'openai_compatible'],
         ['openai', 'openai'],
     ])('maps %s to %s', (input, expected) => {
         expect(normalizeLLMProvider(input)).toBe(expected)

@@ -50,6 +50,12 @@ class TestWrapClickhouseQueryError:
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
             ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
+            (
+                491,
+                "UNACCEPTABLE_URL",
+                "PostHog can't read from this storage host. Check the files URL pattern on the table points at "
+                "S3, Google Cloud Storage, Cloudflare R2, or Azure Blob Storage.",
+            ),
         ]
     )
     def test_fixed_message_codes_hide_raw_clickhouse_text(self, code: int, name: str, message: str) -> None:

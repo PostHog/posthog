@@ -139,7 +139,9 @@ class ExperimentSavedMetricService:
 
         if existing_uuid:
             normalized_query["uuid"] = existing_uuid
-        elif not incoming_uuid:
+        else:
+            # A caller promoting an inline metric sends its uuid; keeping it would make the
+            # shared metric and the inline one read each other's results.
             normalized_query["uuid"] = str(uuid4())
 
         return normalized_query

@@ -72,6 +72,7 @@ from posthog.schema import (
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
     MCPModelBreakdownQuery,
+    MCPProtocolVersionBreakdownQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
@@ -159,7 +160,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
-from posthog.event_usage import AnalyticsProps, groups, report_team_action, report_user_or_team_action
+from posthog.event_usage import AnalyticsProps, EventSource, groups, report_team_action, report_user_or_team_action
 from posthog.exceptions import APIQueriesBudgetExceeded, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
@@ -193,7 +194,9 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHE_COUNTER,
     QUERY_FAILURE_CACHING_FLAG,
     Budget,
+    QueryFailureCache,
     QueryFailureRecord,
+    WarmingQueryFailureCache,
 )
 from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_COUNTER,
@@ -351,6 +354,7 @@ class QueryRun:
             "execution_mode": self.execution_mode.value,
             "query_type": self.query_type,
             "cache_key": self.cache_key,
+            "request_trigger": self.trigger,
         }
 
 
@@ -584,6 +588,7 @@ RunnableQueryNode = Union[
     MetricsQuery,
     MCPHarnessBreakdownQuery,
     MCPModelBreakdownQuery,
+    MCPProtocolVersionBreakdownQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolTopUsersQuery,
@@ -1297,6 +1302,17 @@ def get_query_runner(
 
         return MCPModelBreakdownQueryRunner(
             query=cast(MCPModelBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPProtocolVersionBreakdownQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPProtocolVersionBreakdownQueryRunner
+
+        return MCPProtocolVersionBreakdownQueryRunner(
+            query=cast(MCPProtocolVersionBreakdownQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -2430,6 +2446,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             raise
 
                     cache_manager = QueryCache(
+                        failure_cache=(
+                            WarmingQueryFailureCache(cache_key)
+                            if analytics_props is not None
+                            and analytics_props.get("source") == EventSource.CACHE_WARMING
+                            else QueryFailureCache(cache_key)
+                        ),
                         team_id=self.team.pk,
                         cache_key=cache_key,
                         insight_id=insight_id,
@@ -2852,6 +2874,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # validation is a failed run that published nothing.
             response = CachedResponse(**fresh_response_dict)
 
+            stored = False
             if cacheable:
                 with self.timings.measure("cache_write"):
                     stored = cache_manager.store_result(
@@ -2878,6 +2901,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_executed_props = {
                 **query_run.event_properties(),
                 "cache_hit": False,
+                "last_refresh": last_refresh.isoformat(),
+                "cache_write_success": stored,
                 "cache_age_override": getattr(self, "_cache_age_override", None),
                 "calculation_trigger": query_run.trigger,
                 "response_time_ms": query_run.elapsed_ms(),

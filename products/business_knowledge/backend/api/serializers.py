@@ -29,6 +29,7 @@ from ..models import (
     SafetyVerdict,
     SourceType,
 )
+from ..sandbox import SandboxPollStatus, SandboxToolName
 
 
 def _derive_scope_globs(url: str) -> list[str]:
@@ -664,3 +665,92 @@ class BusinessKnowledgeSettingsUpdateSerializer(serializers.Serializer):
         if value and not bool(getattr(self.context.get("team"), "conversations_enabled", False)):
             raise serializers.ValidationError("Turn on Support to learn from resolved tickets.")
         return value
+
+
+class SandboxQuestionSerializer(serializers.Serializer):
+    question = serializers.CharField(
+        max_length=4_000,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters.",
+    )
+
+
+class SandboxRunStartedSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Sandbox task id. Poll this id until the run finishes.")
+    run_id = serializers.UUIDField(help_text="Run id for this question.")
+
+
+class SandboxSourceSerializer(serializers.Serializer):
+    ref = serializers.CharField(help_text="Source reference the reply relies on.")
+    excerpt = serializers.CharField(help_text="Short excerpt that supports the reply.")
+
+
+class SandboxSearchSerializer(serializers.Serializer):
+    tool = serializers.ChoiceField(
+        choices=SandboxToolName.choices,
+        help_text="Business knowledge tool the agent called.",
+    )
+    input = serializers.CharField(help_text="Tool input the agent sent.")
+
+
+class SandboxRunSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Sandbox task id.")
+    run_id = serializers.UUIDField(help_text="Latest run id for this task.")
+    status = serializers.ChoiceField(
+        choices=SandboxPollStatus.choices,
+        help_text="running while the agent works. completed carries reply and sources. failed and cancelled carry error.",
+    )
+    reply = serializers.CharField(
+        allow_null=True,
+        help_text="Answer text when status is completed. Null otherwise.",
+    )
+    sources = SandboxSourceSerializer(
+        many=True,
+        help_text="Sources cited in a completed answer. Empty when the run has not completed.",
+    )
+    searches = SandboxSearchSerializer(
+        many=True,
+        help_text="Business knowledge search and window calls observed in the run log.",
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text="Why the run did not produce an answer. Null while running and on a completed answer.",
+    )
+    docs_search_called = serializers.BooleanField(
+        help_text="True when the run log contains an exact docs-search call. That tool is not granted to this sandbox.",
+    )
+
+
+class PlaygroundChatListSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Playground chat id.")
+    title = serializers.CharField(
+        help_text="First question, truncated. Empty until someone asks.",
+    )
+    created_at = serializers.DateTimeField(help_text="When this chat was created.")
+    updated_at = serializers.DateTimeField(help_text="When this chat was last asked in.")
+    has_open_turn = serializers.BooleanField(
+        help_text="True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes.",
+    )
+
+
+class PlaygroundTurnSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Turn id.")
+    question = serializers.CharField(help_text="Question that started this turn's sandbox run.")
+    task_id = serializers.UUIDField(help_text="Sandbox task id for this turn.")
+    position = serializers.IntegerField(help_text="Order of this turn in the chat, starting at 0.")
+    run = SandboxRunSerializer(
+        allow_null=True,
+        help_text="Current sandbox run for this turn. Null when the run cannot be loaded.",
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text="Why this turn could not be loaded. Null when run is present.",
+    )
+
+
+class PlaygroundChatSerializer(PlaygroundChatListSerializer):
+    turns = PlaygroundTurnSerializer(
+        many=True,
+        help_text="Questions in this chat, oldest first. Each turn's answer comes from its sandbox run.",
+    )

@@ -7,13 +7,13 @@ from typing import Literal, get_args
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
 # WARNING: Make sure to keep in sync with the frontend!
-# - frontend/src/lib/scopes.tsx
+# - frontend/src/lib/scopes.tsx (an `API_SCOPES` row and a group in `API_SCOPE_GROUPS`)
 # - frontend/src/types.ts (`export type APIScopeObject`)
 #
 # The MCP `OAUTH_SCOPES_SUPPORTED` list at
 # `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
-# `get_scope_descriptions()` below via `bin/build-mcp-oauth-scopes.py`. Run
-# `hogli build:openapi` to regenerate after editing this file.
+# `get_scope_descriptions()` below via `posthog/scopes_projection.py`. Run
+# `hogli build:projections` to regenerate after editing this file.
 APIScopeObject = Literal[
     "action",
     "access_control",
@@ -91,6 +91,7 @@ APIScopeObject = Literal[
     "mcp_registry",
     "metrics",
     "notebook",
+    "offline_evaluation_ingestion",
     "organization",
     "organization_integration",
     "organization_member",
@@ -136,6 +137,7 @@ APIScopeObject = Literal[
     "web_analytics",
     "webhook",
     "wizard_session",
+    "wizard_run",
 ]
 
 
@@ -210,6 +212,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "wizard_session",
+        "wizard_run",
         "query_performance",
         # Staff-only managed-migrations (batch import) support diagnostics, also gated by
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
@@ -229,6 +232,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Gated on a PSAK so the team-wide secret_api_token (readable by any project member)
     # can't be used to sidestep per-user account access controls.
     ("account", "read"),
+    # Lets a service create customer analytics accounts through the external account POST.
+    # Updates on that route stay team-token only.
+    ("account", "write"),
     # First write-capable PSAK scope: lets a service credential fire a loop via
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
     # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
@@ -236,6 +242,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
+    ("offline_evaluation_ingestion", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
@@ -329,7 +336,7 @@ def downgrade_scopes_to_read_only(scope_str: str) -> str:
 # These match what django-oauth-toolkit's OIDC layer accepts at the /authorize
 # endpoint. Duplicating the list as plain tuple (rather than importing from
 # oauth_toolkit) keeps `posthog.scopes` importable without Django setup, which
-# the MCP codegen relies on (see `bin/build-mcp-oauth-scopes.py`).
+# the MCP projection relies on (see `posthog/scopes_projection.py`).
 OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 
 
@@ -412,6 +419,15 @@ def grantable_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
 
 def _with_read_halves(scopes: frozenset[str]) -> frozenset[str]:
     return frozenset(scopes | {scope.replace(":write", ":read") for scope in scopes if scope.endswith(":write")})
+
+
+def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str]) -> list[str]:
+    """The required scopes that the held scopes do not cover, in the order given. A `:write` scope
+    covers the matching `:read`. APIScopePermission and project secret API key issuance share this
+    rule, so an issued key cannot get a scope that the issuing credential cannot use. Callers handle
+    `*` themselves, because APIScopePermission does not let `*` reach INTERNAL scope objects."""
+    covered = _with_read_halves(frozenset(held_scopes))
+    return [scope for scope in required_scopes if scope not in covered]
 
 
 def scopes_within_ceiling(
@@ -603,7 +619,7 @@ def get_oauth_scopes_supported() -> list[str]:
 
     Used by the authorization server's `/.well-known/oauth-authorization-server`
     endpoint and by the MCP server's `/.well-known/oauth-protected-resource`
-    (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
+    (the latter generated at build time via `posthog/scopes_projection.py` so
     the protected resource cannot drift out of subset of the AS).
 
     Resource scopes are built from `UNPRIVILEGED_SCOPES`, so the list excludes

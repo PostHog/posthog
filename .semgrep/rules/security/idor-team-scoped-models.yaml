@@ -61,6 +61,7 @@ rules:
                               |AccountRelationshipControl
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
+                              |AccountView
                               |Action
                               |AEOCitationCheck
                               |AEOPrompt
@@ -115,6 +116,7 @@ rules:
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |Comment
+                              |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
@@ -135,7 +137,6 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
-                              |DashboardSavedView
                               |DashboardTemplate
                               |DashboardWidget
                               |DataColorTheme
@@ -252,6 +253,8 @@ rules:
                               |KnowledgeGapSuggestion
                               |KnowledgeLearningRun
                               |KnowledgeSource
+                              |PlaygroundChat
+                              |PlaygroundTurn
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -499,6 +502,7 @@ rules:
                         |AccountRelationshipControl
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
+                        |AccountView
                         |Action
                         |AgentApplication
                         |AgentArtifact
@@ -551,6 +555,7 @@ rules:
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |Comment
+                        |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
@@ -571,7 +576,6 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |Dashboard
-                        |DashboardSavedView
                         |DashboardTemplate
                         |DashboardWidget
                         |DataColorTheme
@@ -685,6 +689,8 @@ rules:
                         |KnowledgeGapSuggestion
                         |KnowledgeLearningRun
                         |KnowledgeSource
+                        |PlaygroundChat
+                        |PlaygroundTurn
                         |Link
                         |LiveDebuggerBreakpoint
                         |Loop
@@ -963,6 +969,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
                               |Plugin
@@ -1039,6 +1046,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
                         |Plugin

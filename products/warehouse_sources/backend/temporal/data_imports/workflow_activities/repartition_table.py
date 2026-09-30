@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     is_auto_coarsen_enabled,
     is_auto_repartition_enabled,
     maybe_flag_for_repartition,
+    needs_pre_extraction_detection,
     target_partition_bytes,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -201,28 +202,6 @@ def _target_from_schema(schema: ExternalDataSchema) -> RepartitionTarget:
         partition_count=schema.partition_count,
         partition_size=schema.partition_size,
     )
-
-
-def _needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -> bool:
-    """Whether to read the live on-disk partition sizes to decide if a repartition is needed.
-
-    We deliberately do NOT gate on the recorded `max_partition_bytes`. That value is only refreshed by
-    post-load detection, so for a table whose merge OOMs before post-load it goes stale and can sit far
-    below the true partition size — precisely the tables this path exists to rescue (e.g. a partition
-    that has since grown to many GB while the recorded value still reads a few hundred MB). Instead,
-    whenever the rollout flag is on (a targeted set of schemas) and the table isn't CDC-excluded, we
-    read the live partition sizes from the Delta log each run and let `maybe_flag_for_repartition` judge
-    against the real, current size. The cost is one metadata-only Delta-log read per sync, bounded to
-    flagged schemas; a disabled flag still short-circuits to a zero-I/O no-op.
-
-    A table nominated for coarsening is measured whether or not the rollout flag covers it, since the
-    nomination is the operator asking for exactly this measurement. CDC stays excluded either way.
-    """
-    if schema.sync_type == ExternalDataSchema.SyncType.CDC:
-        return False
-    if schema.coarsen_requested is not None:
-        return True
-    return enabled
 
 
 def _maybe_flag_pre_extraction(
@@ -372,7 +351,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (flag off, or
     # CDC). Return here — before fetching the job and reading the delta log — so the common healthy
     # invocation avoids all on-disk I/O. Flagged tables fall through and measure the live size below.
-    if pending is None and swap is None and not _needs_pre_extraction_detection(schema, enabled):
+    if pending is None and swap is None and not needs_pre_extraction_detection(schema, enabled):
         logger.info("repartition: nothing queued and no detection needed, nothing to do")
         return
 
@@ -440,23 +419,35 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # the only intact copy, and `_give_up` clears the marker that points at it. A ready swap has to be
     # completed however many attempts it took to get here.
     if swap is None and _exhausted_attempts(pending, inputs.job_id):
-        # A killed attempt that still moved the checkpoint on is forward progress, not evidence the
-        # rewrite is doomed, which is the distinction `_handle_budget_exceeded` already draws for an
-        # attempt that ran out of budget. The checkpoint is the only signal available here, because a
-        # killed attempt records no outcome of its own. Otherwise a large table that converges one
-        # worker death per sync is abandoned at the cap, and `_give_up` discards its progress too.
-        if _last_run_advanced_rewrite(schema, pending):
-            logger.warning(
-                f"repartition: attempts are spent but the rewrite advanced to "
-                f"{_rewrite_rows_written(schema)} rows, resetting the count and resuming "
-                f"schema_id={schema.id}",
-                schema_id=str(schema.id),
-                rewrite_rows=_rewrite_rows_written(schema),
-            )
-            pending = _clear_attempts_after_progress(schema, pending, logger)
-        else:
-            _give_up(inputs, schema, pending, trigger_reason, logger)
-            return
+        # Re-read the markers before acting on them. They were read before the job fetch and the
+        # Delta-log work above, and the attempts that got us here are by definition ones that died
+        # without recording an outcome — a heartbeat timeout among them leaves a predecessor still
+        # running across that window, which is what the fresh claim `_give_up` stakes is for. Each
+        # marker write persists the whole in-memory `sync_type_config`, so deciding on the stale copy
+        # would erase a swap the predecessor staged in between: the only record of which scheme the
+        # data on disk carries, and the marker that holds this schema's imports until it resolves.
+        schema.refresh_from_db(fields=["sync_type_config"])
+        swap = schema.repartition_swap
+        pending = schema.repartition_pending or pending
+        if swap is None and _exhausted_attempts(pending, inputs.job_id):
+            # A killed attempt that still moved the checkpoint on is forward progress, not evidence
+            # the rewrite is doomed, which is the distinction `_handle_budget_exceeded` already draws
+            # for an attempt that ran out of budget. The checkpoint is the only signal available here,
+            # because a killed attempt records no outcome of its own. Otherwise a large table that
+            # converges one worker death per sync is abandoned at the cap, and `_give_up` discards its
+            # progress too.
+            if _last_run_advanced_rewrite(schema, pending):
+                logger.warning(
+                    f"repartition: attempts are spent but the rewrite advanced to "
+                    f"{_rewrite_rows_written(schema)} rows, resetting the count and resuming "
+                    f"schema_id={schema.id}",
+                    schema_id=str(schema.id),
+                    rewrite_rows=_rewrite_rows_written(schema),
+                )
+                pending = _clear_attempts_after_progress(schema, pending, logger)
+            else:
+                _give_up(inputs, schema, pending, trigger_reason, logger)
+                return
 
     # Never while a swap is staged: that recovery runs no rewrite, so the checkpoint says nothing
     # about it, and temp is the only intact copy until it completes.

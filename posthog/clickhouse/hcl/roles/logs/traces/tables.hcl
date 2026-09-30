@@ -331,14 +331,14 @@ database "posthog" {
       type        = "bloom_filter(0.001)"
       granularity = 16
     }
-    index "idx_trace_bloom_part" {
+    index "idx_trace_bloom_part_v2" {
       expr        = "trace_id"
-      type        = "bloom_filter(0.00001)"
+      type        = "bloom_filter(0.05)"
       granularity = 99999
     }
-    index "idx_span_id_bloom_part" {
+    index "idx_span_id_bloom_part_v2" {
       expr        = "span_id"
-      type        = "bloom_filter(0.00001)"
+      type        = "bloom_filter(0.05)"
       granularity = 99999
     }
     projection "projection_index_span_id" {

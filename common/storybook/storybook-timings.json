@@ -863,14 +863,6 @@
         "chromium": 9.689,
         "webkit": 4.325
     },
-    "frontend/src/scenes/experiments/stories/ExperimentWithLegacyFunnelsQuery.stories.tsx": {
-        "chromium": 9.746,
-        "webkit": 2.001
-    },
-    "frontend/src/scenes/experiments/stories/ExperimentWithLegacyTrendsQuery.stories.tsx": {
-        "chromium": 10.345,
-        "webkit": 2.109
-    },
     "frontend/src/scenes/experiments/stories/ExperimentWithMeanMetric.stories.tsx": {
         "chromium": 8.934,
         "webkit": 1.958

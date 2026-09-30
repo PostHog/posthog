@@ -3474,9 +3474,11 @@ class TestContinueAsNew:
             process_task_workflow_module.workflow, "info", Mock(return_value=Mock(start_time=chain_start))
         )
         wf = self._idle_enabled_workflow()
+        wf.context.sandbox_backend = "hogland"
         wf._sandbox_url = "https://sandbox.example"
         wf._sandbox_connect_token = "tok"
         wf._ci_repetitions = 2
+        wf._ci_idle_skips = 1
         wf._pr_fingerprint = "fp-1"
         wf._pr_progress_emitted = True
         wf._ci_resume_snapshot_created = True
@@ -3505,11 +3507,14 @@ class TestContinueAsNew:
         rs = resumed_input.resumed_sandbox
         assert rs is not None
         assert (rs.sandbox_id, rs.sandbox_url, rs.connect_token) == ("sb-1", "https://sandbox.example", "tok")
+        assert rs.sandbox_backend == "hogland"
 
         restored = ProcessTaskWorkflow()
+        restored._context = dataclasses.replace(wf.context)
         restored._restore_resumed_state(rs)
 
         assert restored._ci_repetitions == 2
+        assert restored._ci_idle_skips == 1
         assert restored._pr_fingerprint == "fp-1"
         assert restored._pr_progress_emitted is True
         assert restored._ci_resume_snapshot_created is True

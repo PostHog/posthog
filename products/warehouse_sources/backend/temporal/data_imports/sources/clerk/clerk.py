@@ -252,8 +252,10 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
     # The key rides in the Authorization header, which http.client encodes as latin-1. A character
     # outside that range raises UnicodeEncodeError mid-request, so reject it as user input rather
-    # than letting the encoding error surface.
-    if not secret_key.isascii():
+    # than letting the encoding error surface. A carriage return or newline is ASCII but still
+    # breaks the header (requests raises InvalidHeader), which happens when someone pastes a whole
+    # multi-line snippet — e.g. a .env file — into the secret key field instead of just the key.
+    if not secret_key.isascii() or "\r" in secret_key or "\n" in secret_key:
         return False, _UNSUPPORTED_CHARACTER_MESSAGE
 
     url = "https://api.clerk.com/v1/users"

@@ -39,6 +39,11 @@ _OP_RETURN = 38
 PARSE_ERROR = "parse_error"
 
 EMITTING_CLASSES = frozenset({SINGLE_LEAF, STAGE2_COMPOSABLE, STAGE2_COMPOSABLE_REF})
+# Decided from the cohort's own tree. The reference classes depend on other cohorts, so they are left
+# out, which is the line `composability` draws in `rust/cohort-seeder/src/domain/pinned.rs`.
+_STRUCTURAL_EXCLUSIONS = frozenset(
+    {EXCLUDED_HAS_DROPPED_LEAF, EXCLUDED_EMPTY_GROUP, EXCLUDED_TOP_LEVEL_NEGATION, EXCLUDED_NOT_MULTI_LEAF}
+)
 
 _INTERVAL_DAYS = {"minute": 0, "hour": 0, "day": 1, "week": 7, "month": 30, "year": 365}
 _INTERVAL_SECONDS = {"minute": 60, "hour": 3_600}
@@ -279,8 +284,29 @@ def _classify_leaf(node: Mapping[str, Any]) -> Union[_Leaf, str]:
     return "unknown_leaf_type"
 
 
+def leaf_drop_reason(node: Mapping[str, Any]) -> Optional[str]:
+    """The catalog's drop label for a leaf the frozen catalog refuses, or ``None`` when it keeps it.
+
+    A cohort reference counts as kept: whether the cohort composes then depends on the reference
+    target, which one leaf cannot answer.
+
+    Public so the backfill seedability gate (``backfill/pinning.py``) reads this mirror rather than
+    keeping a looser copy of the classifier's rules.
+    """
+    classified = _classify_leaf(node)
+    return classified if isinstance(classified, str) else None
+
+
 def _explicit_negation(node: Mapping[str, Any]) -> bool:
     return node.get("negation") is True
+
+
+def is_action_key(key: Any) -> bool:
+    """Whether a behavioral leaf's ``key`` is an action id, which the catalog drops.
+
+    Public so the backfill pinner marks a leaf action-keyed exactly when this classifier drops it.
+    """
+    return isinstance(key, (int, float)) and not isinstance(key, bool)
 
 
 def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
@@ -288,7 +314,7 @@ def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
     if value not in ("performed_event", "performed_event_multiple"):
         return "unsupported_behavioral_value"
     key = node.get("key")
-    if isinstance(key, (int, float)) and not isinstance(key, bool):
+    if is_action_key(key):
         return "behavioral_action_key"
     if not _valid_condition_hash(node.get("conditionHash")):
         return "missing_condition_hash"
@@ -407,6 +433,19 @@ def _classify_cohort(parsed: _Parsed) -> str:
     if flags.state_keyed_leaf_count >= 2:
         return STAGE2_COMPOSABLE
     return EXCLUDED_NOT_MULTI_LEAF
+
+
+def structural_exclusion(filters: Any) -> Optional[str]:
+    """The class of a cohort its own tree keeps out of composition, or ``None``.
+
+    Public so the backfill seedability gate refuses the cohorts the seeder fails a run over, such as
+    a negated root, which has no dropped leaf for a per-leaf screen to find.
+    """
+    parsed = _parse_cohort(filters)
+    if parsed is None:
+        return None
+    eligibility = _classify_cohort(parsed)
+    return eligibility if eligibility in _STRUCTURAL_EXCLUSIONS else None
 
 
 def _find_cycles(edges: Mapping[int, set[int]]) -> set[int]:

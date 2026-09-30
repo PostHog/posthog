@@ -43,6 +43,8 @@ export interface TurnContext {
   turnComplete: boolean;
   /** From the prompt response; null when the agent reported no gateway trace. */
   traceId?: string | null;
+  /** True for a turn with no user prompt behind it (e.g. background setup activity). */
+  isImplicit?: boolean;
 }
 
 export type ConversationItem =
@@ -1161,6 +1163,7 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
     childItems,
     turnCancelled: false,
     turnComplete: false,
+    isImplicit: true,
   };
 
   b.currentTurn = {

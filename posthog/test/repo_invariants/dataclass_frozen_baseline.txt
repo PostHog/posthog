@@ -120,9 +120,7 @@
 1 products/data_warehouse/backend/logic/webhook_consumer/config.py
 1 products/demo/backend/logic/products/hedgebox/matrix.py
 1 products/error_tracking/backend/hogql_queries/error_tracking_issue_correlation_query_runner.py
-1 products/error_tracking/backend/logic/symbol_sets.py
 1 products/error_tracking/backend/temporal/weekly_digest/test/test_weekly_digest_temporal.py
-1 products/experiments/backend/hogql_queries/metric_source.py
 1 products/experiments/backend/running_time_calculator.py
 1 products/experiments/stats/frequentist/method.py
 1 products/experiments/stats/frequentist/tests.py
@@ -215,7 +213,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/cdc/workflows.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/core/delta/memory_governor.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_sync.py
-1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/batch_consumer.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/load/retry_tracker.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/messages.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/s3/common.py
@@ -571,12 +568,8 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fireworks_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/first_promoter/first_promoter.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/first_promoter/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flagsmith/flagsmith.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flagsmith/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fleetio/fleetio.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fleetio/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flexmail/flexmail.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flexmail/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/float_app/float_app.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/float_app/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/flowlu/flowlu.py
@@ -595,7 +588,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/freshchat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshdesk/freshdesk.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/freshdesk/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshsales/freshsales.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshsales/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshservice/freshservice.py
@@ -1340,9 +1332,9 @@
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/calculate_table_size.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/check_billing_limits.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/compute_table_statistics.py
-1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/create_job_model.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/repartition_table.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/sync_new_schemas.py
+1 products/warehouse_sources_queue/backend/core/batch_consumer.py
 1 products/web_analytics/backend/hogql_queries/bot_definitions.py
 1 products/web_analytics/backend/hogql_queries/test/test_page_reports_avg_time.py
 1 products/web_analytics/backend/hogql_queries/test/test_web_stats_table.py
