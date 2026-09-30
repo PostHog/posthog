@@ -1297,8 +1297,8 @@ describe('PersonHogClient HTTP/2 windows', () => {
                     const poll = (): void => {
                         if (session.state.remoteWindowSize === expectedConnection || Date.now() > deadline) {
                             resolve({
-                                stream: session.remoteSettings.initialWindowSize,
-                                connection: session.state.remoteWindowSize,
+                                stream: session.remoteSettings.initialWindowSize ?? -1,
+                                connection: session.state.remoteWindowSize ?? -1,
                             })
                         } else {
                             setImmediate(poll)
