@@ -81,6 +81,19 @@ function findExpressionProp(tagSource: string, name: string): { start: number; e
     return null
 }
 
+export function readExpressionProp(tagSource: string, name: string): unknown {
+    const expression = findExpressionProp(tagSource, name)
+    if (!expression) {
+        return null
+    }
+    const segment = tagSource.slice(expression.start, expression.end)
+    try {
+        return JSON.parse(segment.slice(`${name}={`.length, -1))
+    } catch {
+        return null
+    }
+}
+
 export function serializePropValue(value: unknown): string {
     if (typeof value === 'string') {
         return JSON.stringify(value)
