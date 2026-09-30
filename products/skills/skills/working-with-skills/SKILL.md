@@ -388,7 +388,7 @@ After the create, the skill is live for everyone via `skill-get`.
 
 ## Patterns: what to use skills for
 
-A skill in the store is a shared, versioned memory that agents can write back to.
+A skill in the store is a shared, versioned memory that agents with write access can update.
 That makes it useful for much more than instructions: a project hub that agents maintain across sessions, a catalog of the PostHog objects a team owns, a runbook that grows with every investigation, a daily "what needs me" queue, or a handover a teammate's agent can load directly.
 
 [`references/skill-patterns.md`](references/skill-patterns.md) is a cookbook of these shapes, with a file layout, a maintenance contract, and a starting point for each.

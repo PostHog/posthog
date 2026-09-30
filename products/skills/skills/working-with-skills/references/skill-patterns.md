@@ -5,7 +5,7 @@ Most useful skills are a variation on one of these.
 Pick the closest shape, copy its file layout and maintenance contract, and adapt it to the job.
 
 A skill in the store is more than a prompt.
-It is a small, versioned, shared memory that any agent on any surface (a local coding agent, a cloud task, Slack, PostHog Desktop) can load by name, and that agents can write back to.
+It is a small, versioned, shared memory that any agent on any surface (a local coding agent, a cloud task, Slack, PostHog Desktop) can load by name, and that agents with write access can update.
 The patterns below lean on those three properties: **shared**, **versioned**, and **agent-writable**.
 
 This is a living reference.
