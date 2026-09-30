@@ -2879,6 +2879,25 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('delete and restore', () => {
+        it.each([
+            ['deleting', () => logic.actions.deleteFeatureFlag(MOCK_FEATURE_FLAG), { deleted: true }],
+            ['restoring', () => logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG), { deleted: false }],
+        ])('sends only deleted when %s, so the description is not overwritten', async (_name, act, body) => {
+            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue(MOCK_FEATURE_FLAG)
+            try {
+                await expectLogic(logic, act).toFinishAllListeners()
+
+                expect(updateSpy).toHaveBeenCalledWith(
+                    `api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}`,
+                    body
+                )
+            } finally {
+                updateSpy.mockRestore()
+            }
+        })
+    })
+
     describe('updateFeatureFlagArchived archive telemetry', () => {
         // One test here rejects the archive request on purpose; kea-loaders would log the failure
         beforeEach(silenceKeaLoadersErrors)
