@@ -1,6 +1,6 @@
 # Hand off when you cannot edit the repository
 
-Loaded from step 8 of `SKILL.md` when repository writes are unavailable.
+Loaded from the "Hand off when you cannot edit the repository" section of `SKILL.md` when repository writes are unavailable.
 This file restates parts of steps 3, 6 and 8. A change to either copy needs the same change to the other.
 
 When you cannot edit the repository, generate a cleanup prompt the user can run in their code editor or coding agent.
@@ -16,17 +16,30 @@ interpolate a value only when it matches `^[a-zA-Z0-9_./:-]+$`.
 Flag keys always match (the server enforces a subset of this); variant keys may not.
 For any other value, including a key with spaces, stop and show the user the flag instead of generating the prompt;
 they can pass the value to their coding agent themselves.
-Carry the state you assessed into the prompt as a line of its own, below the opening block:
-"Assessed state: version 12, updated_at 2026-02-12T10:15:00Z, rollout: fully rolled out boolean at 100%."
-Without it the receiving agent has nothing to compare its own pre-edit read against, so the check below cannot fire.
-A `version` and an ISO `updated_at` both match the allowlist above. Write the rollout summary in your own words from step 4.
-When the definition carries no `version`, write "version: none" rather than leaving the field out.
+Give every flag its own block, and open each block with that flag's assessed state and tour answer:
 
-Carry step 2's product-tour answer into the prompt as a line of its own, below the opening block, with the date the user gave it:
-"Product tour usage: on 2026-02-14 the user confirmed that no product tour uses this flag."
-The date is what lets the receiving agent judge how old the answer is, so an answer without one does not help.
-When you have no answer, write that in the same place. Do not leave the line out, because a missing line reads
-as nothing to check. The answer is evidence the receiving agent starts from, and not clearance to remove the flag.
+```text
+For flag "example-flag":
+- Assessed state: version 12, updated_at 2026-02-12T10:15:00Z, rollout: fully rolled out boolean at 100%
+- Product tour usage: on 2026-02-14 the user confirmed that no product tour uses "example-flag"
+- Assessment made on: 2026-02-14
+```
+
+A prompt can cover several flags, so these lines go inside each flag's block rather than under the opening
+text. One shared state line makes the receiving agent compare the second flag against the first flag's state.
+Without the state at all it has nothing to compare its own pre-edit read against, so the check cannot fire.
+
+A `version` and an ISO `updated_at` both match the allowlist above. Write the rollout summary in your own
+words from step 4. When the definition carries no `version`, write "version: none" rather than leaving the
+field out.
+
+The tour answer needs the date the user gave it, because that is what lets the receiving agent judge how old
+the answer is. When you have no answer, write that in the same place. Do not leave the line out, because a
+missing line reads as nothing to check. The answer is evidence the receiving agent starts from, and not
+clearance to remove the flag.
+
+"Assessment made on" is the date you generated this prompt. `updated_at` does not carry it: that is when the
+flag last changed, so a prompt written today and one written a month ago look the same without it.
 
 Still quote every interpolated value, and open the generated prompt with:
 
@@ -59,7 +72,9 @@ Compare the version, the update time, and the rollout summary against the assess
 If any of the three differs, do not edit. Ask for a refreshed assessment instead.
 Both creation and update dates must be at least 30 days old, including metadata-only updates. Do not offer an override.
 If an exclusion applies, stop and report the missing evidence or time remaining.
-If you cannot read PostHog, ask for a refreshed assessment instead of assuming this prompt is still current.
+If you cannot read PostHog yourself, do not assume this prompt is still current. Ask the user to open the flag
+in PostHog and confirm its version, update time and rollout against the assessed state above, once before your
+first edit and again before you push. Their confirmation stands in for the read. Without it, remove nothing.
 A product tour can link this flag, and no tool reports the link, so only a person can answer whether one does.
 Any tour answer below was given on the date it names, and this prompt can reach you long after that.
 Ask the user to confirm that no product tour uses the flag, and wait for the answer before you remove any code.
@@ -123,3 +138,6 @@ the setup, the permission, or the code fix. Do not offer to bypass them.
 ```
 
 Present the full cleanup prompt in a copyable format so the user can paste it directly into Claude Code, Cursor, Copilot, or any other AI code editor.
+The receiving agent does not need PostHog access. When it has none, the prompt routes its checks through the
+user, who reads the flag in PostHog and confirms. Say that to the user when you hand the prompt over, so they
+know a question is coming.
