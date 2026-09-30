@@ -8360,6 +8360,26 @@ class TestGlobalSurveyCooldown(APIBaseTest):
         assert settled is expected_settled
         assert self._flag_wait_period(survey) == expected_flag
 
+    def test_payload_uses_each_surveys_own_environment(self) -> None:
+        self.team.survey_config = {"seenSurveyWaitPeriodInDays": 5}
+        self.team.save()
+        other_environment = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            survey_config={"seenSurveyWaitPeriodInDays": 30},
+        )
+        own_survey = self._create_survey()
+        other_survey = Survey.objects.create(
+            team=other_environment,
+            name="Other environment survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What do you think?"}],
+            start_date=datetime.now(UTC),
+        )
+
+        assert self._payload_wait_period(own_survey) == 5
+        assert self._payload_wait_period(other_survey) == 30
+
     @parameterized.expand([("negative", -1), ("too_long", 366), ("string", "7"), ("boolean", True)])
     def test_rejects_invalid_global_wait_period(self, _name: str, value: object) -> None:
         response = self.client.patch(
