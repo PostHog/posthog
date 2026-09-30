@@ -108,7 +108,7 @@ source-list-relevant is a place you must add the new product. The canonical list
 
 ### Type gates (every source)
 
-1. `packages/agent-contracts/src/inbox-types.ts` — add `"jira"` to the `SourceProduct` union.
+1. `packages/agent/packages/agent-contracts/src/inbox-types.ts` — add `"jira"` to the `SourceProduct` union.
 2. `packages/api-client/src/posthog-client.ts` — add to `SignalSourceConfig.source_product` union; add a new `source_type` value only if the record type isn't already `issue`/`ticket`.
 
 ### Live UI path (every source)
