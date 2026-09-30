@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
 
-from django.db.models import Q
+from django.db.models import Count, Q, QuerySet
 
 import pydantic
 import structlog
@@ -106,6 +106,27 @@ def _pr_merged_probabilities(report_ids: Sequence[str]) -> dict[str, float]:
     return probabilities
 
 
+def _open_reports(team_id: int) -> QuerySet[SignalReport]:
+    """The reports the briefing may show and count: open, judged actionable, not already addressed."""
+    return (
+        SignalReport.objects.filter(team_id=team_id, status__in=_OPEN_STATUSES)
+        .exclude(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
+        .exclude(latest_already_addressed=True)
+    )
+
+
+def _names_person(team_id: int, user: User) -> Q:
+    github_login = user.get_github_login()
+    return Q(
+        id__in=report_ids_naming_reviewers(
+            team_id=team_id,
+            user_uuids=[str(user.uuid)],
+            github_logins=[github_login.lower()] if github_login else [],
+            logins_match_unidentified_only=False,
+        )
+    )
+
+
 def _source_products(team_id: int, report_ids: Sequence[str]) -> dict[str, list[str]]:
     """Per report, the products its signals came from. A ClickHouse failure costs the colors, not the reports."""
     if not report_ids:
@@ -124,21 +145,8 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int 
     A report appears once, under the first relation that matches in this order: claimed by the
     person, waiting for their input, naming them as a reviewer, then a P0 that nobody owns.
     """
-    user = User.objects.get(id=user_id)
-    github_login = user.get_github_login()
-    open_reports = (
-        SignalReport.objects.filter(team_id=team_id, status__in=_OPEN_STATUSES)
-        .exclude(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
-        .exclude(latest_already_addressed=True)
-    )
-    names_me = Q(
-        id__in=report_ids_naming_reviewers(
-            team_id=team_id,
-            user_uuids=[str(user.uuid)],
-            github_logins=[github_login.lower()] if github_login else [],
-            logins_match_unidentified_only=False,
-        )
-    )
+    open_reports = _open_reports(team_id)
+    names_me = _names_person(team_id, User.objects.get(id=user_id))
     claimed = reports_with_active_claim(team_id=team_id, actor=ArtefactAttribution.from_user(user_id))
     unowned = ~reports_with_active_claim(team_id=team_id) & ~implementation_pr_report_filter(
         team_id=team_id, active_only=True
@@ -167,67 +175,55 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int 
             if key not in seen:
                 seen.add(key)
                 picked.append((relation, report))
-    picked_ids = [str(report.id) for _, report in picked]
-    priorities = _priorities(picked_ids)
-    merge_chances = _pr_merged_probabilities(picked_ids)
-    source_products = _source_products(team_id, picked_ids)
-    with_pr = set(
-        SignalReport.objects.filter(team_id=team_id, id__in=[report.id for _, report in picked])
-        .filter(implementation_pr_report_filter(team_id=team_id))
-        .values_list("id", flat=True)
-    )
-    results: list[BriefingReport] = []
+    # Priorities decide which urgent-unowned rows survive, so they load for every picked row; the
+    # other lookups only feed the rows that make it into the result.
+    priorities = _priorities([str(report.id) for _, report in picked])
+    chosen: list[tuple[BriefingReportRelation, SignalReport]] = []
     counts: dict[BriefingReportRelation, int] = {}
     for relation, report in picked:
-        priority = priorities.get(str(report.id))
-        if relation == BriefingReportRelation.URGENT_UNOWNED and priority != "P0":
+        if relation == BriefingReportRelation.URGENT_UNOWNED and priorities.get(str(report.id)) != "P0":
             continue
         if counts.get(relation, 0) >= limit_per_relation:
             continue
         counts[relation] = counts.get(relation, 0) + 1
-        results.append(
-            BriefingReport(
-                report_id=str(report.id),
-                relation=relation,
-                title=" ".join((report.title or "").split())[:200] or "Untitled report",
-                summary=" ".join((report.summary or "").split())[:_SUMMARY_LIMIT],
-                status=report.status,
-                priority=priority,
-                has_implementation_pr=report.id in with_pr,
-                source_products=source_products.get(str(report.id), []),
-                updated_at=report.updated_at,
-                pr_merged_probability=merge_chances.get(str(report.id)),
-            )
-        )
-    return results
-
-
-def open_reports_count(*, team_id: int) -> int:
-    """How many open, actionable reports the project has, the count the Today footer falls back to."""
-    return (
-        SignalReport.objects.filter(team_id=team_id, status__in=_OPEN_STATUSES)
-        .exclude(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
-        .count()
+        chosen.append((relation, report))
+    chosen_ids = [str(report.id) for _, report in chosen]
+    merge_chances = _pr_merged_probabilities(chosen_ids)
+    source_products = _source_products(team_id, chosen_ids)
+    with_pr = set(
+        SignalReport.objects.filter(team_id=team_id, id__in=chosen_ids)
+        .filter(implementation_pr_report_filter(team_id=team_id))
+        .values_list("id", flat=True)
     )
-
-
-def reports_for_me_count(*, team_id: int, user_id: int) -> int:
-    """How many open, actionable reports name this person, the count the Today footer shows."""
-    user = User.objects.get(id=user_id)
-    github_login = user.get_github_login()
-    return (
-        SignalReport.objects.filter(team_id=team_id, status__in=_OPEN_STATUSES)
-        .exclude(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
-        .filter(
-            id__in=report_ids_naming_reviewers(
-                team_id=team_id,
-                user_uuids=[str(user.uuid)],
-                github_logins=[github_login.lower()] if github_login else [],
-                logins_match_unidentified_only=False,
-            )
+    return [
+        BriefingReport(
+            report_id=str(report.id),
+            relation=relation,
+            title=" ".join((report.title or "").split())[:200] or "Untitled report",
+            summary=" ".join((report.summary or "").split())[:_SUMMARY_LIMIT],
+            status=report.status,
+            priority=priorities.get(str(report.id)),
+            has_implementation_pr=report.id in with_pr,
+            source_products=source_products.get(str(report.id), []),
+            updated_at=report.updated_at,
+            pr_merged_probability=merge_chances.get(str(report.id)),
         )
-        .count()
+        for relation, report in chosen
+    ]
+
+
+@frozen
+class OpenReportCounts:
+    for_person: int
+    in_project: int
+
+
+def open_report_counts(*, team_id: int, user: User) -> OpenReportCounts:
+    """How many open, actionable reports the project has, and how many of them name this person."""
+    row = _open_reports(team_id).aggregate(
+        in_project=Count("id"), for_person=Count("id", filter=_names_person(team_id, user))
     )
+    return OpenReportCounts(for_person=row["for_person"], in_project=row["in_project"])
 
 
 def report_states(*, team_id: int, report_ids: Sequence[str]) -> list[ReportState]:

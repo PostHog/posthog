@@ -13137,7 +13137,7 @@
         "feature_flag": "tasks"
     },
     "today-briefing-get": {
-        "description": "The current user's morning briefing for this project, as shown on the Today home page. It returns a short text about the most important items (reports assigned to the user, dashboards and insights they viewed with week-over-week changes, firing alerts, assigned support tickets and error issues, and GitHub pull requests), plus up to 10 ranked items with a label, a signal and a link. The first call of the day starts generation and returns status \"collecting\" or \"writing\"; call again after a few seconds for the \"ready\" text. Use this to answer \"what should I look at today?\".",
+        "description": "The current user's morning briefing for this project, as shown on the Today home page. It returns a short text about the most important items (reports assigned to the user, dashboards and insights they viewed with week-over-week changes, firing alerts, assigned support tickets and error issues, and GitHub pull requests), plus the up to 5 items the text names, each with a label, a signal and a link. The first call of the day starts generation and returns status \"collecting\" or \"writing\"; call again after a few seconds for the \"ready\" text. Use this to answer \"what should I look at today?\".",
         "category": "Today",
         "feature": "today",
         "summary": "Get my Today briefing",
@@ -13153,7 +13153,7 @@
         "feature_flag_behavior": "enable"
     },
     "today-candidates-list": {
-        "description": "The ranked items behind the current user's briefing, each with its source, the reason it was picked, a link, and the raw facts (for example priority, status, or last week and this week values of a metric). Use this when you need the numbers and details, not the written text. Reports rank first, then dashboards and alerts, then everything else.",
+        "description": "The ranked items behind the current user's briefing, each with its source, the reason it was picked, a link, and the raw facts (for example priority, status, or last week and this week values of a metric). Use this when you need the numbers and details, not the written text. Items of every kind are ranked together by urgency; up to 10 come back, and in_text marks the ones the briefing text names.",
         "category": "Today",
         "feature": "today",
         "summary": "List my Today candidates",

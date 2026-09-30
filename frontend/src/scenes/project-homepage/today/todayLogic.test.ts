@@ -27,7 +27,6 @@ function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
                 signal: 'P1, waits for you',
                 url: '/project/1/inbox/reports/a',
                 rank: 1,
-                in_text: true,
                 group: 'report',
                 source: 'self_driving',
                 reason: 'waiting_for_you',

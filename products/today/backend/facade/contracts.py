@@ -25,7 +25,6 @@ class BriefingItem:
     signal: str
     url: str
     rank: int
-    in_text: bool
     state: ItemState
     # For a report, the product its signals came from (error_tracking, session_replay, ...), else None.
     source_product: str | None

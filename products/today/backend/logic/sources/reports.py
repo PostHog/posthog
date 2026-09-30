@@ -44,7 +44,8 @@ def _urgency(report: signals.BriefingReport) -> int:
 
 
 def _sort_key(report: signals.BriefingReport) -> tuple[float, ...]:
-    """Relation first. Inside a relation: P0, then the higher chance of a merged PR, then priority, then newest.
+    """The tie-break among reports of one urgency: relation, then P0, then the higher chance of a
+    merged PR, then priority, then newest.
 
     A report without a score (not scored yet, or scoring is off) follows the scored ones, so with
     no scores at all the order falls back to priority.
@@ -75,11 +76,11 @@ class ReportsSource(Source):
                 url=app_url(ctx.team.id, f"inbox/{report.report_id}"),
                 urgency=_urgency(report),
                 sort_key=_sort_key(report),
+                source_product=report.source_products[0] if report.source_products else None,
                 facts={
                     "priority": report.priority,
                     "status": report.status,
                     "has_implementation_pr": report.has_implementation_pr,
-                    "source_product": report.source_products[0] if report.source_products else None,
                     "summary": report.summary,
                 },
             )

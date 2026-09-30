@@ -38,10 +38,7 @@ def select(ranked: list[Candidate]) -> list[RankedItem]:
     the text highlights. The left bar shows those plus the next best items, up to 10, so an item in
     the text is always in the left bar too.
     """
-    bar = ranked[:BAR_SIZE]
-    chosen = {candidate.key for candidate in bar[:TEXT_SIZE]}
-    top_key = bar[0].key if bar else None
     return [
-        RankedItem(candidate=c, rank=rank, in_text=c.key in chosen, top=c.key == top_key)
-        for rank, c in enumerate(bar, start=1)
+        RankedItem(candidate=c, rank=rank, in_text=rank <= TEXT_SIZE, top=rank == 1)
+        for rank, c in enumerate(ranked[:BAR_SIZE], start=1)
     ]

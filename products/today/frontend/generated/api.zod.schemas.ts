@@ -67,7 +67,6 @@ export const BriefingItemApi = zod.object({
     signal: zod.string().describe("Short fact under the label, at most 40 characters, for example 'Spend down 37%'."),
     url: zod.string().describe('Where the item opens: an app path, or a GitHub URL for pull requests.'),
     rank: zod.number().describe('Position in the full ranked list, 1 is the most important.'),
-    in_text: zod.boolean().describe('True when the briefing text links this item (the top 5).'),
     source_product: zod
         .string()
         .nullable()
@@ -153,7 +152,6 @@ export const BriefingApi = zod.object({
                     .describe("Short fact under the label, at most 40 characters, for example 'Spend down 37%'."),
                 url: zod.string().describe('Where the item opens: an app path, or a GitHub URL for pull requests.'),
                 rank: zod.number().describe('Position in the full ranked list, 1 is the most important.'),
-                in_text: zod.boolean().describe('True when the briefing text links this item (the top 5).'),
                 source_product: zod
                     .string()
                     .nullable()
@@ -188,11 +186,11 @@ export const BriefingApi = zod.object({
                 state: zod.enum(['open', 'done']).describe('\* `open` - OPEN\n\* `done` - DONE'),
             })
         )
-        .describe('The left bar: up to 10 items in rank order.'),
-    more_reports_count: zod.number().describe('Other open reports for the person that are not in the left bar.'),
+        .describe('The items the text names, in rank order: what the page and the left bar show.'),
+    more_reports_count: zod.number().describe('Other open reports for the person, beyond the ones the briefing shows.'),
     open_reports_count: zod
         .number()
-        .describe('Open reports in the whole project that are not in the left bar, whoever they are for.'),
+        .describe('Open reports in the whole project beyond the ones the briefing shows, whoever they are for.'),
     status: zod
         .enum(['collecting', 'writing', 'ready', 'failed'])
         .describe('\* `collecting` - COLLECTING\n\* `writing` - WRITING\n\* `ready` - READY\n\* `failed` - FAILED'),

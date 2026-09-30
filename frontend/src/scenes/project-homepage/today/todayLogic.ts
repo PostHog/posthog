@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 import { getLocalTimeZone } from 'lib/utils/timezones'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -38,6 +39,12 @@ const MAX_BRIEFING_POLLS = 60
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
+
+/** The count behind the Inbox link: reports for the person beyond the shown ones, or open in the project. */
+export interface TodayInboxMore {
+    count: number
+    scope: 'for_you' | 'project'
+}
 
 export interface TodayReports {
     results: SignalReport[]
@@ -102,6 +109,7 @@ export interface todayLogicValues {
     hour: number
     hoveredItemKey: string | null
     hoveredReportId: string | null
+    inboxMore: TodayInboxMore | null
     moreReportCount: number
     now: number
     pendingBriefingId: string | null
@@ -251,6 +259,11 @@ export interface todayLogicMeta {
         greeting: (hour: number, user: UserType | null) => string
         reportSummary: (hour: number, reports: SignalReport[]) => string
         showPersonalBriefing: (personalBriefing: BriefingApi | null, useSampleData: boolean) => boolean
+        inboxMore: (
+            showPersonalBriefing: boolean,
+            personalBriefing: BriefingApi | null,
+            moreReportCount: number
+        ) => TodayInboxMore | null
         personalBriefingPending: (
             personalBriefing: BriefingApi | null,
             personalBriefingFailed: boolean,
@@ -420,6 +433,27 @@ export const todayLogic = kea<todayLogicType>([
             (personalBriefing: BriefingApi | null, useSampleData: boolean): boolean =>
                 !useSampleData && hasBriefingText(personalBriefing),
         ],
+        inboxMore: [
+            (s) => [s.showPersonalBriefing, s.personalBriefing, s.moreReportCount],
+            (
+                showPersonalBriefing: boolean,
+                personalBriefing: BriefingApi | null,
+                moreReportCount: number
+            ): TodayInboxMore | null => {
+                if (!showPersonalBriefing) {
+                    return moreReportCount > 0 ? { count: moreReportCount, scope: 'project' } : null
+                }
+                if (!personalBriefing) {
+                    return null
+                }
+                if (personalBriefing.more_reports_count > 0) {
+                    return { count: personalBriefing.more_reports_count, scope: 'for_you' }
+                }
+                return personalBriefing.open_reports_count > 0
+                    ? { count: personalBriefing.open_reports_count, scope: 'project' }
+                    : null
+            },
+        ],
         // Nothing to show yet, but a briefing is on its way. A failed request falls back to the report list.
         personalBriefingPending: [
             (s) => [s.personalBriefing, s.personalBriefingFailed, s.useSampleData],
@@ -431,9 +465,8 @@ export const todayLogic = kea<todayLogicType>([
         ],
         briefingItems: [
             (s) => [s.personalBriefing, s.showPersonalBriefing],
-            // The page and the left bar show the same items: the ones the text names.
             (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean): BriefingItemApi[] =>
-                showPersonalBriefing && personalBriefing ? personalBriefing.items.filter((item) => item.in_text) : [],
+                showPersonalBriefing && personalBriefing ? personalBriefing.items : [],
         ],
         briefingWaiting: [
             (s) => [s.personalBriefing, s.pendingBriefingId, s.refreshedBriefingLoading],
@@ -494,7 +527,6 @@ export const todayLogic = kea<todayLogicType>([
                 status: personalBriefing.status,
                 writer: personalBriefing.writer,
                 item_count: personalBriefing.items.length,
-                text_item_count: personalBriefing.items.filter((item) => item.in_text).length,
                 done_item_count: personalBriefing.items.filter((item) => item.state === 'done').length,
                 more_reports_count: personalBriefing.more_reports_count,
             })
@@ -518,7 +550,7 @@ export const todayLogic = kea<todayLogicType>([
             if (isExternalHref(href)) {
                 window.open(href, '_blank', 'noopener')
             } else {
-                router.actions.push(href)
+                navigateToHref(href)
             }
             actions.itemOpened(item, surface)
         },
@@ -529,7 +561,6 @@ export const todayLogic = kea<todayLogicType>([
                 source: item.source,
                 reason: item.reason,
                 rank: item.rank,
-                in_text: item.in_text,
                 state: item.state,
                 surface,
             })

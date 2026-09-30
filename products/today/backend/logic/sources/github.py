@@ -9,7 +9,7 @@ from datetime import datetime
 from posthog.models.integration import GitHubIntegration, Integration
 
 from ...facade.enums import ItemGroup, ItemReason, ItemSource
-from ..candidates import URGENCY_THIS_WEEK, URGENCY_TODAY, URGENCY_WHEN_FREE, Candidate, SourceContext
+from ..candidates import URGENCY_THIS_WEEK, URGENCY_TODAY, Candidate, SourceContext
 from .base import Source
 
 _SUBGROUP = 2
@@ -44,18 +44,35 @@ class GitHubSource(Source):
         github = GitHubIntegration(integration)
         organization = github.organization()
         scope = f"is:pr is:open org:{organization}"
+        # Someone waits on a review, and a red build blocks the person's own work; an approved PR
+        # only needs a merge.
         queries = [
             # `user-review-requested` matches only requests sent to the person, not to their teams.
-            (f"{scope} user-review-requested:{login}", ItemReason.REVIEW_REQUESTED, "review requested", 0),
-            (f"{scope} author:{login} status:failure", ItemReason.YOUR_PULL_REQUEST, "checks failing", 1),
-            (f"{scope} author:{login} review:approved status:success", ItemReason.YOUR_PULL_REQUEST, "approved", 2),
+            (
+                f"{scope} user-review-requested:{login}",
+                ItemReason.REVIEW_REQUESTED,
+                "review requested",
+                0,
+                URGENCY_TODAY,
+            ),
+            (
+                f"{scope} author:{login} status:failure",
+                ItemReason.YOUR_PULL_REQUEST,
+                "checks failing",
+                1,
+                URGENCY_TODAY,
+            ),
+            (
+                f"{scope} author:{login} review:approved status:success",
+                ItemReason.YOUR_PULL_REQUEST,
+                "approved",
+                2,
+                URGENCY_THIS_WEEK,
+            ),
         ]
-        # Someone waits on a review, and a red build blocks the person's own work; an approved PR
-        # only needs a merge. A draft of either kind blocks nobody, so it drops a tier.
-        urgency_for_order = {0: URGENCY_TODAY, 1: URGENCY_TODAY, 2: URGENCY_THIS_WEEK}
         candidates: list[Candidate] = []
         seen: set[str] = set()
-        for query, reason, state, order in queries:
+        for query, reason, state, order, urgency in queries:
             for item in _search(github, query):
                 key = f"github_pr:{_repository(item)}#{item.get('number')}"
                 if key in seen:
@@ -71,7 +88,8 @@ class GitHubSource(Source):
                         reason=reason,
                         title=str(item.get("title") or f"Pull request #{item.get('number')}"),
                         url=str(item.get("html_url") or ""),
-                        urgency=min(urgency_for_order[order] + int(draft), URGENCY_WHEN_FREE),
+                        # A draft blocks nobody, so it drops a tier.
+                        urgency=urgency + int(draft),
                         # Review requests wait longest first; your own PRs show the newest first.
                         sort_key=(_SUBGROUP, order, created if order == 0 else -_timestamp(item.get("updated_at"))),
                         facts={

@@ -1,35 +1,15 @@
 import { urls } from 'scenes/urls'
 
-import type {
-    BriefingApi,
-    BriefingItemApi,
-    TodayItemSourceEnumApi,
-} from 'products/today/frontend/generated/api.schemas'
+import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
-import { TodayReportSource, reportSource } from './todaySignalReports'
+import { TodayReportSource, sourceStyle } from './todaySignalReports'
 
 /** Where an item was opened from, sent with the `today item opened` event. */
 export type TodayItemOpenSurface = 'briefing' | 'chip' | 'sidebar'
 
-const ITEM_SOURCES: Record<TodayItemSourceEnumApi, TodayReportSource> = {
-    self_driving: { label: 'Self-driving', color: 'var(--color-text-secondary)', icon: 'inbox' },
-    product_analytics: {
-        label: 'Product analytics',
-        color: 'var(--color-product-product-analytics-light)',
-        icon: 'analytics',
-    },
-    alerts: { label: 'Alerts', color: 'var(--color-product-product-analytics-light)', icon: 'trace' },
-    support: { label: 'Support', color: 'var(--color-product-support-light)', icon: 'survey' },
-    error_tracking: { label: 'Error tracking', color: 'var(--color-product-error-tracking-light)', icon: 'error' },
-    github: { label: 'GitHub', color: 'var(--color-text-secondary)', icon: 'pr' },
-}
-
 /** A report takes the style of the product its signals came from, the way the inbox shows it. */
 export function itemSource(item: Pick<BriefingItemApi, 'source' | 'source_product'>): TodayReportSource {
-    if (item.source_product) {
-        return reportSource({ source_products: [item.source_product] })
-    }
-    return ITEM_SOURCES[item.source] ?? ITEM_SOURCES.self_driving
+    return sourceStyle(item.source_product ?? item.source)
 }
 
 /** The report id of a `report:<id>` item, else null. */

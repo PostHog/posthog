@@ -35,7 +35,6 @@ function PersonalBriefingNavItems(): JSX.Element {
                         to={href}
                         active={hoveredItemKey === item.key}
                         current={removeProjectIdIfPresent(href) === currentPath}
-                        emphasized={item.in_text}
                         done={item.state === 'done'}
                         dataAttr="today-nav-item"
                         onClick={() => itemOpened(item, 'sidebar')}
@@ -55,7 +54,7 @@ export function TodayHomeSidebar(): JSX.Element {
         reportsFailed,
         hoveredReportId,
         reportSummary,
-        moreReportCount,
+        inboxMore,
         showPersonalBriefing,
         personalBriefing,
         personalBriefingPending,
@@ -63,8 +62,6 @@ export function TodayHomeSidebar(): JSX.Element {
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
 
     const loading = personalBriefingPending || (topReports === null && !reportsFailed)
-    const moreForYou = showPersonalBriefing ? (personalBriefing?.more_reports_count ?? 0) : 0
-    const moreCount = showPersonalBriefing ? moreForYou || (personalBriefing?.open_reports_count ?? 0) : moreReportCount
     const homeMeta = showPersonalBriefing
         ? (personalBriefing?.headline ?? '')
         : loading
@@ -122,9 +119,11 @@ export function TodayHomeSidebar(): JSX.Element {
                         ))
                     )}
                 </div>
-                {moreCount > 0 && (
+                {inboxMore && (
                     <Link to={urls.inbox()} className="TodaySidebar__more" data-attr="today-nav-inbox">
-                        {moreForYou > 0 ? `${moreCount} more for you in the Inbox` : `${moreCount} more in the Inbox`}
+                        {inboxMore.scope === 'for_you'
+                            ? `${inboxMore.count} more for you in the Inbox`
+                            : `${inboxMore.count} more in the Inbox`}
                     </Link>
                 )}
             </div>

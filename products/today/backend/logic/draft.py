@@ -17,6 +17,11 @@ _REPORT_REASON = {
     "suggested_reviewer": "You are a suggested reviewer",
     "urgent_for_project": "It is urgent and nobody owns it",
 }
+_PR_WAITING = {
+    "review requested": "waits for your review",
+    "checks failing": "has failing checks",
+    "approved": "is approved and ready to merge",
+}
 
 
 def _segment(text: str, item_key: str | None = None, highlight: bool = False) -> ContentSegment:
@@ -81,17 +86,19 @@ def _clause(item: FactSheetItem) -> str:
         return f" is assigned to {holder}, first seen {facts.get('days_since_first_seen', 0)} days ago."
     if item.source == ItemSource.GITHUB:
         days = facts.get("days_open")
-        state = str(facts.get("state") or "")
-        if state == "review requested":
-            waiting = "waits for your review"
-        elif state == "checks failing":
-            waiting = "has failing checks"
-        elif state == "approved":
-            waiting = "is approved and ready to merge"
-        else:
-            waiting = "needs you"
+        waiting = _PR_WAITING.get(str(facts.get("state") or ""), "needs you")
         return f" {waiting}, open for {days} days." if days is not None else f" {waiting}."
     return " needs you."
+
+
+def _sentences(items: list[FactSheetItem]) -> list[ContentSegment]:
+    """One sentence per item, the linked title followed by its clause, separated by a space."""
+    segments: list[ContentSegment] = []
+    for index, item in enumerate(items):
+        if index:
+            segments.append(_segment(" "))
+        segments += [_segment(item.title, item.key, item.top), _segment(_clause(item))]
+    return segments
 
 
 def build_draft(fact_sheet: FactSheet) -> BriefingContent:
@@ -106,18 +113,11 @@ def build_draft(fact_sheet: FactSheet) -> BriefingContent:
     else:
         headline = f"{_COUNT_WORDS[count]} {'item needs' if count == 1 else 'items need'} your attention"
 
-    paragraphs: list[list[ContentSegment]] = []
-    for index, item in enumerate(in_text):
-        sentence = [_segment(item.title, item.key, item.top), _segment(_clause(item))]
-        if index < 2:
-            paragraphs.append(sentence)
-        else:
-            paragraphs[-1].append(_segment(" "))
-            paragraphs[-1] += sentence
+    paragraphs = [_sentences(group) for group in (in_text[:1], in_text[1:]) if group]
 
     return BriefingContent(
         headline=headline,
         paragraphs=paragraphs,
-        labels={item.key: label_for(item) for item in fact_sheet.items},
-        signals={item.key: signal_for(item) for item in fact_sheet.items},
+        labels={item.key: label_for(item) for item in in_text},
+        signals={item.key: signal_for(item) for item in in_text},
     )

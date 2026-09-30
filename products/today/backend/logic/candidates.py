@@ -12,7 +12,7 @@ from ..facade.enums import ItemGroup, ItemReason, ItemSource
 FactValue = str | int | float | bool | None
 
 # The scale every source maps its own facts onto, so items of different kinds can be compared.
-# Lower is more urgent. The writer gets the label of each tier next to the item.
+# Lower is more urgent. The fact sheet carries the labels, so the writer can read the tiers.
 URGENCY_LABELS = {0: "act now", 1: "today", 2: "this week", 3: "when you have time"}
 URGENCY_ACT_NOW = 0
 URGENCY_TODAY = 1
@@ -34,6 +34,8 @@ class Candidate(BaseModel):
     urgency: int
     # Compared ascending among items of the same urgency and group; each source defines its own order.
     sort_key: tuple[float, ...]
+    # For a report, the product its signals came from.
+    source_product: str | None = None
     # Short scalar facts only. Never free text written by customers.
     facts: dict[str, FactValue]
 

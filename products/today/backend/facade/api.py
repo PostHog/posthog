@@ -12,7 +12,7 @@ from .contracts import RefreshLimitReached as RefreshLimitReached
 def get_briefing(*, team: Team, user: User, timezone_name: str | None) -> contracts.Briefing:
     """Today's briefing for the person. Starts generating one when there is none yet."""
     briefing = briefings.get_or_start_briefing(team=team, user=user, timezone_name=timezone_name)
-    return briefings.to_contract(briefing, team)
+    return briefings.to_contract(briefing, team, user)
 
 
 def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> contracts.Briefing:

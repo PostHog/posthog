@@ -15,7 +15,7 @@ FACT_SHEET = FactSheet.model_validate(
     {
         "first_name": "Ada",
         "local_day": "2026-09-30",
-        "counts": {"items_in_text": 2, "reports_in_text": 1},
+        "counts": {"items_in_text": 2},
         "failed_sources": [],
         "reason_glossary": {},
         "items": [
@@ -28,7 +28,6 @@ FACT_SHEET = FactSheet.model_validate(
                 "url": "/project/1/inbox/1",
                 "rank": 1,
                 "urgency": 0,
-                "urgency_label": "act now",
                 "in_text": True,
                 "top": True,
                 "facts": {"priority": "P2", "status": "pending_input"},
@@ -42,7 +41,6 @@ FACT_SHEET = FactSheet.model_validate(
                 "url": "/project/1/dashboard/7",
                 "rank": 2,
                 "urgency": 2,
-                "urgency_label": "this week",
                 "in_text": True,
                 "top": False,
                 "facts": {"metric": "Orders", "last_week": 2000, "this_week": 1500, "pct_change": -25.0},
@@ -56,7 +54,6 @@ FACT_SHEET = FactSheet.model_validate(
                 "url": "/project/1/support/tickets/9",
                 "rank": 3,
                 "urgency": 1,
-                "urgency_label": "today",
                 "in_text": False,
                 "top": False,
                 "facts": {"ticket_number": 1042, "unread_messages": 6},
@@ -116,9 +113,9 @@ class TestCheckContent(SimpleTestCase):
             ),
             (
                 "label too long",
-                ["labels", "ticket:9"],
-                "A support ticket that waits for your reply",
-                "label for ticket:9",
+                ["labels", "dashboard:7"],
+                "The checkout dashboard orders fell a quarter",
+                "label for dashboard:7",
             ),
             ("signal missing", ["signals", "dashboard:7"], "", "signal for dashboard:7"),
         ]
@@ -135,4 +132,4 @@ class TestCheckContent(SimpleTestCase):
 
         # The draft keeps the source titles, so only the link-length rule may fail on it.
         assert [problem for problem in problems if "more than 8 words" not in problem] == []
-        assert set(draft.labels) == {"report:1", "dashboard:7", "ticket:9"}
+        assert set(draft.labels) == {"report:1", "dashboard:7"}

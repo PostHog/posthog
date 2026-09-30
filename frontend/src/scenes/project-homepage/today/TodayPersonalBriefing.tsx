@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type { BriefingSegmentApi } from 'products/today/frontend/generated/api.schemas'
@@ -60,7 +61,7 @@ function PersonalBriefingChips(): JSX.Element | null {
 }
 
 export function TodayPersonalBriefing(): JSX.Element | null {
-    const { personalBriefing } = useValues(todayLogic)
+    const { personalBriefing, inboxMore } = useValues(todayLogic)
     const { askAi } = useActions(todayLogic)
 
     if (!personalBriefing) {
@@ -83,8 +84,6 @@ export function TodayPersonalBriefing(): JSX.Element | null {
             </>
         )
     }
-    const { more_reports_count: moreCount, open_reports_count: openCount } = personalBriefing
-
     return (
         <>
             <p className="TodayHome__count">
@@ -99,21 +98,16 @@ export function TodayPersonalBriefing(): JSX.Element | null {
                 </p>
             ))}
             <p className="TodayHome__foot">
-                {moreCount > 0 ? (
+                {inboxMore && (
                     <>
                         <Link to={urls.inbox()} data-attr="today-briefing-inbox">
-                            {`${moreCount} more for you in the Inbox`}
+                            {inboxMore.scope === 'for_you'
+                                ? `${inboxMore.count} more for you in the Inbox`
+                                : `${inboxMore.count} other open ${pluralize(inboxMore.count, 'report', undefined, false)} in the Inbox`}
                         </Link>
                         <span>. </span>
                     </>
-                ) : openCount > 0 ? (
-                    <>
-                        <Link to={urls.inbox()} data-attr="today-briefing-inbox">
-                            {`${openCount} other open ${openCount === 1 ? 'report' : 'reports'} in the Inbox`}
-                        </Link>
-                        <span>. </span>
-                    </>
-                ) : null}
+                )}
                 <span>Or </span>
                 <button
                     type="button"

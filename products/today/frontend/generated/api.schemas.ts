@@ -104,8 +104,6 @@ export interface BriefingItemApi {
     url: string
     /** Position in the full ranked list, 1 is the most important. */
     rank: number
-    /** True when the briefing text links this item (the top 5). */
-    in_text: boolean
     /**
      * For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.
      * @nullable
@@ -163,11 +161,11 @@ export interface BriefingApi {
     headline: string
     /** Up to 3 paragraphs, each a list of text runs; runs with an item_key are links. */
     paragraphs: BriefingSegmentApi[][]
-    /** The left bar: up to 10 items in rank order. */
+    /** The items the text names, in rank order: what the page and the left bar show. */
     items: BriefingItemApi[]
-    /** Other open reports for the person that are not in the left bar. */
+    /** Other open reports for the person, beyond the ones the briefing shows. */
     more_reports_count: number
-    /** Open reports in the whole project that are not in the left bar, whoever they are for. */
+    /** Open reports in the whole project beyond the ones the briefing shows, whoever they are for. */
     open_reports_count: number
     status: BriefingStatusEnumApi
     writer: WriterEnumApi | null

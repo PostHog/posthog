@@ -31,21 +31,21 @@ def _response(stop_reason: str, parsed_output: WriterOutput | None) -> SimpleNam
 
 
 class TestWrite(SimpleTestCase):
-    def _write(self, response: SimpleNamespace) -> BriefingContent:
+    def _write(self, response: SimpleNamespace) -> tuple[BriefingContent, MagicMock]:
         client = MagicMock()
         client.messages.parse.return_value = response
         with patch("products.today.backend.logic.writer.build_anthropic_client", return_value=client) as build:
-            self.build_client = build
-            return write(
+            content = write(
                 team=cast(Team, SimpleNamespace(id=1)),
                 user=cast(User, SimpleNamespace(distinct_id="person-1")),
                 briefing=cast(DailyBriefing, SimpleNamespace(id="b-1", edition="morning", trigger="schedule")),
                 fact_sheet=FACT_SHEET,
                 attempt=1,
             )
+        return content, build
 
     def test_items_become_the_stored_labels_and_signals(self) -> None:
-        content = self._write(_response("end_turn", OUTPUT))
+        content, _ = self._write(_response("end_turn", OUTPUT))
 
         assert content.labels == {"report:1": "Checkout button hidden", "ticket:9": "Ticket #1042"}
         assert content.signals == {"report:1": "P2, waits for you", "ticket:9": "6 unread messages"}
@@ -54,9 +54,9 @@ class TestWrite(SimpleTestCase):
         )
 
     def test_every_attempt_is_traced_under_its_briefing(self) -> None:
-        self._write(_response("end_turn", OUTPUT))
+        _, build = self._write(_response("end_turn", OUTPUT))
 
-        kwargs = self.build_client.call_args.kwargs
+        kwargs = build.call_args.kwargs
         assert kwargs["trace_id"] == "b-1"
         assert kwargs["ai_product"] == "today"
         assert kwargs["properties"]["today_attempt"] == "1"

@@ -71,7 +71,7 @@ def check_content(fact_sheet: FactSheet, content: BriefingContent) -> list[str]:
     if words > MAX_WORDS:
         problems.append(f"paragraphs have {words} words, the limit is {MAX_WORDS}")
 
-    for item in fact_sheet.items:
+    for item in fact_sheet.text_items:
         label = content.labels.get(item.key, "")
         signal = content.signals.get(item.key, "")
         if not label or len(label.split()) > MAX_LABEL_WORDS:

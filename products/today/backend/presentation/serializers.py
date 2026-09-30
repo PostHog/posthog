@@ -38,7 +38,6 @@ class BriefingItemSerializer(DataclassSerializer):
     )
     url = serializers.CharField(help_text="Where the item opens: an app path, or a GitHub URL for pull requests.")
     rank = serializers.IntegerField(help_text="Position in the full ranked list, 1 is the most important.")
-    in_text = serializers.BooleanField(help_text="True when the briefing text links this item (the top 5).")
     source_product = serializers.CharField(
         allow_null=True,
         help_text="For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.",
@@ -56,12 +55,14 @@ class BriefingSerializer(DataclassSerializer):
         child=BriefingSegmentSerializer(many=True),
         help_text="Up to 3 paragraphs, each a list of text runs; runs with an item_key are links.",
     )
-    items = BriefingItemSerializer(many=True, help_text="The left bar: up to 10 items in rank order.")
+    items = BriefingItemSerializer(
+        many=True, help_text="The items the text names, in rank order: what the page and the left bar show."
+    )
     more_reports_count = serializers.IntegerField(
-        help_text="Other open reports for the person that are not in the left bar."
+        help_text="Other open reports for the person, beyond the ones the briefing shows."
     )
     open_reports_count = serializers.IntegerField(
-        help_text="Open reports in the whole project that are not in the left bar, whoever they are for."
+        help_text="Open reports in the whole project beyond the ones the briefing shows, whoever they are for."
     )
 
     class Meta:

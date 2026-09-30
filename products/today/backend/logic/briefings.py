@@ -9,6 +9,7 @@ from django.utils import timezone
 import structlog
 from temporalio.common import WorkflowIDReusePolicy
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.temporal.common.client import sync_connect
@@ -23,7 +24,7 @@ from ..temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, ge
 from .candidates import SourceContext
 from .content import BriefingContent
 from .eligibility import EditionSlot, current_edition, resolve_timezone
-from .fact_sheet import FactSheet, FactSheetItem, build_fact_sheet
+from .fact_sheet import FactSheet, FactSheetItem, build_fact_sheet, stored_fact_sheet
 from .ranking import rank_candidates, select
 from .sources import collect_all
 
@@ -110,19 +111,27 @@ def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> Da
     return briefing
 
 
-def _inbox_counts(team: Team, user_id: int, items: list[FactSheetItem]) -> tuple[int, int]:
-    """Open reports beyond the ones the page shows, for the person and for the whole project, counted now.
+@frozen
+class InboxCounts:
+    """Open reports beyond the ones the page shows, counted now: the briefing itself is hours old."""
 
-    The briefing itself is hours old, so these come from the live tables rather than the fact sheet.
-    """
-    reports_shown = sum(1 for item in items if item.in_text and item.group == ItemGroup.REPORT)
+    more_for_you: int
+    open_in_project: int
+
+
+def _inbox_counts(team: Team, user: User, shown: list[FactSheetItem]) -> InboxCounts:
+    if not shown:
+        return InboxCounts(more_for_you=0, open_in_project=0)
+    reports_shown = sum(1 for item in shown if item.group == ItemGroup.REPORT)
     try:
-        for_me = signals.reports_for_me_count(team_id=team.id, user_id=user_id)
-        in_project = signals.open_reports_count(team_id=team.id)
+        counts = signals.open_report_counts(team_id=team.id, user=user)
     except Exception as error:
         capture_exception(error, {"team_id": team.id, "product": "today"})
-        return 0, 0
-    return max(for_me - reports_shown, 0), max(in_project - reports_shown, 0)
+        return InboxCounts(more_for_you=0, open_in_project=0)
+    return InboxCounts(
+        more_for_you=max(counts.for_person - reports_shown, 0),
+        open_in_project=max(counts.in_project - reports_shown, 0),
+    )
 
 
 def _live_states(team: Team, items: list[FactSheetItem]) -> dict[str, ItemState]:
@@ -137,16 +146,13 @@ def _live_states(team: Team, items: list[FactSheetItem]) -> dict[str, ItemState]
     return states
 
 
-def _stored_items(briefing: DailyBriefing) -> list[FactSheetItem]:
-    """The fact sheet items, or none for a row written before its draft."""
-    return FactSheet.model_validate(briefing.facts).items if briefing.facts else []
-
-
-def to_contract(briefing: DailyBriefing, team: Team) -> contracts.Briefing:
-    fact_items = _stored_items(briefing)
+def to_contract(briefing: DailyBriefing, team: Team, user: User) -> contracts.Briefing:
+    """The briefing as the page shows it: only the items the text names, with live states and counts."""
+    fact_sheet = stored_fact_sheet(briefing)
+    shown = fact_sheet.text_items if fact_sheet else []
     content = BriefingContent.model_validate(briefing.content or briefing.draft or {})
-    states = _live_states(team, fact_items)
-    more_for_you, open_in_project = _inbox_counts(team, briefing.user_id, fact_items)
+    states = _live_states(team, shown)
+    counts = _inbox_counts(team, user, shown)
     return contracts.Briefing(
         id=str(briefing.id),
         status=BriefingStatus(briefing.status),
@@ -172,21 +178,20 @@ def to_contract(briefing: DailyBriefing, team: Team) -> contracts.Briefing:
                 signal=content.signals.get(item.key, ""),
                 url=item.url,
                 rank=item.rank,
-                in_text=item.in_text,
                 state=states.get(item.key, ItemState.OPEN),
                 source_product=item.source_product,
             )
-            for item in fact_items
+            for item in shown
         ],
-        more_reports_count=more_for_you,
-        open_reports_count=open_in_project,
+        more_reports_count=counts.more_for_you,
+        open_reports_count=counts.open_in_project,
         created_at=briefing.created_at,
         ready_at=briefing.ready_at,
     )
 
 
 def _facts_to_candidates(fact_sheet: FactSheet, day: date, *, team: Team, user: User) -> contracts.CandidateList:
-    more_for_you, _ = _inbox_counts(team, user.id, fact_sheet.items)
+    counts = _inbox_counts(team, user, fact_sheet.text_items)
     return contracts.CandidateList(
         local_day=day,
         candidates=[
@@ -207,7 +212,7 @@ def _facts_to_candidates(fact_sheet: FactSheet, day: date, *, team: Team, user: 
             )
             for item in fact_sheet.items
         ],
-        more_reports_count=more_for_you,
+        more_reports_count=counts.more_for_you,
         failed_sources=fact_sheet.failed_sources,
     )
 
@@ -218,8 +223,9 @@ def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> con
     slot = current_edition(timezone.now(), tz)
     day = slot.local_day
     briefing = _current(team, user, slot)
-    if briefing is not None and briefing.facts:
-        return _facts_to_candidates(FactSheet.model_validate(briefing.facts), day, team=team, user=user)
+    fact_sheet = stored_fact_sheet(briefing) if briefing is not None else None
+    if fact_sheet is not None:
+        return _facts_to_candidates(fact_sheet, day, team=team, user=user)
     ctx = SourceContext(team=team, user=user, now=timezone.now())
     collected = collect_all(ctx)
     fact_sheet = build_fact_sheet(
