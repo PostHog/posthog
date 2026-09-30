@@ -6,6 +6,8 @@ from urllib.parse import urlencode
 
 from requests import Request, Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -76,11 +78,17 @@ def _to_epoch_millis(value: Any) -> int:
     return _to_epoch_millis(datetime.fromisoformat(str(value)))
 
 
-def _event_windows(start_ms: int, end_ms: int) -> Iterator[tuple[int, int]]:
+@frozen
+class _EventWindow:
+    start: int
+    end: int
+
+
+def _event_windows(start_ms: int, end_ms: int) -> Iterator[_EventWindow]:
     window_ms = EVENT_WINDOW_DAYS * MILLIS_PER_DAY
     while start_ms < end_ms:
         window_end = min(start_ms + window_ms, end_ms)
-        yield start_ms, window_end
+        yield _EventWindow(start=start_ms, end=window_end)
         start_ms = window_end
 
 
@@ -230,15 +238,15 @@ def _event_pages(
     else:
         start_ms = end_ms - EVENT_BACKFILL_DAYS * MILLIS_PER_DAY
 
-    for window_start, window_end in _event_windows(start_ms, end_ms):
+    for window in _event_windows(start_ms, end_ms):
         params = {
             "pageSize": config.page_size,
             # Ascending within ascending windows lets the pipeline checkpoint the watermark per batch.
             "sort": EVENT_DATE_FIELD,
-            "filter": f"{EVENT_DATE_FIELD}>={window_start};{EVENT_DATE_FIELD}<{window_end}",
+            "filter": f"{EVENT_DATE_FIELD}>={window.start};{EVENT_DATE_FIELD}<{window.end}",
         }
 
-        def save_checkpoint(state: Optional[dict[str, Any]], _window_start: int = window_start) -> None:
+        def save_checkpoint(state: Optional[dict[str, Any]], _window_start: int = window.start) -> None:
             if state and state.get("scroll_id") is not None:
                 resumable_source_manager.save_state(
                     GainsightPxResumeConfig(scroll_id=str(state["scroll_id"]), window_start=_window_start)
@@ -253,8 +261,8 @@ def _event_pages(
             initial_paginator_state={"scroll_id": scroll_id} if scroll_id is not None else None,
         )
         scroll_id = None
-        if window_end < end_ms:
-            resumable_source_manager.save_state(GainsightPxResumeConfig(window_start=window_end))
+        if window.end < end_ms:
+            resumable_source_manager.save_state(GainsightPxResumeConfig(window_start=window.end))
 
 
 def gainsight_px_source(
