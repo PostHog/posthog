@@ -227,9 +227,14 @@ def _live_gate_team_ids(team_ids: list[int]) -> list[int]:
     - `True`  enables the team.
     - `False` disables it deliberately. Omitting it is the intended kill switch, and resolving
       its issues is what turning the check off for a team means.
-    - Neither, because the flag is absent, archived, or could not be evaluated. Omitting the
-      team would resolve issues nobody decided to close, so this raises instead, unless no
-      such team holds an active issue and there is therefore nothing to lose.
+    - Neither, because the flag is absent or could not be evaluated. Omitting the team would
+      resolve issues nobody decided to close, so this raises instead, unless no such team holds
+      an active issue and there is therefore nothing to lose.
+
+    An inactive gate answers `False` for every team, which the per-team answer cannot tell from
+    a deliberate per-team disable, so it is read from the definition instead and counts as no
+    answer. Retiring the check for good is therefore two steps: roll the flag to 0%, which
+    resolves the open issues deliberately, then archive it.
     """
     if posthoganalytics.disabled:
         # An SDK off by configuration (OPT_OUT_CAPTURE, DEBUG, tests) decides nothing about any
@@ -248,6 +253,16 @@ def _live_gate_team_ids(team_ids: list[int]) -> list[int]:
     # the project holds no flags. The gate flag is absent from it, so every team is undecided.
     # Raising regardless would fail every run on an instance that can never enable a team.
     if not definitions:
+        _refuse_to_resolve_undecided(team_ids)
+        return []
+
+    # Archiving a flag forces `active=False`, and the definitions carry `active` without
+    # `archived`, so the SDK answers `False` for an archived gate exactly as it does for a team
+    # that matched no condition. Reading the definition is the only way to tell those apart, and
+    # archiving the gate is the documented way to retire it.
+    gate = next((definition for definition in definitions if definition.get("key") == LIVE_GATE_FLAG), None)
+    if gate is not None and not gate.get("active"):
+        logger.warning("stale_feature_flags_live_gate_inactive", team_count=len(team_ids))
         _refuse_to_resolve_undecided(team_ids)
         return []
 

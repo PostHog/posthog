@@ -43,7 +43,7 @@ UNDECIDED_GATE_STATES = [
     ("flag_absent", LIVE_GATE_TARGET, None),
     ("definitions_empty", "posthoganalytics.feature_flag_definitions", []),
 ]
-LOADED_DEFINITIONS = [{"key": LIVE_GATE_FLAG}]
+LOADED_DEFINITIONS = [{"key": LIVE_GATE_FLAG, "active": True}]
 
 
 def stale_by_config() -> dict[str, Any]:
@@ -721,6 +721,32 @@ class TestStaleFlagsDetect(BaseTest):
             results = self._detect()
 
         assert results == {}
+
+    def test_an_archived_gate_flag_does_not_resolve_open_issues(self) -> None:
+        self._create_flag("archived-gate", **stale_by_usage())
+        HealthIssue.objects.create(
+            team=self.team,
+            kind="stale_feature_flags",
+            severity=HealthIssue.Severity.INFO,
+            payload={},
+            unique_hash="already-open",
+            status=HealthIssue.Status.ACTIVE,
+        )
+
+        # Archiving forces active=False, and the SDK answers False for that exactly as it does
+        # for a team matching no condition, so the per-team answer cannot tell them apart.
+        with (
+            patch(
+                "posthoganalytics.feature_flag_definitions",
+                return_value=[{"key": LIVE_GATE_FLAG, "active": False}],
+            ),
+            patch(LIVE_GATE_TARGET, return_value=False) as flag_read,
+        ):
+            with self.assertRaises(RuntimeError):
+                self._detect()
+
+        assert HealthIssue.objects.filter(team=self.team, status=HealthIssue.Status.ACTIVE).count() == 1
+        flag_read.assert_not_called()
 
     def test_live_gate_raises_when_definitions_are_unavailable(self) -> None:
         self._create_flag("definitions-down", **stale_by_usage())
