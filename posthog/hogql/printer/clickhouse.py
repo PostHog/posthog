@@ -43,6 +43,7 @@ from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, 
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -569,7 +570,7 @@ class ClickHousePrinter(BasePrinter):
         resolved_field = type.resolve_database_field(self.context)
         if not isinstance(resolved_field, StringJSONDatabaseField):
             return None
-        if resolved_field.name not in ("properties", "person_properties"):
+        if resolved_field.name not in ("properties", "person_properties", TEMPORARY_PROPERTIES_COLUMN):
             return None
         if not isinstance(type.table_type, ast.BaseTableType):
             return None

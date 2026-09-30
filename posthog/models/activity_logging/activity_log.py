@@ -456,6 +456,8 @@ replay_scanner_machine_fields = [
     "search_suggestions_watermark",
     "search_suggestions_generated_at",
     "search_last_viewed_at",
+    "prompt_question",
+    "prompt_question_source",
     "limit_notified_period_start",
     "admission_budget_used",
     "admission_budget_refreshed_at",
@@ -608,6 +610,15 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    *(
+        {
+            "scope": scope,
+            "activities": ["commented", "created task", "completed task", "reopened task"],
+            "exclude_when": {},
+            "allow_staff": True,
+        }
+        for scope in ("desktop_canvas", "canvas")
+    ),
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {

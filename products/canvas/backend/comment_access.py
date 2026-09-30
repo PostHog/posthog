@@ -8,15 +8,23 @@ from products.canvas.backend.models import Canvas
 from products.tasks.backend.facade import api as tasks_facade
 
 
-def canvas_belongs_to_task(*, team_id: int, user_id: int | None, canvas_id: str, task_id: UUID) -> bool:
+def canvas_comments_accessible(
+    *, team_id: int, user_id: int | None, canvas_id: str, task_id: UUID | None = None, sandbox: bool = False
+) -> bool:
     try:
-        return (
+        canvases = (
             Canvas.objects.for_team(team_id)
-            .filter(id=canvas_id, deleted=False)
+            .filter(id=canvas_id, deleted=False, channel__deleted=False)
             .filter(tasks_facade.visible_channels_q(user_id, relation="channel"))
-            .filter(Q(generation_task_id=task_id) | Q(source_versions__task_id=task_id))
-            .exists()
         )
+        if sandbox:
+            # Same limit as CanvasAccessMixin: a sandbox token does not inherit its user's private spaces.
+            canvases = canvases.filter(
+                tasks_facade.visible_channels_q(None, relation="channel") | Q(created_by_id=user_id)
+            )
+        if task_id is not None:
+            canvases = canvases.filter(Q(generation_task_id=task_id) | Q(source_versions__task_id=task_id))
+        return canvases.exists()
     except (ValueError, ValidationError):
         return False
 

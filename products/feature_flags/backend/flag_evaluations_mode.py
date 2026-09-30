@@ -1,6 +1,6 @@
 """Writes of OrganizationFeatureFlagsConfig.flag_evaluations_mode, one organization at a time."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -30,6 +30,11 @@ class OrganizationModeChange:
     left_above_mode: bool
 
 
+class UnknownIdsError(Exception):
+    def __init__(self, label: str, missing_ids: Collection[object]) -> None:
+        super().__init__(f"Unknown {label} id(s): {', '.join(sorted(map(str, missing_ids)))}")
+
+
 def select_organizations(
     *, organization_ids: Sequence[UUID] | None = None, created_after: datetime | None = None
 ) -> QuerySet[Organization]:
@@ -39,6 +44,26 @@ def select_organizations(
     if organization_ids is not None:
         return Organization.objects.filter(id__in=organization_ids).order_by("created_at")
     return Organization.objects.filter(created_at__gt=created_after).order_by("created_at")
+
+
+def get_organizations(organization_ids: Collection[UUID]) -> list[Organization]:
+    """The given organizations, oldest first.
+
+    Raises UnknownIdsError when an id does not exist, so that a caller refuses the whole request
+    and names the bad id instead of skipping it.
+    """
+    organizations = list(select_organizations(organization_ids=list(organization_ids)))
+    if missing_ids := set(organization_ids) - {organization.id for organization in organizations}:
+        raise UnknownIdsError("organization", missing_ids)
+    return organizations
+
+
+def get_organizations_of_teams(team_ids: Collection[int]) -> list[Organization]:
+    """The organizations that own the given teams, oldest first. Raises UnknownIdsError like get_organizations."""
+    organization_id_by_team_id = dict(Team.objects.filter(id__in=team_ids).values_list("id", "organization_id"))
+    if missing_ids := set(team_ids) - organization_id_by_team_id.keys():
+        raise UnknownIdsError("team", missing_ids)
+    return get_organizations(set(organization_id_by_team_id.values()))
 
 
 def _upsert_mode(organization_id: UUID, mode: FlagEvaluationsMode, *, allow_downgrade: bool) -> bool:
