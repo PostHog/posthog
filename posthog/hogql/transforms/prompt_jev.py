@@ -140,7 +140,7 @@ class PromptJevRunner:
         assert self.client is not None
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
-            raise QueryError("__preview_promptJev exceeded its time limit. Select fewer rows and try again.")
+            raise QueryError("promptJev exceeded its time limit. Select fewer rows and try again.")
         questions: dict[str, Question] = {}
         state: dict[str, str] = {}
         for i, text in enumerate(texts):
@@ -186,7 +186,7 @@ class PromptJevRunner:
                 tasks = [asyncio.create_task(evaluate_batch(batch)) for batch in batches]
                 return await asyncio.gather(*tasks)
         except TimeoutError as error:
-            raise QueryError("__preview_promptJev exceeded its time limit. Select fewer rows and try again.") from error
+            raise QueryError("promptJev exceeded its time limit. Select fewer rows and try again.") from error
         finally:
             for task in tasks:
                 task.cancel()
@@ -200,17 +200,15 @@ class PromptJevRunner:
                 if value is None:
                     continue
                 if not isinstance(value, str):
-                    raise QueryError("__preview_promptJev input must be text. Use toString(input) to convert it.")
+                    raise QueryError("promptJev input must be text. Use toString(input) to convert it.")
                 if len(value.encode()) > MAX_INPUT_BYTES:
-                    raise QueryError(
-                        "__preview_promptJev input exceeds 8 KiB. Shorten each input before classifying it."
-                    )
+                    raise QueryError("promptJev input exceeds 8 KiB. Shorten each input before classifying it.")
                 key = _DecisionKey(question=question_key, text=value)
                 if key not in self.cache:
                     missing[key] = None
         input_bytes = self.input_bytes + sum(len(key.text.encode()) for key in missing)
         if len(self.cache) + len(missing) > MAX_DECISIONS or input_bytes > MAX_TOTAL_BYTES:
-            raise QueryError("__preview_promptJev exceeds the query budget. Select fewer or shorter inputs.")
+            raise QueryError("promptJev exceeds the query budget. Select fewer or shorter inputs.")
         return missing
 
     def evaluate(self, spec: PromptJevCall, values: list[object]) -> list[object]:
@@ -291,13 +289,13 @@ class PromptJevBudget(TraversingVisitor):
                     or type(node.limit.value) is not int
                     or not 0 <= node.limit.value <= MAX_ROWS
                 ):
-                    raise QueryError(f"__preview_promptJev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
+                    raise QueryError(f"promptJev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
                 rows = node.limit.value
             # Reserve the worst case before any stage runs, including stages that depend on earlier decisions.
             self.decisions += rows * len(finder.calls)
             if self.decisions > MAX_DECISIONS:
                 raise QueryError(
-                    f"__preview_promptJev exceeds the query budget of {MAX_DECISIONS} row evaluations across all columns and SELECTs. "
+                    f"promptJev exceeds the query budget of {MAX_DECISIONS} row evaluations across all columns and SELECTs. "
                     f"This query reserves {self.decisions}. Add smaller LIMITs to the SELECTs containing Jev calls, "
                     "or use fewer Jev columns. A SELECT without LIMIT reserves 1000 rows per Jev column."
                 )
@@ -311,7 +309,7 @@ class _AliasReferences(TraversingVisitor):
 
     def visit_field(self, node: ast.Field) -> None:
         if node.chain and node.chain[0] in self.aliases:
-            raise QueryError("Read __preview_promptJev result aliases from an outer query.")
+            raise QueryError("Read promptJev result aliases from an outer query.")
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         # HogQL resolves a field only against its own SELECT, so fields in nested SELECTs cannot read these aliases.
@@ -398,30 +396,26 @@ class PromptJevPlanner(CloningVisitor):
                 or query.limit_percent
                 or query.limit_with_ties
             ):
-                raise QueryError(
-                    "Apply grouping, sorting, and DISTINCT in a query outside the __preview_promptJev SELECT."
-                )
+                raise QueryError("Apply grouping, sorting, and DISTINCT in a query outside the promptJev SELECT.")
             specs: dict[int, PromptJevCall] = {}
             aliases: set[str] = set()
             for i, column in enumerate(query.select):
                 if (
                     isinstance(column, ast.Alias)
                     and isinstance(column.expr, ast.Call)
-                    and column.expr.name.lower() == "__preview_promptjev"
+                    and column.expr.name.lower() == "promptjev"
                 ):
                     specs[i] = PromptJevCall.parse(column.expr)
                     aliases.add(column.alias)
                 elif isinstance(column, ast.Field) and "*" in column.chain:
-                    raise QueryError("List columns explicitly in a __preview_promptJev SELECT instead of using '*'.")
+                    raise QueryError("List columns explicitly in a promptJev SELECT instead of using '*'.")
             if len(specs) != len(local.calls):
-                raise QueryError("Use __preview_promptJev as a named SELECT column, then read it from an outer query.")
+                raise QueryError("Use promptJev as a named SELECT column, then read it from an outer query.")
             source = clone_expr(query)
             for i, spec in specs.items():
                 source.select[i] = ast.Alias(alias=cast(ast.Alias, query.select[i]).alias, expr=clone_expr(spec.input))
             if PromptJevFinder.contains(source):
-                raise QueryError(
-                    "Use __preview_promptJev only in SELECT columns. Filter its results in an outer query."
-                )
+                raise QueryError("Use promptJev only in SELECT columns. Filter its results in an outer query.")
             _AliasReferences(aliases).visit(source)
             if source.limit is None:
                 source.limit = ast.Constant(value=MAX_ROWS + 1)
@@ -430,17 +424,17 @@ class PromptJevPlanner(CloningVisitor):
                 or type(source.limit.value) is not int
                 or not 0 <= source.limit.value <= MAX_ROWS
             ):
-                raise QueryError(f"__preview_promptJev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
+                raise QueryError(f"promptJev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
             result = self.execute(source)
             response = result.response
             if response.error:
                 raise QueryError(response.error)
             rows: list[list[object]] = [list(row) for row in response.results or []]
             if len(rows) > MAX_ROWS:
-                raise QueryError(f"__preview_promptJev reads at most {MAX_ROWS} rows. Add a LIMIT to its SELECT.")
+                raise QueryError(f"promptJev reads at most {MAX_ROWS} rows. Add a LIMIT to its SELECT.")
             names = response.columns or []
             if len(names) != len(query.select) or len(set(names)) != len(names):
-                raise QueryError("Give each column in the __preview_promptJev SELECT a unique name.")
+                raise QueryError("Give each column in the promptJev SELECT a unique name.")
             kinds = [str(kind) for _, kind in response.types or []]
             inputs = {i: [row[i] for row in rows] for i in specs}
             self.runner.check_budget([(spec, inputs[i]) for i, spec in specs.items()])
@@ -471,16 +465,14 @@ class PromptJevPlanner(CloningVisitor):
 
     def visit_call(self, node: ast.Call) -> ast.Call:
         # Binding validates every call, including ones whose SELECT has no rows.
-        if node.name.lower() == "__preview_promptjev":
+        if node.name.lower() == "promptjev":
             PromptJevCall.parse(node)
         return cast(ast.Call, super().visit_call(node))
 
 
 def validate_prompt_jev_access(team: "Team") -> None:
     if settings.CLICKHOUSE_USE_HTTP or team.pk in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
-        raise QueryError(
-            "__preview_promptJev requires the native ClickHouse connection. Ask your administrator to configure it."
-        )
+        raise QueryError("promptJev requires the native ClickHouse connection. Ask your administrator to configure it.")
     if not feature_enabled_or_false(
         "hogql-prompt-jev",
         str(team.uuid),
@@ -492,4 +484,4 @@ def validate_prompt_jev_access(team: "Team") -> None:
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     ):
-        raise QueryError("__preview_promptJev is not enabled for this project. Contact support to request access.")
+        raise QueryError("promptJev is not enabled for this project. Contact support to request access.")

@@ -1309,7 +1309,7 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
-# Decision model behind the preview HogQL `__preview_promptJev` function. Per environment, so a
+# Decision model behind the HogQL `promptJev` function. Per environment, so a
 # different model can be measured without a code change.
 HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jevk5-fp8-0.2")
 
