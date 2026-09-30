@@ -6,7 +6,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class GitGuardianEndpointConfig:
     name: str
     path: str
@@ -41,9 +41,6 @@ class GitGuardianEndpointConfig:
     # parent's `id` into the `{parent_id}` placeholder. The probe for scope checks hits the parent
     # instead, since the child path can't be requested without a real id.
     parent_endpoint: Optional[str] = None
-    # Endpoints whose `status` filter defaults to a subset (e.g. open only) are walked once per
-    # value so the table holds every row. Not combined with `resumable`: the checkpoint is one URL.
-    status_filters: tuple[str, ...] = ()
 
 
 _DATE_INCREMENTAL_FIELD: list[IncrementalField] = [
@@ -130,14 +127,12 @@ GITGUARDIAN_ENDPOINTS: dict[str, GitGuardianEndpointConfig] = {
     ),
     # Honeytoken events: every trigger of every honeytoken. `triggered_at` is immutable and the
     # endpoint accepts `ordering=triggered_at`, but there is no server-side time filter and
-    # `status` mutates on triage, so full refresh. The API returns only open events unless
-    # `status` is set.
+    # `status` mutates on triage, so full refresh.
     "honeytoken_events": GitGuardianEndpointConfig(
         name="honeytoken_events",
         path="/v1/honeytokens_events",
         partition_key="triggered_at",
         ordering="triggered_at",
-        status_filters=("open", "archived", "allowed"),
         required_scope="honeytokens:read",
         incremental_fields=[],
     ),
