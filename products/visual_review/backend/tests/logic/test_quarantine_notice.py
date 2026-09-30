@@ -76,7 +76,7 @@ class TestSendQuarantineNotice:
 
     @pytest.mark.parametrize(
         "case",
-        ["unowned", "story_absent", "lifted", "shared_since_listing"],
+        ["unowned", "story_absent", "lifted", "shared_since_listing", "channel_unreadable"],
     )
     def test_nothing_is_posted_without_an_owning_team_an_active_quarantine_or_an_internal_channel(
         self, repo, team, user, post, case
@@ -90,6 +90,8 @@ class TestSendQuarantineNotice:
         )
         if case == "shared_since_listing":
             post.slack.return_value.client.conversations_info.return_value = {"channel": {"is_ext_shared": True}}
+        if case == "channel_unreadable":
+            post.slack.return_value.client.conversations_info.return_value = {"ok": True}
         if case == "lifted":
             QuarantinedIdentifier.objects.using(WRITER_DB).filter(id=entry.id).update(expires_at=timezone.now())
 

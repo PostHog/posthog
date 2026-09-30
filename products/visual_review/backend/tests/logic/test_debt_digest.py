@@ -725,7 +725,7 @@ class TestCollectAndSend:
             patch("products.visual_review.backend.logic.team_channels.post_message") as thread_post,
         ):
             integration.objects.filter.return_value.first.return_value = MagicMock()
-            slack.return_value.client.conversations_info.return_value = {"channel": {}}
+            slack.return_value.client.conversations_info.return_value = {"channel": {"id": "C1"}}
             debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)
 
         assert post.call_count == 2
