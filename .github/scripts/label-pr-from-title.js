@@ -77,8 +77,10 @@ const LOW_HANGING_FRUIT_MAX_CHANGED_LINES = 50
 // production data, and a workflow change runs with repository secrets.
 const RISKY_PATH_PATTERNS = [/(^|\/)migrations\//, /^\.github\//]
 
-// Only AI PRs that the title rules already gave to the feature flags team are
-// candidates. Other teams have not opted in to this label.
+// The label is only for cards on the Feature Flags board. That board auto-adds
+// every PR with the team label, so the team label stands in for the board. The
+// board is not checked directly for two reasons: this workflow's token cannot
+// read organization projects, and the card does not exist yet when the PR opens.
 function isLowHangingFruitCandidate(author, labels) {
     return author === AI_BOT_LOGIN && labels.includes(LOW_HANGING_FRUIT_TEAM_LABEL)
 }
