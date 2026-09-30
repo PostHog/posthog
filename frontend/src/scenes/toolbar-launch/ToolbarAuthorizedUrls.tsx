@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type ChangeEvent, useState } from 'react'
+import { type ChangeEvent } from 'react'
 
 import { IconCopy, IconEllipsis, IconExternal, IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
@@ -41,13 +41,11 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import {
-    AuthorizedUrlListType,
-    authorizedUrlListLogic,
-    validateWildcardLaunchUrl,
-} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { wildcardLaunchLogic } from './wildcardLaunchLogic'
 
 function WildcardLaunchButton({
     wildcardPattern,
@@ -58,16 +56,15 @@ function WildcardLaunchButton({
     launchUrl: (url: string) => string
     onCopyLaunchCode: () => void
 }): JSX.Element {
-    const [concreteUrl, setConcreteUrl] = useState('')
-    const [showError, setShowError] = useState(false)
-    const error = validateWildcardLaunchUrl(concreteUrl, wildcardPattern)
+    const logic = wildcardLaunchLogic({ wildcardPattern })
+    const { concreteUrl, showError, error } = useValues(logic)
+    const { setConcreteUrl, setShowError, reset } = useActions(logic)
 
     return (
         <Popover
             onOpenChange={(open) => {
                 if (!open) {
-                    setConcreteUrl('')
-                    setShowError(false)
+                    reset()
                 }
             }}
         >
