@@ -35,6 +35,11 @@ class ScoutTrialComparisonRequestSerializer(serializers.Serializer):
     note = serializers.CharField(
         required=False, allow_blank=True, max_length=MAX_RUN_NOTE_CHARS, help_text="Shared investigation note."
     )
+    expected_skill_version = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Source version shown in the editor. Refuse a new trial if the instructions changed since setup.",
+    )
 
 
 class ScoutTrialComparisonQuerySerializer(serializers.Serializer):

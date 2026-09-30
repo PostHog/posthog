@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import importlib
+import sysconfig
 import multiprocessing
 from io import BytesIO, StringIO
 from itertools import count
@@ -258,7 +259,9 @@ class TestScoutLiveTrialsCLI(TestCase):
         context = multiprocessing.get_context("spawn")
         connection, child_connection = context.Pipe()
         owner = context.Process(target=run_paused_controller, args=(arguments, variants, child_connection, crash))
-        owner.start()
+        # Pytest's package paths can shadow standard-library modules in a fresh interpreter.
+        with patch.object(cli.sys, "path", [sysconfig.get_path("stdlib"), *cli.sys.path]):
+            owner.start()
         try:
             assert connection.poll(10), "The owner did not reach the controlled pause."
             owner_launch_ids = connection.recv()

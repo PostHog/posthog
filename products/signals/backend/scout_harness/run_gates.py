@@ -65,7 +65,7 @@ class ScoutRunRejection:
     detail: str
 
 
-def check_fleet_gates(team_id: int) -> ScoutRunRejection | None:
+def check_fleet_gates(team_id: int, *, check_run_budget: bool = True) -> ScoutRunRejection | None:
     """The fleet-level controls the scheduled coordinator enforces, applied to an off-schedule run.
 
     Reads the `signals-scout` flag payload once, the same snapshot the coordinator plans off, for
@@ -83,6 +83,9 @@ def check_fleet_gates(team_id: int) -> ScoutRunRejection | None:
             reason="not_enrolled",
             detail="Signals scouts are not enabled for this project.",
         )
+
+    if not check_run_budget:
+        return None
 
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
     per_day = _resolve_max_runs_per_day(team_id, team_configs, _default_team_config(payload))

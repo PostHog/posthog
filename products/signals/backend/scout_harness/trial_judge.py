@@ -432,6 +432,7 @@ def evidence_sources_from_logs(
         limitations.append("The session log exceeded the extraction limit; only its beginning was inspected.")
     character_budget = max(0, min(max_characters, MAX_TRACE_CHARACTERS))
     source_limit = max(0, min(max_sources, MAX_TRACE_SOURCES))
+    payloads: dict[int, dict[str, JsonValue]] = {}
     last_payloads: dict[str, str] = {}
     malformed = False
     unsupported = False
@@ -499,17 +500,48 @@ def evidence_sources_from_logs(
             call_id = payload.get("toolCallId")
             if isinstance(call_id, str) and call_id and last_payloads.get(call_id) == identity:
                 continue
-            blocks = (block for key, value in payload.items() for block in _render_tool_value(value, key))
-            # One extra character records truncation without expanding verbose nested field paths.
-            text = "".join(islice(chain.from_iterable(blocks), MAX_TRACE_SOURCE_INSPECTION_CHARACTERS + 1))
         except (ValueError, TypeError, RecursionError):
             malformed = True
             continue
         if isinstance(call_id, str) and call_id:
             last_payloads[call_id] = identity
-        if len(sources) >= source_limit:
-            overflow = True
-            break
+        payloads[line_number] = payload
+    if len(payloads) > source_limit:
+        overflow = True
+        completed_ids = {
+            payload["toolCallId"]
+            for payload in payloads.values()
+            if isinstance(payload.get("toolCallId"), str)
+            and (payload.get("status") in ("completed", "failed") or payload.get("sessionUpdate") == "tool_result")
+        }
+        inputs: dict[str, int] = {}
+        outputs: dict[str, int] = {}
+        for line_number, payload in payloads.items():
+            call_id = payload.get("toolCallId")
+            if isinstance(call_id, str) and call_id in completed_ids:
+                if "rawInput" in payload or payload.get("sessionUpdate") == "tool_call":
+                    inputs[call_id] = line_number
+                if "rawOutput" in payload or "content" in payload:
+                    outputs[call_id] = line_number
+        paired_lines = {*inputs.values(), *outputs.values()}
+
+        def priority(line_number: int) -> int:
+            payload = payloads[line_number]
+            if payload.get("status") in ("completed", "failed") or payload.get("sessionUpdate") == "tool_result":
+                return 0
+            if line_number in paired_lines:
+                return 1
+            if payload.get("sessionUpdate") == "tool_call" or "rawInput" in payload:
+                return 2
+            return 3
+
+        # Inspect the whole bounded log before streaming updates consume result slots.
+        retained = sorted(sorted(payloads, key=priority)[:source_limit])
+        payloads = {line_number: payloads[line_number] for line_number in retained}
+    for line_number, payload in payloads.items():
+        blocks = (block for key, value in payload.items() for block in _render_tool_value(value, key))
+        # One extra character records truncation without expanding verbose nested field paths.
+        text = "".join(islice(chain.from_iterable(blocks), MAX_TRACE_SOURCE_INSPECTION_CHARACTERS + 1))
         sources.append(TrialEvidenceSource(id=f"trace:{line_number}", kind="trace", text=text))
     limits = _trace_source_limits(sources, character_budget)
     truncated = any(len(source.text) > limit for source, limit in zip(sources, limits))
@@ -533,12 +565,7 @@ def evidence_sources_from_logs(
     return TrialTraceEvidence(sources=sources, limitations=limitations)
 
 
-def build_trial_judge_messages(
-    snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence
-) -> list[ChatCompletionMessageParam]:
-    system_prompt = _JUDGE_SYSTEM_PROMPTS.get(snapshot.judge_prompt_version)
-    if system_prompt is None:
-        raise TrialJudgeValidationError("The saved judge prompt version is unsupported.")
+def _judge_input(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence) -> str:
     uses_saved_reference = snapshot.judge_prompt_version in {
         "5",
         "6",
@@ -571,12 +598,63 @@ def build_trial_judge_messages(
         if snapshot.rubric_reference_context is None:
             raise TrialJudgeValidationError("The saved rubric has no reference instructions. Review and save it again.")
         envelope["rubric_reference_context"] = snapshot.rubric_reference_context.model_dump(mode="json")
-    content = json.dumps(envelope, ensure_ascii=False)
+    return json.dumps(envelope, ensure_ascii=False)
+
+
+def bound_trial_judge_evidence(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence) -> TrialRunEvidence:
+    if len(_judge_input(snapshot, evidence)) <= MAX_JUDGE_INPUT_CHARACTERS:
+        return evidence
+    marker = "\n[Evidence truncated]"
+    limitations = [
+        *evidence.limitations,
+        "Evidence was truncated to fit the encoded judge input limit; omitted content is unknown.",
+    ]
+
+    def bounded(limit: int) -> TrialRunEvidence:
+        sources = [
+            source.model_copy(
+                update={
+                    "text": (
+                        _trace_source_text(source.text, limit)
+                        if source.kind == "trace"
+                        else source.text[: limit - len(marker)] + marker
+                    )
+                }
+            )
+            if len(source.text) > limit
+            else source
+            for source in evidence.sources
+        ]
+        return evidence.model_copy(update={"sources": sources, "limitations": limitations})
+
+    # Leave room for a visible truncation marker, even when many short sources need bounding.
+    low = 64
+    high = max((len(source.text) for source in evidence.sources), default=low)
+    result = bounded(low)
+    if len(_judge_input(snapshot, result)) > MAX_JUDGE_INPUT_CHARACTERS:
+        build_trial_judge_messages(snapshot, result)
+    while low < high:
+        middle = (low + high + 1) // 2
+        candidate = bounded(middle)
+        if len(_judge_input(snapshot, candidate)) <= MAX_JUDGE_INPUT_CHARACTERS:
+            low, result = middle, candidate
+        else:
+            high = middle - 1
+    return result
+
+
+def build_trial_judge_messages(
+    snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence
+) -> list[ChatCompletionMessageParam]:
+    system_prompt = _JUDGE_SYSTEM_PROMPTS.get(snapshot.judge_prompt_version)
+    if system_prompt is None:
+        raise TrialJudgeValidationError("The saved judge prompt version is unsupported.")
+    content = _judge_input(snapshot, evidence)
     if len(content) > MAX_JUDGE_INPUT_CHARACTERS:
         raise TrialJudgeValidationError(
             "The rubric reference instructions and trial evidence exceed the scoring limit. "
             "Shorten the scout instructions or reference files, then generate, review, and save a smaller rubric."
-            if uses_saved_reference
+            if snapshot.judge_prompt_version not in {"1", "2", "3", "4"}
             else "The saved evidence exceeds the judge input limit."
         )
     return [
@@ -697,6 +775,16 @@ def _create_judge_token(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvi
     return create_trial_gateway_token(run)
 
 
+class TrialJudgeExecutionError(RuntimeError):
+    pass
+
+
+def safe_judge_failure(step: str, error: Exception) -> str:
+    name = type(error).__name__
+    name = name[:80] if name.isascii() and name.isidentifier() else "Exception"
+    return f"The private evaluation failed at {step} ({name}). No exception details were saved."
+
+
 async def _cleanup_grouped_judge_token(mint_task: asyncio.Task[str]) -> None:
     try:
         token = await mint_task
@@ -705,8 +793,8 @@ async def _cleanup_grouped_judge_token(mint_task: asyncio.Task[str]) -> None:
     try:
         with private_capture_context():
             await database_sync_to_async(revoke_trial_gateway_token, thread_sensitive=False)(token)
-    except Exception:
-        raise RuntimeError("The private judge credential could not be revoked.") from None
+    except Exception as error:
+        raise TrialJudgeExecutionError(safe_judge_failure("credential_revocation", error)) from None
 
 
 async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence) -> TrialRunJudgment:
@@ -716,6 +804,7 @@ async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: 
     input_tokens: int | None = 0
     output_tokens: int | None = 0
     failure: str
+    step = "input_validation"
     try:
         with private_capture_context():
             # Keep the whole saved rubric's validation and input limit before splitting it.
@@ -726,11 +815,13 @@ async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: 
             ]
             messages = [build_trial_judge_messages(group, evidence) for group in groups]
             # Retain the result if cancellation arrives while the database thread is minting.
+            step = "credential_creation"
             mint_task = asyncio.create_task(
                 database_sync_to_async(_create_judge_token, thread_sensitive=False)(snapshot, evidence)
             )
             token = await asyncio.shield(mint_task)
             criteria: list[TrialCriterionVerdict] = []
+            step = "gateway_setup"
             with private_scout_gateway(token):
                 async with get_async_llm_client(product="signals", team_id=snapshot.team_id).with_options(
                     max_retries=0, timeout=240.0
@@ -740,6 +831,7 @@ async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: 
                             remaining = deadline - loop.time()
                             if remaining <= 0:
                                 raise TimeoutError
+                            step = "judge_request"
                             response = await client.chat.completions.create(
                                 model=snapshot.judge_model,
                                 messages=group_messages,
@@ -755,6 +847,7 @@ async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: 
                                 ),
                                 timeout=min(remaining, 240.0),
                             )
+                            step = "response_validation"
                             if response.usage is None:
                                 input_tokens = output_tokens = None
                             elif input_tokens is not None and output_tokens is not None:
@@ -824,8 +917,8 @@ async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: 
             "The judge was rate-limited. Wait or check usage limits before starting a new evaluation. "
             "This evaluation will not retry automatically."
         )
-    except Exception:
-        failure = "The private judge request failed. Retry with a new evaluation after checking service availability."
+    except Exception as error:
+        failure = safe_judge_failure(step, error)
     finally:
         if mint_task is not None:
             cleanup = asyncio.create_task(_cleanup_grouped_judge_token(mint_task))
@@ -860,14 +953,18 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
     token: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    step = "input_validation"
     try:
         with private_capture_context():
             messages = build_trial_judge_messages(snapshot, evidence)
+            step = "credential_creation"
             token = await database_sync_to_async(_create_judge_token, thread_sensitive=False)(snapshot, evidence)
+            step = "gateway_setup"
             with private_scout_gateway(token):
                 async with get_async_llm_client(product="signals", team_id=snapshot.team_id).with_options(
                     max_retries=0, timeout=240.0 if snapshot.judge_prompt_version in {"8", "9"} else 120.0
                 ) as client:
+                    step = "judge_request"
                     response = await client.chat.completions.create(
                         model=snapshot.judge_model,
                         messages=messages,
@@ -878,6 +975,7 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
                         reasoning_effort="high" if snapshot.judge_prompt_version in {"8", "9"} else omit,
                         extra_body={"max_retries": 0} if snapshot.judge_prompt_version in {"8", "9"} else None,
                     )
+            step = "response_validation"
             if response.usage is not None:
                 input_tokens = response.usage.prompt_tokens
                 output_tokens = response.usage.completion_tokens
@@ -933,13 +1031,13 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
-    except Exception:
+    except Exception as error:
         return TrialRunJudgment(
             launch_id=evidence.launch_id,
             variant_id=evidence.variant_id,
             status="judge_error",
             summary="The judge could not evaluate this run. Its quality is unknown.",
-            error="The private judge request failed. Retry with a new evaluation after checking service availability.",
+            error=safe_judge_failure(step, error),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
@@ -948,6 +1046,6 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
             try:
                 with private_capture_context():
                     await database_sync_to_async(revoke_trial_gateway_token, thread_sensitive=False)(token)
-            except Exception:
+            except Exception as error:
                 # Do not put provider or database exception details into private evaluation workflow history.
-                raise RuntimeError("The private judge credential could not be revoked.") from None
+                raise TrialJudgeExecutionError(safe_judge_failure("credential_revocation", error)) from None

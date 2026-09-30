@@ -279,7 +279,9 @@ def main() -> None:
         parser.error("Concurrency, repeats, and timeout must be positive.")
     token = os.environ.get("POSTHOG_API_KEY")
     if not token:
-        parser.error("Set POSTHOG_API_KEY to an operator key with scout and skill write scopes.")
+        parser.error(
+            "Set POSTHOG_API_KEY to an operator key with signal_scout:write, llm_skill:write and task:read scopes."
+        )
     output = private_output_directory(args.output)
     # Keep the lock file so competing processes always lock the same inode.
     with os.fdopen(os.open(output / ".controller.lock", os.O_CREAT | os.O_WRONLY, 0o600), "w") as lock:

@@ -141,7 +141,7 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
     )
     @action(detail=True, methods=["post"], url_path="trial")
     def trial(self, request: ValidatedRequest, **kwargs: str) -> Response:
-        config = self._trial_config(request, kwargs.get("id", ""))
+        config = self._internal_trial_config(request, kwargs.get("id", ""))
         for rejection in (check_fleet_gates(config.team_id), check_spend_gates(config.team, capture_analytics=False)):
             if rejection is not None:
                 if rejection.kind.value == "throttled":
@@ -184,7 +184,7 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
     )
     @action(detail=True, methods=["get"], url_path="trial_result")
     def trial_result(self, request: ValidatedRequest, **kwargs: str) -> Response:
-        config = self._trial_config(request, kwargs.get("id", ""))
+        config = self._internal_trial_config(request, kwargs.get("id", ""))
         identifier = request.validated_query_data["launch_id"]
         try:
             launch = read_trial_launch(config.team_id, identifier)
@@ -314,11 +314,6 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
         )
 
         config = self._internal_trial_config(request, kwargs.get("id", ""))
-        for rejection in (check_fleet_gates(config.team_id), check_spend_gates(config.team, capture_analytics=False)):
-            if rejection is not None:
-                if rejection.kind.value == "throttled":
-                    raise exceptions.Throttled(detail=rejection.detail)
-                raise exceptions.PermissionDenied(rejection.detail)
         try:
             snapshot = prepare_trial_evaluation(
                 config=config,
@@ -329,6 +324,14 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
             raise exceptions.ValidationError({"detail": str(error)}) from error
         report = read_trial_evaluation_report(snapshot)
         if report is None:
+            for rejection in (
+                check_fleet_gates(config.team_id, check_run_budget=False),
+                check_spend_gates(config.team, capture_analytics=False),
+            ):
+                if rejection is not None:
+                    if rejection.kind.value == "throttled":
+                        raise exceptions.Throttled(detail=rejection.detail)
+                    raise exceptions.PermissionDenied(rejection.detail)
             start_trial_evaluation(team_id=config.team_id, evaluation_id=snapshot.evaluation_id)
         return Response(
             ScoutTrialEvaluationSerializer(

@@ -410,7 +410,9 @@ def get_scout_report_capture_snapshot(*, team_id: int, report_id: str) -> dict[s
     )
 
     _validate_report_id(report_id)
-    report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+    report = (
+        SignalReport.objects.filter(team_id=team_id, id=report_id).exclude(status=SignalReport.Status.DELETED).first()
+    )
     if report is None:
         return None
     document = TypeAdapter(dict[str, JsonValue]).validate_json(

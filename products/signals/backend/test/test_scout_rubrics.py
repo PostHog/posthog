@@ -421,6 +421,16 @@ class TestScoutRubricsAPI(APIBaseTest):
                 summary="s" * 3000 + (" omitted qualification" if truncated else ""),
                 emitted_report_ids=report_ids,
             )
+            private_task = Task.objects.create(team=self.team, title="Private trial", description="Synthetic candidate")
+            SignalScoutRun.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                task_run=TaskRun.objects.create(task=private_task, team=self.team, status=TaskRun.Status.COMPLETED),
+                scout_config=self.config,
+                skill_name=self.config.skill_name,
+                skill_version=1,
+                summary="Private synthetic trial findings must stay outside shared rubric context.",
+                metadata={"scout_trial": {"version": 1}},
+            )
         expected_criteria = default_criteria()
         if name in {"saved_choices", "owner_context"}:
             expected_criteria[0].pass_condition = "Reported checkout counts match the inspected evidence."

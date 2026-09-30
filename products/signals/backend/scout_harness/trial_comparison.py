@@ -149,10 +149,10 @@ class ScoutTrialComparisons:
         service._assert_access(plan)
         return service
 
-    def assert_can_start(self) -> None:
+    def assert_can_start(self, *, start_scouts: bool = True) -> None:
         assert_trial_environment_ready()
         for rejection in (
-            check_fleet_gates(self.config.team_id),
+            check_fleet_gates(self.config.team_id, check_run_budget=start_scouts),
             check_spend_gates(self.config.team, capture_analytics=False),
         ):
             if rejection is not None:
@@ -185,7 +185,12 @@ class ScoutTrialComparisons:
         labels = [variant.label.strip() for variant in request.variants]
         if any(not label for label in labels) or len(set(labels)) != len(labels):
             raise TrialEvaluationError("Give every variant a different, nonempty name.")
-        request_hash = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
+        # Keep exact retries compatible with plans saved before the optional version check.
+        request_hash = hashlib.sha256(
+            request.model_dump_json(
+                exclude={"expected_skill_version"} if request.expected_skill_version is None else None
+            ).encode()
+        ).hexdigest()
         existing = _read_document(comparison_plan_key(self.config.team_id, request.comparison_id), TrialComparisonPlan)
         if existing is not None:
             self._assert_access(existing)
@@ -209,7 +214,11 @@ class ScoutTrialComparisons:
         except (ScoutRubricReadError, ValidationError) as error:
             raise TrialEvaluationError("Review and save a valid rubric before starting the comparison.") from error
         context = create_trial_context(
-            config=self.config, user=self.user, identifier=request.comparison_id, note=request.note
+            config=self.config,
+            user=self.user,
+            identifier=request.comparison_id,
+            note=request.note,
+            expected_skill_version=request.expected_skill_version,
         )
         _assert_context_access(context, config=self.config, user=self.user)
         for variant in request.variants:
@@ -399,7 +408,7 @@ def prepare_comparison_evaluation(team_id: int, comparison_id: UUID) -> bool:
         except TrialEvaluationNotReady:
             return False
     if read_trial_evaluation_report(snapshot) is None:
-        service.assert_can_start()
+        service.assert_can_start(start_scouts=False)
         start_trial_evaluation(team_id, comparison_id)
     save_comparison_progress(team_id, comparison_id, TrialComparisonProgress(status="judging"))
     return True

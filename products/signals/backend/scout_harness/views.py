@@ -649,7 +649,13 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if private is not None and request.method not in {"GET", "HEAD", "OPTIONS"}:
             if identifier is not None and str(identifier) != str(private.run.id):
                 raise exceptions.NotFound()
-            if self.action not in {"emit_report", "edit_report"}:
+            if self.action not in {
+                "emit_report",
+                "edit_report",
+                "emissions_batch",
+                "emission_reports_batch",
+                "token_costs",
+            }:
                 with trial_state_errors():
                     private.invalidate("The scout requested a write that private trials do not support.")
                 raise exceptions.ValidationError("This action is unavailable for this run.")

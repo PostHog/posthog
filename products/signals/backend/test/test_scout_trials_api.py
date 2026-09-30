@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import Literal, cast
 from uuid import uuid4
@@ -18,19 +19,29 @@ from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.models import SignalScoutConfig, SignalScratchpad
+from products.signals.backend.facade.rubrics import default_criteria
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportCheck,
+    SignalScoutConfig,
+    SignalScoutNote,
+    SignalScratchpad,
+)
 from products.signals.backend.scout_harness.model_selection import ScoutModel
+from products.signals.backend.scout_harness.run_gates import check_fleet_gates
 from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
+    assert_trial_model_access,
     create_trial_launch,
     load_trial_context,
     load_trial_launch,
     resolve_trial_source_model,
 )
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
-from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, memory_snapshot
+from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport, memory_snapshot
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
+from products.signals.backend.test.test_scout_trial_judge import _reference_context
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.run_config import get_default_model_for_runtime_adapter
 
@@ -44,10 +55,10 @@ class TestScoutTrialAPI(APIBaseTest):
         self.memory_url = f"/api/projects/{self.team.id}/signals/scout/scratchpad/"
         self.trial_runs_url = f"/api/projects/{self.team.id}/signals/scout/runs/"
         snapshot = memory_snapshot([ScratchpadEntry(key="finding:shared", content="Starting value")])
-        context = SimpleNamespace(memory=snapshot, notes=[], recent_runs=[], skill_name=self.trial_run.skill_name)
+        self.context = SimpleNamespace(memory=snapshot, notes=[], recent_runs=[], skill_name=self.trial_run.skill_name)
         for module in ("trial_inspection", "trial_launch", "trial_access"):
             context_patch = patch(
-                f"products.signals.backend.scout_harness.{module}.load_trial_context", return_value=context
+                f"products.signals.backend.scout_harness.{module}.load_trial_context", return_value=self.context
             )
             context_patch.start()
             self.addCleanup(context_patch.stop)
@@ -73,6 +84,25 @@ class TestScoutTrialAPI(APIBaseTest):
         assert self.client.get(self.memory_url).json() == []
         assert SignalScratchpad.objects.filter(pk=original.pk).exists()
 
+    def test_note_search_filters_saved_content_before_preview_and_limit(self) -> None:
+        saved_id = str(uuid4())
+        self.context.notes = [
+            {"id": str(uuid4()), "skill_name": "", "content": "Review delivery delays."},
+            {"id": saved_id, "skill_name": "", "content": "Saved detail about checkout issues."},
+            {"id": str(uuid4()), "skill_name": "", "content": "Another checkout note."},
+        ]
+        SignalScoutNote.objects.create(team=self.team, content="Production-only checkout detail.")
+        self._as_trial()
+        url = f"/api/projects/{self.team.id}/signals/scout/notes/"
+
+        response = self.client.get(url, {"text": "CHECKOUT", "content_max_chars": "6", "limit": "1"})
+
+        assert response.status_code == 200, response.data
+        assert [(row["id"], row["content"]) for row in response.json()] == [(saved_id, "Saved ")]
+        response = self.client.get(url, {"text": "production-only"})
+        assert response.status_code == 200, response.data
+        assert response.json() == []
+
     def test_ordinary_scout_cannot_read_trial_runs_and_own_detail_hides_labels(self) -> None:
         config = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name=self.trial_run.skill_name)
         config.emit = False
@@ -94,15 +124,90 @@ class TestScoutTrialAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.emit is False
 
-    def test_unsupported_write_invalidates_own_trial_without_touching_another_run(self) -> None:
+    @parameterized.expand(["emit-signal", "report-check-create", "report-check-cancel", "check-result"])
+    def test_unsupported_write_invalidates_own_trial_without_touching_another_run(self, action: str) -> None:
         self._as_trial()
-        response = self.client.post(f"{self.trial_runs_url}{self.production.id}/emit-signal/", {})
+        response = self.client.post(f"{self.trial_runs_url}{self.production.id}/{action}/", {})
         assert response.status_code == 404, response.data
-        response = self.client.post(f"{self.trial_runs_url}{self.trial_run.id}/emit-signal/", {})
+        response = self.client.post(f"{self.trial_runs_url}{self.trial_run.id}/{action}/", {})
         assert response.status_code == 400, response.data
         assert ScoutTrialStore(self.trial_run).invalid_reason() is not None
         self.production.refresh_from_db()
         assert self.production.emitted_count == 0
+        assert not SignalReportCheck.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(["emissions/batch", "emissions/reports/batch", "token-costs"])
+    def test_read_only_posts_do_not_invalidate_private_runs(self, action: str) -> None:
+        self._as_trial()
+        response = self.client.post(
+            f"{self.trial_runs_url}{action}/", {"run_ids": [str(self.production.id)]}, format="json"
+        )
+        assert response.status_code == (403 if action == "token-costs" else 200), response.data
+        assert ScoutTrialStore(self.trial_run).invalid_reason() is None
+
+    @parameterized.expand([("report_level", False), ("per_run", True)])
+    def test_report_check_reads_distinguish_own_private_reports_without_exposing_other_trials(
+        self, _name: str, via_run: bool
+    ) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name=self.trial_run.skill_name,
+            body="Review report evidence.",
+            version=self.trial_run.skill_version,
+            allowed_tools=["emit_report", "edit_report"],
+        )
+        own = ScoutTrialStore(self.trial_run)
+        own_id, sibling_id = str(uuid4()), str(uuid4())
+        own.capture_report(TrialReport(id=own_id, document={"title": "Private report"}), idempotency_key="own")
+        ScoutTrialStore(self.other).capture_report(
+            TrialReport(id=sibling_id, document={"title": "Sibling report"}), idempotency_key="sibling"
+        )
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        live = SignalReport.objects.create(team=child, title="Live report", status=SignalReport.Status.READY)
+        check = SignalReportCheck.objects.for_team(child.id).create(
+            team=child,
+            report=live,
+            title="Review the live finding",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Review the live finding."},
+            next_run_at=timezone.now() + timedelta(days=1),
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        own.capture_report(
+            TrialReport(id=str(live.id), source_report_id=str(live.id), document={"title": "Private edit"}),
+            idempotency_key="edited",
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        outside = SignalReport.objects.create(team=other_team, title="Other report", status=SignalReport.Status.READY)
+        self._as_trial()
+        run_segment = f"{self.trial_run.id}/" if via_run else ""
+        url = f"{self.trial_runs_url}{run_segment}report-checks/"
+
+        response = self.client.get(url, {"report_id": own_id})
+        assert response.status_code == 400, response.data
+        assert response.json()["detail"] == "Follow-up checks are unavailable for reports emitted in private trials."
+        assert own.invalid_reason() is None
+        assert own.get_report(own_id) is not None
+
+        for report_id in (sibling_id, str(outside.id), str(uuid4())):
+            response = self.client.get(url, {"report_id": report_id})
+            assert response.status_code == 400, response.data
+            assert response.json()["detail"] == f"report {report_id} not found"
+
+        response = self.client.get(url, {"report_id": str(live.id)})
+        assert response.status_code == 200, response.data
+        assert [row["check_id"] for row in response.json()] == [str(check.id)]
+        assert own.invalid_reason() is None
+
+        _authenticate_as_scout(self, scopes="signals_scout_reports", sandbox_task_id=self.production.task_run.task_id)
+        ordinary_segment = f"{self.production.id}/" if via_run else ""
+        ordinary_url = f"{self.trial_runs_url}{ordinary_segment}report-checks/"
+        response = self.client.get(ordinary_url, {"report_id": str(live.id)})
+        assert response.status_code == 200, response.data
+        assert [row["check_id"] for row in response.json()] == [str(check.id)]
+        response = self.client.get(ordinary_url, {"report_id": own_id})
+        assert response.status_code == 400, response.data
+        assert response.json()["detail"] == f"report {own_id} not found"
 
     def test_trial_scope_without_bound_run_fails_closed(self) -> None:
         _authenticate_as_scout(
@@ -218,6 +323,10 @@ class TestScoutTrialLaunch(APIBaseTest):
         assert [choice["model"] for choice in setup["models"]] == ["gpt-5.5"]
         assert "medium" in setup["models"][0]["reasoning_efforts"]
         assert not self.documents
+        with patch(
+            "products.signals.backend.scout_harness.trial_inspection.get_supported_reasoning_efforts", return_value=[]
+        ):
+            assert self.client.get(f"{base}trial_setup/").json()["models"] == []
 
     def test_setup_reads_saved_source_and_rejects_another_operators_context(self) -> None:
         base = self._internal_scout_base()
@@ -338,7 +447,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             load_trial_launch(self.team.id, launch.id)
 
     def test_operator_launch_and_poll_use_saved_identity(self) -> None:
-        base = f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/"
+        base = self._internal_scout_base()
         launch_id = str(uuid4())
         with (
             patch("products.signals.backend.scout_harness.trial_views.check_fleet_gates", return_value=None),
@@ -363,6 +472,33 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert result.json()["status"] == "pending"
             assert result.json()["cost_usd"] is None
             assert self.client.get(f"{base}trial_result/", {"launch_id": str(uuid4())}).status_code == 404
+
+    @parameterized.expand([False, True])
+    def test_direct_trial_endpoints_require_staff_in_internal_project(self, other_project: bool) -> None:
+        base = self._internal_scout_base()
+        if other_project:
+            other_team = Team.objects.create(organization=self.organization, name="Another example")
+            base = base.replace("/projects/2/", f"/projects/{other_team.id}/")
+        else:
+            self.user.is_staff = False
+            self.user.save(update_fields=["is_staff"])
+        payload = {"launch_id": str(uuid4())}
+        with patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.start_trial_signals_scout_run"
+        ) as dispatch:
+            assert self.client.post(f"{base}trial/", payload, format="json").status_code == 404
+            assert self.client.get(f"{base}trial_result/", payload).status_code == 404
+            dispatch.assert_not_called()
+
+    def test_revoked_model_refuses_new_execution_but_keeps_saved_launch_readable(self) -> None:
+        launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
+        with patch(
+            "products.signals.backend.scout_harness.trial_launch.get_model_access_error",
+            return_value="Model access revoked",
+        ):
+            assert load_trial_launch(self.team.id, launch.id) == launch
+            with self.assertRaisesMessage(ScoutTrialLaunchError, "Model access revoked"):
+                assert_trial_model_access(launch)
 
     @parameterized.expand(
         [
@@ -391,6 +527,7 @@ class TestScoutTrialLaunch(APIBaseTest):
         concurrent_export: bool,
         workflow_status: Literal["unknown", "completed", "pending", "failed", "cancelled"],
     ) -> None:
+        self._internal_scout_base()
         launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
         run = _make_run(
             self.team,
@@ -525,12 +662,15 @@ class TestScoutTrialLaunch(APIBaseTest):
             "evaluation_id": evaluation_id,
             "baseline_variant_id": variant_id,
             "variants": [variant],
-            "rubric_source": "mock",
+            "rubric_source": "saved",
         }
         with (
-            patch("products.signals.backend.scout_harness.trial_views.check_fleet_gates", return_value=None),
+            patch(
+                "products.signals.backend.scout_harness.run_gates._read_flag_payload",
+                return_value={"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 1}},
+            ),
             patch("products.signals.backend.scout_harness.trial_views.check_spend_gates", return_value=None),
-            patch("posthog.storage.object_storage.head_object", return_value=None),
+            patch("posthog.storage.object_storage.head_object_strict", return_value=None),
             patch(
                 "products.signals.backend.scout_harness.trial_evaluation.get_trial_workflow_status",
                 return_value=TrialWorkflowStatus(status="completed"),
@@ -538,15 +678,36 @@ class TestScoutTrialLaunch(APIBaseTest):
             patch(
                 "products.signals.backend.temporal.agentic.scout_trial_evaluation.start_trial_evaluation",
                 return_value="synthetic-workflow",
-            ),
+            ) as dispatch,
             patch(
                 "products.signals.backend.temporal.agentic.scout_trial_evaluation.get_trial_evaluation_status",
                 return_value=TrialWorkflowStatus(status="pending"),
             ),
         ):
+            rejection = check_fleet_gates(self.team.id)
+            assert rejection is not None and rejection.reason == "daily_run_budget"
+            unsaved = self.client.post(f"{base}trial_evaluation/", payload, format="json")
+            assert unsaved.status_code == 400
+            assert "Review and save" in str(unsaved.data)
+            dispatch.assert_not_called()
+            self.config.rubrics = {
+                "revision": 1,
+                "criteria": [criterion.model_dump(mode="json") for criterion in default_criteria()],
+                "reference_context": _reference_context(
+                    skill_id=str(self.skill.id), skill_name=self.skill.name, instructions=self.skill.body
+                ).model_dump(mode="json"),
+                "reference_generation_id": str(uuid4()),
+            }
+            self.config.save(update_fields=["rubrics"])
             response = self.client.post(f"{base}trial_evaluation/", payload, format="json")
             assert response.status_code == 202, response.data
             assert response.json()["request"] == payload
+            with patch(
+                "products.signals.backend.scout_harness.run_gates._read_flag_payload",
+                return_value={"guaranteed_team_ids": [self.team.id], "skip_team_ids": [self.team.id]},
+            ):
+                blocked = self.client.post(f"{base}trial_evaluation/", payload, format="json")
+                assert blocked.status_code == 403, blocked.data
             snapshot_key = next(
                 key for key in self.documents if "/evaluations/" in key and key.endswith("/snapshot.json")
             )
@@ -702,7 +863,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert self.client.post(f"{base}trial_comparison/", payload, format="json").status_code == 400
             assert dispatch.call_count == 2
 
-    @parameterized.expand(["rubric", "model", "effort", "writes", "nonstaff", "invalid_id"])
+    @parameterized.expand(["rubric", "model", "effort", "writes", "nonstaff", "invalid_id", "stale_version"])
     def test_comparison_rejects_unusable_setup_before_any_run_dispatch(self, invalid: str) -> None:
         base = self._internal_scout_base()
         variant_id = str(uuid4())
@@ -713,7 +874,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             "model": "gpt-5.5",
             "reasoning_effort": "medium",
         }
-        payload = {
+        payload: dict[str, object] = {
             "comparison_id": str(uuid4()),
             "baseline_variant_id": variant_id,
             "variants": [variant],
@@ -740,6 +901,8 @@ class TestScoutTrialLaunch(APIBaseTest):
             self.user.save(update_fields=["is_staff"])
         elif invalid == "invalid_id":
             payload["comparison_id"] = "not-a-uuid"
+        elif invalid == "stale_version":
+            payload["expected_skill_version"] = self.skill.version + 1
         with patch(
             "products.signals.backend.temporal.agentic.scout_trial_comparison.start_trial_comparison"
         ) as dispatch:

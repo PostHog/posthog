@@ -302,7 +302,7 @@ class RawQueryLogArchiveTable(Table):
         # Keep private activity in operator logs without exposing the raw log metadata through HogQL.
         # Archive fields are ALIAS columns, so the nested * must include them.
         table = (
-            "(SELECT * FROM query_log_archive WHERE NOT JSONExtractBool(toString(log_comment), 'is_scout_experiment') "
+            "(SELECT * FROM query_log_archive WHERE NOT ifNull(dynamicElement(log_comment.is_scout_experiment, 'Bool'), false) "
             "SETTINGS asterisk_include_alias_columns = 1)"
         )
         return f"{table} AS query_log_archive" if use_logical_alias else table

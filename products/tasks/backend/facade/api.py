@@ -4597,12 +4597,12 @@ def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int)
     return [ancestor.log_url for ancestor in run.get_resume_chain()]
 
 
-def get_task_run_log_size(log_urls: list[str]) -> int:
+def get_task_run_log_size(log_urls: list[str], *, strict: bool = False) -> int:
     """Total byte size of the given log objects, without downloading them. Storage-only: safe off the request thread."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
     def _size(log_url: str) -> int:
-        head = object_storage.head_object(log_url)
+        head = object_storage.head_object_strict(log_url) if strict else object_storage.head_object(log_url)
         return int(head.get("ContentLength", 0)) if head else 0
 
     if len(log_urls) == 1:

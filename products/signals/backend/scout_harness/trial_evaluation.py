@@ -93,12 +93,14 @@ class _EvidenceBuilder:
         identifier: str,
         kind: Literal["instructions", "context", "summary", "report", "memory", "trace"],
         text: str,
+        *,
+        max_characters: int = MAX_SOURCE_CHARS,
     ) -> None:
         if not text:
             return
-        limit = min(self.remaining, MAX_SOURCE_CHARS)
+        limit = min(self.remaining, MAX_SOURCE_CHARS, max_characters)
         marker = "\n[Evidence truncated]"
-        if limit <= len(marker) or len(self.sources) >= MAX_EVIDENCE_SOURCES:
+        if (len(text) > limit and limit <= len(marker)) or len(self.sources) >= MAX_EVIDENCE_SOURCES:
             limitation = "Some evidence sources were omitted because the evidence limit was reached."
             if limitation not in self.limitations:
                 self.limitations.append(limitation)
@@ -110,6 +112,20 @@ class _EvidenceBuilder:
             bounded = text
         self.sources.append(TrialEvidenceSource(id=identifier, kind=kind, text=bounded))
         self.remaining -= len(bounded)
+
+    def add_authored_sources(self, sources: list[TrialEvidenceSource]) -> None:
+        # Keep half for observed tool results, and share authored space across reports.
+        remaining = MAX_EVIDENCE_CHARS // 2
+        if len(sources) > MAX_EVIDENCE_SOURCES // 2:
+            sources = sources[: MAX_EVIDENCE_SOURCES // 2]
+            self.limitations.append("Some authored sources were omitted to reserve space for tool evidence.")
+        limits: dict[str, int] = {}
+        for index, source in enumerate(sorted(sources, key=lambda source: len(source.text))):
+            limit = min(len(source.text), MAX_SOURCE_CHARS, remaining // (len(sources) - index))
+            limits[source.id] = limit
+            remaining -= limit
+        for source in sources:
+            self.add(source.id, source.kind, source.text, max_characters=limits[source.id])
 
 
 def _key(team_id: int, evaluation_id: UUID, filename: str) -> str:
@@ -273,7 +289,7 @@ def _add_trace(builder: _EvidenceBuilder, run: SignalScoutRun) -> None:
                 "The exact trial trace was unavailable; inherited resume-chain logs were not read."
             )
             return
-        size = get_task_run_log_size(urls)
+        size = get_task_run_log_size(urls, strict=True)
         if size <= 0:
             builder.limitations.append("The trial trace was unavailable.")
             return
@@ -291,7 +307,9 @@ def _add_trace(builder: _EvidenceBuilder, run: SignalScoutRun) -> None:
         for source in trace.sources:
             builder.add(source.id, source.kind, source.text)
     except Exception:
-        builder.limitations.append("The trial trace could not be read; tool-use evidence is incomplete.")
+        raise TrialEvaluationNotReady(
+            "The trial trace could not be read. Retry this evaluation after storage is available."
+        ) from None
 
 
 def _usage(value: JsonValue, field: str) -> int | None:
@@ -383,19 +401,21 @@ def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) 
             update={"exclusion_reason": "The trial was invalidated or its execution settings changed."}
         )
     builder = _EvidenceBuilder()
-    builder.add("instructions", "instructions", launch.skill_body)
-    builder.add("launch-note", "instructions", launch.note)
-    builder.add(
-        "context",
-        "context",
-        json.dumps(
-            {"memory": context.memory, "notes": context.notes, "recent_runs": context.recent_runs},
-            ensure_ascii=False,
+    authored = [
+        TrialEvidenceSource(id="instructions", kind="instructions", text=launch.skill_body),
+        TrialEvidenceSource(id="launch-note", kind="instructions", text=launch.note),
+        TrialEvidenceSource(
+            id="context",
+            kind="context",
+            text=json.dumps(
+                {"memory": context.memory, "notes": context.notes, "recent_runs": context.recent_runs},
+                ensure_ascii=False,
+            ),
         ),
-    )
+    ]
     summary = result.get("summary")
     if isinstance(summary, str) and summary:
-        builder.add("summary", "summary", summary)
+        authored.append(TrialEvidenceSource(id="summary", kind="summary", text=summary))
     else:
         builder.limitations.append("The completed trial has no final summary.")
     private = result.get("private_state")
@@ -403,14 +423,21 @@ def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) 
         reports = private.get("reports")
         if isinstance(reports, dict):
             for index, (identifier, report) in enumerate(sorted(reports.items())):
-                builder.add(
-                    f"report:{index}",
-                    "report",
-                    json.dumps(_report_evidence(identifier, report), ensure_ascii=False),
+                authored.append(
+                    TrialEvidenceSource(
+                        id=f"report:{index}",
+                        kind="report",
+                        text=json.dumps(_report_evidence(identifier, report), ensure_ascii=False),
+                    )
                 )
-        builder.add("memory", "memory", json.dumps(private.get("memory", {}), ensure_ascii=False))
+        authored.append(
+            TrialEvidenceSource(
+                id="memory", kind="memory", text=json.dumps(private.get("memory", {}), ensure_ascii=False)
+            )
+        )
     else:
         builder.limitations.append("The trial's private report and memory state was unavailable.")
+    builder.add_authored_sources(authored)
     _add_trace(builder, run)
     return evidence.model_copy(
         update={
@@ -536,10 +563,14 @@ def prepare_trial_evaluation(
     )
     from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- keep judge dependencies off API startup
         TrialJudgeValidationError,
+        bound_trial_judge_evidence,
         build_trial_judge_messages,
     )
 
     try:
+        snapshot = snapshot.model_copy(
+            update={"runs": [bound_trial_judge_evidence(snapshot, evidence) for evidence in snapshot.runs]}
+        )
         for evidence in snapshot.runs:
             build_trial_judge_messages(snapshot, evidence)
     except TrialJudgeValidationError as error:
@@ -571,7 +602,7 @@ def _read_judgment(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence
     return judgment
 
 
-def _error_judgment(evidence: TrialRunEvidence) -> TrialRunJudgment:
+def _error_judgment(evidence: TrialRunEvidence, error: str | None = None) -> TrialRunJudgment:
     if evidence.exclusion_reason:
         return TrialRunJudgment(
             launch_id=evidence.launch_id,
@@ -584,7 +615,7 @@ def _error_judgment(evidence: TrialRunEvidence) -> TrialRunJudgment:
         variant_id=evidence.variant_id,
         status="judge_error",
         summary="This trial could not be scored.",
-        error="Scoring did not finish. Start a new evaluation to score this trial again.",
+        error=error or "Scoring did not finish. Start a new evaluation to score this trial again.",
     )
 
 
@@ -605,7 +636,9 @@ def _claim_judgment(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidenc
 
 async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID) -> None:
     from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- keep judge dependencies off API startup
+        TrialJudgeExecutionError,
         judge_trial_run,
+        safe_judge_failure,
     )
 
     with private_capture_context():
@@ -625,15 +658,20 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
                 summary=evidence.exclusion_reason,
             )
         else:
+            step = "access_check"
             try:
                 await database_sync_to_async(_assert_worker_access)(snapshot)
+                step = "judgment_claim"
                 if not await asyncio.to_thread(_claim_judgment, snapshot, evidence):
                     return
+                step = "judge_execution"
                 judgment = await judge_trial_run(snapshot, evidence)
                 if judgment.launch_id != launch_id or judgment.variant_id != evidence.variant_id:
                     judgment = _error_judgment(evidence)
-            except Exception:
-                judgment = _error_judgment(evidence)
+            except TrialJudgeExecutionError as error:
+                judgment = _error_judgment(evidence, str(error))
+            except Exception as error:
+                judgment = _error_judgment(evidence, safe_judge_failure(step, error))
         await asyncio.to_thread(_write_once, _key(team_id, evaluation_id, f"runs/{launch_id}"), judgment)
 
 

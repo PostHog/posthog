@@ -29,6 +29,7 @@ class TrialComparisonRequest(EvaluationDocument):
     baseline_variant_id: UUID
     variants: list[TrialComparisonVariant] = Field(min_length=1, max_length=10)
     note: str = Field(default="", max_length=MAX_RUN_NOTE_CHARS)
+    expected_skill_version: int | None = Field(default=None, ge=1)
 
     def evaluation_request(self) -> TrialEvaluationRequest:
         return TrialEvaluationRequest(

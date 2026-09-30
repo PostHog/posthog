@@ -183,7 +183,7 @@ Use an existing scout over the synthetic data, or create one through the local s
 
 The source skill must support report output through `emit_report` or `edit_report`. Trials currently reject extra product `write_scopes`, external `mcp_gateway_server_ids`, and `structured_output_schema`. Preserve those checks. Enable the local organization's required AI consent and source configuration where missing.
 
-Open the source scout as the operator and select its **Trials** tab, after **Runs**. The tab stays scoped to that scout and opens the saved trial list. The existing `/project/<project_id>/inbox/scouts/comparisons` route remains available. The UI calls a comparison a **trial**, each configuration a **version**, and each execution a **run**; API field names remain unchanged. Inspect:
+Open the source scout as the operator and select its **Trials** tab, after **Runs**. The tab stays scoped to that scout and opens the saved trial list. The standalone trial page is `/project/<project_id>/scout-trials`. The UI calls a comparison a **trial**, each configuration a **version**, and each execution a **run**; API field names remain unchanged. Inspect:
 
 ```text
 GET /api/projects/<project_id>/signals/scout/configs/<config_id>/trial_setup/
@@ -306,7 +306,7 @@ For each iteration:
 5. When changing only the judge/rubric, reuse completed scout runs under a **new evaluation ID**. When changing the scout or data, run a new comparison.
 6. Confirm promising scout changes on held-out scenarios and additional repeats within budget. Report results by scenario, including execution failures and cost uncertainty.
 
-The run score is `pass / (pass + fail)`. The variant score is the equal mean of non-null run scores. Coverage is `(pass + fail) / (pass + fail + unknown)`; not-applicable criteria are excluded. The UI explains this through passed, failed and undecided check counts. Execution failures and judge errors are separate from quality. Baseline differences appear only for fully comparable outcomes.
+The run score is `pass / (pass + fail)`. The variant score is the equal mean of non-null run scores. Coverage is `(pass + fail) / (pass + fail + unknown)`; not-applicable criteria are excluded. The UI explains this through passed, failed and undecided check counts. Execution failures and judge errors are separate from quality. Each baseline difference requires complete, comparable outcomes for that variant and the baseline, independently of other variants. Per-check differences apply that rule to the individual check.
 New reports identify the best variant or a tie only when at least two variants have equal repeat counts and complete judgments on the same applicable checks. The winner passes the most checks; each check has equal weight. Missing evidence or incomplete runs produce an inconclusive result. Cost and speed do not decide the winner.
 
 A high score with low coverage is not strong evidence. The judge checks bounded saved evidence and exact quotations; it does not independently query source truth or measure recall. Use the synthetic answer key to measure missed findings and false positives. These small live comparisons do not establish statistical significance.

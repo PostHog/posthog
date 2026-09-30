@@ -92,7 +92,12 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
-from products.signals.backend.scout_harness.trial_launch import TrialContext, TrialLaunch, trial_capabilities
+from products.signals.backend.scout_harness.trial_launch import (
+    ScoutTrialLaunchError,
+    TrialContext,
+    TrialLaunch,
+    trial_capabilities,
+)
 from products.signals.backend.scout_harness.trial_result import get_trial_workflow_status
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutInput,
@@ -1640,6 +1645,7 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
         "task_cancelled_with_message",
         "task_failed_no_message",
         "final_metrics_failure",
+        "model_access_revoked",
     ],
 )
 @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
@@ -1757,6 +1763,10 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         patch("posthog.storage.object_storage.read", side_effect=read_document),
         patch("posthog.storage.object_storage.write") as export,
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start_session),
+        patch(
+            "products.signals.backend.scout_harness.trial_launch.get_model_access_error",
+            return_value="Model access revoked" if outcome_case == "model_access_revoked" else None,
+        ),
         patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
         patch(
@@ -1766,6 +1776,14 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         if final_metrics_failure
         else nullcontext(),
     ):
+        if outcome_case == "model_access_revoked":
+            with pytest.raises(ScoutTrialLaunchError, match="Model access revoked"):
+                await arun_signals_scout(
+                    team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
+                )
+            assert not captured
+            export.assert_not_called()
+            return
         if outcome_case == "cancelled":
             with pytest.raises(asyncio.CancelledError):
                 await arun_signals_scout(
@@ -1778,9 +1796,13 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
             outcome = await arun_signals_scout(
                 team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
             )
-        replay = await arun_signals_scout(
-            team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
-        )
+        with patch(
+            "products.signals.backend.scout_harness.trial_launch.get_model_access_error",
+            return_value="Model access revoked",
+        ):
+            replay = await arun_signals_scout(
+                team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
+            )
 
     expected_status: str = (
         "cancelled"

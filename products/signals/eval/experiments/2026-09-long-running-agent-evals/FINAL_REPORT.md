@@ -30,7 +30,7 @@ Recall is the share of the pooled verified findings on the run's file set that t
 
 ## Hard checks
 
-12 of 12 runs: completed in 3 to 6 minutes, checked out the pinned commit (fetch, checkout and printed hash in the log), read only page files plus files traced from them, wrote memory only under their own prefix. Cost per run from generation events: luna $0.06 to $0.14, terra $0.50 to $0.98, sol $1.46 to $1.68.
+12 of 12 runs: completed in 3 to 6 minutes, checked out the pinned commit (fetch, checkout and printed hash in the log), wrote memory only under their own prefix. Observed literal Python path mentions were page files or files traced from them; the parser does not prove complete file scope because directory searches, globs and scripts can read unlisted files. Cost per run from generation events: luna $0.06 to $0.14, terra $0.50 to $0.98, sol $1.46 to $1.68.
 
 ## Judging cost
 

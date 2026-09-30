@@ -94,13 +94,14 @@ Captured reports identify recorded submission metadata separately from the final
 Missing or truncated evidence is recorded as a limitation; private thoughts and reasoning are excluded from the extracted trace.
 Session titles and other recognized metadata updates are not tool evidence; unknown event formats still produce coverage limitations.
 Trace extraction removes exact repeated updates and duplicate output content. It reserves a small amount of evidence per retained event, then prefers complete shorter sources before distributing the remaining space to longer excerpts. Events stay in their original order, and source-count and size limits remain explicit limitations.
+New snapshots reserve at least half the evidence budget for tool observations. When there are too many trace events, completed results and their associated inputs take priority over streaming updates and unfinished calls. Storage failures stop preparation before evidence is frozen; the same request can recover after storage becomes available, and automatic trials use their existing bounded wait loop. Confirmed missing or oversized logs remain explicit limitations.
 Tool trace fields use labelled text blocks that preserve string values, including quotes, line breaks and literal backslashes. This lets the judge quote returned prose without copying an extra layer of JSON escaping. Call identity, status, errors and inputs remain part of the same bounded source. Partial sources may retain a prefix and suffix separated by an explicit omission marker. A suffix is included only when bounded inspection reached the actual end of the source; otherwise only its prefix is retained.
 
 The judge receives criteria, the fixed reference context and run evidence without variant labels or scout model settings.
 Candidate instructions and starting-context notes cannot remove or relax the saved rubric's requirements.
 Editable launch notes are instructions, so quoting their claims alone cannot prove execution. Saved starting history can establish applicability, but cannot prove actions taken in the evaluated run.
 Reference instructions define the requirements but cannot serve as evidence that the scout performed them.
-The complete judge input must fit the existing 120,000-character limit before dispatch; scoring rejects oversized inputs with an actionable error instead of truncating governing requirements or starting a paid call.
+The complete encoded judge input must fit the existing 120,000-character limit before dispatch. New snapshots shorten oversized evidence with explicit truncation markers, accounting for JSON escaping and citation metadata. Governing requirements stay intact; scoring rejects a reference that leaves too little room for evidence before starting a paid call. Existing frozen snapshots remain unchanged. Unexpected judge failures retain only the failed step and exception class in the existing private error result, without exception details or new telemetry.
 It returns one verdict per criterion: pass, fail, unknown or not applicable.
 Pass, fail and not applicable require source references and exact quotations from the saved evidence.
 In versions 1 through 11, unverifiable model quotations become unknown. Versions 12 through 15 reject invalid source/excerpt references as a judge error. Citing an instruction alone cannot prove it was followed.
@@ -130,7 +131,7 @@ Coverage is `(pass + fail) / (pass + fail + unknown)`; not applicable is exclude
 Execution exclusions and judge errors have no quality score and are counted separately.
 A scout runner failure remains an execution exclusion even if its sandbox task completed; the saved trial outcome records the runner failure.
 Reports retain each run's verdicts, reasons, quotations and evidence limitations alongside aggregate counts.
-Baseline differences are withheld unless all selected runs were judged with complete, comparable verdicts.
+Each baseline difference compares one variant with the baseline. The overall difference requires complete, comparable verdicts for that pair; a per-check difference requires complete, comparable verdicts for that check in the pair. Another incomplete variant does not hide these differences.
 New reports include a best variant, a tie, or an inconclusive result, with an explanation.
 The best variant passes the most rubric checks across repeated runs. Each check has equal weight; cost and speed do not affect the result.
 A winner requires at least two variants, equal repeat counts, and complete judgments on the same applicable checks.
@@ -163,7 +164,10 @@ Saved rubric definitions, captured reference instructions and raw evidence remai
 An explicit new judging attempt can reuse completed scout runs with the current saved rubric while keeping the old report available. It may charge for judging every run again.
 Browser storage keeps only scout, comparison, variant, baseline and launch IDs, scoped to the project and operator; prompts, labels, evidence and reports stay out of browser storage.
 Unsubmitted prompt edits are lost on reload. Accepted comparison plans and their status are recovered from the server.
-The setup, history and scoring endpoints enforce the staff/project restriction on the server, in addition to existing scout permissions.
+All trial endpoints, including direct launches and result reads, enforce the staff/project restriction on the server, in addition to existing scout permissions.
+New UI trials verify the source instruction version shown during setup before saving their starting context. If it changed, reload the setup; saved trial retries retain their frozen instructions.
+Judging completed runs does not consume or require a remaining daily scout-run allowance. Project enrollment and spend limits still apply to new judging work; reading a completed report does not start a paid request.
+Private trials reject implementation replacement requests. They capture report edits and repository decisions without starting or replacing implementation tasks.
 Shared instructions guide investigations but do not enforce date or file access limits.
 
 ## Postgres experiment ingestion

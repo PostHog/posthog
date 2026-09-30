@@ -16,6 +16,39 @@ export const Judged: Story = {}
 export const EvidenceWithoutRunDetails: Story = {
     args: { result: null, launchId: trialFixtureLongReport.runs[0].launch_id },
 }
+export const UpdatedReport: Story = {
+    args: {
+        report: null,
+        result: {
+            ...trialFixtureResult,
+            summary: 'Added corroborating evidence to an existing report. No new report was created.',
+            reports: [
+                {
+                    id: '00000000-0000-4000-8000-000000000097',
+                    source_report_id: '00000000-0000-4000-8000-000000000097',
+                    document: {
+                        title: 'Coupon removal clears the delivery choice',
+                        summary: 'Removing a coupon resets the selected delivery option.',
+                    },
+                    edits: [{ append_note: 'A second synthetic checkout reproduced the same delivery reset.' }],
+                    evidence: [
+                        {
+                            content: 'The delivery option changed from express to standard after removing the coupon.',
+                            source_id: 'synthetic-checkout-2',
+                            weight: 1,
+                        },
+                    ],
+                    artefacts: [
+                        {
+                            type: 'note',
+                            content: { note: 'A second synthetic checkout reproduced the same delivery reset.' },
+                        },
+                    ],
+                },
+            ],
+        },
+    },
+}
 export const Failed: Story = {
     args: {
         report: null,

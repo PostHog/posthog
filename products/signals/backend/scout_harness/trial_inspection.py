@@ -139,6 +139,7 @@ class ScoutTrialInspection:
             for identifier in get_models_for_runtime_adapter(adapter)
             if get_model_access_error(identifier, distinct_id=self.user.distinct_id) is None
         ]
+        models = [choice for choice in models if choice.reasoning_efforts]
         if not models:
             blocked_reasons.append("No scout models are available for your account.")
         return TrialSetup(
@@ -154,10 +155,6 @@ class ScoutTrialInspection:
         )
 
     def history(self, limit: int) -> TrialHistory:
-        from products.signals.backend.facade.api import (  # noqa: PLC0415 -- the facade imports scout report tools
-            is_scout_trial_task_run,
-        )
-
         self._check_skill_access()
         runs = (
             SignalScoutRun.objects.for_team(self.config.team_id)
@@ -173,11 +170,14 @@ class ScoutTrialInspection:
         )
         items: list[TrialHistoryItem] = []
         for run in runs:
-            if not is_scout_trial_task_run(
-                team_id=self.config.team_id, task_id=run.task_run.task_id, task_run_id=run.task_run_id
+            marker = (run.metadata or {})["scout_trial"]
+            if (
+                not isinstance(marker.get("launch_id"), str)
+                or run.task_run.task.origin_product != "signals_scout"
+                or run.task_run.task.origin_key != f"scout-trial:{marker['launch_id']}"
+                or (run.task_run.state or {}).get("scout_trial") != marker
             ):
                 continue
-            marker = (run.metadata or {})["scout_trial"]
             try:
                 launch = read_trial_launch(self.config.team_id, marker["launch_id"])
             except (ScoutTrialLaunchError, ValueError):

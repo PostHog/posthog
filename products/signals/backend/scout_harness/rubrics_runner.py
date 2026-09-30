@@ -29,6 +29,7 @@ from products.signals.backend.scout_harness.rubrics import (
     update_generation,
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run, resolve_report_channel_variant
+from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -234,6 +235,7 @@ def build_rubric_prompt(team: Team, config: SignalScoutConfig, *, generation_con
     runs = list(
         SignalScoutRun.objects.for_team(team.id)
         .filter(skill_name=config.skill_name)
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
         .select_related("task_run")
         .order_by("-created_at")[:5]
     )

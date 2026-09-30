@@ -3,6 +3,8 @@ export function isPrivateScoutTrialTool(toolName: unknown): boolean {
 }
 
 const TASK_CONTENT_READ_TOOLS = new Set([
+    'scout-runs-retrieve',
+    'signals-scout-runs-retrieve',
     'tasks-list',
     'tasks-retrieve',
     'tasks-runs-list',

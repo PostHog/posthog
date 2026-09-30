@@ -25,6 +25,7 @@ from posthog.storage import object_storage
 
 from products.signals.backend.facade.rubrics import default_criteria
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.run_gates import check_fleet_gates
 from products.signals.backend.scout_harness.trial_comparison import (
     ScoutTrialComparisons,
     comparison_evaluation_finished,
@@ -40,6 +41,7 @@ from products.signals.backend.scout_harness.trial_evaluation import (
     MAX_SOURCE_CHARS,
     MAX_TRACE_BYTES,
     TrialEvaluationError,
+    TrialEvaluationNotReady,
     _request_hash,
     assert_evaluation_access,
     finish_trial_evaluation,
@@ -53,7 +55,7 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialEvaluationVariant,
     TrialRunJudgment,
 )
-from products.signals.backend.scout_harness.trial_judge import parse_trial_judgment
+from products.signals.backend.scout_harness.trial_judge import TrialJudgeExecutionError, parse_trial_judgment
 from products.signals.backend.scout_harness.trial_launch import ScoutTrialLaunchError, TrialContext, TrialLaunch
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader
@@ -357,9 +359,7 @@ class TestScoutTrialEvaluation(BaseTest):
         assert snapshot.rubric_reference_context == self.reference
         assert snapshot.rubric_reference_generation_id == rubric["reference_generation_id"]
         assert {criterion.id for criterion in snapshot.criteria} == {criterion.id for criterion in default_criteria()}
-        assert (
-            next(source.text for source in snapshot.runs[0].sources if source.kind == "instructions") == "Do no work."
-        )
+        assert next(source.text for source in snapshot.runs[0].sources if source.id == "instructions") == "Do no work."
 
     @parameterized.expand(["pass", "fail", "not_applicable"])
     def test_launch_note_alone_cannot_support_a_conclusive_verdict(self, verdict: str) -> None:
@@ -489,6 +489,81 @@ class TestScoutTrialEvaluation(BaseTest):
         assert not any(source.kind == "trace" for source in snapshot.runs[0].sources)
         assert any("trace" in limitation for limitation in snapshot.runs[0].limitations)
 
+    @parameterized.expand(["head", "read"])
+    def test_transient_trace_storage_failure_does_not_freeze_evidence(self, failure_step: str) -> None:
+        log = json.dumps(
+            {
+                "notification": {
+                    "method": "session/update",
+                    "params": {
+                        "update": {
+                            "sessionUpdate": "tool_call_update",
+                            "toolCallId": "example",
+                            "status": "completed",
+                            "rawOutput": "The independent check succeeded.",
+                        }
+                    },
+                }
+            }
+        )
+        with (
+            patch(f"{MODULE}.get_task_run_log_urls", return_value=[self.scout_run.task_run.log_url]),
+            patch("posthog.storage.object_storage.head_object", return_value=None) as lenient_head,
+            patch(
+                "posthog.storage.object_storage.head_object_strict", return_value={"ContentLength": len(log)}
+            ) as head,
+            patch(f"{MODULE}.read_task_run_log_content", return_value=log) as read,
+        ):
+            failing = head if failure_step == "head" else read
+            failing.side_effect = object_storage.ObjectStorageError("Private synthetic storage detail")
+            with self.assertRaisesMessage(TrialEvaluationNotReady, "Retry this evaluation") as failure:
+                prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+            assert "Private synthetic" not in str(failure.exception)
+            assert not any("/evaluations/" in key for key in self.documents)
+            failing.side_effect = None
+            snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        lenient_head.assert_not_called()
+        assert snapshot.evaluation_id == self.request.evaluation_id
+        assert any("The independent check succeeded." in source.text for source in snapshot.runs[0].sources)
+
+    def test_multiple_large_reports_leave_room_for_final_tool_evidence(self) -> None:
+        reports = [
+            TrialReport(id=f"synthetic-report-{index}", document={"summary": f"Finding {index}. " * 3000})
+            for index in range(4)
+        ]
+        self.scout_run.task_run.state["scout_trial_private"] = {
+            "reports": {report.id: report.model_dump(mode="json") for report in reports}
+        }
+        self.scout_run.task_run.save(update_fields=["state"])
+        log = json.dumps(
+            {
+                "notification": {
+                    "method": "session/update",
+                    "params": {
+                        "update": {
+                            "sessionUpdate": "tool_call_update",
+                            "toolCallId": "readback",
+                            "status": "completed",
+                            "rawOutput": "The final saved measurement was read back.",
+                        }
+                    },
+                }
+            }
+        )
+        with (
+            patch(f"{MODULE}.get_task_run_log_urls", return_value=[self.scout_run.task_run.log_url]),
+            patch(f"{MODULE}.get_task_run_log_size", return_value=len(log)),
+            patch(f"{MODULE}.read_task_run_log_content", return_value=log),
+        ):
+            snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        sources = snapshot.runs[0].sources
+        assert len([source for source in sources if source.kind == "report"]) == 4
+        for index in range(4):
+            assert any(source.kind == "report" and f"Finding {index}." in source.text for source in sources)
+        assert any(
+            source.kind == "trace" and "The final saved measurement was read back." in source.text for source in sources
+        )
+
     @parameterized.expand(
         [
             ("tight_budget", 18_000, False),
@@ -552,7 +627,7 @@ class TestScoutTrialEvaluation(BaseTest):
         ):
             snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         source = next(source for source in snapshot.runs[0].sources if source.kind == "summary")
-        assert len(source.text) == MAX_SOURCE_CHARS
+        assert len(source.text) <= min(MAX_SOURCE_CHARS, max_characters // 2)
         assert source.text.endswith("[Evidence truncated]")
         assert any("summary was truncated" in value for value in snapshot.runs[0].limitations)
         assert sum(len(source.text) for source in snapshot.runs[0].sources) <= max_characters
@@ -585,8 +660,8 @@ class TestScoutTrialEvaluation(BaseTest):
             assert not traces[-2].text.endswith("[Tool trace truncated]")
         assert any("Tool trace evidence was truncated" in value for value in snapshot.runs[0].limitations)
 
-    @parameterized.expand([False, True])
-    def test_retries_do_not_repeat_paid_judgments(self, interrupted: bool) -> None:
+    @parameterized.expand([(False, "returned"), (True, "returned"), (False, "unexpected"), (False, "revocation")])
+    def test_retries_do_not_repeat_paid_judgments(self, interrupted: bool, failure_kind: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         judgment = TrialRunJudgment(
             launch_id=self.launch.id,
@@ -596,6 +671,12 @@ class TestScoutTrialEvaluation(BaseTest):
             error="Synthetic failure",
         )
         judge = AsyncMock(return_value=judgment)
+        if failure_kind == "unexpected":
+            judge.side_effect = RuntimeError("Private synthetic failure detail")
+        elif failure_kind == "revocation":
+            judge.side_effect = TrialJudgeExecutionError(
+                "The private evaluation failed at credential_revocation (RuntimeError). No exception details were saved."
+            )
         with patch(f"{JUDGE_MODULE}.judge_trial_run", judge):
             async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
             if interrupted:
@@ -606,6 +687,11 @@ class TestScoutTrialEvaluation(BaseTest):
         judge.assert_awaited_once()
         report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
         assert report.runs[0].status == "judge_error"
+        assert "Private synthetic" not in report.model_dump_json()
+        if failure_kind != "returned":
+            assert ("credential_revocation" if failure_kind == "revocation" else "judge_execution") in (
+                report.runs[0].error or ""
+            )
 
     def test_worker_rechecks_operator_access_before_judging(self) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
@@ -682,7 +768,10 @@ class TestScoutTrialEvaluation(BaseTest):
         with (
             patch(f"{module}.get_trial_workflow_status", side_effect=run_status),
             patch(f"{MODULE}.get_trial_workflow_status", side_effect=run_status),
-            patch(f"{module}.check_fleet_gates", return_value=None),
+            patch(
+                "products.signals.backend.scout_harness.run_gates._read_flag_payload",
+                return_value={"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 1}},
+            ),
             patch(f"{module}.check_spend_gates", return_value=None),
             patch(f"{WORKFLOW_MODULE}.start_trial_evaluation", return_value="synthetic-evaluation") as dispatch,
         ):
@@ -693,6 +782,8 @@ class TestScoutTrialEvaluation(BaseTest):
             assert read_trial_evaluation(self.team.id, request.comparison_id) is None
             self.scout_run.task_run.status = "completed"
             self.scout_run.task_run.save(update_fields=["status"])
+            rejection = check_fleet_gates(self.team.id)
+            assert rejection is not None and rejection.reason == "daily_run_budget"
             if manual_first:
                 prepare_trial_evaluation(config=self.config, user=self.user, request=request.evaluation_request())
             assert prepare_comparison_evaluation(self.team.id, request.comparison_id)
@@ -715,6 +806,12 @@ class TestScoutTrialEvaluation(BaseTest):
             with self.assertRaisesMessage(TrialEvaluationError, "different request"):
                 prepare_trial_evaluation(config=self.config, user=self.user, request=changed)
             dispatch.assert_called_once()
+            with patch(
+                "products.signals.backend.scout_harness.run_gates._read_flag_payload",
+                return_value={"guaranteed_team_ids": []},
+            ):
+                with self.assertRaisesMessage(TrialEvaluationError, "not enabled for this project"):
+                    prepare_comparison_evaluation(self.team.id, request.comparison_id)
 
     @parameterized.expand(
         ["user_id", "config_id", "context_id", "request", "rubric_document", "judge_model", "judge_prompt_version"]
@@ -853,7 +950,7 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
 
     async def test_activity_failure_does_not_put_evidence_in_temporal_history(self) -> None:
         with patch(f"{MODULE}.read_trial_evaluation", side_effect=ValueError("Private synthetic evidence")):
-            with self.assertRaisesMessage(ApplicationError, "The saved evaluation could not be loaded.") as failure:
+            with self.assertRaisesMessage(ApplicationError, "snapshot_load (ValueError)") as failure:
                 await load_scout_trial_evaluation_activity(TrialEvaluationInput(team_id=2, evaluation_id=str(uuid4())))
         assert "Private synthetic evidence" not in str(failure.exception)
         assert failure.exception.non_retryable

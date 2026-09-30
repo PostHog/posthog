@@ -194,6 +194,15 @@ def load_trial_launch(team_id: int, launch_id: UUID | str) -> TrialLaunch:
     return launch
 
 
+def assert_trial_model_access(launch: TrialLaunch) -> None:
+    user = User.objects.filter(id=launch.user_id, is_active=True).only("distinct_id").first()
+    if user is None:
+        raise ScoutTrialLaunchError("The trial operator is no longer active.")
+    error = get_model_access_error(launch.model, distinct_id=user.distinct_id)
+    if error:
+        raise ScoutTrialLaunchError(error)
+
+
 def assert_trial_capabilities_supported(config: SignalScoutConfig, skill: LoadedSkill) -> None:
     if not skill_uses_report_channel(skill.allowed_tools):
         raise ScoutTrialLaunchError("Live trials support scouts that create or edit reports.")
@@ -221,9 +230,13 @@ def resolve_trial_source_model(config: SignalScoutConfig, identifier: UUID) -> S
     )
 
 
-def _snapshot_context(config: SignalScoutConfig, user: User, identifier: UUID, note: str) -> TrialContext:
+def _snapshot_context(
+    config: SignalScoutConfig, user: User, identifier: UUID, note: str, expected_skill_version: int | None = None
+) -> TrialContext:
     team = config.team
     skill = load_skill_for_run(team, config.skill_name)
+    if expected_skill_version is not None and skill.version != expected_skill_version:
+        raise ScoutTrialLaunchError("The scout instructions changed. Reload the trial setup before starting.")
     assert_trial_capabilities_supported(config, skill)
     runtime = resolve_trial_source_model(config, identifier)
     memories = (
@@ -258,14 +271,23 @@ def _snapshot_context(config: SignalScoutConfig, user: User, identifier: UUID, n
     )
 
 
-def create_trial_context(*, config: SignalScoutConfig, user: User, identifier: UUID, note: str) -> TrialContext:
+def create_trial_context(
+    *,
+    config: SignalScoutConfig,
+    user: User,
+    identifier: UUID,
+    note: str,
+    expected_skill_version: int | None = None,
+) -> TrialContext:
     assert_trial_environment_ready()
     key = _document_key(config.team_id, "contexts", identifier)
     context = _read_document(key, TrialContext)
     if context is None:
-        context = _write_document_once(key, _snapshot_context(config, user, identifier, note))
+        context = _write_document_once(key, _snapshot_context(config, user, identifier, note, expected_skill_version))
     if context.config_id != config.id or context.user_id != user.id or context.note != note:
         raise ScoutTrialLaunchError("The comparison context belongs to a different request.")
+    if expected_skill_version is not None and context.skill_version != expected_skill_version:
+        raise ScoutTrialLaunchError("The scout instructions changed. Reload the trial setup before starting.")
     _validate_source(context)
     return context
 

@@ -244,7 +244,7 @@ An example variants file:
 The source settings are saved before any override, so the first variant does not redefine the baseline.
 If the source has no explicit effort pin, supply a common `--effort` supported by the selected models.
 
-The CLI reads the operator key from `POSTHOG_API_KEY`, and it never saves the key in the manifest.
+The CLI reads the operator key from `POSTHOG_API_KEY`, and it never saves the key in the manifest. The key needs `signal_scout:write`, `llm_skill:write` and `task:read`; the last scope is needed to download the complete session log.
 `.codex/with-flox` starts commands with an empty environment, so an exported key does not reach the CLI.
 Keep the key on one line in a private mode-`600` file and load it inside the wrapper:
 

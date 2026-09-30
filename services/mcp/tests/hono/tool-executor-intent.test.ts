@@ -59,6 +59,8 @@ describe('ToolExecutor analytics capture', () => {
                 [
                     ['scout-trial-create', 'private'],
                     ['scout-trial-get', 'private'],
+                    ['scout-runs-retrieve', 'metadata'],
+                    ['signals-scout-runs-retrieve', 'metadata'],
                     ['tasks-list', 'metadata'],
                     ['tasks-retrieve', 'metadata'],
                     ['tasks-runs-list', 'metadata'],

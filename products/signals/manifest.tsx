@@ -24,7 +24,7 @@ export const manifest: ProductManifest = {
         inboxFindings: (): string => '/inbox/scouts/findings',
         // Project-wide list of scout and signal-pipeline runs, reached from the roster footer.
         inboxRuns: (): string => '/inbox/scouts/runs',
-        inboxScoutTrials: (): string => '/inbox/scouts/comparisons',
+        inboxScoutTrials: (): string => '/scout-trials',
     },
     scenes: {
         ScoutTrials: {
@@ -42,12 +42,12 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/inbox': ['Inbox', 'inbox'],
+        '/scout-trials': ['ScoutTrials', 'scoutTrials'],
         '/inbox/:tab': ['Inbox', 'inbox'],
         // Static panel routes, registered before `:skillName` / `:reportId` so they aren't read as ids.
         '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
         '/inbox/scouts/findings': ['Inbox', 'inbox'],
         '/inbox/scouts/runs': ['Inbox', 'inbox'],
-        '/inbox/scouts/comparisons': ['ScoutTrials', 'scoutTrials'],
         '/inbox/reports/triage': ['Inbox', 'inbox'],
         // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
         '/inbox/scouts/:skillName': ['Inbox', 'inbox'],

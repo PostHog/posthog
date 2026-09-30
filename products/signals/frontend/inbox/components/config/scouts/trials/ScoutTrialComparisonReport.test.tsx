@@ -112,4 +112,49 @@ describe('ScoutTrialComparisonReport', () => {
         expect(screen.queryByText(trialFixtureReport.judge_model)).toBeNull()
         expect(screen.queryByText(trialFixtureReport.evaluation_id)).toBeNull()
     })
+
+    it.each([
+        [null, 'New report'],
+        ['00000000-0000-4000-8000-000000000098', 'Updated existing report'],
+    ])('shows captured changes when the report summary stays unchanged (%s)', async (sourceReportId, label) => {
+        render(
+            <ScoutTrialRunDrawer
+                result={{
+                    ...trialFixtureResult,
+                    reports: [
+                        {
+                            id: '00000000-0000-4000-8000-000000000098',
+                            source_report_id: sourceReportId,
+                            document: { title: 'Saved checkout report', summary: 'The original report summary.' },
+                            edits: [
+                                {
+                                    append_note: 'The latest check confirms the saved finding.',
+                                    corroboration_only: true,
+                                },
+                            ],
+                            evidence: [{ content: 'Delivery selection cleared after removing a coupon.' }],
+                            artefacts: [{ type: 'note', content: { note: 'A corroborating note was captured.' } }],
+                        },
+                    ],
+                }}
+                onClose={jest.fn()}
+            />
+        )
+
+        await userEvent.click(screen.getByText('Captured reports (1)'))
+        expect(screen.getByText(label)).not.toBeNull()
+        expect(screen.getByText('The original report summary.')).not.toBeNull()
+        expect(screen.queryByText(/The latest check confirms/)).toBeNull()
+        expect(screen.queryByText(/Delivery selection cleared/)).toBeNull()
+        expect(screen.queryByText(/A corroborating note/)).toBeNull()
+
+        await userEvent.click(screen.getByText('Changes made (1)'))
+        expect(screen.getByText(/The latest check confirms the saved finding/)).not.toBeNull()
+        await userEvent.click(screen.getByText('Captured data'))
+        expect(screen.getByText(/"corroboration_only": true/)).not.toBeNull()
+        await userEvent.click(screen.getByText('Evidence (1)'))
+        expect(screen.getByText(/Delivery selection cleared after removing a coupon/)).not.toBeNull()
+        await userEvent.click(screen.getByText('Report activity (1)'))
+        expect(screen.getByText(/A corroborating note was captured/)).not.toBeNull()
+    })
 })

@@ -42,6 +42,9 @@ async def load_scout_trial_evaluation_activity(inputs: TrialEvaluationInput) -> 
     from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415 -- avoid loading the harness through the workflow registry
         read_trial_evaluation,
     )
+    from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- avoid loading judge dependencies through the workflow registry
+        safe_judge_failure,
+    )
 
     with private_capture_context():
         try:
@@ -49,8 +52,8 @@ async def load_scout_trial_evaluation_activity(inputs: TrialEvaluationInput) -> 
             if snapshot is None:
                 raise ValueError("Missing evaluation")
             return [str(run.launch_id) for run in snapshot.runs]
-        except Exception:
-            raise ApplicationError("The saved evaluation could not be loaded.", non_retryable=True) from None
+        except Exception as error:
+            raise ApplicationError(safe_judge_failure("snapshot_load", error), non_retryable=True) from None
 
 
 @activity.defn
@@ -58,13 +61,16 @@ async def judge_scout_trial_run_activity(inputs: TrialEvaluationRunInput) -> Non
     from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415 -- avoid loading the harness through the workflow registry
         run_evaluation_run,
     )
+    from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- avoid loading judge dependencies through the workflow registry
+        safe_judge_failure,
+    )
 
     with private_capture_context():
         try:
             async with Heartbeater():
                 await run_evaluation_run(inputs.team_id, UUID(inputs.evaluation_id), UUID(inputs.launch_id))
-        except Exception:
-            raise ApplicationError("The trial could not be scored.", non_retryable=True) from None
+        except Exception as error:
+            raise ApplicationError(safe_judge_failure("judge_activity", error), non_retryable=True) from None
 
 
 @activity.defn
@@ -72,14 +78,17 @@ async def finish_scout_trial_evaluation_activity(inputs: TrialEvaluationInput) -
     from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415 -- avoid loading the harness through the workflow registry
         finish_trial_evaluation,
     )
+    from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- avoid loading judge dependencies through the workflow registry
+        safe_judge_failure,
+    )
 
     with private_capture_context():
         try:
             await database_sync_to_async(finish_trial_evaluation, thread_sensitive=False)(
                 inputs.team_id, UUID(inputs.evaluation_id)
             )
-        except Exception:
-            raise ApplicationError("The evaluation report could not be saved.", non_retryable=True) from None
+        except Exception as error:
+            raise ApplicationError(safe_judge_failure("report_save", error), non_retryable=True) from None
 
 
 @workflow.defn

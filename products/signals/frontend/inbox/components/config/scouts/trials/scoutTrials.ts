@@ -42,6 +42,7 @@ export interface ScoutTrialComparison {
     id: string
     configId: string
     baselineVariantId: string
+    sourceEvaluationId?: string
     groups: { variantId: string; launchIds: string[] }[]
 }
 
@@ -131,7 +132,8 @@ export function createTrialBatch(
     variants: ScoutTrialVariant[],
     repeats: number,
     note: string,
-    newId: () => string
+    newId: () => string,
+    expectedSkillVersion?: number
 ): ScoutTrialBatch {
     const groups = variants.map(() => ({
         variantId: newId(),
@@ -144,6 +146,7 @@ export function createTrialBatch(
         comparison: { id: comparisonId, configId, baselineVariantId: groups[0].variantId, groups },
         request: {
             comparison_id: comparisonId,
+            ...(expectedSkillVersion !== undefined ? { expected_skill_version: expectedSkillVersion } : {}),
             baseline_variant_id: groups[0].variantId,
             variants: variants.map((variant, index) => ({
                 id: groups[index].variantId,

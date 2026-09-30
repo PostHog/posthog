@@ -60,7 +60,11 @@ from products.signals.backend.scout_harness.skill_loader import (
     skill_uses_report_channel,
 )
 from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
-from products.signals.backend.scout_harness.trial_launch import TrialLaunch, load_trial_launch
+from products.signals.backend.scout_harness.trial_launch import (
+    TrialLaunch,
+    assert_trial_model_access,
+    load_trial_launch,
+)
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import (
     SCOUT_TRIAL_METADATA_KEY,
@@ -291,6 +295,7 @@ async def _arun_signals_scout(
         )
         if prior is not None:
             return prior
+        await database_sync_to_async(assert_trial_model_access, thread_sensitive=False)(trial)
 
     # Honor the per-scout holdback denylist, resolved against the canonical project. Two effects:
     # (1) a direct run of a held-back scout is refused up front (so this manual path can't seed or

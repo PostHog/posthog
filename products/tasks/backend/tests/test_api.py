@@ -412,6 +412,26 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
                 search_text="saved scout result",
             )
 
+    @parameterized.expand([("run", "cloud"), ("warm", "cloud"), ("runs", "local"), ("runs", "cloud")])
+    def test_operator_cannot_start_ordinary_runs_for_a_trial_task(self, action: str, environment: str) -> None:
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        payload = {"resume_from_run_id": str(run.id)} if action == "warm" else {"environment": environment}
+        with (
+            patch.object(tasks_facade, "run_task") as start,
+            patch.object(tasks_facade, "warm_task_resume_sandbox") as warm,
+            patch.object(tasks_facade, "bootstrap_task_run") as bootstrap,
+        ):
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/{action}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == (
+            "Scout comparison tasks cannot start another run. Start a new comparison instead."
+        )
+        start.assert_not_called()
+        warm.assert_not_called()
+        bootstrap.assert_not_called()
+        assert list(task.runs.values_list("id", flat=True)) == [run.id]
+
     def _trial_log_client(
         self,
         *,

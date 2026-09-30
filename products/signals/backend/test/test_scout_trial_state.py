@@ -12,12 +12,20 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from pydantic import JsonValue
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.temporal.oauth import SIGNALS_APP_CLIENT_ID_DEV, SIGNALS_APP_ID_DEV
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScratchpad
+from products.signals.backend.models import (
+    MAX_SCOUT_REPORT_NOTES,
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalScratchpad,
+)
+from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.scout_harness.tools.report import (
     InvalidScoutReportError,
     ReportEvidence,
@@ -32,8 +40,10 @@ from products.signals.backend.scout_harness.trial_state import (
     SCOUT_TRIAL_STATE_KEY,
     ScoutTrialStateError,
     ScoutTrialStore,
+    TrialReport,
     memory_snapshot,
 )
+from products.signals.backend.scout_report.persistence import MAX_REPORT_SIGNALS, set_scout_report_inferred_repository
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.tasks.backend.models import TaskRun
@@ -342,6 +352,159 @@ class TestScoutTrialReportCapture(APIBaseTest):
         sibling = _make_run(self.team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
         assert ScoutTrialStore(sibling).get_report(str(original.id)) is None
 
+    def test_deleted_source_report_cannot_be_captured(self) -> None:
+        original = SignalReport.objects.create(
+            team=self.team, title="Deleted report", status=SignalReport.Status.DELETED
+        )
+
+        with pytest.raises(InvalidScoutReportError, match="not found"):
+            edit_report_sync(team=self.team, run=self.scout_run, report_id=str(original.id), title="Private revision")
+
+        assert self.store.get_report(str(original.id)) is None
+        self.judge.assert_not_awaited()
+
+    def test_inbox_overlay_preserves_concurrent_production_counters(self) -> None:
+        original = SignalReport.objects.create(
+            team=self.team,
+            title="Existing report",
+            summary="Original summary",
+            status=SignalReport.Status.READY,
+            signal_count=1,
+            total_weight=1,
+            corroboration_count=MAX_SCOUT_REPORT_NOTES,
+        )
+        edit_report_sync(
+            team=self.team,
+            run=self.scout_run,
+            report_id=str(original.id),
+            title="Private revision",
+            append_evidence=[ReportEvidence(description="Private observation", source_id="private-observation")],
+            append_note="A private confirming observation.",
+            corroboration_only=True,
+        )
+        latest = timezone.now() + timedelta(hours=1)
+        SignalReport.objects.filter(pk=original.id).update(
+            signal_count=3, total_weight=3, corroboration_count=MAX_SCOUT_REPORT_NOTES + 2, updated_at=latest
+        )
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            detail = self.client.get(f"{base}{original.id}/")
+            listing = self.client.get(base)
+
+        assert detail.status_code == listing.status_code == 200
+        for document in [detail.json(), listing.json()["results"][0]]:
+            assert document["title"] == "Private revision"
+            assert document["signal_count"] == 4
+            assert document["total_weight"] == 4
+            assert document["collapsed_note_count"] == 3
+            assert datetime.fromisoformat(document["updated_at"].replace("Z", "+00:00")) == latest
+
+    def test_private_evidence_cap_includes_new_production_evidence(self) -> None:
+        original = SignalReport.objects.create(team=self.team, title="Source report", signal_count=1)
+        evidence = [ReportEvidence(description="Private observation", source_id="private-observation")]
+        edit_report_sync(team=self.team, run=self.scout_run, report_id=str(original.id), append_evidence=evidence)
+        before = self.store.get_report(str(original.id))
+        SignalReport.objects.filter(pk=original.id).update(signal_count=MAX_REPORT_SIGNALS - 1)
+        self.judge.reset_mock()
+
+        with pytest.raises(InvalidScoutReportError, match="cap"):
+            edit_report_sync(team=self.team, run=self.scout_run, report_id=str(original.id), append_evidence=evidence)
+
+        self.judge.assert_not_awaited()
+        assert self.store.get_report(str(original.id)) == before
+
+    @parameterized.expand([("private", False), ("source", True)])
+    def test_private_implementation_replacement_invalidates_trial(self, _name: str, source: bool) -> None:
+        report_id = (
+            str(SignalReport.objects.create(team=self.team, title="Source report").id) if source else self._emit()
+        )
+        before = self.store.get_report(report_id)
+
+        with pytest.raises(InvalidScoutReportError, match="Implementation replacement is not supported"):
+            edit_report_sync(
+                team=self.team,
+                run=self.scout_run,
+                report_id=report_id,
+                summary="A private revision",
+                supersedes_implementation=True,
+            )
+
+        assert self.store.invalid_reason() == "Implementation replacement is not supported by private trials."
+        assert self.store.get_report(report_id) == before
+
+    @parameterized.expand([(source, explicit) for source in (False, True) for explicit in (False, True)])
+    def test_private_repository_edits_preserve_inferred_selection_semantics(self, source: bool, explicit: bool) -> None:
+        initial_repo = "example/widgets"
+        if source:
+            original = SignalReport.objects.create(
+                team=self.team, title="Source report", status=SignalReport.Status.READY
+            )
+            report_id = str(original.id)
+            set_scout_report_inferred_repository(
+                team_id=self.team.id,
+                report_id=report_id,
+                repository=initial_repo,
+                attribution=ArtefactAttribution.system(),
+            )
+        else:
+            report_id = self._emit()
+
+            def infer_repository(report: TrialReport) -> None:
+                report.document["repo_slug"] = initial_repo
+                selection = next(artefact for artefact in report.artefacts if artefact["type"] == "repo_selection")
+                selection["content"] = {
+                    "repository": initial_repo,
+                    "reason": "Linked GitHub repository found in the report content.",
+                    "autostart_eligible": False,
+                }
+
+            self.store.edit_report(report_id, infer_repository)
+        with patch(
+            "products.signals.backend.scout_harness.tools.report._connected_repositories",
+            return_value=[initial_repo, "example/gadgets"],
+        ):
+            result = edit_report_sync(
+                team=self.team,
+                run=self.scout_run,
+                report_id=report_id,
+                repository=initial_repo if explicit else None,
+                summary=None if explicit else "Issue traced to https://github.com/example/gadgets/pull/2",
+            )
+        assert result.repository_set
+        draft = self.store.get_report(report_id)
+        assert draft is not None
+        selection = next(artefact for artefact in reversed(draft.artefacts) if artefact["type"] == "repo_selection")
+        assert isinstance(selection["content"], dict)
+        assert selection["content"]["repository"] == (initial_repo if explicit else "example/gadgets")
+        assert selection["content"]["autostart_eligible"] is explicit
+        if explicit:
+            assert selection["content"]["reason"] == SCOUT_REPOSITORY_REASON
+            retry = edit_report_sync(team=self.team, run=self.scout_run, report_id=report_id, repository=initial_repo)
+            assert not retry.repository_set
+            retried = self.store.get_report(report_id)
+            assert retried is not None
+            assert retried.artefacts == draft.artefacts
+        else:
+            decision = next(artefact for artefact in draft.artefacts if artefact["type"] == "implementation_decision")
+            assert isinstance(decision["content"], dict)
+            assert decision["content"]["supersede"] is False
+        if source:
+            base = f"/api/projects/{self.team.id}/signals/reports/"
+            with (
+                patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+                patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+                patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+            ):
+                detail = self.client.get(f"{base}{report_id}/")
+                listing = self.client.get(base)
+            assert detail.status_code == listing.status_code == 200
+            assert detail.json()["repo_slug"] == selection["content"]["repository"]
+            assert listing.json()["results"][0]["repo_slug"] == selection["content"]["repository"]
+
     def test_capture_does_not_start_downstream_repository_agent(self) -> None:
         with patch(
             "products.signals.backend.report_generation.select_repo.select_repository_for_team", new_callable=AsyncMock
@@ -445,6 +608,64 @@ class TestScoutTrialReportCapture(APIBaseTest):
             assert self.client.get(f"{base}{report_id}/artefacts/{artefact_id}/").status_code == 404
             assert self.client.get(base).json()["count"] == 0
         assert self.client.get(f"{base}{report_id}/").status_code == 404
+
+    @parameterized.expand(
+        [(mode, permitted) for mode in ("private", "source", "edited_source") for permitted in (True, False)]
+    )
+    def test_inbox_metric_permissions_preserve_authorized_snapshots(self, mode: str, permitted: bool) -> None:
+        metric: dict[str, JsonValue] = {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "value": 17,
+            "value_at": "2026-09-01T12:00:00Z",
+            "series": [12, 17],
+            "value_format": "count",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                },
+            },
+        }
+        if mode == "private":
+            report_id = self._emit()
+        else:
+            original = SignalReport.objects.create(
+                team=self.team, title="Source report", status=SignalReport.Status.READY, metrics=[metric]
+            )
+            report_id = str(original.id)
+            edit_report_sync(team=self.team, run=self.scout_run, report_id=report_id, title="Private revision")
+        if mode != "source":
+
+            def set_metrics(report: TrialReport) -> None:
+                report.document["metrics"] = [metric]
+                report.edits.append({"metrics": [metric]})
+
+            self.store.edit_report(report_id, set_metrics)
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+            patch(
+                "products.signals.backend.report_metric_access.get_authenticator_scopes",
+                return_value=["query:read", "event_definition:read"] if permitted else ["event_definition:read"],
+            ),
+        ):
+            detail = self.client.get(f"{base}{report_id}/")
+            listing = self.client.get(base)
+
+        assert detail.status_code == listing.status_code == 200
+        for document in [detail.json(), listing.json()["results"][0]]:
+            assert len(document["metrics"]) == 1
+            snapshot = document["metrics"][0]
+            assert snapshot["value"] == (17 if permitted else None)
+            assert snapshot["series"] == ([12, 17] if permitted else None)
+            assert snapshot["value_at"] == ("2026-09-01T12:00:00Z" if permitted else None)
+        assert detail.json()["metrics"][0]["query"] == (metric["query"] if permitted else None)
+        assert "query" not in listing.json()["results"][0]["metrics"][0]
 
     def test_inbox_search_and_pagination_merge_private_edits_without_duplicates(self) -> None:
         first = SignalReport.objects.create(team=self.team, title="Earlier report", summary="Original", status="ready")

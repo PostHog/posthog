@@ -13,6 +13,7 @@ import { ScoutTrialSetupPanel } from './ScoutTrialSetupPanel'
 type ViewAction =
     | 'loadConfigs'
     | 'loadSetup'
+    | 'retryPageLoad'
     | 'loadHistory'
     | 'selectConfig'
     | 'updateVariant'
@@ -73,7 +74,7 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
                         type="error"
                         action={{
                             children: 'Retry',
-                            onClick: () => (selectedConfigId ? props.loadSetup(selectedConfigId) : props.loadConfigs()),
+                            onClick: props.retryPageLoad,
                             loading: configsLoading || setupLoading,
                         }}
                     >

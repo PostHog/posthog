@@ -1,4 +1,4 @@
-import { LemonBanner, LemonCollapse, LemonDrawer, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonDrawer, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -105,6 +105,9 @@ export function ScoutTrialRunDrawer({
                                 <div className="flex flex-col gap-4">
                                     {result.reports.map((report) => (
                                         <div key={report.id} className="border-b last:border-b-0 pb-3">
+                                            <LemonTag type="muted" className="mb-2">
+                                                {report.source_report_id ? 'Updated existing report' : 'New report'}
+                                            </LemonTag>
                                             <h4 className="break-words">
                                                 {typeof report.document.title === 'string'
                                                     ? report.document.title
@@ -113,6 +116,81 @@ export function ScoutTrialRunDrawer({
                                             <LemonMarkdown disableImages="all">
                                                 {trialReportText(report.document)}
                                             </LemonMarkdown>
+                                            <LemonCollapse
+                                                multiple
+                                                size="small"
+                                                panels={[
+                                                    {
+                                                        key: 'edits',
+                                                        label: 'Changes made',
+                                                        entries: report.edits,
+                                                    },
+                                                    {
+                                                        key: 'evidence',
+                                                        label: 'Evidence',
+                                                        entries: report.evidence,
+                                                    },
+                                                    {
+                                                        key: 'activity',
+                                                        label: 'Report activity',
+                                                        entries: report.artefacts,
+                                                    },
+                                                ].map(
+                                                    ({ key, label, entries }) =>
+                                                        !!entries?.length && {
+                                                            key,
+                                                            header: `${label} (${entries.length})`,
+                                                            dataAttr: `scout-trial-report-${key}`,
+                                                            content: (
+                                                                <div className="flex flex-col gap-2 min-w-0">
+                                                                    {entries.map((entry, index) => {
+                                                                        const content =
+                                                                            key === 'edits'
+                                                                                ? entry.append_note
+                                                                                : entry.content
+                                                                        const text =
+                                                                            typeof content === 'string'
+                                                                                ? content
+                                                                                : content &&
+                                                                                    typeof content === 'object' &&
+                                                                                    !Array.isArray(content) &&
+                                                                                    'note' in content &&
+                                                                                    typeof content.note === 'string'
+                                                                                  ? content.note
+                                                                                  : null
+                                                                        return text ? (
+                                                                            <LemonMarkdown
+                                                                                key={index}
+                                                                                disableImages="all"
+                                                                            >
+                                                                                {text}
+                                                                            </LemonMarkdown>
+                                                                        ) : null
+                                                                    })}
+                                                                    <LemonCollapse
+                                                                        size="small"
+                                                                        embedded
+                                                                        panels={[
+                                                                            {
+                                                                                key: 'data',
+                                                                                header: 'Captured data',
+                                                                                content: (
+                                                                                    <pre className="m-0 text-xs whitespace-pre-wrap break-words">
+                                                                                        {JSON.stringify(
+                                                                                            entries,
+                                                                                            null,
+                                                                                            2
+                                                                                        )}
+                                                                                    </pre>
+                                                                                ),
+                                                                            },
+                                                                        ]}
+                                                                    />
+                                                                </div>
+                                                            ),
+                                                        }
+                                                )}
+                                            />
                                         </div>
                                     ))}
                                 </div>

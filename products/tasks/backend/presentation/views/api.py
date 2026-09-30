@@ -1345,6 +1345,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
+        _reject_scout_trial_run_creation(str(pk), self.team_id)
         run_source = request.validated_data.get("run_source")
         if resume_id := request.validated_data.get("resume_from_run_id"):
             previous_source = tasks_facade.get_task_run_source(resume_id, pk, self.team_id)
@@ -1566,6 +1567,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="warm", url_name="warm-resume", required_scopes=["task:write"])
     def warm_resume(self, request, pk=None, **kwargs):
+        _reject_scout_trial_run_creation(str(pk), self.team_id)
         if is_sandbox_origin_request(request):
             return _agent_run_disabled_response()
         gate = tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())
@@ -1664,6 +1666,13 @@ def _ensure_scout_trial_visible(request: Request, team_id: int, task_id: str) ->
     tag_queries(is_scout_experiment=True)
     if is_sandbox_oauth_request(request) and _sandbox_bound_task_id(request) != UUID(task_id):
         raise NotFound("Task not found")
+
+
+def _reject_scout_trial_run_creation(task_id: str, team_id: int) -> None:
+    if tasks_facade.is_scout_trial_task(task_id, team_id):
+        raise ValidationError(
+            {"detail": "Scout comparison tasks cannot start another run. Start a new comparison instead."}
+        )
 
 
 def is_sandbox_agent_request(request, task_id: str) -> bool:
@@ -1902,6 +1911,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request, *args, **kwargs):
         task_id = self._task_id()
+        _reject_scout_trial_run_creation(task_id, self.team_id)
         environment = request.validated_data.get("environment", tasks_facade.TaskRunEnvironment.LOCAL)
 
         # Gate cloud runs before the run row is created; local runs aren't limited.

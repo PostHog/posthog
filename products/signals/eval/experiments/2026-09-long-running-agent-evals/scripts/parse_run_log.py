@@ -1,11 +1,14 @@
 """Turn one scout run's complete session log into the facts the judge and the hard checks need: the
-pinned commit check, every bash command and the files it touched, every report the scout filed,
+pinned commit check, every bash command and its literal Python path mentions, every report the scout filed,
 every memory write, and the close-out summary.
 
 The input is the <launch-id>.session-log.json file that run_live_trials.py saves. That script reads
 the session logs API page by page until a page is empty, so the file holds the whole run. One
 tasks-runs-session-logs-retrieve response is only one page and can miss the reports, memory writes
 and summary at the end of a run.
+
+Path mentions are not a complete file-access record. Directory searches, globs, variables and
+scripts can read files without spelling out their paths. The path counts cannot verify file scope.
 
 Usage: python3 parse_run_log.py <session-log.json> [--page page-1.txt] [--commit <sha>] > run.facts.json
 """

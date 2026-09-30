@@ -34,7 +34,9 @@ from products.signals.backend.scout_harness.trial_judge import (
     MAX_TRACE_CHARACTERS,
     MAX_TRACE_SOURCE_CHARACTERS,
     MAX_TRACE_SOURCES,
+    TrialJudgeExecutionError,
     TrialJudgeValidationError,
+    bound_trial_judge_evidence,
     build_trial_judge_messages,
     evidence_sources_from_logs,
     judge_trial_run,
@@ -451,8 +453,71 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         with self.assertRaisesMessage(TrialJudgeValidationError, message):
             build_trial_judge_messages(snapshot, evidence)
 
+    @parameterized.expand([(6, "report", 4000), (MAX_TRACE_SOURCES - 1, "trace", 160)])
+    def test_new_evidence_fits_encoded_input_without_mutating_saved_sources(
+        self, source_count: int, kind: Literal["report", "trace"], repetitions: int
+    ) -> None:
+        snapshot = _snapshot()
+        text = '"\\\n' * repetitions
+        sources = [TrialEvidenceSource(id=f"{kind}:{index}", kind=kind, text=text) for index in range(source_count)]
+        sources.append(
+            TrialEvidenceSource(id="trace:readback", kind="trace", text="The final saved value was read back.")
+        )
+        evidence = snapshot.runs[0].model_copy(update={"sources": sources})
+        with self.assertRaises(TrialJudgeValidationError):
+            build_trial_judge_messages(snapshot, evidence)
+        bounded = bound_trial_judge_evidence(snapshot, evidence)
+        messages = build_trial_judge_messages(snapshot, bounded)
+        assert len(str(messages[1]["content"])) <= MAX_JUDGE_INPUT_CHARACTERS
+        assert [source.id for source in bounded.sources] == [source.id for source in sources]
+        assert bounded.sources[-1] == sources[-1]
+        marker = "[Tool trace truncated]" if kind == "trace" else "[Evidence truncated]"
+        assert all(source.text.endswith(marker) for source in bounded.sources[:-1])
+        assert any("encoded judge input limit" in limitation for limitation in bounded.limitations)
+        assert evidence.sources[0].text == text
+        assert evidence.limitations == snapshot.runs[0].limitations
+
 
 class TestScoutTrialTraceEvidence(SimpleTestCase):
+    @parameterized.expand([(False, False), (True, False), (False, True)])
+    def test_streaming_updates_do_not_displace_terminal_results(
+        self, status_only: bool, unfinished_calls: bool
+    ) -> None:
+        updates = [_tool_line(toolCallId="stream", rawInput={"command": "Inspect synthetic records"})]
+        updates.extend(
+            _tool_line(
+                "tool_call" if unfinished_calls else "tool_call_update",
+                toolCallId=f"unfinished-{index}" if unfinished_calls else "stream",
+                status="in_progress",
+                content={"text": f"chunk-{index}"},
+            )
+            for index in range(MAX_TRACE_SOURCES + 20)
+        )
+        updates.extend(
+            [
+                _tool_line(
+                    "tool_call_update",
+                    toolCallId="stream",
+                    status="completed",
+                    **({} if status_only else {"rawOutput": "The inspected records are valid."}),
+                ),
+                _tool_line(toolCallId="readback", rawInput={"key": "finding:example"}),
+                _tool_line("tool_call_update", toolCallId="readback", status="completed", rawOutput="Saved value."),
+            ]
+        )
+        result = evidence_sources_from_logs("\n".join(updates))
+        assert len(result.sources) == MAX_TRACE_SOURCES
+        assert result.sources[0].id == "trace:1"
+        assert [source.id for source in result.sources[-3:]] == [
+            f"trace:{len(updates) - offset}" for offset in (2, 1, 0)
+        ]
+        assert "completed" in result.sources[-3].text
+        if not status_only:
+            assert "The inspected records are valid." in result.sources[-3].text
+        assert "finding:example" in result.sources[-2].text
+        assert "Saved value." in result.sources[-1].text
+        assert any("source count limit" in value for value in result.limitations)
+
     @parameterized.expand(
         [
             ("identical", "Inspect the saved history."),
@@ -593,7 +658,7 @@ class TestScoutTrialTraceEvidence(SimpleTestCase):
         assert all(len(source.text) <= MAX_TRACE_SOURCE_CHARACTERS for source in result.sources)
         assert sum(len(source.text) for source in result.sources) <= MAX_TRACE_CHARACTERS
         assert any("truncated" in limitation for limitation in result.limitations)
-        for source in result.sources[:count]:
+        for source in (source for source in result.sources if int(source.id.split(":")[1]) <= count):
             assert f'rawOutput["first"] (text):\n{first_value}' in source.text
             if tail_known:
                 assert f'rawOutput["last"] (text):\n{last_value}' in source.text
@@ -666,7 +731,14 @@ class TestScoutTrialTraceEvidence(SimpleTestCase):
     SCOUT_LIVE_TRIALS_ENABLED=True, SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, LLM_GATEWAY_URL="http://example.invalid"
 )
 class TestScoutTrialJudgeRequest(SimpleTestCase):
-    async def _judge_with_client(self, snapshot: TrialEvaluationSnapshot, client: MagicMock) -> TrialRunJudgment:
+    async def _judge_with_client(
+        self,
+        snapshot: TrialEvaluationSnapshot,
+        client: MagicMock,
+        *,
+        mint_error: Exception | None = None,
+        revoke_error: Exception | None = None,
+    ) -> TrialRunJudgment:
         evidence = snapshot.runs[0]
         run = SimpleNamespace(
             team_id=snapshot.team_id,
@@ -687,6 +759,8 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             patch(f"{MODULE}.revoke_trial_gateway_token") as revoke,
             patch(f"{MODULE}.get_async_llm_client", return_value=client),
         ):
+            mint.side_effect = mint_error
+            revoke.side_effect = revoke_error
             for_team.return_value.select_related.return_value.filter.return_value.first.return_value = run
             for_team.return_value.filter.return_value.values.return_value.first.return_value = {
                 "metadata": run.metadata,
@@ -694,8 +768,29 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             }
             result = await judge_trial_run(snapshot, evidence)
         mint.assert_called_once()
-        revoke.assert_called_once_with("synthetic-private-token")
+        if mint_error is None:
+            revoke.assert_called_once_with("synthetic-private-token")
+        else:
+            revoke.assert_not_called()
         return result
+
+    @parameterized.expand([(version, step) for version in ("9", "15") for step in ("mint", "revoke")])
+    async def test_credential_failures_keep_safe_step_without_exception_details(self, version: str, step: str) -> None:
+        snapshot = _snapshot().model_copy(update={"judge_prompt_version": version})
+        client = _request_client()
+        client.chat.completions.create = AsyncMock(side_effect=lambda **kwargs: _completion(kwargs["messages"]))
+        error = RuntimeError("Private synthetic credential detail")
+        if step == "revoke":
+            with self.assertRaisesMessage(TrialJudgeExecutionError, "credential_revocation (RuntimeError)") as failure:
+                await self._judge_with_client(snapshot, client, revoke_error=error)
+            assert "Private synthetic" not in str(failure.exception)
+            client.chat.completions.create.assert_awaited_once()
+        else:
+            result = await self._judge_with_client(snapshot, client, mint_error=error)
+            assert result.status == "judge_error"
+            assert "credential_creation (RuntimeError)" in (result.error or "")
+            assert "Private synthetic" not in result.model_dump_json()
+            client.chat.completions.create.assert_not_called()
 
     @parameterized.expand(
         [
@@ -1117,7 +1212,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
                 )
             elif scenario == "gateway_error":
                 expected_error = (
-                    "The private judge request failed. Retry with a new evaluation after checking service availability."
+                    "The private evaluation failed at judge_request (RuntimeError). No exception details were saved."
                 )
             elif scenario == "malformed":
                 expected_error = "The judge returned an invalid verdict document."

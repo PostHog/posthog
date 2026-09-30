@@ -172,6 +172,7 @@ describe('scoutTrialsLogic', () => {
         expect(ids).toHaveLength(4)
         expect(new Set(ids).size).toBe(4)
         expect(request.note).toBe('Investigate checkout retries.')
+        expect(request.expected_skill_version).toBe(trialFixtureSetup.skill_version)
         expect(request.variants[0].skill_body).toBeUndefined()
         expect(request.variants[1].skill_body).toBe('Confirm each checkout failure against events.')
         expect(logic.values.hasUnaccepted).toBe(false)
@@ -313,6 +314,190 @@ describe('scoutTrialsLogic', () => {
 
         await expectLogic(logic, () => logic.actions.refreshResults(true)).toFinishAllListeners()
         expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([400, 503])('does not poll planned launches after a rejected or unconfirmed start (%s)', async (status) => {
+        logic.unmount()
+        jest.useFakeTimers()
+        const visibility = jest.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+        try {
+            logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toFinishAllListeners()
+            jest.mocked(signalsScoutConfigTrialComparisonCreate).mockRejectedValueOnce(
+                new ApiError('Start failed', status)
+            )
+            await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
+            expect(logic.values.tracked).toEqual([])
+            expect(signalsScoutConfigTrialResult).not.toHaveBeenCalled()
+
+            await jest.advanceTimersByTimeAsync(30_000)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(signalsScoutConfigTrialResult).not.toHaveBeenCalled()
+            expect(logic.values.comparisonState.notStarted).toBe(true)
+            expect(signalsScoutConfigTrialComparisonRetrieve).toHaveBeenCalledTimes(status === 400 ? 0 : 1)
+
+            logic.unmount()
+            logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toFinishAllListeners()
+            await jest.advanceTimersByTimeAsync(20_000)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(signalsScoutConfigTrialResult).not.toHaveBeenCalled()
+        } finally {
+            visibility.mockRestore()
+            jest.useRealTimers()
+        }
+    })
+
+    it('stops polling a missing old launch until the server confirms it in history', async () => {
+        const launchId = trialFixtureResult.launch_id
+        logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId }])
+        jest.mocked(signalsScoutConfigTrialResult).mockRejectedValueOnce(new ApiError('Not found', 404))
+        await expectLogic(logic, () => logic.actions.refreshResults()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.refreshResults()).toFinishAllListeners()
+        expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(1)
+        expect(logic.values.tracked).toEqual([])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHistorySuccess({
+                results: [
+                    {
+                        ...trialFixtureResult,
+                        variant: 'Baseline',
+                        started_at: trialFixtureResult.started_at!,
+                        run_id: trialFixtureResult.run_id!,
+                        task_id: trialFixtureResult.task_id!,
+                        task_run_id: trialFixtureResult.task_run_id!,
+                    },
+                ],
+                has_more: false,
+            })
+        }).toFinishAllListeners()
+        expect(logic.values.results[launchId]).toEqual(trialFixtureResult)
+        expect(logic.values.pollError).toBeNull()
+    })
+
+    it('fetches a completed run found in history while an earlier result is loading', async () => {
+        let resolveOld!: (value: ScoutTrialResultApi) => void
+        jest.mocked(signalsScoutConfigTrialResult).mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveOld = resolve
+                })
+        )
+        logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId: trialFixtureResult.launch_id }])
+        logic.actions.refreshResults()
+        const newLaunch = '00000000-0000-4000-8000-000000000012'
+        logic.actions.loadHistorySuccess({
+            results: [
+                {
+                    ...trialFixtureResult,
+                    launch_id: newLaunch,
+                    variant: 'Saved run',
+                    started_at: trialFixtureResult.started_at!,
+                    run_id: trialFixtureResult.run_id!,
+                    task_id: trialFixtureResult.task_id!,
+                    task_run_id: trialFixtureResult.task_run_id!,
+                },
+            ],
+            has_more: false,
+        })
+        await expectLogic(logic, () => resolveOld(trialFixtureResult)).toFinishAllListeners()
+        expect(logic.values.results[newLaunch]?.launch_id).toBe(newLaunch)
+        expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not show an old scout result failure on the newly selected empty scout', async () => {
+        let rejectOld!: (error: Error) => void
+        jest.mocked(signalsScoutConfigTrialResult).mockImplementationOnce(
+            () =>
+                new Promise((_, reject) => {
+                    rejectOld = reject
+                })
+        )
+        logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId: trialFixtureResult.launch_id }])
+        logic.actions.refreshResults()
+        const newConfig = '00000000-0000-4000-8000-000000000010'
+        jest.mocked(signalsScoutConfigTrialSetup).mockResolvedValue({ ...trialFixtureSetup, config_id: newConfig })
+        await expectLogic(logic, () => logic.actions.selectConfig(newConfig)).toDispatchActions(['loadHistorySuccess'])
+        await expectLogic(logic, () => rejectOld(new Error('Old result failed'))).toFinishAllListeners()
+        expect(logic.values.rows).toEqual([])
+        expect(logic.values.pollError).toBeNull()
+    })
+
+    it('clears recovered history errors without clearing a separate result error', async () => {
+        jest.mocked(signalsScoutConfigTrialHistory).mockRejectedValueOnce(new Error('History failed'))
+        await expectLogic(logic, () => logic.actions.loadHistory(trialFixtureConfig.id)).toFinishAllListeners()
+        expect(logic.values.pollError).toContain("Couldn't load recent runs")
+        await expectLogic(logic, () => logic.actions.loadHistory(trialFixtureConfig.id)).toFinishAllListeners()
+        expect(logic.values.pollError).toBeNull()
+
+        logic.actions.setPollError('Result request failed')
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockRejectedValueOnce(new Error('History failed'))
+        await expectLogic(logic, () =>
+            logic.actions.loadComparisonHistory(trialFixtureConfig.id)
+        ).toFinishAllListeners()
+        expect(logic.values.pollError).toContain("Couldn't load trial history")
+        await expectLogic(logic, () =>
+            logic.actions.loadComparisonHistory(trialFixtureConfig.id)
+        ).toFinishAllListeners()
+        expect(logic.values.pollError).toBe('Result request failed')
+    })
+
+    it.each(['loadSetup', 'loadHistory', 'loadComparisonHistory'] as const)(
+        'ignores a late %s failure after selecting another scout',
+        async (action) => {
+            let rejectOld!: (error: Error) => void
+            const request = {
+                loadSetup: signalsScoutConfigTrialSetup,
+                loadHistory: signalsScoutConfigTrialHistory,
+                loadComparisonHistory: signalsScoutConfigTrialComparisonHistory,
+            }[action]
+            jest.mocked(request).mockImplementationOnce(
+                () =>
+                    new Promise<never>((_, reject) => {
+                        rejectOld = reject
+                    })
+            )
+            logic.actions[action](trialFixtureConfig.id)
+            const newConfig = '00000000-0000-4000-8000-000000000010'
+            jest.mocked(signalsScoutConfigTrialSetup).mockResolvedValue({ ...trialFixtureSetup, config_id: newConfig })
+            await expectLogic(logic, () => logic.actions.selectConfig(newConfig)).toDispatchActions([
+                'loadSetupSuccess',
+                'loadHistorySuccess',
+                'loadComparisonHistorySuccess',
+            ])
+            await expectLogic(logic, () => rejectOld(new Error('Old scout request failed'))).toFinishAllListeners()
+            expect(logic.values.pageError).toBeNull()
+            expect(logic.values.pollError).toBeNull()
+            expect(logic.values.setup?.config_id).toBe(newConfig)
+        }
+    )
+
+    it('retries the failed scout list with a selected scout and preserves edited versions', async () => {
+        logic.actions.updateVariant('1', { label: 'My version', prompt: 'My draft', replacePrompt: true })
+        const variants = logic.values.variants
+        jest.mocked(signalsScoutConfigList).mockRejectedValueOnce(new Error('List failed'))
+        await expectLogic(logic, () => logic.actions.loadConfigs()).toFinishAllListeners()
+        logic.actions.loadSetupSuccess(trialFixtureSetup)
+        expect(logic.values.pageError).toContain("Couldn't load scouts")
+        logic.actions.setVariants(variants)
+        jest.mocked(signalsScoutConfigList).mockClear()
+        jest.mocked(signalsScoutConfigTrialSetup).mockClear()
+        await expectLogic(logic, () => logic.actions.retryPageLoad()).toFinishAllListeners()
+        expect(signalsScoutConfigList).toHaveBeenCalledTimes(1)
+        expect(signalsScoutConfigTrialSetup).not.toHaveBeenCalled()
+        expect(logic.values.variants).toEqual(variants)
+        expect(logic.values.pageError).toBeNull()
+
+        jest.mocked(signalsScoutConfigTrialSetup).mockRejectedValueOnce(new Error('Setup failed'))
+        await expectLogic(logic, () => logic.actions.loadSetup(trialFixtureConfig.id)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.retryPageLoad()).toFinishAllListeners()
+        expect(signalsScoutConfigList).toHaveBeenCalledTimes(1)
+        expect(logic.values.pageError).toBeNull()
     })
 
     test.each([
@@ -583,6 +768,26 @@ describe('scoutTrialsLogic', () => {
             expect(signalsScoutConfigTrial).not.toHaveBeenCalled()
             expect(signalsScoutConfigTrialEvaluationCreate).not.toHaveBeenCalled()
 
+            jest.mocked(signalsScoutConfigTrialEvaluationRetrieve).mockImplementation(async (_, __, params) => {
+                if (params.evaluation_id === previousEvaluation.evaluation_id) {
+                    return previousEvaluation
+                }
+                throw new ApiError('Not found', 404)
+            })
+            expect(JSON.stringify(localStorage)).not.toContain(previousEvaluation.request.variants[0].label)
+            logic.unmount()
+            logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toFinishAllListeners()
+            expect(logic.values.selectedComparison?.id).toBe(next.id)
+            expect(logic.values.evaluationState.preparedRequest).toEqual({
+                ...previousEvaluation.request,
+                evaluation_id: next.id,
+                rubric_source: 'saved',
+            })
+            expect(signalsScoutConfigTrialEvaluationCreate).not.toHaveBeenCalled()
+
             await expectLogic(logic, () => logic.actions.scoreComparison()).toFinishAllListeners()
             expect(signalsScoutConfigTrialEvaluationCreate).toHaveBeenCalledTimes(1)
             expect(jest.mocked(signalsScoutConfigTrialEvaluationCreate).mock.calls[0][2]).toEqual({
@@ -619,6 +824,18 @@ describe('scoutTrialsLogic', () => {
         await expectLogic(logic, () => logic.actions.loadEvaluation(request.evaluation_id)).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.scoreComparison()).toFinishAllListeners()
         expect(jest.mocked(signalsScoutConfigTrialEvaluationCreate).mock.calls[1][2]).toEqual(savedRequest)
+    })
+
+    it('blocks a restored scoring attempt if its exact original request cannot be loaded', async () => {
+        const comparison = { ...trialFixtureComparison, sourceEvaluationId: '00000000-0000-4000-8000-000000000098' }
+        logic.actions.registerComparison(comparison)
+        await expectLogic(logic, () =>
+            logic.actions.selectComparison(comparison.configId, comparison.id)
+        ).toFinishAllListeners()
+        expect(logic.values.evaluationState.error).toContain('Scoring status could not be loaded')
+        expect(logic.values.scoreDisabledReason).not.toBeNull()
+        await expectLogic(logic, () => logic.actions.scoreComparison()).toFinishAllListeners()
+        expect(signalsScoutConfigTrialEvaluationCreate).not.toHaveBeenCalled()
     })
 
     it.each([

@@ -69,7 +69,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalSourceConfig,
 )
-from products.signals.backend.repo_corrections import sanitized_repository
+from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON, sanitized_repository
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
 from products.signals.backend.report_content_gates import organization_report_metrics_enabled
 from products.signals.backend.report_generation.resolve_reviewers import (
@@ -78,7 +78,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
 from products.signals.backend.report_metrics import (
     ReportMetric,
     ReportMetricKind,
@@ -603,12 +603,21 @@ def _capture_trial_edit(
     supersedes_implementation: bool,
     corroboration_only: bool,
 ) -> EditReportResult:
+    if supersedes_implementation:
+        store.invalidate("Implementation replacement is not supported by private trials.")
+        raise InvalidScoutReportError("Implementation replacement is not supported for this run.")
     original = _trial_report_for_edit(store, report_id)
+    source_selection = persisted_repo_selection(report_id) if original.source_report_id else None
+    connected_repos = _connected_repositories(store.run.team_id) if title is not None or summary is not None else []
 
     def change(report: TrialReport) -> EditReportResult:
         document = report.document
         count = document.get("signal_count", 0)
         signal_count = count if isinstance(count, int) else 0
+        if report.source_report_id:
+            signal_count = (get_scout_report_signal_count(team_id=store.run.team_id, report_id=report_id) or 0) + len(
+                report.evidence
+            )
         if signal_count + len(append_evidence or []) > MAX_REPORT_SIGNALS:
             raise InvalidScoutReportError(f"appending evidence exceeds the {MAX_REPORT_SIGNALS} cap")
         report.edits.append(
@@ -643,21 +652,19 @@ def _capture_trial_edit(
         supersede = False
         if updated_fields:
             report.content_revision_count += 1
-            supersede = supersedes_implementation and report.content_revision_count <= MAX_SCOUT_CONTENT_REVISIONS
-            if supersedes_implementation:
-                report.artefacts.append(
-                    _trial_artefact(
-                        store.run,
-                        "implementation_decision",
-                        {
-                            "supersede": supersede,
-                            "reason": "Scout revised the report content.",
-                            "targets": [],
-                            "content_revision_count": report.content_revision_count,
-                            "blocked_reason": None if supersede else "revision_limit",
-                        },
-                    )
+            report.artefacts.append(
+                _trial_artefact(
+                    store.run,
+                    "implementation_decision",
+                    {
+                        "supersede": False,
+                        "reason": "Scout revised the report content without requesting implementation replacement.",
+                        "targets": [],
+                        "content_revision_count": report.content_revision_count,
+                        "blocked_reason": None,
+                    },
                 )
+            )
         collapsed = False
         if append_note is not None:
             collapsed = corroboration_only and report.corroboration_count >= MAX_SCOUT_REPORT_NOTES
@@ -679,22 +686,36 @@ def _capture_trial_edit(
             report.artefacts.append(
                 _trial_artefact(store.run, "suggested_reviewers", reviewers.model_dump(mode="json"))
             )
-        repository_set = repository is not None and document.get("repo_slug") != (
-            None if repository == NO_REPO else repository
+        selection = next(
+            (
+                RepoSelectionResult.model_validate(artefact["content"])
+                for artefact in reversed(report.artefacts)
+                if artefact["type"] == "repo_selection"
+            ),
+            source_selection,
         )
-        if repository_set:
-            document["repo_slug"] = None if repository == NO_REPO else repository
-            report.artefacts.append(
-                _trial_artefact(
-                    store.run,
-                    "repo_selection",
-                    {
-                        "repository": document["repo_slug"],
-                        "reason": "Scout selected the repository.",
-                        "autostart_eligible": True,
-                    },
-                )
+        requested_selection = (
+            RepoSelectionResult(
+                repository=None if repository == NO_REPO else repository, reason=SCOUT_REPOSITORY_REASON
             )
+            if repository is not None
+            else None
+        )
+        repository_set = requested_selection is not None and requested_selection != selection
+        if repository_set:
+            selection = requested_selection
+        elif updated_fields and selection is not None and not selection.autostart_eligible and selection.repository:
+            linked = extract_linked_repo(
+                f"{document.get('title') or ''}\n{document.get('summary') or ''}", connected_repos
+            )
+            if linked is not None and linked != selection.repository:
+                selection = RepoSelectionResult(
+                    repository=linked, reason=INFERRED_REPOSITORY_REASON, autostart_eligible=False
+                )
+                repository_set = True
+        if repository_set and selection is not None:
+            document["repo_slug"] = selection.repository
+            report.artefacts.append(_trial_artefact(store.run, "repo_selection", selection.model_dump(mode="json")))
         charts_set = metrics_set = prompts_set = None
         for name, values in (
             ("charts", [chart.model_dump(mode="json") for chart in charts] if charts is not None else None),
@@ -2704,6 +2725,10 @@ def _assert_edit_gates(team: Team, run: SignalScoutRun, report_id: str, appended
         report = _trial_report_for_edit(trial_store, report_id)
         count = report.document.get("signal_count", 0)
         stored_count = count if isinstance(count, int) else 0
+        if report.source_report_id:
+            stored_count = (get_scout_report_signal_count(team_id=team.id, report_id=report_id) or 0) + len(
+                report.evidence
+            )
         if stored_count + appended_evidence > MAX_REPORT_SIGNALS:
             raise InvalidScoutReportError(f"appending evidence exceeds the {MAX_REPORT_SIGNALS} cap")
         return

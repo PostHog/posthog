@@ -404,10 +404,18 @@ class TestScoutInactivitySweep(BaseTest):
 
         assert sweep_inactive_scouts(now=self.now).warned == []
 
-    def test_a_scout_that_has_barely_run_is_left_alone(self) -> None:
+    @parameterized.expand([("ordinary", False), ("private_trials", True)])
+    def test_a_scout_that_has_barely_run_is_left_alone(self, _name: str, has_trials: bool) -> None:
         # Sparse runs (a monthly cron, or a team that spent its budget elsewhere) say nothing about
         # what the scout would have found.
         self._runs(MIN_RUNS_IN_WINDOW - 1, age=INACTIVITY_WINDOW / 2)
+        if has_trials:
+            self._runs(
+                MIN_RUNS_IN_WINDOW,
+                age=INACTIVITY_WINDOW / 2,
+                metadata={"scout_trial": {"version": 1}},
+                edited_report_ids=[str(self._report().id)],
+            )
 
         assert sweep_inactive_scouts(now=self.now).warned == []
 

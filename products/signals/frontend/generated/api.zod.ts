@@ -1375,6 +1375,11 @@ export const SignalsScoutConfigTrialComparisonCreateBody = /* @__PURE__ */ zod.o
         .max(signalsScoutConfigTrialComparisonCreateBodyNoteMax)
         .optional()
         .describe('Shared investigation note.'),
+    expected_skill_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Source version shown in the editor. Refuse a new trial if the instructions changed since setup.'),
 })
 
 /**
