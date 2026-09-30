@@ -88,6 +88,21 @@ class TestIntercomSource:
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in error_msg for key in retryable_errors)
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "503 Server Error: Service Temporarily Unavailable for url: https://api.intercom.io/conversations/1",
+            "500 Server Error: Internal Server Error for url: https://api.intercom.io/contacts",
+        ],
+    )
+    def test_transient_server_error_is_retryable(self, error_msg):
+        # Every Intercom call already retries a 429/5xx at the transport level
+        # (`_INTERCOM_RETRY`) before `raise_for_status` can raise, so a `HTTPError` reaching here
+        # has exhausted that budget — a transient blip, not a bug. Temporal retries the whole
+        # activity next, so this should stay out of error tracking as noise.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
+
     def test_get_schemas_covers_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
