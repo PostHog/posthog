@@ -39,8 +39,8 @@ tools:
             and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but that job is
             green again), flaky (sporadic across two or more branches over more than a day), or pr_only (confined to one
             branch: one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs whose latest run
-            is red. Pass a row's latest_run_id and latest_ci_engine to run-failure-logs to read the failing lines. Caveats:
-            fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the
+            is red. Pass a row's latest_run_id and latest_ci_engine to run-failure-logs to read the failing lines.
+            Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the
             breaking/resolved distinction needs the job-level source synced: without it those failures fall through to
             flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this
             data).
@@ -166,8 +166,8 @@ tools:
             per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the
             job-level source isn't synced yet: every figure is then zero/null, so check it before trusting a $0.00.
             estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs
-            still running that are left out of the estimate. Key by_run by (ci_engine, run_id, run_attempt).
-            This covers curated work and excludes suppressed relay/wait overhead; it is not an invoice total.
+            still running that are left out of the estimate. Key by_run by (ci_engine, run_id, run_attempt). This covers
+            curated work and excludes suppressed relay/wait overhead; it is not an invoice total.
         feature_flag: engineering-analytics
     engineering-analytics-pr-runs:
         operation: engineering_analytics_pr_runs
@@ -210,8 +210,8 @@ tools:
             surrounding context, with "... N lines omitted ..." markers) as ordered lines, every line carrying its
             original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail
             or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and
-            want all its runs' failures. Pass ci_engine with run_id (latest_ci_engine for a triage row).
-            Ambiguous integer IDs return 400. Null engine means unknown historical provenance.
+            want all its runs' failures. Pass ci_engine with run_id (latest_ci_engine for a triage row). Ambiguous
+            integer IDs return 400. Null engine means unknown historical provenance.
         feature_flag: engineering-analytics
     engineering-analytics-sources:
         operation: engineering_analytics_sources
