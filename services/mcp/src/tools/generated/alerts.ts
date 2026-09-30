@@ -337,6 +337,52 @@ const alertsList = (): ToolBase<ReturnType<typeof AlertsListSchema>, WithPostHog
     },
 })
 
+const PlatformAlertsListSchema = () => {
+    const PlatformAlertsListQueryParams = orvalSchemas.PlatformAlertsListQueryParams()
+    return PlatformAlertsListQueryParams
+}
+
+const platformAlertsList = (): ToolBase<
+    ReturnType<typeof PlatformAlertsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedPlatformAlertConfigurationList>
+> => ({
+    name: 'platform-alerts-list',
+    schema: PlatformAlertsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedPlatformAlertConfigurationList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/alerts')
+    },
+})
+
+const PlatformAlertsRetrieveSchema = () => {
+    const PlatformAlertsRetrieveParams = orvalSchemas.PlatformAlertsRetrieveParams()
+    return PlatformAlertsRetrieveParams.omit({ project_id: true })
+}
+
+const platformAlertsRetrieve = (): ToolBase<
+    ReturnType<typeof PlatformAlertsRetrieveSchema>,
+    Schemas.PlatformAlertConfiguration
+> => ({
+    name: 'platform-alerts-retrieve',
+    schema: PlatformAlertsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PlatformAlertConfiguration>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'alert-create': alertCreate,
     'alert-delete': alertDelete,
@@ -346,4 +392,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'alert-simulate': alertSimulate,
     'alert-update': alertUpdate,
     'alerts-list': alertsList,
+    'platform-alerts-list': platformAlertsList,
+    'platform-alerts-retrieve': platformAlertsRetrieve,
 }
