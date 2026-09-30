@@ -174,6 +174,7 @@ export const FEATURE_FLAGS = {
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith, see `signupLogic.ts`
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite, usage: see `loadPosthogJS.tsx`
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: #team-platform-features, see `SettingsMap.tsx`
+    SUPPORT_FORM_AGENT_GUIDANCE: 'support-form-agent-guidance', // owner: @luke-belton #team-support, visually hidden ticket guidance for AI agents filing on a user's behalf, see `SupportForm.tsx`
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: #team-support, see `SidePanelSupport.tsx`
     THEME_OVERRIDE: 'theme', // owner: @aprilfools, see `themeLogic.ts`
 
