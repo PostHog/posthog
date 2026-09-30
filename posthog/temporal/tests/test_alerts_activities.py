@@ -30,9 +30,11 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.errors import CHQueryErrorQueryWasCancelled
+from posthog.errors import CHQueryErrorQueryWasCancelled, CHQueryErrorTypeMismatch
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -1033,11 +1035,38 @@ class TestEvaluateAlert:
         assert check.state == AlertState.ERRORED
         assert check.error is not None
         assert "misconfigured" in check.error["message"]
+        assert "code" not in check.error
 
         # Evaluate-time errors are transient — alert stays enabled so next run retries.
         # Only prepare-time validate_alert_config failures call disable_invalid_alert.
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is True
+
+    @pytest.mark.parametrize(
+        "error,expected_message",
+        [
+            (
+                CHQueryErrorTypeMismatch(
+                    "Code: 53. DB::Exception: Cannot compare String with UInt64. Stack trace: 0. frame",
+                    code=53,
+                    code_name="type_mismatch",
+                ),
+                "Cannot compare String with UInt64.",
+            ),
+            (ExposedHogQLError("Unable to resolve field: revenue"), "Unable to resolve field: revenue"),
+        ],
+    )
+    async def test_user_facing_query_error_records_query_error_code(self, alert, error, expected_message) -> None:
+        with patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=error):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error is not None
+        assert check.error["code"] == "query_error"
+        assert check.error["message"] == expected_message
 
     async def test_unavailable_data_records_error_without_disabling(self, alert_with_user) -> None:
         with (
@@ -1055,7 +1084,7 @@ class TestEvaluateAlert:
         assert result.new_state == AlertState.ERRORED
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.calculated_value is None
-        assert check.error == {"message": "SQL history is incomplete"}
+        assert check.error == {"code": "data_unavailable", "message": "SQL history is incomplete"}
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed.enabled is True
         mock_capture.assert_not_called()
@@ -1124,7 +1153,6 @@ class TestEvaluateAlert:
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_configuration_error(
         self, alert_with_user, error_type
     ) -> None:
-
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
