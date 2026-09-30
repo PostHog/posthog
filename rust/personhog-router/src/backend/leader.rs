@@ -22,6 +22,7 @@ const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
 use personhog_common::partitioning::partition_for_person;
 
 use super::stash::{StashDecision, StashTable};
+use crate::config::Http2Windows;
 use crate::grpc_http::{grpc_error_response, grpc_status_code};
 
 pub type AddressResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -117,6 +118,7 @@ pub enum ForwardDecision {
 pub struct LeaderBackendConfig {
     pub num_partitions: u32,
     pub timeout: Duration,
+    pub http2_windows: Http2Windows,
 }
 
 /// Backend that routes person writes and strong reads to leader pods
@@ -220,11 +222,15 @@ impl LeaderBackend {
         // timeout: dialing a pod whose IP has been unassigned black-holes
         // at TCP connect (no RST ever arrives), and the request timeout
         // only starts once a connection exists.
-        let channel = Channel::from_shared(address.clone())
+        let endpoint = Channel::from_shared(address.clone())
             .map_err(|e| Status::internal(format!("invalid leader address: {e}")))?
             .timeout(self.config.timeout)
             .connect_timeout(self.config.timeout)
-            .tcp_nodelay(true)
+            .tcp_nodelay(true);
+        let channel = self
+            .config
+            .http2_windows
+            .apply_to_endpoint(endpoint)
             .connect_lazy();
         self.channels.insert(address, channel.clone());
         Ok(channel)
@@ -525,6 +531,7 @@ mod tests {
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_secs(5),
+            http2_windows: Http2Windows::default(),
         }
     }
 
