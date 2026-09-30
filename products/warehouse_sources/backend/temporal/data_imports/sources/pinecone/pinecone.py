@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING
+from collections.abc import Generator
+from typing import TYPE_CHECKING, cast
 
 from posthog.dataclasses import frozen
 
@@ -73,11 +74,14 @@ def validate_credentials(api_key: str, api_version: str, endpoint: str) -> None:
         allowed_hosts=config["allowed_hosts"],
         allow_redirects=False,
     )
-    pages = client.paginate(
-        path=settings.path,
-        params={"limit": 1} if settings.paginated else {},
-        data_selector=settings.data_selector,
-        data_selector_required=True,
+    pages = cast(
+        "Generator[list[object]]",
+        client.paginate(
+            path=settings.path,
+            params={"limit": 1} if settings.paginated else {},
+            data_selector=settings.data_selector,
+            data_selector_required=True,
+        ),
     )
     try:
         next(pages, None)

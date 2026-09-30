@@ -1,5 +1,6 @@
 import json
-from typing import TYPE_CHECKING
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlsplit
 
 from unittest.mock import MagicMock, patch
@@ -51,6 +52,12 @@ def pipeline(endpoint: str) -> "SourceResponse":
     )
 
 
+def sync_items(response: "SourceResponse") -> Iterable[Any]:
+    items = response.items()
+    assert isinstance(items, Iterable)
+    return items
+
+
 class TestPineconeTransport(SimpleTestCase):
     @parameterized.expand(
         [
@@ -90,7 +97,7 @@ class TestPineconeTransport(SimpleTestCase):
             path = endpoint.replace("_", "-")
             http.add(responses.GET, f"https://api.pinecone.io/{path}", json={selector: [row]})
             response = pipeline(endpoint)
-            assert list(response.items()) == [[row]]
+            assert list(sync_items(response)) == [[row]]
             assert response.name == endpoint
             assert response.primary_keys == [primary_key]
             assert response.partition_keys == ["created_at" if endpoint == "backups" else primary_key]
@@ -151,7 +158,7 @@ class TestPineconeTransport(SimpleTestCase):
             )
             http.add(responses.GET, f"https://api.pinecone.io/{path}", json={"data": [{key: "third"}], **terminal})
             response = source.source_for_pipeline(PineconeSourceConfig(api_key="fake-pinecone-key"), manager, inputs)
-            pages = iter(response.items())
+            pages = iter(sync_items(response))
             assert next(pages) == [{key: "first"}]
             assert not manager.has_staged_state()
             assert next(pages) == [{key: "second"}]
@@ -186,7 +193,7 @@ class TestPineconeTransport(SimpleTestCase):
                 f"https://api.pinecone.io/{endpoint.replace('_', '-')}",
                 json={"data": [{"name": "resumed"}]},
             )
-            assert list(pipeline(endpoint).items()) == [[{"name": "resumed"}]]
+            assert list(sync_items(pipeline(endpoint))) == [[{"name": "resumed"}]]
             assert parse_qs(urlsplit(http.calls[0].request.url or "").query) == {
                 "limit": ["100"],
                 "paginationToken": ["saved-token"],
@@ -207,21 +214,21 @@ class TestPineconeTransport(SimpleTestCase):
             responses.RequestsMock() as http,
         ):
             http.add(responses.GET, f"https://api.pinecone.io/{endpoint.replace('_', '-')}", json={selector: []})
-            assert list(pipeline(endpoint).items()) == []
+            assert list(sync_items(pipeline(endpoint))) == []
             assert len(http.calls) == 1
 
     def test_unexpected_envelope_fails_instead_of_erasing_inventory(self) -> None:
         with responses.RequestsMock() as http:
             http.add(responses.GET, "https://api.pinecone.io/indexes", json={"unexpected": []})
             with self.assertRaises(ValueError):
-                list(pipeline("indexes").items())
+                list(sync_items(pipeline("indexes")))
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_authentication_errors_are_terminal(self, _name: str, status: int) -> None:
         with responses.RequestsMock() as http:
             http.add(responses.GET, "https://api.pinecone.io/indexes", json={"error": "denied"}, status=status)
             with self.assertRaises(HTTPError) as caught:
-                list(pipeline("indexes").items())
+                list(sync_items(pipeline("indexes")))
             assert any(pattern in str(caught.exception) for pattern in PineconeSource().get_non_retryable_errors())
             assert "fake-pinecone-key" not in str(caught.exception)
             assert len(http.calls) == 1
@@ -237,7 +244,7 @@ class TestPineconeTransport(SimpleTestCase):
                 headers={"Retry-After": "0"},
             )
             http.add(responses.GET, "https://api.pinecone.io/indexes", json={"indexes": [{"name": "sample-index"}]})
-            assert list(pipeline("indexes").items()) == [[{"name": "sample-index"}]]
+            assert list(sync_items(pipeline("indexes"))) == [[{"name": "sample-index"}]]
             assert len(http.calls) == 2
 
     def test_unknown_endpoint_fails_before_http(self) -> None:
