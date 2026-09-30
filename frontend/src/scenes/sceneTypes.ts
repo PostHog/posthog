@@ -256,6 +256,7 @@ export enum Scene {
     TaskTracker = 'TaskTracker',
     SlackTaskContext = 'SlackTaskContext',
     TaskSpace = 'TaskSpace',
+    TaskSpaces = 'TaskSpaces',
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     ProjectPendingDeletion = 'ProjectPendingDeletion',
