@@ -1,9 +1,8 @@
 """Fold a drained message stream into converged per-cohort membership state.
 
-Max last_updated per (cohort_id, person_id) wins, matching the argMax convergence of the
-old side's ClickHouse table. In practice that is also arrival order (messages are keyed
-by person_id, so one person's transitions live in one partition), but the timestamp rule
-keeps replays and clock regressions from shadowing a newer record.
+Max last_updated per (cohort_id, person_id) wins. In practice that is also arrival order
+(messages are keyed by person_id, so one person's transitions live in one partition), but the
+timestamp rule keeps replays and clock regressions from shadowing a newer record.
 """
 
 from __future__ import annotations
@@ -183,11 +182,10 @@ def fold_membership_changes(
         if bound is not None and last_updated > bound:
             stats.dropped_after_until += 1
             continue
-        # Match the old side's argMax(status, last_updated): timestamp order, not arrival
-        # order, so an out-of-order replay cannot shadow a newer record.
+        # Timestamp order, not arrival order, so an out-of-order replay cannot shadow a newer record.
         bucket = state.setdefault(cohort_id, {})
         # Person ids compare case-insensitively: every membership source lowercases at
-        # its boundary (here and both readers in snapshots.py) or the sets stop matching.
+        # its boundary (here, snapshots.py and oracle.py) or the sets stop matching.
         key = person_id.lower()
         prior = bucket.get(key)
         origin = _optional_string(message.get("origin"))
@@ -219,13 +217,3 @@ def reconcile_completeness(stats: FoldStats, cohort_id: int) -> tuple[ReconcileR
 def members(state: Mapping[str, MembershipRecord]) -> set[str]:
     """The currently-entered persons of one cohort's folded state."""
     return {person_id for person_id, record in state.items() if record.status == "entered"}
-
-
-def observed(state: Mapping[str, MembershipRecord]) -> set[str]:
-    """Every person the new pipeline emitted a decision for in this cohort.
-
-    Live and seed processing can be flip-only, while reconcile snapshots emit every current
-    decision. In either case, the presence of a key means the new pipeline has weighed in on
-    that person, which is the universe the membership diff is bounded to.
-    """
-    return set(state.keys())

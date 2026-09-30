@@ -1,4 +1,4 @@
-"""Render classified parity rows as a fixed-width table or a JSON document."""
+"""Render parity rows as a fixed-width table or a JSON document."""
 
 from __future__ import annotations
 
@@ -6,87 +6,16 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, fields
 from typing import Any
 
-from products.cohorts.backend.parity.classifier import (
+from products.cohorts.backend.parity.population import PopulationComparison, PopulationSummary
+from products.cohorts.backend.parity.recompute import (
     VERDICT_FAIL,
     VERDICT_PASS,
     VERDICT_SKIP,
-    VERDICT_WARMUP,
-    AggregateSummary,
-    CohortComparison,
+    RecomputeComparison,
+    RecomputeSummary,
 )
-from products.cohorts.backend.parity.fold import ReconcileRunCompleteness
-from products.cohorts.backend.parity.population import PopulationComparison, PopulationSummary
-from products.cohorts.backend.parity.recompute import RecomputeComparison, RecomputeSummary
 
-_VERDICT_ORDER = {VERDICT_FAIL: 0, VERDICT_WARMUP: 1, VERDICT_PASS: 2, VERDICT_SKIP: 3}
 _RECOMPUTE_VERDICT_ORDER = {VERDICT_FAIL: 0, VERDICT_PASS: 1, VERDICT_SKIP: 2}
-
-
-def _sorted_rows(rows: Sequence[CohortComparison]) -> list[CohortComparison]:
-    return sorted(rows, key=lambda r: (_VERDICT_ORDER.get(r.verdict, 9), -r.residual_pct, r.cohort_id))
-
-
-def format_table(rows: Sequence[CohortComparison]) -> str:
-    header = (
-        f"{'cohort':<32} {'class':<24} {'old':>9} {'obs':>9} {'new':>9} {'both':>9} "
-        f"{'only_old':>9} {'only_new':>9} {'fresh':>7} {'stale':>7} {'resid%':>7} "
-        f"{'unobs':>9} {'suspect':>8} {'verdict':>7}"
-    )
-    lines = [header, "-" * len(header)]
-    for r in _sorted_rows(rows):
-        label = f"{r.cohort_id} {r.name}"
-        if len(label) > 31:
-            label = label[:28] + "..."
-        lines.append(
-            f"{label:<32} {r.eligibility:<24} {r.old_count:>9} {r.observed:>9} {r.new_count:>9} {r.both:>9} "
-            f"{r.only_old:>9} {r.only_new:>9} {r.fresh:>7} {r.stale:>7} {r.residual_pct:>6.2f}% "
-            f"{r.unobserved:>9} {r.suspect_missing:>8} {r.verdict:>7}"
-        )
-    return "\n".join(lines)
-
-
-def format_notes(rows: Sequence[CohortComparison]) -> str:
-    lines = []
-    for r in _sorted_rows(rows):
-        for note in r.notes:
-            lines.append(f"  cohort {r.cohort_id}: {note}")
-    return "\n".join(lines)
-
-
-def format_reconcile_notes(completeness: Sequence[ReconcileRunCompleteness]) -> tuple[str, ...]:
-    notes: list[str] = []
-    for run in sorted(completeness, key=lambda item: (item.run_id, item.cohort_id)):
-        partition_summary = (
-            f"{run.partitions_seen}/{run.expected_partitions}"
-            if run.complete
-            else f"partial {run.partitions_seen}/{run.expected_partitions}"
-        )
-        notes.append(f"reconcile run {run.run_id}: {partition_summary}")
-    return tuple(notes)
-
-
-def format_summary(summary: AggregateSummary) -> str:
-    lines = [
-        f"verdicts: {summary.passed} PASS, {summary.failed} FAIL, {summary.warming_up} WARMUP, {summary.skipped} SKIP",
-        f"skew explained: fresh={summary.fresh_total} stale={summary.stale_total} dormant={summary.dormant_total} "
-        f"(of {summary.raw_diff_total} raw diff); suspect_missing={summary.suspect_total}",
-        f"pipeline age: {summary.pipeline_age_days:.1f}d since --since",
-    ]
-    for warning in summary.warnings:
-        lines.append(f"WARNING: {warning}")
-    return "\n".join(lines)
-
-
-def to_json(
-    rows: Sequence[CohortComparison],
-    summary: AggregateSummary,
-    meta: Mapping[str, Any],
-) -> dict[str, Any]:
-    return {
-        "meta": dict(meta),
-        "summary": asdict(summary),
-        "cohorts": [asdict(r) for r in _sorted_rows(rows)],
-    }
 
 
 def _sorted_recompute_rows(rows: Sequence[RecomputeComparison]) -> list[RecomputeComparison]:

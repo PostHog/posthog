@@ -275,8 +275,6 @@ Before the reconcile, both p-2 and p-3 would have matched.
 
 - `cohort_membership.last_updated` is when the consumer wrote the row.
   The producer's version is in `version`.
-- A table in ClickHouse is also named `cohort_membership`.
-  It is a separate, legacy copy, and the flags service does not read it.
 - The processor's changes reach flags through several hops: Kafka, the consumer's batch, the database through the flags service's read connection, and the flags pod's cache.
   Workflows read through the Node services' read-write pool for that database and do not cache.
 - A readiness stamp does not mean the consumer has applied the reconcile or that the sweep has run.
