@@ -2139,3 +2139,23 @@ class TestMaterializeViewStagesAccountPropertyRows:
         staged_object = await minio_client.get_object(Bucket=bucket_name, Key=keys[0])
         table = pq.read_table(BytesIO(await staged_object["Body"].read()))
         assert table.column_names == ["mrr", "organization_id"]
+
+
+class TestAwsStorageOptions:
+    @override_settings(
+        USE_LOCAL_SETUP=False,
+        BUCKET_URL="s3://posthog-s3-datawarehouse-us-east-1/dlt",
+        DATA_WAREHOUSE_S3_REGION="us-east-1",
+    )
+    def test_deployed_options_keep_warehouse_bucket_traffic_off_the_egress_proxy(self) -> None:
+        with (
+            unittest.mock.patch("posthog.temporal.data_modeling.activities.materialize_view.TEST", False),
+            unittest.mock.patch.dict(
+                "os.environ", {"HTTPS_PROXY": "http://egress-proxy.svc.cluster.local:4750/", "NO_PROXY": ""}
+            ),
+        ):
+            options = get_aws_storage_options()
+
+        assert options["proxy_excludes"] == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com"
+        assert options["AWS_S3_ADDRESSING_STYLE"] == "virtual"
+        assert options["AWS_S3_ALLOW_UNSAFE_RENAME"] == "true"
