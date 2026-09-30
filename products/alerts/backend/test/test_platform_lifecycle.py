@@ -1,8 +1,14 @@
+import time
+import threading
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
+from unittest.mock import patch
+
+from django.db import connection
 
 from posthog.models.scoping import team_scope
 
@@ -13,25 +19,30 @@ from products.alerts.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes, upsert_configuration
+from products.alerts.backend.logic import platform_lifecycle
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
+
+
+def _create_configuration(team_id: int, next_check_at: datetime) -> PlatformAlertConfiguration:
+    with team_scope(team_id):
+        return PlatformAlertConfiguration.objects.create(
+            team_id=team_id,
+            name="API errors",
+            source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+            source_config={},
+            threshold_count=10,
+            threshold_operator="above",
+            window_minutes=5,
+            check_interval_minutes=10,
+            next_check_at=next_check_at,
+        )
 
 
 class TestPlatformAlertLifecycle(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
-        with team_scope(self.team.id):
-            self.configuration = PlatformAlertConfiguration.objects.create(
-                team=self.team,
-                name="API errors",
-                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
-                source_config={},
-                threshold_count=10,
-                threshold_operator="above",
-                window_minutes=5,
-                check_interval_minutes=10,
-                next_check_at=self.cutoff - timedelta(minutes=1),
-            )
+        self.configuration = _create_configuration(self.team.id, self.cutoff - timedelta(minutes=1))
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
 
     def _record(self, now: datetime | None = None, **overrides) -> None:
@@ -127,3 +138,52 @@ class TestPlatformAlertLifecycle(APIBaseTest):
 
         copy(None)
         assert snooze_seen_by_check() == ("firing", None)
+
+
+class TestPlatformAlertLifecycleConcurrency(NonAtomicAPIBaseTest):
+    # TransactionTestCase, so the delete on a second connection commits on its own.
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_a_configuration_deleted_mid_batch_waits_for_the_batch_to_commit(self) -> None:
+        cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
+        configuration = _create_configuration(self.team.id, cutoff - timedelta(minutes=1))
+
+        def record(now: datetime) -> int:
+            outcome = PlatformAlertOutcome(
+                configuration_id=configuration.id, new_state="firing", notified=True, consecutive_failures=0
+            )
+            return record_outcomes(self.team.id, [outcome], now)
+
+        record(cutoff)
+
+        def delete_on_another_connection() -> None:
+            try:
+                PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=configuration.id).delete()
+            finally:
+                connection.close()
+
+        real_alerts_for_write = platform_lifecycle._alerts_for_write
+        deleter = threading.Thread(target=delete_on_another_connection)
+
+        def alerts_for_write_after_a_delete_tries_to_land(*args: Any, **kwargs: Any) -> Any:
+            # The batch has read its configurations. A delete that commits here removes the alert
+            # row too, so the batch creates a new one that fails its foreign key at commit.
+            deleter.start()
+            deadline = time.monotonic() + 30
+            while deleter.is_alive() and time.monotonic() < deadline:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT count(*) FROM pg_locks WHERE NOT granted AND pid <> pg_backend_pid()")
+                    if cursor.fetchone()[0] > 0:
+                        break
+                time.sleep(0.05)
+            assert deleter.is_alive(), "the delete did not wait for the batch's lock"
+            return real_alerts_for_write(*args, **kwargs)
+
+        with patch.object(platform_lifecycle, "_alerts_for_write", alerts_for_write_after_a_delete_tries_to_land):
+            written = record(cutoff + timedelta(hours=1))
+        deleter.join(timeout=30)
+
+        assert written == 1
+        with team_scope(self.team.id):
+            assert not PlatformAlertConfiguration.objects.filter(id=configuration.id).exists()
+            assert not PlatformAlert.objects.filter(configuration_id=configuration.id).exists()
