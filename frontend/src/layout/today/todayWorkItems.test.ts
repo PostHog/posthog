@@ -12,6 +12,7 @@ import {
 } from './todayRecentFilters'
 import { TodayRecentGrouping, TodayRecentSort, groupRecentItems, sortRecentItems } from './todayRecentOrder'
 import {
+    activeCloudRunId,
     analysisRunId,
     buildRecentItems,
     canHandOff,
@@ -176,5 +177,20 @@ describe('todayWorkItems', () => {
         } as TaskListItemApi)
 
         expect(analysisRunId(item)).toBe(runId)
+    })
+
+    it.each([
+        ['in_progress', 'cloud', 'run-1'],
+        ['queued', 'cloud', 'run-1'],
+        ['completed', 'cloud', null],
+        ['in_progress', 'local', null],
+    ])('treats a %s %s run as stoppable: %s', (status, environment, runId) => {
+        const item = sessionItem({
+            id: 's',
+            title: 'Session',
+            latest_run: { id: 'run-1', status, environment },
+        } as TaskListItemApi)
+
+        expect(activeCloudRunId(item)).toBe(runId)
     })
 })
