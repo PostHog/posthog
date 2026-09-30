@@ -947,6 +947,7 @@ function CyclotronJobInputWithSchema({
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
+    const [editingSecret, setEditingSecret] = useState(false)
     const value = configuration.inputs?.[schema.key] ?? { value: null }
     const error = errors?.[schema.key]
     const warning = warnings?.[schema.key]
@@ -986,6 +987,13 @@ function CyclotronJobInputWithSchema({
             setEditing(false)
         }
     }, [showSource])
+
+    // A save returns the new secret masked again, so close the editor and show the masked state.
+    useEffect(() => {
+        if (value?.secret) {
+            setEditingSecret(false)
+        }
+    }, [value?.secret])
 
     const onChange = (newValue: CyclotronJobInputType): void => {
         onInputChange?.(schema.key, {
@@ -1079,15 +1087,14 @@ function CyclotronJobInputWithSchema({
                                 />
                             )}
                         </div>
-                        {value?.secret ? (
+                        {value?.secret && !editingSecret ? (
                             <div className="flex gap-2 items-center p-1 rounded border border-dashed">
                                 <span className="flex-1 p-1 italic text-secondary">
                                     This value is secret and is not displayed here.
                                 </span>
                                 <LemonButton
-                                    onClick={() => {
-                                        onChange({ value: '', secret: false })
-                                    }}
+                                    // Only open the editor: auto-saving forms would store an empty value over the secret.
+                                    onClick={() => setEditingSecret(true)}
                                     size="small"
                                     type="secondary"
                                 >
@@ -1097,8 +1104,10 @@ function CyclotronJobInputWithSchema({
                         ) : (
                             <CyclotronJobInputRenderer
                                 schema={schema}
-                                input={value ?? { value: '' }}
-                                onChange={onChange}
+                                input={value?.secret ? { ...value, value: '' } : (value ?? { value: '' })}
+                                onChange={
+                                    value?.secret ? (newValue) => onChange({ ...newValue, secret: false }) : onChange
+                                }
                                 onInputChange={onInputChange}
                                 configuration={configuration}
                                 parentConfiguration={parentConfiguration}
