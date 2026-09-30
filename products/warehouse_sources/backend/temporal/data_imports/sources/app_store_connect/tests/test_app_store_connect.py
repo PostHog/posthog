@@ -1456,10 +1456,14 @@ class TestAnalyticsSnapshotBackfill:
         recorded_owed: list[bool] = []
         recorded_coverage: list[dict[str, date] | None] = []
 
+        def record_snapshot_owed(owed: bool, coverage: dict[str, date] | None) -> None:
+            recorded_owed.append(owed)
+            recorded_coverage.append(coverage)
+
         full_refresh_rows = _collect_analytics(
             pending_api,
             _FakeManager(),
-            record_snapshot_owed=lambda owed, coverage: (recorded_owed.append(owed), recorded_coverage.append(coverage)),
+            record_snapshot_owed=record_snapshot_owed,
         )
 
         assert [(row["processing_date"], row["_line"]) for row in full_refresh_rows] == [(date(2026, 8, 1), 1)]
