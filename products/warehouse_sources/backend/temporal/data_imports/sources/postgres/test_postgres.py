@@ -2633,6 +2633,7 @@ class TestIsConnectionLimitError:
     )
     def test_connection_limit_errors_are_detected(self, error):
         assert _is_connection_limit_error(error) is True
+        assert _is_dropped_or_connect_timeout(error) is True
 
     @pytest.mark.parametrize(
         "error",
