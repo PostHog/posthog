@@ -495,7 +495,7 @@ def test_single_table_selection_and_legacy_rows(
         ],
     )
     resource = _resource(inputs, manager)
-    assert list(resource.items()) == [
+    assert list(_items(resource)) == [
         [
             {"_id": "a", "_creationTime": 1700000000, "name": "Example", "_ts": 100, "_deleted": False},
             {"_id": "b", "_ts": 101, "_deleted": True},
