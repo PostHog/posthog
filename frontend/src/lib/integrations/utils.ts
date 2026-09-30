@@ -84,6 +84,7 @@ export type IntegrationConnectSurface =
     | 'visual_review_settings'
     | 'install_approved_banner'
     | 'unavailable_banner_reconnect'
+    | 'workflow_from_destination'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,

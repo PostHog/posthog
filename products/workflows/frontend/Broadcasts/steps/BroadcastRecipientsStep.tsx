@@ -10,7 +10,7 @@ import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohor
 
 import { PropertyFilterType } from '~/types'
 
-import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
+import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/hogFlowFiltersShared'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function AudienceSizePreview(): JSX.Element | null {

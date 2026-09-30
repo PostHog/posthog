@@ -4,7 +4,8 @@ import { LemonLabel, Tooltip } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../../filters/HogFlowFilters'
+import { HogFlowEventFilters } from '../../filters/HogFlowFilters'
+import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../filters/hogFlowFiltersShared'
 import { HogFlowDuration, MAX_CONVERSION_WINDOW_FOR_DURATION_UNIT } from './HogFlowDuration'
 
 // Structural shape of a workflow conversion goal, compatible with both the frontend HogFlow
