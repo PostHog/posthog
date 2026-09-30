@@ -248,9 +248,24 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(
-                    run_id, "Backend CI", sha, "completed", "success", "2026-09-24 14:50:00", "2026-09-24 15:05:00"
+                    run_id,
+                    "Backend CI",
+                    sha,
+                    "completed",
+                    conclusion,
+                    "2026-09-24 14:50:00",
+                    "2026-09-24 15:05:00",
+                    pr_number=pr_number,
+                    run_attempt=2 if run_id == 906 else 1,
                 )
-                for run_id, sha in ((901, "abc123"), (902, "def456"), (903, "fed789"))
+                for run_id, sha, pr_number, conclusion in (
+                    (901, "abc123", 101991, "success"),
+                    (902, "def456", 101991, "success"),
+                    (903, "fed789", 101991, "success"),
+                    (904, "abc123", 101992, "success"),
+                    (905, "abc123", 101991, "failure"),
+                    (906, "abc123", 101991, "failure"),
+                )
             ],
         )
         jobs_table = self._create_table(
@@ -261,6 +276,13 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 _job_row(9012, 901, "Django Tests Pass", "success", head_sha="abc123"),
                 _job_row(9021, 902, "Hand off backend tests to Depot CI", "success", head_sha="def456"),
                 _job_row(9031, 903, "Hand off backend tests to Depot CI", "skipped", head_sha="fed789"),
+                _job_row(9041, 904, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9042, 904, "Django Tests Pass", "success", head_sha="abc123"),
+                _job_row(9051, 905, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9052, 905, "Django Tests Pass", "failure", head_sha="abc123"),
+                _job_row(9061, 906, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9062, 906, "Django Tests Pass", "success", head_sha="abc123"),
+                _job_row(9063, 906, "Django Tests Pass", "failure", head_sha="abc123", run_attempt=2),
             ],
         )
 
@@ -282,7 +304,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             run_workflow_count: int = 1,
             workflow_id: str = "6n4tghls33",
             workflow_name: str = "Backend CI on Depot",
-            workflow_status: str = "failed",
+            workflow_status: str = "finished",
             ref: str = "refs/pull/101991/merge",
             display_name: str = "Product tests (experiments)",
             repo: str = "PostHog/posthog",
@@ -383,6 +405,18 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     workflow_status="finished",
                     job_key="ci-backend.yml:wait-for-handoff",
                 ),
+                attempt(
+                    "m4n5p6q7r9",
+                    1,
+                    "failed",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:52:02.000Z",
+                    job_id="s4t5v6w7x9",
+                    run_id="5555555556",
+                    workflow_id="6666666667",
+                    workflow_status="failed",
+                    job_key="ci-backend.yml:wait-for-handoff",
+                ),
                 # Synced before the source moved to another repository, so no read of this one keeps it.
                 attempt(
                     "k3w9v2rq8b",
@@ -398,16 +432,20 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         )
         depot = depot_ci.DepotJobAttempts(table=depot_table, repository="PostHog/posthog")
         runs = depot_ci.with_depot_runs(runs_table, depot, prs_table, jobs_table)
-        jobs = depot_ci.with_depot_jobs(jobs_table, depot)
+        jobs = depot_ci.with_depot_jobs(jobs_table, depot, runs_table)
 
         # 80213453736890 is the GITHUB_RUN_ID Depot CI gave run 427q556wmn, as its per-test traces report it.
         assert self._select(
             "SELECT id, workflow_name, conclusion, pr_number, head_branch, duration_seconds, repo_owner, run_attempt "
             f"FROM ({workflow_runs.build_query(runs)}) AS r ORDER BY id"
         ) == [
-            (902, "Backend CI", "success", 0, "main", 900, "PostHog", 1),
-            (903, "Backend CI", "success", 0, "main", 900, "PostHog", 1),
-            (80213453736890, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 2),
+            (902, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
+            (903, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
+            (904, "Backend CI", "success", 101992, "main", 900, "PostHog", 1),
+            (905, "Backend CI", "failure", 101991, "main", 900, "PostHog", 1),
+            (906, "Backend CI", "failure", 101991, "main", 900, "PostHog", 2),
+            (80213453736890, "Backend CI on Depot", "success", 101991, "feature/depot", 600, "PostHog", 2),
+            (101808620689656, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 1),
             (223978965517241, "Monitor", "success", 0, None, 600, "PostHog", 1),
             (244340689655172, "Timing", "failure", 0, None, 600, "PostHog", 1),
         ]
@@ -416,7 +454,11 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         ) == [
             (902,),
             (903,),
+            (904,),
+            (905,),
+            (906,),
             (80213453736890,),
+            (101808620689656,),
             (223978965517241,),
             (244340689655172,),
         ]

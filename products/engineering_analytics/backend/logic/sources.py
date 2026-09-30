@@ -229,7 +229,7 @@ class JobSourceTables:
     @property
     def jobs_source(self) -> str:
         """The jobs to read: the GitHub jobs table plus this repo's Depot CI job attempts when synced."""
-        return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts)
+        return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts, self.github_workflow_runs)
 
 
 def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:

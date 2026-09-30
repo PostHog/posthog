@@ -16,15 +16,16 @@ While a repository moves a workflow to Depot CI, GitHub Actions decides per pull
 runs it, and both engines record a run of the same commit. The engine that did not run the tests
 leaves a hand-off shell: a GitHub run whose hand-off job succeeded and whose gate only relays Depot's
 verdict, or a Depot workflow that waited for a hand-off that never came and skipped everything else.
-Neither is a CI execution, so the union leaves out both, with their jobs. A GitHub shell stays when
-Depot holds no workflow of its commit that took the hand-off, because its relayed verdict is then the
-only record of that push.
+The union drops successful shells with their jobs. A GitHub relay stays unless a successful Depot
+workflow took the hand-off for the same PR and commit. Failed and unsettled relays stay because the
+synced tables carry no exact event link, and another event's Depot verdict cannot replace theirs.
 """
 
 import re
 
 from posthog.dataclasses import frozen
 
+from products.engineering_analytics.backend.logic.views import workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -70,6 +71,7 @@ _REPOSITORY_ID = 1
 # The hand-off between the engines, as .github/workflows/ci-backend.yml and .depot/workflows/ci-backend.yml
 # name its two ends.
 _GITHUB_HANDOFF_JOB = "Hand off backend tests to Depot CI"
+_GITHUB_RELAY_JOB = "Django Tests Pass"
 _DEPOT_WAIT_JOB_KEY_SUFFIX = ":wait-for-handoff"
 
 
@@ -221,6 +223,8 @@ def _handoff_workflows(depot: DepotJobAttempts) -> str:
         SELECT
             github_run_id,
             any(head_sha) AS head_sha,
+            any(pr_number) AS pr_number,
+            any(workflow_status) AS workflow_status,
             min(parseDateTimeBestEffort(workflow_created_at)) AS created_at,
             countIf(NOT {is_wait}) > 0 AS took_handoff
         FROM {_attempts(depot, pull_requests_table=None)}
@@ -232,17 +236,31 @@ def _handoff_workflows(depot: DepotJobAttempts) -> str:
 def _executed_attempts(depot: DepotJobAttempts, handoffs: str, pull_requests_table: str | None) -> str:
     return f"""(
         SELECT * FROM {_attempts(depot, pull_requests_table)}
-        WHERE github_run_id NOT IN (SELECT github_run_id FROM {handoffs} WHERE NOT took_handoff)
+        WHERE github_run_id NOT IN (
+            SELECT github_run_id FROM {handoffs} WHERE NOT took_handoff AND workflow_status = 'finished'
+        )
     )"""
 
 
-def _github_shells(jobs_table: str, handoffs: str) -> str:
+def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
     # No hand-off job predates Depot's first hand-off, so the day before it floors the scan of the jobs table.
     return f"""
-        SELECT run_id FROM {jobs_table}
-        WHERE name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success'
-            AND created_at >= (SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})
-            AND head_sha IN (SELECT head_sha FROM {handoffs} WHERE took_handoff)
+        SELECT j.run_id FROM {jobs_table} AS j
+        INNER JOIN ({workflow_runs.build_query(runs_table)}) AS r ON j.run_id = r.id
+        WHERE j.name = '{_GITHUB_HANDOFF_JOB}' AND j.conclusion = 'success'
+            AND r.status = 'completed' AND r.conclusion = 'success'
+            AND j.created_at >= (SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})
+            AND (r.head_sha, r.pr_number) IN (
+                SELECT head_sha, pr_number FROM {handoffs}
+                WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
+            )
+            AND j.run_id IN (
+                SELECT run_id FROM {jobs_table}
+                WHERE name = '{_GITHUB_RELAY_JOB}'
+                    AND created_at >= (SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})
+                GROUP BY run_id
+                HAVING argMax(conclusion, tuple(run_attempt, id)) = 'success'
+            )
     """
 
 
@@ -257,18 +275,18 @@ def with_depot_runs(
 ) -> str:
     """The GitHub runs table, or a subquery that also holds the Depot CI runs when they are synced.
 
-    Hand-off shells are left out. Without ``jobs_table`` the GitHub shells cannot be told apart, so they stay.
+    Successful hand-off shells are left out. Without ``jobs_table`` the GitHub shells stay.
     """
     if depot is None:
         return runs_table
     handoffs = _handoff_workflows(depot)
-    where = f"id NOT IN ({_github_shells(jobs_table, handoffs)})" if jobs_table else "1"
+    where = f"id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})" if jobs_table else "1"
     return _union(
         runs_table, WORKFLOW_RUNS_COLUMNS, _runs(_executed_attempts(depot, handoffs, pull_requests_table)), where
     )
 
 
-def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> str:
+def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str) -> str:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
 
     Hand-off shells are left out, as in ``with_depot_runs``. Depot job rows carry no branch: the jobs builder
@@ -282,5 +300,5 @@ def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> str:
         jobs_table,
         WORKFLOW_JOBS_COLUMNS,
         _jobs(_executed_attempts(depot, handoffs, pull_requests_table=None)),
-        f"run_id NOT IN ({_github_shells(jobs_table, handoffs)})",
+        f"run_id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})",
     )
