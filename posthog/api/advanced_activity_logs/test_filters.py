@@ -124,6 +124,7 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id, log3.id}
         self.assertEqual(result_ids, expected_ids)
+        self.assertIn("@>", str(filtered.query))
 
     def test_apply_detail_filters_in_type_insensitive(self):
         log1 = self._create_activity_log({"count": "42"})
@@ -137,6 +138,7 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         expected_ids = {log1.id, log2.id}
 
         self.assertEqual(result_ids, expected_ids)
+        self.assertIn("@>", str(filtered.query))
 
     def test_apply_detail_filters_contains_unchanged(self):
         log1 = self._create_activity_log({"message": "Error code 404"})
@@ -171,7 +173,9 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
 
         queryset = ActivityLog.objects.filter(id__in=[log1.id, log2.id, log3.id])
 
-        filtered = self.filter_manager._apply_array_field_filter(queryset, "items[].id", "exact", "1")
+        filtered = self.filter_manager._apply_detail_filters(
+            queryset, {"items[].id": {"operation": "exact", "value": "1"}}
+        )
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id}
         self.assertEqual(result_ids, expected_ids)
@@ -183,10 +187,23 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
 
         queryset = ActivityLog.objects.filter(id__in=[log1.id, log2.id, log3.id])
 
-        filtered = self.filter_manager._apply_array_field_filter(queryset, "tags[].priority", "in", ["1", "2"])
+        filtered = self.filter_manager._apply_detail_filters(
+            queryset, {"tags[].priority": {"operation": "in", "value": ["1", "2"]}}
+        )
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id}
         self.assertEqual(result_ids, expected_ids)
+
+    def test_numeric_path_segment_matches_array_index(self):
+        log1 = self._create_activity_log({"items": [{"id": 1}, {"id": 2}]})
+        log2 = self._create_activity_log({"items": [{"id": 2}, {"id": 1}]})
+
+        queryset = ActivityLog.objects.filter(id__in=[log1.id, log2.id])
+
+        filtered = self.filter_manager._apply_detail_filters(
+            queryset, {"items.0.id": {"operation": "exact", "value": 1}}
+        )
+        self.assertEqual(set(filtered.values_list("id", flat=True)), {log1.id})
 
     def test_deeply_nested_array_fields(self):
         log1 = self._create_activity_log(
@@ -202,8 +219,8 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
 
         queryset = ActivityLog.objects.filter(id__in=[log1.id, log2.id, log3.id])
 
-        filtered = self.filter_manager._apply_array_field_filter(
-            queryset, "changes[].after[].field.subarray[].value", "exact", "42"
+        filtered = self.filter_manager._apply_detail_filters(
+            queryset, {"changes[].after[].field.subarray[].value": {"operation": "exact", "value": "42"}}
         )
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id}
