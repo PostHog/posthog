@@ -254,7 +254,7 @@ export const offlineItemInspectorLogic: LogicWrapper<offlineItemInspectorLogicTy
             resultPayload: [
                 null as OfflineResultPayloadReadApi | null,
                 {
-                    loadOfflineResultPayload: (_: void, breakpoint) => {
+                    loadOfflineResultPayload: (_: void, breakpoint): Promise<OfflineResultPayloadReadApi | null> => {
                         const selected = values.selectedResult
                         if (!selected) {
                             return Promise.resolve(null)
