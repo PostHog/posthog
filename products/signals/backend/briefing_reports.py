@@ -14,13 +14,14 @@ import pydantic
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingScore, priority_from_judgment
 from products.signals.backend.implementation_pr import implementation_pr_report_filter
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_claims import reports_with_active_claim
+from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 
 logger = structlog.get_logger(__name__)
@@ -46,6 +47,8 @@ class BriefingReport:
     status: str
     priority: str | None
     has_implementation_pr: bool
+    # The products the report's signals came from, sorted, the way the inbox list shows them.
+    source_products: list[str]
     updated_at: datetime
     # The served ranking model's chance that the report ends with a merged PR. None when the
     # report has no score yet, or the model's pr_merged head is not readable.
@@ -103,6 +106,18 @@ def _pr_merged_probabilities(report_ids: Sequence[str]) -> dict[str, float]:
     return probabilities
 
 
+def _source_products(team_id: int, report_ids: Sequence[str]) -> dict[str, list[str]]:
+    """Per report, the products its signals came from. A ClickHouse failure costs the colors, not the reports."""
+    if not report_ids:
+        return {}
+    try:
+        metadata = fetch_source_products_for_reports(Team.objects.get(id=team_id), list(report_ids))
+    except Exception:
+        logger.warning("signals.briefing.source_products_unavailable", team_id=team_id, exc_info=True)
+        return {}
+    return {report_id: meta.source_products for report_id, meta in metadata.items()}
+
+
 def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int = 5) -> list[BriefingReport]:
     """Open, actionable reports for one person, each tagged with its strongest relation to them.
 
@@ -155,6 +170,7 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int 
     picked_ids = [str(report.id) for _, report in picked]
     priorities = _priorities(picked_ids)
     merge_chances = _pr_merged_probabilities(picked_ids)
+    source_products = _source_products(team_id, picked_ids)
     with_pr = set(
         SignalReport.objects.filter(team_id=team_id, id__in=[report.id for _, report in picked])
         .filter(implementation_pr_report_filter(team_id=team_id))
@@ -178,6 +194,7 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int 
                 status=report.status,
                 priority=priority,
                 has_implementation_pr=report.id in with_pr,
+                source_products=source_products.get(str(report.id), []),
                 updated_at=report.updated_at,
                 pr_merged_probability=merge_chances.get(str(report.id)),
             )

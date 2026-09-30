@@ -68,6 +68,12 @@ export const BriefingItemApi = zod.object({
     url: zod.string().describe('Where the item opens: an app path, or a GitHub URL for pull requests.'),
     rank: zod.number().describe('Position in the full ranked list, 1 is the most important.'),
     in_text: zod.boolean().describe('True when the briefing text links this item (the top 5).'),
+    source_product: zod
+        .string()
+        .nullable()
+        .describe(
+            'For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.'
+        ),
     group: zod
         .enum(['report', 'dashboard', 'other'])
         .describe('\* `report` - REPORT\n\* `dashboard` - DASHBOARD\n\* `other` - OTHER'),
@@ -148,6 +154,12 @@ export const BriefingApi = zod.object({
                 url: zod.string().describe('Where the item opens: an app path, or a GitHub URL for pull requests.'),
                 rank: zod.number().describe('Position in the full ranked list, 1 is the most important.'),
                 in_text: zod.boolean().describe('True when the briefing text links this item (the top 5).'),
+                source_product: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        'For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.'
+                    ),
                 group: zod
                     .enum(['report', 'dashboard', 'other'])
                     .describe('\* `report` - REPORT\n\* `dashboard` - DASHBOARD\n\* `other` - OTHER'),

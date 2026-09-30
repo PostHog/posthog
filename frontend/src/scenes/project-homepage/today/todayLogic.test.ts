@@ -32,6 +32,7 @@ function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
                 source: 'self_driving',
                 reason: 'waiting_for_you',
                 state: 'open',
+                source_product: null,
             },
         ],
         more_reports_count: 0,

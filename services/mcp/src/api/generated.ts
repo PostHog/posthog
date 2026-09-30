@@ -386,6 +386,7 @@ export namespace Schemas {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -505,6 +506,7 @@ export namespace Schemas {
       Tagger: 'tagger',
       Ticket: 'ticket',
       Task: 'task',
+      Today: 'today',
       Toolbar: 'toolbar',
       Tracing: 'tracing',
       FieldNote: 'field_note',
@@ -624,6 +626,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -847,6 +850,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -1249,6 +1253,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -17896,6 +17901,11 @@ export namespace Schemas {
       rank: number;
       /** True when the briefing text links this item (the top 5). */
       in_text: boolean;
+      /**
+         * For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.
+         * @nullable
+         */
+      source_product: string | null;
       group: TodayItemGroupEnum;
       source: TodayItemSourceEnum;
       reason: TodayItemReasonEnum;
@@ -62535,6 +62545,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note

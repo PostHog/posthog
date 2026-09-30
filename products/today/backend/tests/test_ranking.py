@@ -91,6 +91,7 @@ def _report(
         status="pending_input",
         priority=priority,
         has_implementation_pr=False,
+        source_products=[],
         updated_at=datetime(2026, 9, 29, tzinfo=UTC),
         pr_merged_probability=merge_chance,
     )

@@ -79,6 +79,7 @@ class ReportsSource(Source):
                     "priority": report.priority,
                     "status": report.status,
                     "has_implementation_pr": report.has_implementation_pr,
+                    "source_product": report.source_products[0] if report.source_products else None,
                     "summary": report.summary,
                 },
             )

@@ -39,6 +39,10 @@ class BriefingItemSerializer(DataclassSerializer):
     url = serializers.CharField(help_text="Where the item opens: an app path, or a GitHub URL for pull requests.")
     rank = serializers.IntegerField(help_text="Position in the full ranked list, 1 is the most important.")
     in_text = serializers.BooleanField(help_text="True when the briefing text links this item (the top 5).")
+    source_product = serializers.CharField(
+        allow_null=True,
+        help_text="For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.",
+    )
 
     class Meta:
         dataclass = BriefingItem

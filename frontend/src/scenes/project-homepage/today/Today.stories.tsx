@@ -237,6 +237,7 @@ function briefingItem(overrides: Partial<BriefingItemApi> & Pick<BriefingItemApi
         source: 'self_driving',
         reason: 'waiting_for_you',
         state: 'open',
+        source_product: null,
         ...overrides,
     }
 }
@@ -270,12 +271,14 @@ const PERSONAL_BRIEFING: BriefingApi = {
             label: 'Plus-addressed signups fail',
             signal: 'P1, fix ready for review',
             rank: 1,
+            source_product: 'error_tracking',
         }),
         briefingItem({
             key: 'report:report-3',
             label: 'Summarize tool costs doubled',
             signal: 'P2, claimed by you',
             rank: 2,
+            source_product: 'llm_analytics',
         }),
         briefingItem({
             key: 'dashboard:12',
@@ -312,6 +315,7 @@ const PERSONAL_BRIEFING: BriefingApi = {
             label: 'Pricing page drop-off',
             signal: 'P3, suggested reviewer',
             rank: 6,
+            source_product: 'analytics',
             in_text: false,
             reason: 'suggested_reviewer',
             state: 'done',

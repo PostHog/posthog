@@ -106,6 +106,11 @@ export interface BriefingItemApi {
     rank: number
     /** True when the briefing text links this item (the top 5). */
     in_text: boolean
+    /**
+     * For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.
+     * @nullable
+     */
+    source_product: string | null
     group: TodayItemGroupEnumApi
     source: TodayItemSourceEnumApi
     reason: TodayItemReasonEnumApi

@@ -168,6 +168,7 @@ def to_contract(briefing: DailyBriefing, team: Team) -> contracts.Briefing:
                 rank=int(item["rank"]),
                 in_text=bool(item["in_text"]),
                 state=states.get(item["key"], ItemState.OPEN),
+                source_product=(item.get("facts") or {}).get("source_product") or None,
             )
             for item in fact_items
         ],

@@ -6,7 +6,7 @@ import type {
     TodayItemSourceEnumApi,
 } from 'products/today/frontend/generated/api.schemas'
 
-import type { TodayReportSource } from './todaySignalReports'
+import { TodayReportSource, reportSource } from './todaySignalReports'
 
 /** Where an item was opened from, sent with the `today item opened` event. */
 export type TodayItemOpenSurface = 'briefing' | 'chip' | 'sidebar'
@@ -24,7 +24,11 @@ const ITEM_SOURCES: Record<TodayItemSourceEnumApi, TodayReportSource> = {
     github: { label: 'GitHub', color: 'var(--color-text-secondary)', icon: 'pr' },
 }
 
-export function itemSource(item: Pick<BriefingItemApi, 'source'>): TodayReportSource {
+/** A report takes the style of the product its signals came from, the way the inbox shows it. */
+export function itemSource(item: Pick<BriefingItemApi, 'source' | 'source_product'>): TodayReportSource {
+    if (item.source_product) {
+        return reportSource({ source_products: [item.source_product] })
+    }
     return ITEM_SOURCES[item.source] ?? ITEM_SOURCES.self_driving
 }
 
