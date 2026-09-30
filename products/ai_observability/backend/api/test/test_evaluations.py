@@ -120,16 +120,22 @@ class TestNumericEvaluationSerializer(SimpleTestCase):
 
 
 class TestModelConfigurationSerializer(SimpleTestCase):
-    def test_numeric_evaluation_rejects_system_one_connection(self) -> None:
+    @parameterized.expand([("boolean", True), ("categorical", True), ("numeric", False)])
+    def test_system_one_supports_boolean_and_categorical_outputs(self, output_type: str, supported: bool) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
             evaluation_config={"prompt": "Score quality"},
-            output_type="numeric",
+            output_type=output_type,
             output_config={},
         )
         serializer = EvaluationSerializer(instance=evaluation, partial=True)
-        with self.assertRaisesMessage(ValidationError, "Select a model that supports this evaluation output type"):
-            serializer.validate({"model_configuration": {"provider": "system_one", "model": "custom-model"}})
+        data = {"model_configuration": {"provider": "system_one", "model": "custom-model"}}
+        if supported:
+            with patch.object(serializer, "_validate_chat_model"):
+                self.assertEqual(serializer.validate(data), data)
+        else:
+            with self.assertRaisesMessage(ValidationError, "Select a model that supports this evaluation output type"):
+                serializer.validate(data)
 
     @parameterized.expand(
         [

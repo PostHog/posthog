@@ -1240,11 +1240,13 @@ class DashboardBasicSerializer(
             "restriction_level": {"help_text": "Controls who can edit the dashboard."},
         }
 
+    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
     def get_effective_restriction_level(self, dashboard: Dashboard) -> RestrictionLevel:
         if self.context.get("is_shared"):
             return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.dashboard(dashboard).effective_restriction_level
 
+    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
     def get_effective_privilege_level(self, dashboard: Dashboard) -> PrivilegeLevel:
         if self.context.get("is_shared"):
             return PrivilegeLevel.CAN_VIEW

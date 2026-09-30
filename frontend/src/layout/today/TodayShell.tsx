@@ -3,6 +3,8 @@ import './TodayShell.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { ToastProvider } from '@posthog/quill'
+
 import 'scenes/project-homepage/today/Today.scss'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -42,31 +44,33 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     }, [desiredSize, setSidebarWidth])
 
     return (
-        <div className={cn('Today TodayShell', className)}>
-            <TodayRail />
-            {sidebarOpen && (
-                <aside
-                    ref={sidebarRef}
-                    className="TodayShell__sidebar relative"
-                    aria-label={PANE_LABELS[activePane]}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: sidebarWidth }}
-                >
-                    <div className="TodayShell__pane">
-                        {activePane === 'home' ? (
-                            <TodayHomeSidebar />
-                        ) : activePane === 'spaces' ? (
-                            <TodaySpacesSidebar />
-                        ) : activePane === 'library' ? (
-                            <TodayLibrarySidebar />
-                        ) : (
-                            <TodayToolsSidebar />
-                        )}
-                    </div>
-                    <TodaySidebarFooter />
-                    <Resizer {...resizerLogicProps} className="z-2" offset={0} />
-                </aside>
-            )}
-        </div>
+        <ToastProvider>
+            <div className={cn('Today TodayShell', className)}>
+                <TodayRail />
+                {sidebarOpen && (
+                    <aside
+                        ref={sidebarRef}
+                        className="TodayShell__sidebar relative"
+                        aria-label={PANE_LABELS[activePane]}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: sidebarWidth }}
+                    >
+                        <div className="TodayShell__pane">
+                            {activePane === 'home' ? (
+                                <TodayHomeSidebar />
+                            ) : activePane === 'spaces' ? (
+                                <TodaySpacesSidebar />
+                            ) : activePane === 'library' ? (
+                                <TodayLibrarySidebar />
+                            ) : (
+                                <TodayToolsSidebar />
+                            )}
+                        </div>
+                        <TodaySidebarFooter />
+                        <Resizer {...resizerLogicProps} className="z-2" offset={0} />
+                    </aside>
+                )}
+            </div>
+        </ToastProvider>
     )
 }

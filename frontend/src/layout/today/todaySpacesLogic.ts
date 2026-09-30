@@ -55,6 +55,7 @@ export interface todaySpacesLogicValues {
     recentTasks: TaskListItemApi[]
     recentTasksLoading: boolean
     recentTasksUnavailable: boolean
+    sectionHeights: Partial<Record<TodayWorkSectionId, number>>
     sortedSpaces: ChannelDTOApi[]
     spaces: ChannelDTOApi[]
     spacesLoading: boolean
@@ -109,8 +110,18 @@ export interface todaySpacesLogicActions {
         spaces: ChannelDTOApi[]
         payload?: any
     }
+    resetSectionPair: (
+        upper: TodayWorkSectionId,
+        lower: TodayWorkSectionId
+    ) => {
+        lower: TodayWorkSectionId
+        upper: TodayWorkSectionId
+    }
     setBrowsingSpaces: (browsingSpaces: boolean) => {
         browsingSpaces: boolean
+    }
+    setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
+        heights: Partial<Record<TodayWorkSectionId, number>>
     }
     toggleSection: (sectionId: TodayWorkSectionId) => {
         sectionId: TodayWorkSectionId
@@ -155,6 +166,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
     actions({
         toggleSection: (sectionId: TodayWorkSectionId) => ({ sectionId }),
         setBrowsingSpaces: (browsingSpaces: boolean) => ({ browsingSpaces }),
+        setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => ({ heights }),
+        resetSectionPair: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => ({ upper, lower }),
     }),
     loaders(({ values }) => ({
         spaces: [
@@ -211,6 +224,17 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             {
                 toggleSection: (state, { sectionId }) =>
                     state.includes(sectionId) ? state.filter((id) => id !== sectionId) : [...state, sectionId],
+            },
+        ],
+        sectionHeights: [
+            {} as Partial<Record<TodayWorkSectionId, number>>,
+            { persist: true },
+            {
+                setSectionHeights: (_, { heights }) => heights,
+                resetSectionPair: (state, { upper, lower }) => {
+                    const { [upper]: _upper, [lower]: _lower, ...rest } = state
+                    return rest
+                },
             },
         ],
         browsingSpaces: [
