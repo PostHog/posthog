@@ -10,9 +10,9 @@ import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { type ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
+import { EmailLinksTable } from './EmailLinksTable'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
-    type EmailLinkRow,
     type EmailMetric,
     type EmailMetricRow,
     METRIC_COLORS,
@@ -185,56 +185,14 @@ export function WorkflowMetricsSummary({
         ]
     }, [onSelectAction, onMetricClick, viewMetricsColumn])
 
-    const emailLinkColumns: LemonTableColumns<EmailLinkRow> = useMemo(
-        () => [
-            {
-                title: 'Link',
-                key: 'url',
-                render: (_: unknown, row: EmailLinkRow) => (
-                    <div className="flex items-center gap-2">
-                        {row.truncated ? (
-                            // Navigating to a URL that was cut mid-path would land somewhere wrong,
-                            // so show it as text rather than something clickable.
-                            <span className="break-all" title="This link was too long to store in full">
-                                {row.url}…
-                            </span>
-                        ) : (
-                            <Link to={row.url} target="_blank" className="break-all">
-                                {row.url}
-                            </Link>
-                        )}
-                        {row.duplicateUrl && row.linkIndex ? (
-                            <LemonTag type="muted" title="Another link in this email points to the same page">
-                                Position {row.linkIndex}
-                            </LemonTag>
-                        ) : null}
-                    </div>
-                ),
-            },
-            {
-                title: 'Clicks',
-                key: 'clicks',
-                align: 'right',
-                render: (_: unknown, row: EmailLinkRow) => humanFriendlyNumber(row.clicks),
-            },
-        ],
-        []
-    )
-
     const emailExpandable: ExpandableConfig<EmailMetricRow> = useMemo(
         () => ({
             rowExpandable: (row: EmailMetricRow) => (emailLinkTotalsByActionId[row.id]?.length ?? 0) > 0,
             expandedRowRender: (row: EmailMetricRow) => (
-                <LemonTable
-                    columns={emailLinkColumns}
-                    dataSource={emailLinkTotalsByActionId[row.id] ?? []}
-                    rowKey={(link) => `${link.linkIndex}:${link.url}`}
-                    size="small"
-                    embedded
-                />
+                <EmailLinksTable links={emailLinkTotalsByActionId[row.id] ?? []} embedded />
             ),
         }),
-        [emailLinkTotalsByActionId, emailLinkColumns]
+        [emailLinkTotalsByActionId]
     )
 
     const pushColumns: LemonTableColumns<PushMetricRow> = useMemo(() => {

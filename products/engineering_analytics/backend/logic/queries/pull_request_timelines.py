@@ -95,7 +95,8 @@ _REVIEWS_SELECT = f"""
 # Skipped runs add no red or running time, and the shared gate-attempt read handles queue runs.
 _RUNS_SELECT = f"""
     SELECT
-        id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at
+        id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at,
+        stopped_reporting
     FROM __RUNS_SOURCE__ AS r
     WHERE pr_number IN {{pr_numbers}} AND run_started_at >= {{run_from}}
         AND NOT is_merge_queue AND ifNull(conclusion, '') != 'skipped'
@@ -397,9 +398,10 @@ class PullRequestTimelinesQuery:
         )
         runs = [row for row in rows if row[6] is not None]
         # A run on its first attempt that did not fail has exactly one attempt, and its run row already
-        # describes it. Only re-runs (earlier attempts) and failures (failed job names) need the jobs.
+        # describes it. Only re-runs (earlier attempts), failures (failed job names) and runs that stopped
+        # reporting (whose job rows are the only settled outcome) need the jobs.
         job_attempts = self._query_job_attempts(
-            [int(row[0]) for row in runs if int(row[8] or 1) > 1 or row[5] in DECISIVE_FAILURE_CONCLUSIONS],
+            [int(row[0]) for row in runs if int(row[8] or 1) > 1 or row[5] in DECISIVE_FAILURE_CONCLUSIONS or row[10]],
             run_from,
         )
 
@@ -415,11 +417,15 @@ class PullRequestTimelinesQuery:
             updated_at,
             attempt,
             created_at,
+            stopped_reporting,
         ) in runs:
             run_attempts = job_attempts.get(int(run_id), [])
             queued_at = created_at or started_at
-            completed = status == "completed"
-            run_failed = completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS
+            # A run that stopped reporting ends at its last update, but its conclusion is not settled, so only
+            # a failed job row can mark it failed. The friction view applies the same split.
+            settled = status == "completed"
+            ended = settled or bool(stopped_reporting)
+            run_failed = settled and conclusion in DECISIVE_FAILURE_CONCLUSIONS
             newest_attempt = int(attempt or 1)
             for job_attempt in run_attempts:
                 # The run row decides its newest attempt's outcome and end: the jobs sync can still hold a
@@ -429,9 +435,9 @@ class PullRequestTimelinesQuery:
                 failed = bool(job_attempt.failed_jobs) or (is_newest and run_failed)
                 completed_at = job_attempt.completed_at
                 succeeded = job_attempt.succeeded and not failed
-                if is_newest and completed:
+                if is_newest and ended:
                     completed_at = updated_at or completed_at
-                    succeeded = conclusion == "success" and not failed
+                    succeeded = settled and conclusion == "success" and not failed
                 attempts[int(number)].append(
                     RunAttempt(
                         run_id=int(run_id),
@@ -458,9 +464,9 @@ class PullRequestTimelinesQuery:
                     attempt=newest_attempt,
                     queued_at=queued_at,
                     started_at=started_at,
-                    completed_at=updated_at if completed else None,
+                    completed_at=updated_at if ended else None,
                     failed=run_failed,
-                    succeeded=completed and conclusion == "success",
+                    succeeded=settled and conclusion == "success",
                     failed_jobs=(),
                 )
             )

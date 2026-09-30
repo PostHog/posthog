@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 
 import manifest from './terminal-packages.json'
 import { TerminalFilesystem } from './terminalFilesystem'
@@ -122,11 +122,16 @@ describe('optional terminal packages', () => {
                     )
                 }
                 for (const dependency of [...pkg.dependencies, id]) {
+                    const dependencyPackage = packages[dependency]
                     const stage = join(directory, dependency)
-                    mkdirSync(join(stage, 'bin'), { recursive: true })
-                    writeFileSync(join(stage, 'bin', dependency), '#!/bin/sh\nprintf "launched:%s\\n" "$@"\n', {
-                        mode: 0o700,
-                    })
+                    for (const entrypoint of new Set(Object.values(dependencyPackage.commands))) {
+                        const executable = join(
+                            stage,
+                            relative(`/opt/posthog-packages/${dependency}-${dependencyPackage.version}`, entrypoint)
+                        )
+                        mkdirSync(dirname(executable), { recursive: true })
+                        writeFileSync(executable, '#!/bin/sh\nprintf "launched:%s\\n" "$@"\n', { mode: 0o700 })
+                    }
                     expect(
                         spawnSync('tar', ['-cf', join(mount, 'packages', `${dependency}.tar`), '-C', stage, '.']).status
                     ).toBe(0)
@@ -134,12 +139,17 @@ describe('optional terminal packages', () => {
                 const run = (): ReturnType<typeof spawnSync> =>
                     spawnSync('/bin/sh', [join(mount, 'bin', command), 'two words'], { encoding: 'utf8' })
                 const first = run()
-                expect(first.status).toBe(0)
-                expect(first.stderr).toContain(`Starting ${command}...\n`)
-                expect(first.stdout).toContain('launched:two words\n')
+                expect(first).toMatchObject({
+                    status: 0,
+                    stderr: expect.stringContaining(`Starting ${command}...\n`),
+                    stdout: expect.stringContaining('launched:two words\n'),
+                })
                 const repeated = run()
-                expect(repeated.status).toBe(0)
-                expect(repeated.stderr).toBe('')
+                expect(repeated).toMatchObject({
+                    status: 0,
+                    stderr: '',
+                    stdout: expect.stringContaining('launched:two words\n'),
+                })
 
                 rmSync(join(installed, `${id}-${pkg.version}`), { recursive: true })
                 const archivePath = join(mount, 'packages', `${id}.tar`)
@@ -151,8 +161,11 @@ describe('optional terminal packages', () => {
                 expect(failed.stdout).toBe('')
                 writeFileSync(archivePath, archive)
                 const retry = run()
-                expect(retry.status).toBe(0)
-                expect(retry.stderr).toContain(`Starting ${command}...\n`)
+                expect(retry).toMatchObject({
+                    status: 0,
+                    stderr: expect.stringContaining(`Starting ${command}...\n`),
+                    stdout: expect.stringContaining('launched:two words\n'),
+                })
             } finally {
                 rmSync(directory, { recursive: true, force: true })
             }

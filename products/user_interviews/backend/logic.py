@@ -12,16 +12,23 @@ from collections.abc import Mapping
 from typing import Any
 from uuid import UUID, uuid4
 
+import structlog
+
 from posthog.dataclasses import frozen
 from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team import Team
+from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.ai_observability.backend.prompt_references import resolve_prompt_references
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
 from products.user_interviews.backend.models import (
     EmailWithDisplayNameValidator,
     UserInterview,
     UserInterviewClassification,
 )
+
+logger = structlog.get_logger(__name__)
 
 # distinct_id rules ported from rust/capture (`CAPTURE_V1_DISTINCT_ID_MAX_SIZE` and
 # `ILLEGAL_DISTINCT_IDS` in v1/analytics/constants.rs). On the shared interview link these are
@@ -257,3 +264,24 @@ def has_replied(*, team_id: int, topic_id: UUID, interviewee_identifier: str) ->
         .exclude(classifications__contains=[UserInterviewClassification.ABANDONED])
         .exists()
     )
+
+
+def resolve_first_message_template(team: Team, prompt_name: str, default: str) -> str:
+    """Return the team's managed first-message prompt, or `default`.
+
+    Splices in any referenced partials so a raw reference tag never reaches the
+    voice agent. Falls back to `default` on a lookup failure, an absent or empty
+    managed prompt, or an unresolvable reference.
+    """
+    try:
+        cached = get_prompt_by_name_from_cache(team, prompt_name)
+    except Exception as err:
+        logger.warning("user_interviews_first_message_prompt_lookup_failed", team_id=team.id, error=str(err))
+        return default
+    if cached is not None:
+        template = cached.get("prompt")
+        if isinstance(template, str) and template.strip():
+            resolved = resolve_prompt_references(team, template)
+            if resolved is not None:
+                return resolved
+    return default

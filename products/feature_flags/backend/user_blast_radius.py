@@ -29,7 +29,13 @@ from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.feature_flags.backend.person_sampling import count_matching_persons
+from products.feature_flags.backend.blast_radius_flag_deps import FlagDependencyEstimator
+from products.feature_flags.backend.person_sampling import (
+    build_person_count_query,
+    count_matching_persons,
+    count_settings,
+    read_person_count,
+)
 
 
 @frozen
@@ -77,7 +83,15 @@ def sampled_person_blast_radius(team: Team, filter: Filter, query_type: str) -> 
     if len(filter.property_groups.flat) == 0:
         return BlastRadiusResult(affected=total, total=total)
 
-    affected = count_matching_persons(team, filter, database, query_type=query_type)
+    weight = _flag_dependency_weight(team, filter)
+    try:
+        affected = count_matching_persons(team, filter, database, query_type=query_type, weight=weight)
+    except InternalCHQueryError as e:
+        if weight is None or e.code not in _VALUE_PARSE_CH_ERROR_CODES:
+            raise
+        # A dependency's stored targeting failed a cast in ClickHouse. Its configuration is not
+        # the caller's input, so the dependency sizes neutrally instead of failing the request.
+        affected = count_matching_persons(team, filter, database, query_type=query_type)
     return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
@@ -216,43 +230,63 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
         total_users = team.persons_seen_so_far
         return BlastRadiusResult(affected=total_users, total=total_users)
 
-    # Build the SELECT query - property_to_expr handles all properties including cohorts
-    select_query = _build_person_query(team, filter, return_count=True)
-
-    # Execute the query
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     # Build the team's HogQL database once and share it between the two counts below.
     # Each execute_hogql_query call would otherwise build its own, and the build cost
     # scales with the team's warehouse size.
     database = Database.create_for(team=team)
-    response = execute_hogql_query(
-        query=select_query,
-        team=team,
-        context=HogQLContext(team_id=team.pk, database=database),
-    )
-
-    total_count = response.results[0][0] if response.results else 0
+    weight = _flag_dependency_weight(team, filter)
+    try:
+        estimate = _run_exact_person_count(team, filter, database, weight)
+    except InternalCHQueryError as e:
+        if weight is None or e.code not in _VALUE_PARSE_CH_ERROR_CODES:
+            raise
+        # A dependency's stored targeting failed a cast in ClickHouse. Its configuration is not
+        # the caller's input, so the dependency sizes neutrally instead of failing the request.
+        estimate = _run_exact_person_count(team, filter, database, weight=None)
+    # A condition with a flag dependency sums per-person match probabilities, so the count is a float.
+    total_count = int(round(estimate))
     total_users = team.count_persons_seen_so_far(database=database)
     blast_radius = min(total_count, total_users)
 
     return BlastRadiusResult(affected=blast_radius, total=total_users)
 
 
-def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
-    """Build HogQL AST query to count or select distinct persons matching filters."""
+def _run_exact_person_count(team: Team, filter: Filter, database: Database, weight: Optional[ast.Expr]) -> float:
+    # property_to_expr handles all properties including cohorts
+    select_query = build_person_count_query(team, filter, sample_modulus=None, weight=weight)
+    response = execute_hogql_query(
+        query=select_query,
+        team=team,
+        context=HogQLContext(team_id=team.pk, database=database),
+        # The weighted count groups by person, so it takes the settings that let that aggregation
+        # stream in id order and spill to disk. The plain count keeps its historical defaults.
+        settings=count_settings(None) if weight is not None else None,
+    )
+    return read_person_count(response.results, weighted=weight is not None)[1]
 
-    # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
-    if return_count:
-        select_query = ast.SelectQuery(
-            select=[ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-        )
-    else:
-        select_query = ast.SelectQuery(
-            select=[ast.Field(chain=["persons", "id"])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-            distinct=True,
-        )
+
+def _flag_dependency_weight(team: Team, filter: Filter) -> Optional[ast.Expr]:
+    """
+    Per-person probability that the condition's flag dependencies evaluate to their requested
+    values, or None when the condition has none. property_to_expr neutralizes flag properties, so
+    the count paths weight each person by this instead. The persons listing stays unweighted and
+    lists everyone the plain filters match.
+    """
+    group = filter.property_groups
+    if not any(prop.type == "flag" for prop in group.flat):
+        return None
+    return FlagDependencyEstimator(team, clean_condition=replace_proxy_properties).weight_expr(group)
+
+
+def _build_person_query(team: Team, filter: Filter, cursor: Optional[str] = None) -> ast.SelectQuery:
+    """Build HogQL AST query to select distinct persons matching filters, paginated by id."""
+
+    select_query = ast.SelectQuery(
+        select=[ast.Field(chain=["persons", "id"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        distinct=True,
+    )
 
     # Build WHERE clause with team_id and property filters
     # property_to_expr handles all property types including cohorts
@@ -268,8 +302,8 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
     property_expr = property_to_expr(filter.property_groups, team, scope="person")
     where_exprs.append(property_expr)
 
-    # Add cursor-based pagination when returning IDs
-    if not return_count and cursor is not None:
+    # Add cursor-based pagination
+    if cursor is not None:
         where_exprs.append(
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Gt,
@@ -281,10 +315,8 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
     # Combine all WHERE expressions with AND
     select_query.where = ast.And(exprs=where_exprs)
 
-    # Add ORDER BY and LIMIT for pagination when returning IDs
-    if not return_count:
-        select_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["persons", "id"]), order="ASC")]
-        select_query.limit = ast.Constant(value=500)
+    select_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["persons", "id"]), order="ASC")]
+    select_query.limit = ast.Constant(value=500)
 
     return select_query
 
@@ -572,7 +604,7 @@ def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optiona
     """Get distinct person IDs matching person-based feature flag filters."""
 
     # Build the SELECT query to get person IDs
-    select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
+    select_query = _build_person_query(team, filter, cursor=cursor)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(

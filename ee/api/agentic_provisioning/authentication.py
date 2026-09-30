@@ -18,6 +18,7 @@ from posthog.api.oauth.client_assertion import (
     verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import ClientCredentials, extract_client_credentials, verify_client_secret
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, find_oauth_access_token
 from posthog.models.user import User
 
@@ -66,7 +67,7 @@ def resolve_bearer_access_token(request: Request) -> OAuthAccessToken:
     return access_token
 
 
-class ProvisioningAuthentication(BaseAuthentication):
+class ProvisioningAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """Authenticates provisioning requests from any registered partner.
 
     Partners are OAuthApplications with ``is_provisioning_partner`` set. The OAuthApplication
@@ -81,12 +82,17 @@ class ProvisioningAuthentication(BaseAuthentication):
     partner is identified.
     """
 
+    activity_credential_type = "partner"
+
     def authenticate(self, request: Request) -> tuple[None, OAuthApplication] | None:
         app = self._identify_partner(request)
         if app is None:
             return None
 
         capture_auth_event(app, "success", endpoint=request.path)
+        # A public partner is named by a client_id that anyone can send, so only a partner that proved
+        # itself with a secret or a signed assertion is recorded by id.
+        self.record_activity_actor(None, str(app.id) if app.requires_client_authentication else None)
         return (None, app)
 
     def _identify_partner(self, request: Request) -> OAuthApplication | None:
@@ -197,13 +203,15 @@ class ProvisioningAuthentication(BaseAuthentication):
         return self._resolve_partner(client_id)
 
 
-class ProvisioningBearerAuthentication(BaseAuthentication):
+class ProvisioningBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """Authenticate a provisioning partner via an OAuth bearer token, for the
     resource and deep-link endpoints.
 
     Returns ``(user, access_token)`` so views read the token off ``request.auth``.
     Raises :class:`ProvisioningError` (rendered in the view's envelope) on failure.
     """
+
+    activity_credential_type = "oauth"
 
     def authenticate(self, request: Request) -> tuple[User, OAuthAccessToken]:
         try:
@@ -231,6 +239,9 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
         if user is None or not user.is_active:
             raise ProvisioningError("unauthorized", "Authentication failed", status=401)
 
+        self.record_activity_actor(
+            user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id
+        )
         return user, access_token
 
     def authenticate_header(self, request: Request) -> str:
@@ -271,7 +282,7 @@ def authenticate_confidential_partner(request: Request, *, capability: str) -> O
     return partner
 
 
-class ConfidentialPartnerAuthentication(BaseAuthentication):
+class ConfidentialPartnerAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """DRF form of :func:`authenticate_confidential_partner`, so confidential
     endpoints declare it in ``authentication_classes`` and can't ship without
     it. The partner rides ``request.auth``; these endpoints act for the partner,
@@ -280,6 +291,8 @@ class ConfidentialPartnerAuthentication(BaseAuthentication):
     Subclassed per capability rather than parameterized, because DRF instantiates
     authentication classes with no arguments."""
 
+    # `ProvisioningAuthentication` records the partner, because this class authenticates through it.
+    activity_credential_type = "partner"
     capability: str
 
     def authenticate(self, request: Request) -> tuple[AnonymousUser, OAuthApplication]:

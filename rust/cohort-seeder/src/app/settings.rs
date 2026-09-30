@@ -77,6 +77,8 @@ impl OrchestratorSettings {
         retry_backoff: RetryBackoffPolicy,
         max_lookback_days: u32,
         bands_per_day: u16,
+        live_tracking_lag: Duration,
+        trailing_day_grace: Duration,
         producer: ProducerSettings,
         person: Option<PersonSettings>,
     ) -> Result<Self, OrchestratorSettingsError> {
@@ -110,6 +112,8 @@ impl OrchestratorSettings {
             plan_caps: PlanCaps {
                 max_lookback_days,
                 bands_per_day,
+                live_tracking_lag,
+                trailing_day_grace,
             },
             producer,
             person,
@@ -183,6 +187,8 @@ impl TryFrom<&Config> for OrchestratorSettings {
             retry_backoff,
             config.seeder_max_lookback_days,
             config.seeder_bands_per_day,
+            Duration::from_secs(config.seeder_live_tracking_lag_secs),
+            Duration::from_secs(config.seeder_trailing_day_grace_secs),
             producer,
             person,
         )?)
@@ -315,6 +321,8 @@ mod tests {
                     backoff(),
                     400,
                     1,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -329,6 +337,8 @@ mod tests {
                     backoff(),
                     400,
                     1,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -343,6 +353,8 @@ mod tests {
                     backoff(),
                     400,
                     1,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -357,6 +369,8 @@ mod tests {
                     backoff(),
                     400,
                     1,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -371,6 +385,8 @@ mod tests {
                     backoff(),
                     400,
                     1,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -385,6 +401,8 @@ mod tests {
                     backoff(),
                     400,
                     0,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -399,6 +417,8 @@ mod tests {
                     backoff(),
                     400,
                     u16::MAX,
+                    Duration::ZERO,
+                    Duration::ZERO,
                     producer_settings(),
                     None,
                 ),
@@ -511,6 +531,14 @@ mod tests {
         let settings = OrchestratorSettings::try_from(&config).unwrap();
         assert_eq!(settings.retry_backoff.base(), Duration::from_secs(30));
         assert_eq!(settings.retry_backoff.cap(), Duration::from_secs(1800));
+        assert_eq!(
+            settings.plan_caps.live_tracking_lag,
+            Duration::from_secs(420)
+        );
+        assert_eq!(
+            settings.plan_caps.trailing_day_grace,
+            Duration::from_secs(1800)
+        );
 
         let mut zero_base = config.clone();
         zero_base.seeder_retry_backoff_base_secs = 0;

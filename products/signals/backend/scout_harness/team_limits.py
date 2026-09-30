@@ -220,6 +220,71 @@ def _parse_enrollment(payload: dict | None) -> Enrollment:
     return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip)
 
 
+# Flag payload block that enrolls a pilot cohort in one scout that PostHog sets up without a person
+# asking. Separate from `guaranteed_team_ids`: a background team gets one config for one skill, not
+# the full catalog seed.
+BACKGROUND_KEY = "background"
+DEFAULT_BACKGROUND_SKILL_NAME = "signals-scout-general"
+# Bounds how many teams get a new background config in one tick, so a large list starts over
+# several ticks instead of in one burst.
+DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK = 5
+
+
+@dataclass(frozen=True)
+class BackgroundEnrollment:
+    """Parsed `background` block from the `signals-scout` flag payload.
+
+    `enabled` → the coordinator creates and dispatches background configs. A valid block with
+    `enabled` off still pauses configs whose team left `team_ids`. `interval_minutes` is `None`
+    when unset, so the created row keeps the model default.
+    """
+
+    enabled: bool
+    skill_name: str
+    team_ids: frozenset[int]
+    interval_minutes: int | None
+    max_new_teams_per_tick: int
+
+
+def _positive_int_or_none(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
+    """Parse the `background` block, or return `None` when the coordinator must not act on it.
+
+    `None` for a missing payload, a missing block, a block that is not an object, a `skill_name`
+    that is not a non-empty string, or a `team_ids` that is not a list of integer ids. A malformed
+    `team_ids` must not read as an empty list, because an empty list pauses every background
+    config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes` or
+    `max_new_teams_per_tick` falls back to its default and does not invalidate the block.
+    """
+    if payload is None:
+        return None
+    raw = payload.get(BACKGROUND_KEY)
+    if not isinstance(raw, dict):
+        return None
+
+    skill_name = raw.get("skill_name", DEFAULT_BACKGROUND_SKILL_NAME)
+    if not isinstance(skill_name, str) or not skill_name.strip():
+        return None
+
+    raw_team_ids = raw.get("team_ids", [])
+    if not isinstance(raw_team_ids, list) or not all(
+        isinstance(team_id, int) and not isinstance(team_id, bool) for team_id in raw_team_ids
+    ):
+        return None
+
+    max_new = _positive_int_or_none(raw.get("max_new_teams_per_tick"))
+    return BackgroundEnrollment(
+        enabled=raw.get("enabled") is True,
+        skill_name=skill_name.strip(),
+        team_ids=frozenset(raw_team_ids),
+        interval_minutes=_positive_int_or_none(raw.get("interval_minutes")),
+        max_new_teams_per_tick=max_new if max_new is not None else DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
+    )
+
+
 def _enrolled_team_ids(payload: dict | None) -> set[int]:
     """Explicit enrolled project ids (skip removed) — the back-compat view of `_parse_enrollment`
     for the metadata path and existing callers.
@@ -558,6 +623,11 @@ def _resolve_enrolled(canonical_team_id: int, enrollment: Enrollment) -> bool:
     if enrollment.wildcard:
         return True
     return _is_team_enrolled(canonical_team_id, enrollment.explicit)
+
+
+def team_is_enrolled(canonical_team_id: int) -> bool:
+    """Whether a canonical project runs scouts, as the `signals-scout` flag payload says right now."""
+    return _resolve_enrolled(canonical_team_id, _parse_enrollment(_read_flag_payload()))
 
 
 @dataclass(frozen=True)

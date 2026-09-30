@@ -1,0 +1,55 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Embedding call for a Polish intranet search query",
+  "scenario": "An internal company intranet search feature embeds an employee's Polish-language query (about vacation/urlop policy) before running a semantic search over the HR knowledge base. This trace is just the embedding call; there is no message text placeholder to translate.",
+  "summary": {
+    "events": {
+      "$ai_embedding": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "text-embedding-3-large"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib_version": "7.58.0",
+        "$ai_base_url": "https://api.openai.com/v1/",
+        "$is_server": true,
+        "$geoip_disable": true,
+        "$ai_lib_version": "7.58.0",
+        "$ai_lib": "posthog-ai",
+        "$python_runtime": "CPython",
+        "$ai_latency": 0.6821105480194092,
+        "$os_distro": "Debian GNU/Linux",
+        "$os": "Linux",
+        "$os_version": "13",
+        "$ai_model": "text-embedding-3-large",
+        "$ai_http_status": 200,
+        "$ai_provider": "openai",
+        "$ai_input_tokens": 265,
+        "$ai_trace_id": "e50fffc2-f41f-7c43-ae07-768bdc94a42a",
+        "$lib": "posthog-python",
+        "$process_person_profile": false,
+        "$python_version": "3.11.16",
+        "$ai_input": null
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

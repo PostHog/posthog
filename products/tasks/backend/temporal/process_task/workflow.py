@@ -201,6 +201,7 @@ class ResumedSandboxState:
     last_active_time: Optional[str]  # ISO8601, or None if never active
     # Defaulted so continue_as_new payloads from pre-rollout runs deserialize.
     pr_unresolved_threads: int = 0
+    ci_idle_skips: int = 0
     dev_stack_preview_enabled: bool = False
     babysit_journal: BabysitJournal = field(default_factory=BabysitJournal)
     ci_resume_snapshot_created: bool = False
@@ -220,6 +221,7 @@ class ResumedSandboxState:
     image_source: str | None = None
     agent_ready_at: str | None = None
     agent_boot_interaction_telemetry_enabled: bool | None = None
+    sandbox_backend: str | None = None
 
 
 @frozen
@@ -307,6 +309,7 @@ class TaskEvent(StrEnum):
 class CIFollowUpDecision(StrEnum):
     FIRE = "fire"
     SKIP = "skip"
+    WAIT = "wait"
     NO_PR = "no_pr"
     TERMINAL = "terminal"
 
@@ -324,6 +327,7 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     DEFAULT_CI_MESSAGE,
     IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS,
     INACTIVITY_TIMEOUT,
+    MAX_CI_IDLE_SKIPS,
     MAX_CI_REPETITIONS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
@@ -418,6 +422,7 @@ _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 _PATCH_ID_DELIVERED_PR_TIMEOUT_STATUS = "tasks-delivered-pr-timeout-status"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
+_PATCH_ID_CI_IDLE_SKIP_CAP = "tasks-ci-idle-skip-cap"
 
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
@@ -530,6 +535,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._shutting_down: bool = False
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
+        self._ci_idle_skips: int = 0
         self._last_active_time: Optional[datetime] = None
         # Start of the continue_as_new chain, carried across continuations so the
         # wall-clock cap measures the whole chain rather than restarting per run.
@@ -665,6 +671,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _dispatch_followup(self, followup: PendingFollowup) -> None:
         self._last_active_time = workflow.now()
         self._first_user_message_received = True
+        self._ci_idle_skips = 0
         if self._should_skip_followup(followup.message, followup.artifact_ids):
             workflow.logger.warning(
                 "empty_followup_skipped",
@@ -883,6 +890,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             and self._context.create_pr
             and self._context.pr_loop_enabled
             and self._ci_repetitions < MAX_CI_REPETITIONS
+            and self._ci_idle_skips < MAX_CI_IDLE_SKIPS
         )
         # When CI follow-up is scheduled, the inactivity timer must outlive
         # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
@@ -1023,12 +1031,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "PR is in the merge queue, skipping CI follow-up",
                 extra={"run_id": self.context.run_id, "pr_url": pr_context.pr_url},
             )
-            return CIFollowUpDecision.SKIP
+            return CIFollowUpDecision.WAIT
         fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
+        idle = CIFollowUpDecision.WAIT if pr_context.ci_status == "pending" else CIFollowUpDecision.SKIP
         if not ci_follow_up_actionable_gate():
             # Legacy replay path: any fingerprint change fires; feedback is not consulted.
             if not fingerprint_changed:
-                return CIFollowUpDecision.SKIP
+                return idle
             self._pr_fingerprint = pr_context.fingerprint
             return CIFollowUpDecision.FIRE
         # New unresolved review threads are feedback for the agent, and comparing
@@ -1045,7 +1054,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "pr_state": pr_context.pr_state,
                 },
             )
-            return CIFollowUpDecision.SKIP
+            return idle
         self._pr_fingerprint = pr_context.fingerprint
         fire = (fingerprint_changed and is_pr_actionable(pr_context)) or new_feedback
         workflow.logger.info(
@@ -1061,7 +1070,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "fire": fire,
             },
         )
-        return CIFollowUpDecision.FIRE if fire else CIFollowUpDecision.SKIP
+        return CIFollowUpDecision.FIRE if fire else idle
 
     async def _emit_pr_opened_progress(self, pr_url: str) -> None:
         # First time we observe a PR: surface "Opened pull request" + "Keeping CI green" so the UI moves
@@ -1154,7 +1163,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "PR is in the merge queue, skipping CI follow-up",
                 extra={"run_id": self.context.run_id, "pr_url": snapshot.pr_url},
             )
-            return CIFollowUpDecision.SKIP
+            return CIFollowUpDecision.WAIT
         attention = self._babysit_journal.attention(snapshot)
         if attention.is_empty:
             if (
@@ -1190,7 +1199,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "head_sha": snapshot.head_sha,
                 },
             )
-            return CIFollowUpDecision.SKIP
+            return CIFollowUpDecision.WAIT if snapshot.ci_status == "pending" else CIFollowUpDecision.SKIP
         self._pending_babysit = _BabysitDispatch(snapshot=snapshot, attention=attention)
         workflow.logger.info(
             "PR needs attention, dispatching CI follow-up",
@@ -1377,16 +1386,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             case CIFollowUpDecision.FIRE:
                                 workflow.set_current_details("🔁 Re-checking the PR's CI and nudging the agent.")
                                 self._ci_resume_snapshot_created = False
+                                self._ci_idle_skips = 0
                                 await self._dispatch_ci_follow_up()
                             case CIFollowUpDecision.NO_PR | CIFollowUpDecision.TERMINAL:
                                 # No PR will ever appear — stop the CI loop entirely.
                                 self._ci_repetitions = MAX_CI_REPETITIONS
-                            case CIFollowUpDecision.SKIP:
+                            case CIFollowUpDecision.SKIP | CIFollowUpDecision.WAIT:
                                 # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
                                 # Without this, _wait_for_ci_follow_up returns immediately
                                 # whenever last_active_time is older than the delay, and the
                                 # workflow tight-loops calling GET /repos/.../pulls/{n}.
                                 self._last_active_time = workflow.now()
+                                if (
+                                    follow_up_result == CIFollowUpDecision.SKIP
+                                    and self.context.mode != "interactive"
+                                    and workflow.patched(_PATCH_ID_CI_IDLE_SKIP_CAP)
+                                ):
+                                    self._ci_idle_skips += 1
                             case _:
                                 raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
                     case TaskEvent.SANDBOX_TTL_APPROACHING:
@@ -1954,6 +1970,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 connect_token=self._sandbox_connect_token,
                 jwt_kid=self._sandbox_jwt_kid,
                 ci_repetitions=self._ci_repetitions,
+                ci_idle_skips=self._ci_idle_skips,
                 pr_fingerprint=self._pr_fingerprint,
                 pr_unresolved_threads=self._pr_unresolved_threads,
                 babysit_journal=self._babysit_journal,
@@ -1981,6 +1998,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 image_source=self._image_source,
                 agent_ready_at=self._agent_ready_at.isoformat() if self._agent_ready_at else None,
                 agent_boot_interaction_telemetry_enabled=self._agent_boot_interaction_telemetry_enabled,
+                sandbox_backend=self.context.sandbox_backend,
             ),
         )
 
@@ -1998,6 +2016,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._is_agent_design_enabled = resumed.is_agent_design_enabled
         self._dev_stack_preview_enabled = resumed.dev_stack_preview_enabled
         self._ci_repetitions = resumed.ci_repetitions
+        self._ci_idle_skips = resumed.ci_idle_skips
         self._pr_fingerprint = resumed.pr_fingerprint
         self._pr_unresolved_threads = resumed.pr_unresolved_threads
         self._babysit_journal = resumed.babysit_journal
@@ -2027,7 +2046,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         context = await workflow.execute_activity(
             get_task_processing_context,
-            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
+            GetTaskProcessingContextInput(
+                run_id=input.run_id,
+                create_pr=input.create_pr,
+                resumed_sandbox_id=input.resumed_sandbox.sandbox_id if input.resumed_sandbox else None,
+                resumed_sandbox_backend=input.resumed_sandbox.sandbox_backend if input.resumed_sandbox else None,
+            ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -2458,7 +2482,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 workflow_start_at=self._workflow_start_at_iso(),
                 boot_excluded_ms=boot_excluded_ms,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=15),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -2516,7 +2540,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 workflow_start_at=self._workflow_start_at_iso(),
                 boot_excluded_ms=boot_excluded_ms,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=15),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -2860,6 +2884,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._last_agent_heartbeat_at.isoformat() if self._last_agent_heartbeat_at else None
                 ),
                 seconds_since_last_agent_heartbeat=seconds_since_last_agent_heartbeat,
+                sandbox_backend=self._context.sandbox_backend if self._context else None,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),

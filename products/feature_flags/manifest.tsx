@@ -79,7 +79,7 @@ export const manifest: ProductManifest = {
         {
             path: `Feature flags`,
             intents: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS, ProductKey.EARLY_ACCESS_FEATURES],
-            category: ProductItemCategory.FEATURES,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'feature_flag',
             href: urls.featureFlags(),
             sceneKey: 'FeatureFlags',

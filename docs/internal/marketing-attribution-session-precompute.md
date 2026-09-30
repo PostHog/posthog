@@ -49,3 +49,31 @@ Attribution filters compare the event timestamp directly with the date bounds, u
 This avoids copying timestamp casts into session filters and preserves the shared raw-session timestamp definition.
 If either date boundary falls within a repeated local hour at a daylight saving transition, the reader uses live attribution because conversion filters parse dates without a UTC offset.
 Ranges that cross a transition can still use cached dimensions when both boundaries are unambiguous.
+
+## Live session resolution
+
+The independent `marketing-analytics-live-session-resolution` flag opts attribution tables and paths into shared live session resolution.
+It takes precedence over the sessions-precomputation flag for eligible queries and does not require precomputed jobs.
+The default remains off.
+Attribution result cache keys distinguish the flag state, so enabling or disabling it cannot reuse results computed with the opposite setting.
+
+This route materializes pageview session IDs and current person IDs once, then resolves current dimensions from the matching raw sessions.
+Reach and credit share those rows and the conversion aggregation.
+Late-arriving events and session updates therefore do not depend on a cached dimension snapshot or its recorded ingestion time.
+A missing cache window at a calendar boundary does not switch this route back to the legacy live query.
+The report's date range and timezone remain unchanged.
+
+Eligible live-session queries limit ClickHouse execution to 16 threads and enable aggregation in storage order where the grouping keys permit it.
+This limits partial aggregation states and temporary spill files while preserving the existing spill threshold and timeout.
+Cached reads and ineligible queries keep the default execution settings.
+
+The initial rollout keeps the cached reader's eligibility restrictions, including date-boundary, access-control, test-account, range, and session-modifier checks.
+Conversion goals that depend on session fields or deferred action expressions also use legacy live attribution, preserving its wider session-ID lookup window.
+Ineligible queries continue to use legacy live attribution.
+Raw session lookups retain that path's session-ID timestamp bounds, including its three-day buffer.
+This does not extend coverage for older session IDs or guarantee that independently replicated events and sessions arrive together.
+
+Validate result parity and query cost before enabling this flag: current dimensions require more source reads than a warm dimension cache.
+The query telemetry property `live_session_resolution_used` identifies this route; `sessions_precompute_used` remains false for it.
+Disabling the new flag restores the existing selection between cached and legacy live attribution.
+The writer, schedule, existing jobs, TTLs, and job hashes are unchanged.

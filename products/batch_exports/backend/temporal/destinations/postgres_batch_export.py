@@ -135,7 +135,12 @@ NON_RETRYABLE_ERROR_TYPES = (
     # The inputs are missing required connection details (e.g. credentials or host).
     # This usually means the backing integration is misconfigured or absent, so retrying won't help.
     "PostgreSQLMissingRequiredInputsError",
+    # The final merge waited on locks or hit the destination's statement timeout after several attempts.
+    "PostgreSQLMergeTimeoutError",
 )
+
+MERGE_LOCK_TIMEOUT_SECONDS = 5 * 60
+MERGE_MAX_ATTEMPTS = 3
 
 
 class PostgreSQLConnectionError(Exception):
@@ -159,6 +164,10 @@ class PostgreSQLTransactionError(Exception):
 
     def __init__(self, max_attempts: int, err_msg: str):
         super().__init__(f"A transaction failed to complete after {max_attempts} attempts: {err_msg}")
+
+
+class PostgreSQLMergeTimeoutError(Exception):
+    """Raised when the final merge waits on locks or exceeds the statement timeout after several attempts."""
 
 
 class PostgreSQLMissingRequiredInputsError(Exception):
@@ -216,6 +225,18 @@ class PostgresInsertInputs(BatchExportInsertInputs):
         return TLS(
             ssl_mode="prefer" if settings.TEST else "require",
         )
+
+
+def _table_identifier(schema: str, table_name: str) -> sql.Identifier:
+    return sql.Identifier(schema, table_name) if schema else sql.Identifier(table_name)
+
+
+def _join_field_names(fields: Fields) -> sql.Composed:
+    return sql.SQL(",").join(sql.Identifier(field[0]) for field in fields)
+
+
+def _is_statement_timeout(err: Exception) -> bool:
+    return isinstance(err, psycopg.errors.QueryCanceled) and "statement timeout" in (err.diag.message_primary or "")
 
 
 async def run_in_retryable_transaction(
@@ -506,63 +527,31 @@ class PostgreSQLClient:
             if delete is True:
                 await self.adelete_table(schema, table_name, not_found_ok)
 
-    async def amerge_mutable_tables(
-        self,
-        final_table_name: str,
-        stage_table_name: str,
-        schema: str,
+    @staticmethod
+    def _build_merge_query(
+        final_table: sql.Identifier,
+        stage_table: sql.Identifier,
         merge_key: Fields,
         update_key: Fields,
         update_when_matched: Fields,
-        timeout: float | int | None = None,
-    ) -> None:
-        """Merge two identical person model tables in PostgreSQL.
-
-        Merging utilizes PostgreSQL's `INSERT INTO ... ON CONFLICT` statement. PostgreSQL version
-        15 and later supports a `MERGE` command, but to ensure support for older versions of PostgreSQL
-        we do not use it. There are differences in the way concurrency is managed in `MERGE` but those
-        are less relevant concerns for us than compatibility.
-        """
-        if schema:
-            final_table_identifier = sql.Identifier(schema, final_table_name)
-            stage_table_identifier = sql.Identifier(schema, stage_table_name)
-
-        else:
-            final_table_identifier = sql.Identifier(final_table_name)
-            stage_table_identifier = sql.Identifier(stage_table_name)
-
-        and_separator = sql.SQL(" AND ")
-        merge_condition = and_separator.join(
-            sql.SQL("{final_field} = {stage_field}").format(
-                final_field=sql.Identifier("final", field[0]),
-                stage_field=sql.Identifier(schema, stage_table_name, field[0]),
-            )
-            for field in merge_key
-        )
-
-        order_by = sql.SQL(",").join(sql.Identifier(field[0]) for field in merge_key)
-
-        or_separator = sql.SQL(" OR ")
-        update_condition = or_separator.join(
+    ) -> sql.Composed:
+        merge_key_names = _join_field_names(merge_key)
+        update_condition = sql.SQL(" OR ").join(
             sql.SQL("EXCLUDED.{stage_field} > final.{final_field}").format(
                 final_field=sql.Identifier(field[0]),
                 stage_field=sql.Identifier(field[0]),
             )
             for field in update_key
         )
-
-        comma = sql.SQL(",")
-        update_clause = comma.join(
+        update_clause = sql.SQL(",").join(
             sql.SQL("{final_field} = EXCLUDED.{stage_field}").format(
                 final_field=sql.Identifier(field[0]),
                 stage_field=sql.Identifier(field[0]),
             )
             for field in update_when_matched
         )
-        field_names = comma.join(sql.Identifier(field[0]) for field in update_when_matched)
-        conflict_fields = comma.join(sql.Identifier(field[0]) for field in merge_key)
 
-        merge_query = sql.SQL(
+        return sql.SQL(
             """\
         INSERT INTO {final_table} AS final ({field_names})
         SELECT {field_names} FROM {stage_table}
@@ -572,36 +561,108 @@ class PostgreSQLClient:
         WHERE ({update_condition})
         """
         ).format(
-            final_table=final_table_identifier,
-            order_by=order_by,
-            conflict_fields=conflict_fields,
-            stage_table=stage_table_identifier,
-            merge_condition=merge_condition,
+            final_table=final_table,
+            order_by=merge_key_names,
+            conflict_fields=merge_key_names,
+            stage_table=stage_table,
             update_condition=update_condition,
             update_clause=update_clause,
-            field_names=field_names,
+            field_names=_join_field_names(update_when_matched),
         )
 
+    async def _amerge_once(
+        self,
+        merge_query: sql.Composed,
+        schema: str,
+        lock_timeout: float | int,
+    ) -> None:
+        """Run one merge attempt in its own transaction."""
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
                 if schema:
                     await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
+                # The nested transaction() is a savepoint. If the server rejects the SET, only the savepoint rolls
+                # back and the merge transaction stays usable. The merge then runs as before, without a lock limit.
                 try:
-                    async with asyncio.timeout(timeout):
-                        await cursor.execute(merge_query)
-                except psycopg.errors.InvalidColumnReference:
-                    raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
-                except TimeoutError as e:
-                    self.external_logger.exception(
-                        "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
-                        schema,
-                        final_table_name,
-                    )
-                    raise TimeoutError(
-                        f"Timed-out final merge into '{schema}.{final_table_name}' after {timeout} seconds"
-                    ) from e
+                    async with self.connection.transaction():
+                        await cursor.execute(
+                            sql.SQL("SET LOCAL lock_timeout = {}").format(sql.Literal(f"{int(lock_timeout * 1000)}ms"))
+                        )
+                except psycopg.Error:
+                    self.logger.warning("Failed to set lock_timeout for merge", exc_info=True)
+
+                await cursor.execute(merge_query)
+
+    async def amerge_mutable_tables(
+        self,
+        final_table_name: str,
+        stage_table_name: str,
+        schema: str,
+        merge_key: Fields,
+        update_key: Fields,
+        update_when_matched: Fields,
+        timeout: float | int | None = None,
+        lock_timeout: float | int = MERGE_LOCK_TIMEOUT_SECONDS,
+        max_attempts: int = MERGE_MAX_ATTEMPTS,
+    ) -> None:
+        """Merge two identical person model tables in PostgreSQL.
+
+        Merging utilizes PostgreSQL's `INSERT INTO ... ON CONFLICT` statement. PostgreSQL version
+        15 and later supports a `MERGE` command, but to ensure support for older versions of PostgreSQL
+        we do not use it. There are differences in the way concurrency is managed in `MERGE` but those
+        are less relevant concerns for us than compatibility.
+        """
+        final_table = _table_identifier(schema, final_table_name)
+        stage_table = _table_identifier(schema, stage_table_name)
+        merge_query = self._build_merge_query(
+            final_table=final_table,
+            stage_table=stage_table,
+            merge_key=merge_key,
+            update_key=update_key,
+            update_when_matched=update_when_matched,
+        )
+        merge_with_retries = make_retryable_with_exponential_backoff(
+            self._amerge_once,
+            max_attempts=max_attempts,
+            retryable_exceptions=(psycopg.errors.LockNotAvailable, psycopg.errors.QueryCanceled),
+            is_exception_retryable=lambda err: (
+                isinstance(err, psycopg.errors.LockNotAvailable) or _is_statement_timeout(err)
+            ),
+        )
+
+        try:
+            async with asyncio.timeout(timeout):
+                await merge_with_retries(merge_query, schema, lock_timeout)
+        except psycopg.errors.InvalidColumnReference:
+            raise MissingPrimaryKeyError(final_table, _join_field_names(merge_key))
+        except TimeoutError as e:
+            self.external_logger.exception(
+                "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
+                schema,
+                final_table_name,
+            )
+            raise TimeoutError(
+                f"Timed-out final merge into '{schema}.{final_table_name}' after {timeout} seconds"
+            ) from e
+        except psycopg.errors.LockNotAvailable as err:
+            raise PostgreSQLMergeTimeoutError(
+                f"Final merge into '{schema}.{final_table_name}' waited more than {lock_timeout} seconds for a lock "
+                f"held by another session, after {max_attempts} attempts. "
+                "A long-running or idle transaction on the destination database can hold these locks. "
+                "To find the blocking session, query 'pg_stat_activity' together with 'pg_blocking_pids()'."
+            ) from err
+        except psycopg.errors.QueryCanceled as err:
+            if not _is_statement_timeout(err):
+                raise
+            raise PostgreSQLMergeTimeoutError(
+                f"The 'statement_timeout' of the destination database canceled the final merge into "
+                f"'{schema}.{final_table_name}' after {max_attempts} attempts. "
+                "The merge can be slow, or it can wait for a lock held by another session. "
+                "Increase 'statement_timeout' for this user, or query 'pg_stat_activity' together with "
+                "'pg_blocking_pids()' to find a blocking session."
+            ) from err
 
     async def copy_tsv_to_postgres(
         self,

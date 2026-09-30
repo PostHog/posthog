@@ -130,7 +130,7 @@ await buildInParallel(
                         preludes: new Map(
                             [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
                                 file,
-                                cssPrelude(groups, cssPlan.rankOfGroup),
+                                (specifier) => cssPrelude(specifier, groups, cssPlan.rankOfGroup),
                             ])
                         ),
                         extraImports: Object.fromEntries(
