@@ -3330,8 +3330,18 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=(
             "Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the "
             "evaluation window), `ignored` (no person engaged with its reports — no view, rating, "
-            "note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null "
-            "unless `status` is `pending_pause` or `paused_by_system`."
+            "note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` "
+            "(PostHog retired the scout), or `background_removed` (PostHog ended a background "
+            "enrollment). Null unless `status` is `pending_pause` or `paused_by_system`."
+        ),
+    )
+    enrollment_origin = serializers.ChoiceField(
+        choices=SignalScoutConfig.EnrollmentOrigin.choices,
+        read_only=True,
+        help_text=(
+            "Who put this scout on the project. `user`: a person set it up or changed it. "
+            "`background`: PostHog enrolled it and has not seen a person edit it yet. Any edit "
+            "through this API changes `background` to `user`."
         ),
     )
     emit = serializers.BooleanField(
@@ -3515,6 +3525,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "enabled",
             "status",
             "pause_reason",
+            "enrollment_origin",
             "emit",
             "run_interval_minutes",
             "run_cron_schedule",
@@ -3752,6 +3763,10 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         # both of which re-check the enabled-scout cap — an unrelated edit must not sidestep that.
         if validated_data and instance.consecutive_failure_count:
             validated_data["consecutive_failure_count"] = 0
+        # A person who edits a background enrollment takes it over, so the background coordinator
+        # must not change or remove it after this. An empty write is not an edit.
+        if validated_data and instance.enrollment_origin == SignalScoutConfig.EnrollmentOrigin.BACKGROUND:
+            validated_data["enrollment_origin"] = SignalScoutConfig.EnrollmentOrigin.USER
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
             target = (
                 SignalScoutConfig.Status.ACTIVE

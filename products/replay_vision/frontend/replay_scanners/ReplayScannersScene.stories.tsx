@@ -1380,6 +1380,7 @@ const digestScoutConfig = {
     enabled: true,
     status: 'active',
     pause_reason: null,
+    enrollment_origin: 'user',
     source_product: 'replay_vision',
     source_id: summarizerScanner.id,
     run_cron_schedule: '0 9 * * *',

@@ -72,6 +72,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     enabled: true,
     status: 'active',
     pause_reason: null,
+    enrollment_origin: 'user',
     deprecation: null,
     emit: true,
     run_interval_minutes: 1440,

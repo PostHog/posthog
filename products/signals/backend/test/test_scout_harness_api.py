@@ -3135,6 +3135,36 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.status == SignalScoutConfig.Status.PENDING_PAUSE
         assert config.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
 
+    @parameterized.expand(
+        [
+            ("empty_write", {}, "background"),
+            ("schedule_edit", {"run_interval_minutes": 60}, "user"),
+            ("pause", {"enabled": False}, "user"),
+        ]
+    )
+    def test_a_human_edit_takes_over_a_background_enrollment(
+        self, _name: str, payload: dict, expected_origin: str
+    ) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["enrollment_origin"] == expected_origin
+        config.refresh_from_db()
+        assert config.enrollment_origin == expected_origin
+        origin_changes = [
+            (change["before"], change["after"])
+            for entry in ActivityLog.objects.filter(team_id=self.team.id, scope="SignalScoutConfig", item_id=config.id)
+            for change in (entry.detail or {}).get("changes", [])
+            if change["field"] == "enrollment origin"
+        ]
+        assert origin_changes == ([("background", "user")] if expected_origin == "user" else [])
+
     def test_partial_update_slack_destination_is_project_scoped_and_round_trips(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         other_team = Team.objects.create(organization=self.organization, name="other")

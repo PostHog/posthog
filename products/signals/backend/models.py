@@ -2352,6 +2352,20 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         # no longer exists, and the roster has a state to render instead of a row that looks
         # healthy and never runs.
         RETIRED = "retired", "Retired"
+        # A background enrollment ended and PostHog took the scout off the team. Owned by the
+        # background coordinator alone, so no other system writer resumes a scout nobody set up.
+        BACKGROUND_REMOVED = "background_removed", "Background removed"
+
+    class EnrollmentOrigin(models.TextChoices):
+        """Who put this scout on the team.
+
+        `background` marks a row PostHog enrolled without a person asking, so the background
+        coordinator may still change or remove it. Any human edit through the config API moves the
+        row to `user`, and from then on the row belongs to the team.
+        """
+
+        USER = "user", "User"
+        BACKGROUND = "background", "Background"
 
     class NetworkAccess(models.TextChoices):
         """What the scout's sandbox can reach over the network during a run.
@@ -2443,6 +2457,14 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         choices=Status.choices,
         default=Status.ACTIVE,
         db_default=Status.ACTIVE,
+    )
+    # `db_default` alongside `default` keeps the AddField non-blocking and the column populated for
+    # writers that don't know about it yet.
+    enrollment_origin = models.CharField(
+        max_length=20,
+        choices=EnrollmentOrigin.choices,
+        default=EnrollmentOrigin.USER,
+        db_default=EnrollmentOrigin.USER,
     )
     # Set only alongside `pending_pause` / `paused_by_system`; see `PauseReason`.
     pause_reason = models.CharField(
