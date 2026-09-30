@@ -189,7 +189,7 @@ class KafkaClientTestCase(TestCase):
         mock_producer_class.return_value = MagicMock()
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]
-        self.assertEqual(config["partitioner"], "murmur2_random")
+        assert config["partitioner"] == "murmur2_random"
 
     @override_settings(
         KAFKA_BASE64_KEYS=True,
