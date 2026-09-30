@@ -37,15 +37,19 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
+from products.experiments.backend.temporal.models import (
+    METRICS_RECALCULATION_WORKFLOW_NAME,
+    ExperimentMetricsRecalculationWorkflowInputs,
+)
 from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
 # (discovery retries + per-metric calc retries + progress activities) so a legitimately-slow run can finish
 # without being clobbered, but tight enough that an operator can recover within an hour if the workflow
-# never started (Temporal connect failure, transient infra issue, etc.). See the rollback in views.py for the
-# happy-path failure handling; this TTL is the defense-in-depth backstop if that rollback itself fails.
+# never started (Temporal connect failure, transient infra issue, etc.). See the rollback in
+# start_metrics_recalculation_workflow for the happy-path failure handling; this TTL is the defense-in-depth
+# backstop if that rollback itself fails.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
 # A daily timeseries point older than this no longer stands in for a recalculation on the cold-start read. The
@@ -60,7 +64,7 @@ _recalculation_reuse_counter = Counter(
 )
 # Fires whenever the 30-min staleness threshold marks a PENDING/IN_PROGRESS row FAILED so the experiment
 # can recalculate again. A sustained climb is a leading indicator of Temporal connect failures or the
-# rollback path in views.py itself failing.
+# rollback in start_metrics_recalculation_workflow itself failing.
 _recalculation_stale_cleanup_counter = Counter(
     "experiment_metrics_recalculation_stale_rows_cleaned",
     "Stale recalc rows force-failed to release the per-experiment uniqueness constraint.",
@@ -210,27 +214,53 @@ def build_job_payload(
     return payload
 
 
+def metrics_recalculation_workflow_id(recalculation_id: str) -> str:
+    """Temporal workflow id of a recalculation run. The start, the cancel and the admin's Temporal link all
+    find a running workflow by this id, so a format change orphans the workflows that are already running."""
+    return f"experiment-metrics-recalculation-{recalculation_id}"
+
+
 def cancel_recalculation_workflow(recalculation_id: str) -> None:
     """Best-effort cancel of a single recalc's Temporal workflow. Swallows failures (already-finished or
     never-started runs) so callers can pair it with a status write without the cancel masking that write."""
     _cancel_superseded_workflows([recalculation_id])
 
 
-def start_metrics_recalculation_workflow(recalculation_id: str, organization_id: str) -> None:
-    """Dispatch the recalculation Temporal workflow for an already-created pending row. Mirrors the API's
-    start path (task queue + org-scoped fairness key) so the admin and the viewset stay in step."""
-    temporal = sync_connect()
-    asyncio.run(
-        temporal.start_workflow(
-            "experiment-metrics-recalculation-workflow",
-            ExperimentMetricsRecalculationWorkflowInputs(
-                recalculation_id=recalculation_id,
-                fairness_key=organization_id,
-            ),
-            id=f"experiment-metrics-recalculation-{recalculation_id}",
-            task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int, organization_id: str) -> None:
+    """Dispatch the recalculation Temporal workflow for a row that request_recalculation just created.
+
+    Start every recalculation workflow through this function, so the workflow name and id, the task queue,
+    the org-scoped fairness key and the rollback stay in one place. If the start fails, the row is marked
+    FAILED when it is safe to do so, and the exception propagates to the caller.
+    """
+    try:
+        temporal = sync_connect()
+        asyncio.run(
+            temporal.start_workflow(
+                METRICS_RECALCULATION_WORKFLOW_NAME,
+                ExperimentMetricsRecalculationWorkflowInputs(
+                    recalculation_id=recalculation_id,
+                    fairness_key=organization_id,
+                ),
+                id=metrics_recalculation_workflow_id(recalculation_id),
+                task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+            )
         )
-    )
+    except Exception:
+        # team-scoped filter: defense in depth so the rollback can never reach across teams even if
+        # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
+        # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
+        # response leg), so only roll back a row that is still PENDING with no query_to. A row past
+        # mark_started belongs to its running workflow and proceeds untouched. In the narrow window
+        # where only discovery ran, the rollback wins deliberately: the mark_started and
+        # mark_completed guards then terminate that orphan cleanly, and the caller's retry (a new
+        # POST, or the admin action again) starts the replacement.
+        ExperimentMetricsRecalculation.objects.for_team(team_id).filter(
+            id=recalculation_id,
+            status=ExperimentMetricsRecalculation.Status.PENDING,
+            query_to__isnull=True,
+        ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
+        raise
 
 
 def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
@@ -242,7 +272,7 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
         return
     for recalculation_id in recalculation_ids:
         try:
-            handle = temporal.get_workflow_handle(f"experiment-metrics-recalculation-{recalculation_id}")
+            handle = temporal.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id))
             asyncio.run(handle.cancel())
         except Exception:
             # Expected for rows whose workflow never started (Temporal connect failure) or already finished.

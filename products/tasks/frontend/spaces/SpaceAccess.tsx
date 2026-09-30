@@ -26,7 +26,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { spaceSceneLogic } from './spaceSceneLogic'
 
 export function SpaceAccess({ id }: { id: string }): JSX.Element | null {
-    const { space, savingSpace, members, membersLoading } = useValues(spaceSceneLogic({ id }))
+    const { space, savingSpace, members, membersLoading, creatorId } = useValues(spaceSceneLogic({ id }))
     const { updateSpace, setMemberIds } = useActions(spaceSceneLogic({ id }))
     const { meFirstMembers } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
@@ -87,9 +87,22 @@ export function SpaceAccess({ id }: { id: string }): JSX.Element | null {
                                 <ComboboxValue>
                                     {(userIds: number[]) => (
                                         <>
-                                            {userIds.map((userId) => (
-                                                <ComboboxChip key={userId}>{names.get(userId) ?? ''}</ComboboxChip>
-                                            ))}
+                                            {userIds.map((userId) =>
+                                                userId === creatorId ? (
+                                                    <ComboboxChip
+                                                        key={userId}
+                                                        showRemove={false}
+                                                        title={`${names.get(userId) ?? ''} (creator)`}
+                                                    >
+                                                        <span>{names.get(userId) ?? ''}</span>{' '}
+                                                        <Text render={<span />} size="xs" variant="muted">
+                                                            Creator
+                                                        </Text>
+                                                    </ComboboxChip>
+                                                ) : (
+                                                    <ComboboxChip key={userId}>{names.get(userId) ?? ''}</ComboboxChip>
+                                                )
+                                            )}
                                             <ComboboxChipsInput placeholder="Add people" aria-label="Add people" />
                                         </>
                                     )}
@@ -99,14 +112,16 @@ export function SpaceAccess({ id }: { id: string }): JSX.Element | null {
                                 <ComboboxEmpty>No one matches that name.</ComboboxEmpty>
                                 <ComboboxList>
                                     {(userId: number) => (
-                                        <ComboboxItem key={userId} value={userId}>
+                                        <ComboboxItem key={userId} value={userId} disabled={userId === creatorId}>
                                             {names.get(userId)}
                                         </ComboboxItem>
                                     )}
                                 </ComboboxList>
                             </ComboboxContent>
                         </Combobox>
-                        <FieldDescription>Any member can add or remove people.</FieldDescription>
+                        <FieldDescription>
+                            Any member can add or remove people. The creator always stays a member.
+                        </FieldDescription>
                     </div>
                 ))}
         </div>
