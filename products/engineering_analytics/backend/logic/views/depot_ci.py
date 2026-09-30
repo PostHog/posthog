@@ -25,6 +25,7 @@ import re
 
 from posthog.dataclasses import frozen
 
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.views import workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
@@ -245,21 +246,23 @@ def _executed_attempts(depot: DepotJobAttempts, handoffs: str, pull_requests_tab
 def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
     # No hand-off job predates Depot's first hand-off, so the day before it floors the scan of the jobs table.
     return f"""
-        SELECT j.run_id FROM {jobs_table} AS j
+        SELECT j.run_id FROM (
+            SELECT run_id
+            FROM {jobs_table}
+            WHERE created_at >= (SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})
+            GROUP BY run_id
+            HAVING countIf(name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success') > 0
+                AND argMaxIf(ifNull(conclusion, ''), tuple(run_attempt, id), name = '{_GITHUB_RELAY_JOB}') = 'success'
+        ) AS j
         INNER JOIN ({workflow_runs.build_query(runs_table)}) AS r ON j.run_id = r.id
-        WHERE j.name = '{_GITHUB_HANDOFF_JOB}' AND j.conclusion = 'success'
-            AND r.status = 'completed' AND r.conclusion = 'success'
-            AND j.created_at >= (SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})
+        WHERE r.status = 'completed' AND r.conclusion = 'success'
+            -- A run can recover weeks after its failed attempt, so the failure check has no date floor.
+            AND j.run_id NOT IN (
+                SELECT run_id FROM {jobs_table} WHERE conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
+            )
             AND (r.head_sha, r.pr_number) IN (
                 SELECT head_sha, pr_number FROM {handoffs}
                 WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
-            )
-            AND j.run_id IN (
-                SELECT run_id FROM {jobs_table}
-                WHERE name = '{_GITHUB_RELAY_JOB}'
-                    AND created_at >= (SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})
-                GROUP BY run_id
-                HAVING argMax(ifNull(conclusion, ''), tuple(run_attempt, id)) = 'success'
             )
     """
 

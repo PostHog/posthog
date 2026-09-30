@@ -256,7 +256,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "2026-09-24 14:50:00",
                     "2026-09-24 15:05:00",
                     pr_number=pr_number,
-                    run_attempt=2 if run_id == 906 else 1,
+                    run_attempt=2 if run_id in (906, 908) else 1,
                 )
                 for run_id, sha, pr_number, conclusion in (
                     (901, "abc123", 101991, "success"),
@@ -266,6 +266,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     (905, "abc123", 101991, "failure"),
                     (906, "abc123", 101991, "failure"),
                     (907, "abc123", 101991, "success"),
+                    (908, "abc123", 101991, "success"),
                 )
             ],
         )
@@ -288,6 +289,17 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 _job_row(9072, 907, "Django Tests Pass", "success", head_sha="abc123"),
                 _job_row(9073, 907, "Django Tests Pass", "", head_sha="abc123", run_attempt=2)
                 | {"status": "in_progress", "conclusion": None},
+                _job_row(9081, 908, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(
+                    9082,
+                    908,
+                    "Django Tests Pass",
+                    "failure",
+                    head_sha="abc123",
+                    started="2026-09-01 14:00:00",
+                    completed="2026-09-01 14:02:00",
+                ),
+                _job_row(9083, 908, "Django Tests Pass", "success", head_sha="abc123", run_attempt=2),
             ],
         )
 
@@ -450,6 +462,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (905, "Backend CI", "failure", 101991, "main", 900, "PostHog", 1),
             (906, "Backend CI", "failure", 101991, "main", 900, "PostHog", 2),
             (907, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
+            (908, "Backend CI", "success", 101991, "main", 900, "PostHog", 2),
             (80213453736890, "Backend CI on Depot", "success", 101991, "feature/depot", 600, "PostHog", 2),
             (101808620689656, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 1),
             (223978965517241, "Monitor", "success", 0, None, 600, "PostHog", 1),
@@ -464,6 +477,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (905,),
             (906,),
             (907,),
+            (908,),
             (80213453736890,),
             (101808620689656,),
             (223978965517241,),
