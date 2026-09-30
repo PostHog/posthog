@@ -1753,6 +1753,14 @@ class TestExternalDataSchema(APIBaseTest):
                 time(3, 0),
             ),
             (
+                "a_time_without_an_interval_is_not_stored",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                None,
+                {"full_refresh_time_of_day": "03:00:00"},
+                200,
+                (None, None),
+            ),
+            (
                 "clearing_the_interval_clears_the_time",
                 ExternalDataSchema.SyncType.INCREMENTAL,
                 7,

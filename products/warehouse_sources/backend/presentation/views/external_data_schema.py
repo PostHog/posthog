@@ -1217,6 +1217,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # A time kept without an interval would apply silently to the next interval a caller sets.
         if full_refresh_interval_days is None:
             full_refresh_time_of_day = None
+            if "full_refresh_time_of_day" in validated_data:
+                validated_data["full_refresh_time_of_day"] = None
         if (
             full_refresh_interval_days != instance.full_refresh_interval_days
             or full_refresh_time_of_day != instance.full_refresh_time_of_day
