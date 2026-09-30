@@ -75,6 +75,11 @@ from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precomput
 BREAKDOWN_NULL_DISPLAY = "(none)"
 BREAKDOWN_REFERRER_PREFIX = "referrer:"
 
+# The two-phase channel query joins at session grain on the coordinating node, so that
+# node's memory grows with the sessions in the scanned span (current plus compare
+# period). Above this span the per-shard join spreads the memory better.
+CHANNEL_TYPE_TWO_PHASE_MAX_SPAN_DAYS = 62
+
 
 def _none_if_nan(value):
     """avgMergeIf returns NaN for empty windows; replace with None so the
@@ -398,7 +403,16 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return False
         if self.query.includeBounceRate or self.query.includeTrafficMetrics or self.query.conversionGoal:
             return False
+        if self._scanned_span_days() > CHANNEL_TYPE_TWO_PHASE_MAX_SPAN_DAYS:
+            return False
         return not self._expr_reads_session_fields(self.all_properties())
+
+    def _scanned_span_days(self) -> int:
+        date_from = self.query_date_range.date_from()
+        compare = self.query_compare_to_date_range
+        if compare is not None:
+            date_from = min(date_from, compare.date_from())
+        return (self.query_date_range.date_to() - date_from).days
 
     def _expr_reads_session_fields(self, expr: ast.Expr) -> bool:
         found = False

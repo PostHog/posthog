@@ -3051,14 +3051,34 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
                 "stats_table_channel_type",
             ),
             ("team_not_in_rollout", {}, False, "stats_table_channel_type"),
+            (
+                "thirty_days_with_compare",
+                {
+                    "dateRange": DateRange(date_from="2024-12-30", date_to="2025-01-29"),
+                    "compareFilter": CompareFilter(compare=True),
+                },
+                True,
+                "stats_table_channel_type_two_phase",
+            ),
+            (
+                "ninety_days",
+                {"dateRange": DateRange(date_from="2024-10-31", date_to="2025-01-29")},
+                True,
+                "stats_table_channel_type",
+            ),
         ]
     )
     def test_channel_type_two_phase_selection(self, _name, query_kwargs, allowlisted, expected_strategy):
         with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk] if allowlisted else []):
-            runner = self._make_runner(
-                breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
-                includeBounceRate=query_kwargs.pop("includeBounceRate", False),
-                **query_kwargs,
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=query_kwargs.pop("dateRange", DateRange(date_from="2025-01-08", date_to="2025-01-15")),
+                    breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                    includeBounceRate=query_kwargs.pop("includeBounceRate", False),
+                    properties=query_kwargs.pop("properties", []),
+                    **query_kwargs,
+                ),
             )
             assert runner.query_strategy() == expected_strategy
 
