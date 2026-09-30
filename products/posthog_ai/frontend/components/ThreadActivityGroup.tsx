@@ -8,7 +8,6 @@ import { QuillActivityGroup } from './quill/QuillActivityGroup'
 import { useQuillThread } from './quill/quillThreadContext'
 import { type ActivityGroupProps, useActivityGroup } from './useActivityGroup'
 
-/** One collapsible row for the tool calls and thoughts between two messages. */
 export function ThreadActivityGroup(props: ActivityGroupProps): JSX.Element {
     return useQuillThread() ? <QuillActivityGroup {...props} /> : <LemonThreadActivityGroup {...props} />
 }

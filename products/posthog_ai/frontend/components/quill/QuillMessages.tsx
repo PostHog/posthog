@@ -63,7 +63,6 @@ function ClampedContent({ children }: { children: ReactNode }): JSX.Element {
     )
 }
 
-/** End-aligned user bubble, with its time and a copy button revealed on hover. */
 export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { item: ThreadItem }): JSX.Element {
     const text = item.text ?? ''
     return (
@@ -98,7 +97,6 @@ export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { ite
     )
 })
 
-/** Start-aligned assistant prose: a ghost bubble, so the reply reads as the page, not a card. */
 export const QuillAssistantMessage = memo(function QuillAssistantMessage({ item }: { item: ThreadItem }): JSX.Element {
     return (
         <ChatMessage align="start">

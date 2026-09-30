@@ -18,7 +18,6 @@ const QUILL_THREAD_ROW_CLASS = cn(
 
 export interface ThreadMarkerProps {
     icon?: ReactNode
-    /** Shimmers the row. `spinner` also swaps the icon for a spinner. */
     running?: boolean
     spinner?: boolean
     failed?: boolean
@@ -29,7 +28,6 @@ export interface ThreadMarkerProps {
     children: ReactNode
 }
 
-/** One quill thread row: icon, a single line of content, and an optional collapsible body. */
 export function ThreadMarker({
     icon,
     running = false,

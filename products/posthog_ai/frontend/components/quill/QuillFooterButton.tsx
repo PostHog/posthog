@@ -17,7 +17,6 @@ export function QuillFooterButton({
     children,
 }: {
     label: string
-    /** Defaults to `label`; pass it when the tooltip has to say more than the button. */
     tooltip?: string
     onClick: () => void
     dataAttr?: string

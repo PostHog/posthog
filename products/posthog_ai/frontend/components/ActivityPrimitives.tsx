@@ -220,10 +220,6 @@ export function ActivityToggleSection({
     )
 }
 
-/**
- * One step the agent took: a header row, collapsible details, and always-visible children. Renders in the
- * skin of the thread it sits in.
- */
 export function Activity(props: ActivityProps): JSX.Element {
     return useQuillThread() ? <QuillActivity {...props} /> : <LemonActivity {...props} />
 }

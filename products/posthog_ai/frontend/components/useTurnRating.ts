@@ -7,10 +7,6 @@ import type { TurnRatingTarget } from './turnFeedbackTypes'
 
 export type TurnFeedbackInputStatus = 'hidden' | 'pending' | 'submitted'
 
-/**
- * Rating state for one completed turn: the stored rating, the thumbs-down free-text form, and the
- * `$ai_metric` / `$ai_feedback` captures. Every turn-feedback skin renders from this, so they share events.
- */
 export function useTurnRating({ sessionId, turnIndex, run, traceId }: TurnRatingTarget): {
     rating: MessageRatingOrNull
     submitRating: (rating: 'good' | 'bad') => void

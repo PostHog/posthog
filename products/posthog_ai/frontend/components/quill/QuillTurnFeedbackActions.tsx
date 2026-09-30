@@ -11,10 +11,6 @@ import { TurnRevealContext } from '../TurnRevealContext'
 import { useTurnRating } from '../useTurnRating'
 import { QuillCopyButton, QuillFooterButton } from './QuillFooterButton'
 
-/**
- * The footer under a completed turn: time, copy, and thumbs, revealed while the turn is hovered and
- * pinned once rated. A thumbs-down opens a one-line form for what went wrong.
- */
 export function QuillTurnFeedbackActions({
     sessionId,
     turnIndex,

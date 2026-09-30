@@ -18,7 +18,6 @@ export interface QuillRunAlertCardProps {
     copyDetails?: string
 }
 
-/** A stopped run, a crash, or an undelivered message: the reason, and the ids support needs. */
 export function QuillRunAlertCard({
     kind,
     id,

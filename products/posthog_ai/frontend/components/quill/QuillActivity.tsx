@@ -5,11 +5,6 @@ import type { ActivityProps } from '../activityTypes'
 import { useActivityDisclosure } from '../useActivityDisclosure'
 import { ThreadMarker } from './ThreadMarker'
 
-/**
- * `Activity` in the quill skin: the header becomes a `ChatMarker` row, substeps and details its
- * collapsible body, and `children` stay visible under the row. Open state follows `Activity`: it
- * auto-expands while running when `autoExpand` is set and collapses once the step settles.
- */
 export function QuillActivity({
     id,
     title,

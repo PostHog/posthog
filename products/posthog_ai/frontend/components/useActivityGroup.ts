@@ -50,15 +50,12 @@ export function useActivityGroup({
     cancelled,
     waitingForInput = false,
 }: ActivityGroupProps): {
-    /** The group's headline: "Working", "Worked", "Thought", "Stopped", "Waiting for you", … */
     label: string
-    /** What the agent does right now, for an active group: the running tool's title, else "Thinking…". */
     currentLabel: string
     calls: ToolInvocation[]
     thoughtsOnly: boolean
     expanded: boolean
     setExpanded: (expanded: boolean) => void
-    /** Groups over 10 rows show the first 2 and last 3; the middle opens on request. */
     window: ReturnType<typeof activityWindow<ThreadItem>>
     showMiddle: boolean
     toggleMiddle: () => void

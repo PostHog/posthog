@@ -6,11 +6,6 @@ import { ActivityGroupRows } from '../ActivityGroupRows'
 import { type ActivityGroupProps, useActivityGroup } from '../useActivityGroup'
 import { ThreadMarker } from './ThreadMarker'
 
-/**
- * The quill activity group, after PostHog Desktop's `ToolGroup`: one marker row for a stretch of work.
- * While live it names what happens now (the running tool, or "Thinking…"); once settled it says what the
- * run did. Opening it lists every step.
- */
 export function QuillActivityGroup(props: ActivityGroupProps): JSX.Element {
     const { group, toolInvocations, active, waitingForInput = false, renderItem } = props
     const {

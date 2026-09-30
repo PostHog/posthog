@@ -1,6 +1,5 @@
 import { createContext, useContext } from 'react'
 
-/** `quill` lays a thread out like PostHog Desktop's chat; `lemon` is the current web UI. */
 export type ThreadSkin = 'lemon' | 'quill'
 
 /**

@@ -5,7 +5,6 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { ThreadMarker } from './ThreadMarker'
 
-/** Post-turn marker for a coding run that opened a pull request. */
 export function QuillPullRequestRow({ prUrl, branch }: { prUrl: string; branch?: string }): JSX.Element {
     return (
         <div className="flex items-center gap-2" data-attr="max-sandbox-pr-card">

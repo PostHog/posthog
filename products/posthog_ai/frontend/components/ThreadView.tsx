@@ -83,7 +83,6 @@ interface ThreadViewProps {
     skin?: ThreadSkin
 }
 
-/** Quill threads breathe more between rows, matching PostHog Desktop. */
 const QUILL_ROW_GAP = 16
 
 /**
