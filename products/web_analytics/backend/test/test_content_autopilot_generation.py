@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.egress.firecrawl.client import FirecrawlSearch, FirecrawlSearchFailed, FirecrawlSearchResult
 
 from products.web_analytics.backend.content_autopilot.edits import PageEdit, apply_edits
+from products.web_analytics.backend.content_autopilot.generation import Draft, SiteContext, validate_draft
 from products.web_analytics.backend.content_autopilot.llm import ContentAutopilotLLMError, call_json
 from products.web_analytics.backend.content_autopilot.research import (
     ResearchBundle,
@@ -22,6 +23,8 @@ from products.web_analytics.backend.content_autopilot.research import (
     search_site_pages,
 )
 from products.web_analytics.backend.content_autopilot.validation import (
+    JudgeVerdict,
+    blocking_failures,
     check_competitor_overlap,
     check_internal_links,
     check_ledger_sources,
@@ -414,3 +417,48 @@ class TestValidationChecks(SimpleTestCase):
 
         assert [call.args[0] for call in fetch.call_args_list] == ["https://rival.example/pricing"]
         assert documents == [fetched]
+
+
+class TestValidateImprovement(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("edit_that_only_removes_a_section", GOOD_MARKDOWN.split("## Frequently asked questions")[0], True),
+            ("edit_that_changes_nothing", GOOD_MARKDOWN, False),
+        ]
+    )
+    def test_an_improvement_must_change_the_page(self, _name: str, edited: str, changed: bool) -> None:
+        draft = Draft(
+            title="t",
+            description="d",
+            url_path="/docs/session-replay",
+            markdown=edited,
+            new_markdown="",
+            edits=(),
+            unplaced_edits=(),
+            json_ld="",
+            llms_txt_line="",
+            source_ledger=(),
+            competitor_ledger=(),
+        )
+        verdict = JudgeVerdict(
+            unsupported_claims=(), answers_prompt=True, answers_prompt_reason="", brand_rule_violations=()
+        )
+
+        with patch("products.web_analytics.backend.content_autopilot.generation.judge_draft", return_value=verdict):
+            checks = validate_draft(
+                None,  # type: ignore[arg-type]
+                team_id=1,
+                site=SiteContext(
+                    name="Example",
+                    origin="https://example.com",
+                    brand_rules=(),
+                    site_urls=tuple(SITE_PAGES),
+                    key_pages=(),
+                ),
+                research=ResearchBundle(prompt="p", target_url="", documents=(), link_candidates=(), skipped=()),
+                draft=draft,
+                proposal_type="page_improvement",
+                original_markdown=GOOD_MARKDOWN,
+            )
+
+        assert ("changes" not in {check.check_key for check in blocking_failures(checks)}) is changed

@@ -401,6 +401,12 @@ def judge_draft(
     )
 
 
+def _same_page(first: str, second: str) -> bool:
+    return [line.rstrip() for line in first.strip().splitlines()] == [
+        line.rstrip() for line in second.strip().splitlines()
+    ]
+
+
 def validate_draft(
     client: Anthropic,
     *,
@@ -424,7 +430,7 @@ def validate_draft(
         ),
         check_ledger_sources(list(draft.source_ledger), research, competitor_ledger=draft.competitor_ledger),
     ]
-    if improving and not draft.new_markdown.strip():
+    if improving and _same_page(draft.markdown, original_markdown):
         checks.append(
             ValidationCheck(
                 check_key="changes",
