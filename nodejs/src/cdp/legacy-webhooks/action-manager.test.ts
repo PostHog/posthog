@@ -119,6 +119,51 @@ describe('ActionManager', () => {
         expect(Object.values(droppedAction!).length).toEqual(0)
     })
 
+    it('loads actions with a REST hook and skips actions with neither slack nor a hook', async () => {
+        const baseAction = {
+            team_id: teamId,
+            description: '',
+            created_at: new Date().toISOString(),
+            created_by_id: userId,
+            deleted: false,
+            post_to_slack: false,
+            slack_message_format: '',
+            is_calculating: false,
+            updated_at: new Date().toISOString(),
+            last_calculated_at: new Date().toISOString(),
+            steps_json: [],
+        }
+        const hookActionId = actionId + 1_000_000
+        const plainActionId = actionId + 2_000_000
+        await insertRow(hub.postgres, 'posthog_action', { ...baseAction, id: hookActionId, name: 'Hook' } as RawAction)
+        await insertRow(hub.postgres, 'posthog_action', {
+            ...baseAction,
+            id: plainActionId,
+            name: 'Plain',
+        } as RawAction)
+        await insertRow(hub.postgres, 'ee_hook', {
+            id: `hook-${hookActionId}`,
+            event: 'action_performed',
+            resource_id: hookActionId,
+            target: 'https://example.com/hook',
+            created: new Date().toISOString(),
+            updated: new Date().toISOString(),
+            team_id: teamId,
+            user_id: userId,
+        })
+
+        await actionManager.reloadAllActions()
+
+        const actions = actionManager.getTeamActions(teamId)
+        expect(
+            Object.keys(actions)
+                .map(Number)
+                .sort((a, b) => a - b)
+        ).toEqual([actionId, hookActionId])
+        expect(actions[hookActionId].hooks).toMatchObject([{ id: `hook-${hookActionId}`, resource_id: hookActionId }])
+        expect(actions[actionId].hooks).toEqual([])
+    })
+
     it('returns the correct actions when deleted = TRUE', async () => {
         const action = actionManager.getTeamActions(teamId)
 
