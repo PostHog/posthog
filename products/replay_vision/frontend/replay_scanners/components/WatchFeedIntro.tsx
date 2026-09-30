@@ -61,11 +61,11 @@ export function WatchFeedIntro(): JSX.Element {
                 </div>
             </div>
 
-            <div className="flex flex-col gap-2">
+            <div className="relative flex flex-col gap-2">
                 <p className="text-xs text-secondary m-0">Examples, not your data</p>
                 {EXAMPLE_CLIPS.map((clip) => (
-                    <div key={clip.scannerName} className="flex gap-3 items-start border rounded p-3 opacity-60">
-                        <div className="flex-none w-32 h-20 rounded bg-surface-secondary flex items-center justify-center text-secondary">
+                    <div key={clip.scannerName} className="flex gap-4 items-start border rounded bg-bg-light p-4">
+                        <div className="flex-none w-40 h-24 rounded bg-surface-secondary flex items-center justify-center text-secondary">
                             <IconPlayFilled className="text-xl" />
                         </div>
                         <div className="min-w-0 flex flex-col gap-1">
@@ -79,6 +79,13 @@ export function WatchFeedIntro(): JSX.Element {
                         </div>
                     </div>
                 ))}
+                {/* The examples stand in for a feed the reader does not have, so the column fades into
+                    the page instead of ending on a hard edge, which would read as a real feed cut
+                    short. The stop is the scene background token, so the fade lands in both themes. */}
+                <div
+                    aria-hidden
+                    className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent from-30% to-[var(--color-bg-primary)]"
+                />
             </div>
         </div>
     )
