@@ -334,7 +334,10 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
             sessionIds: string[],
             change: TodaySessionChange,
             request: (sessionId: string) => Promise<unknown>
-        ): Promise<string[]> => {
+        ): Promise<void> => {
+            if (!sessionIds.length) {
+                return
+            }
             const outcomes = await Promise.allSettled(sessionIds.map(request))
             const updatedIds = sessionIds.filter((_, index) => outcomes[index].status === 'fulfilled')
             const failedIds = sessionIds.filter((_, index) => outcomes[index].status === 'rejected')
@@ -354,7 +357,6 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
             } else if (change !== 'restored') {
                 toast.success({ title: summary, action: undo })
             }
-            return updatedIds
         }
 
         return {
@@ -419,25 +421,19 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
                 captureSessionChange('moved', false, done ? 1 : 0, done ? 0 : 1)
             },
             bulkSetSessionsPinned: async ({ sessionIds, pinned }) => {
-                if (sessionIds.length) {
-                    await updateEach(sessionIds, pinned ? 'pinned' : 'unpinned', (sessionId) =>
-                        tasksPinCreate(String(values.currentTeamId), sessionId, { pinned })
-                    )
-                }
+                await updateEach(sessionIds, pinned ? 'pinned' : 'unpinned', (sessionId) =>
+                    tasksPinCreate(String(values.currentTeamId), sessionId, { pinned })
+                )
             },
             bulkMoveSessions: async ({ sessionIds, spaceId }) => {
-                if (sessionIds.length) {
-                    await updateEach(sessionIds, 'moved', (sessionId) =>
-                        tasksPartialUpdate(String(values.currentTeamId), sessionId, { channel: spaceId })
-                    )
-                }
+                await updateEach(sessionIds, 'moved', (sessionId) =>
+                    tasksPartialUpdate(String(values.currentTeamId), sessionId, { channel: spaceId })
+                )
             },
             bulkArchiveSessions: async ({ sessionIds, archived }) => {
-                if (sessionIds.length) {
-                    await updateEach(sessionIds, archived ? 'archived' : 'restored', (sessionId) =>
-                        tasksPartialUpdate(String(values.currentTeamId), sessionId, { archived })
-                    )
-                }
+                await updateEach(sessionIds, archived ? 'archived' : 'restored', (sessionId) =>
+                    tasksPartialUpdate(String(values.currentTeamId), sessionId, { archived })
+                )
             },
             bulkSessionsSettled: ({ updatedIds }) => {
                 if (updatedIds.length) {
