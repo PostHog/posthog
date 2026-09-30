@@ -61,7 +61,6 @@ def send_quarantine_notice(entry_id: UUID, team_id: int) -> bool:
         .filter(id=entry_id, team_id=team_id)
         .first()
     )
-    # Lifted or run out before the task ran, so there is nothing left to check.
     if entry is None or (entry.expires_at is not None and entry.expires_at <= timezone.now()):
         logger.info("visual_review.quarantine_notice_inactive", entry_id=str(entry_id), team_id=team_id)
         return False
