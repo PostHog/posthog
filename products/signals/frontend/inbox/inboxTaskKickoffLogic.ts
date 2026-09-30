@@ -241,7 +241,7 @@ function handleKickoffError(
 // comes back as a 400 on a field the reader never sees named.
 export const REPORT_DISCUSSION_QUESTION_MAX_LENGTH = 4000
 
-async function cancelWarmRun(projectId: string, lease: ReportWarmLease): Promise<void> {
+export async function cancelWarmRun(projectId: string, lease: ReportWarmLease): Promise<void> {
     try {
         await tasksRunsCancelCreate(projectId, lease.taskId, lease.runId, { only_if_awaiting_first_message: true })
     } catch (error) {

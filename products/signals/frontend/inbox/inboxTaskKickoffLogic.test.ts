@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -25,6 +27,7 @@ import {
     REPORT_AI_PANEL_ID,
     buildCreatePrReportPrompt,
     buildDiscussReportPrompt,
+    cancelWarmRun,
     inboxTaskKickoffLogic,
 } from './inboxTaskKickoffLogic'
 import { SignalReportStatus } from './types'
@@ -369,19 +372,19 @@ describe('inboxTaskKickoffLogic', () => {
             [500, true],
         ])('reports a %s from the warm release only when it is unexpected', async (status, reported) => {
             const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
-            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
             cancelStatus = status
-            await expectLogic(logic, () =>
-                logic.actions.openReportDiscussion(report, 'https://example.com/report')
-            ).toFinishAllListeners()
+            try {
+                await cancelWarmRun(String(MOCK_TEAM_ID), {
+                    reportId: report.id,
+                    taskId: 'warm-task',
+                    runId: 'warm-run',
+                })
 
-            await expectLogic(logic, () => sidePanelStateLogic.actions.closeSidePanel()).toFinishAllListeners()
-
-            await waitFor(() => expect(cancelledRuns).toHaveLength(1))
-            // Lets the unawaited cancel settle before the assertion.
-            await new Promise((resolve) => setTimeout(resolve, 50))
-            expect(captureException).toHaveBeenCalledTimes(reported ? 1 : 0)
-            captureException.mockRestore()
+                expect(cancelledRuns).toHaveLength(1)
+                expect(captureException).toHaveBeenCalledTimes(reported ? 1 : 0)
+            } finally {
+                captureException.mockRestore()
+            }
         })
 
         it('warms one report at a time and hands the slot to the newest report', async () => {
