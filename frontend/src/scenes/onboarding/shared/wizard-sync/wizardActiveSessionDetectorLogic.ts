@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, isScopeNotFoundError, shouldReportApiFailure } from 'lib/api-error'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
@@ -369,26 +369,30 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             }
 
             // 401/403 are structural access denials: the user can't or shouldn't talk to this
-            // endpoint. Stop polling permanently rather than burning load on a URL we know is wrong
-            // — but only when every program agrees, so one program's denial can't silence a healthy
-            // one. A 404 is deliberately excluded: during a rolling deploy the /latest/ route is
-            // absent on old pods, so a transient 404 falls through to the retry path and self-heals.
+            // endpoint. A "Project not found." 404 is one too: the project was deleted or the user
+            // lost access to it. Stop polling permanently rather than burning load on a URL we know
+            // is wrong — but only when every program agrees, so one program's denial can't silence
+            // a healthy one. A plain route 404 is deliberately excluded: during a rolling deploy the
+            // /latest/ route is absent on old pods, so it falls through to the retry path and self-heals.
             const denials = errors.filter(
-                (err) => err instanceof ApiError && (err.status === 401 || err.status === 403)
+                (err) =>
+                    err instanceof ApiError && (err.status === 401 || err.status === 403 || isScopeNotFoundError(err))
             )
             if (denials.length > 0 && denials.length === results.length) {
                 const denial = denials[0] as ApiError
-                posthog.captureException(denial, {
-                    tags: { feature: 'wizard-active-session-detector', reason: 'permanently_disabled' },
-                    extra: { status: denial.status },
-                })
+                if (shouldReportApiFailure(denial)) {
+                    posthog.captureException(denial, {
+                        tags: { feature: 'wizard-active-session-detector', reason: 'permanently_disabled' },
+                        extra: { status: denial.status },
+                    })
+                }
                 actions.setLastError(`wizard latest-session endpoint returned ${denial.status} — disabling detector`)
                 actions.markPermanentlyDisabled()
                 cache.disposables.dispose('rest-poll')
                 return
             }
 
-            for (const err of errors) {
+            for (const err of errors.filter(shouldReportApiFailure)) {
                 // Transient REST failure (including a deploy-window 404) — surface it via
                 // lastError + Sentry. The next poll retries.
                 posthog.captureException(err, {
