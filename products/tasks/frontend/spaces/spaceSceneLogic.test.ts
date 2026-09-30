@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
@@ -16,7 +17,13 @@ describe('spaceSceneLogic', () => {
                 '/api/projects/:team_id/task_channels/': [],
                 '/api/projects/:team_id/task_channels/:id/': ({ params }) => [
                     200,
-                    { id: params.id, name: String(params.id), system_role: null },
+                    {
+                        id: params.id,
+                        name: String(params.id),
+                        system_role: null,
+                        github_integration: params.id === 'space-a' ? 3 : null,
+                        repositories: params.id === 'space-a' ? ['acme/api', 'acme/web'] : [],
+                    },
                 ],
                 '/api/projects/:team_id/task_channels/:id/members/': [
                     { id: 7, uuid: 'user-7', first_name: 'Ada', email: 'ada@example.com' },
@@ -82,6 +89,29 @@ describe('spaceSceneLogic', () => {
 
         expect(logic.values.spaceMissing).toBe(missing)
         expect(logic.values.spaceUnavailable).toBe(true)
+    })
+
+    it.each([
+        ['space-a', { integrationId: 3, repository: 'acme/api' }],
+        ['space-b', undefined],
+    ])('starts the new-session composer of %s on its first repository', async (id, expected) => {
+        const logic = spaceSceneLogic({ id })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.composerRepositoryConfig).toEqual(expected)
+    })
+
+    it('opens a started session and lists it in the feed', async () => {
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.sessionStarted('task-new')
+        await expectLogic(logic).toDispatchActions(['loadSessions', 'loadSessionsSuccess'])
+
+        expect(router.values.location.pathname).toMatch(/\/ai$/)
+        expect(router.values.searchParams).toEqual({ task: 'task-new' })
     })
 
     it('loads the members once the space turns private', async () => {
