@@ -177,8 +177,8 @@ WHERE report_id IS NOT NULL AND report_id != ''
 # lineage records which version each row actually carries.
 #
 # Index reality: the sharded table orders by (team_id, toDate(timestamp), product, document_type,
-# rendering, ...) and this cross-team query has no team_id prefix, so it scans the whole table.
-# That is acceptable because the 3-month TTL bounds the table and PREWHERE filters the small
+# rendering, ...) and this cross-team query has only the consenting teams' IN list on that prefix,
+# which covers most inbox teams, so it still scans nearly the whole table. That is acceptable because the 3-month TTL bounds the table and PREWHERE filters the small
 # string columns before the wide embedding column is read; the settings below cap the blast
 # radius and keep the distributed GROUP BY (1536-float argMax states) memory-efficient.
 REPORT_EMBEDDINGS_QUERY_SETTINGS: dict[str, int] = {
@@ -199,6 +199,7 @@ FROM {EMBEDDINGS_TABLE}
 WHERE product = %(product)s
   AND document_type = %(document_type)s
   AND rendering = %(rendering)s
+  AND team_id IN %(team_ids)s
   AND inserted_at < %(snapshot_end)s
 GROUP BY team_id, document_id
 """
@@ -259,6 +260,7 @@ FROM {EMBEDDINGS_TABLE}
 WHERE product = %(product)s
   AND document_type = %(document_type)s
   AND rendering = %(rendering)s
+  AND team_id IN %(team_ids)s
   AND inserted_at >= %(window_start)s
   AND inserted_at < %(window_end)s
 """

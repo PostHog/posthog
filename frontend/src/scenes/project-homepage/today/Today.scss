@@ -71,11 +71,13 @@
     animation: Today__page-in 0.18s ease-out both;
 }
 
-// Zero-specificity resets, so component classes below and shared buttons keep their own styles.
-:where(.Today) button {
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
+// In the base layer, so layered component styles (quill) win over it; an unlayered rule beats any layer.
+@layer base {
+    :where(.Today) button {
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+    }
 }
 
 :where(.Today) :focus-visible {
@@ -89,62 +91,6 @@
 }
 
 // Sidebar
-
-.TodaySidebar {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-    padding: 18px 12px 0;
-}
-
-.TodaySidebar__new {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    padding: 11px 14px;
-    margin-top: 2px;
-    font-size: 13px;
-    font-weight: 550;
-    color: var(--today-button-text);
-    background: var(--today-button);
-    border: 1px solid var(--today-button);
-    border-radius: 9px;
-    transition:
-        background 0.16s,
-        transform 0.1s;
-
-    &:active {
-        transform: translateY(1px);
-    }
-
-    svg {
-        width: 15px;
-        height: 15px;
-    }
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            background: var(--today-button-hover);
-        }
-    }
-}
-
-.TodaySidebar__scroll {
-    flex: 1 1 auto;
-    min-height: 0;
-    padding: 0 4px 24px;
-    overflow-y: auto;
-    scrollbar-color: var(--today-input-border) transparent;
-    scrollbar-width: thin;
-}
-
-.TodaySidebar__sectionLabel {
-    margin: 42px 11px 14px;
-    letter-spacing: 0.08em;
-}
 
 .TodaySidebar__more {
     display: block;
@@ -566,16 +512,6 @@
         height: 17px;
         transform: rotate(-90deg);
     }
-}
-
-.TodayAsk__sent {
-    margin: 12px 2px 0;
-    overflow: hidden;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--today-faint);
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 // Report page

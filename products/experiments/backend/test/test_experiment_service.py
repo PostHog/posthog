@@ -701,6 +701,20 @@ class TestExperimentService(APIBaseTest):
 
         assert "baseline variant cannot be excluded" in str(ctx.exception)
 
+    def test_existing_flag_in_another_config_format_raises(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="other-format",
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().create_experiment(name="Other format", feature_flag_key="other-format")
+
+        assert "configuration format that an experiment cannot use yet" in str(ctx.exception)
+        assert not Experiment.objects.filter(team=self.team, name="Other format").exists()
+
     def test_existing_flag_with_one_variant_raises(self):
         self._create_flag(
             key="one-variant",
@@ -744,6 +758,21 @@ class TestExperimentService(APIBaseTest):
             ("non_object", [[1]], "Saved metric must be an object"),
             ("metadata_not_object", [{"id": 1, "metadata": "primary"}], "Metadata must be an object"),
             ("metadata_missing_type", [{"id": 1, "metadata": {"xxx": "primary"}}], "Metadata must have a type key"),
+            (
+                "breakdown_limit_not_a_number",
+                [{"id": 1, "metadata": {"type": "primary", "breakdown_limit": "abc"}}],
+                "Invalid saved metric metadata at index 0: [{'loc': ('breakdown_limit',)",
+            ),
+            (
+                "unknown_attribution_type",
+                [{"id": 1, "metadata": {"type": "primary", "breakdownAttributionType": "bogus"}}],
+                "Invalid saved metric metadata at index 0: [{",
+            ),
+            (
+                "breakdown_without_property",
+                [{"id": 1, "metadata": {"type": "primary", "breakdowns": [{"type": "event"}]}}],
+                "Invalid saved metric metadata at index 0: [{'loc': ('breakdowns', 0, 'property')",
+            ),
         ]
     )
     def test_create_experiment_validates_saved_metrics_payload(
@@ -2631,6 +2660,23 @@ class TestExperimentService(APIBaseTest):
         assert dup.feature_flag.key == "dup-custom-target"
         flag_variants = dup.feature_flag.filters["multivariate"]["variants"]
         assert len(flag_variants) == 3
+
+    def test_duplicate_experiment_onto_a_flag_in_another_config_format_raises(self):
+        self._create_flag(key="dup-source")
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dup-other-format",
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+        service = self._service()
+        source = service.create_experiment(name="Source", feature_flag_key="dup-source")
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.duplicate_experiment(source, feature_flag_key="dup-other-format")
+
+        assert "configuration format that an experiment cannot use yet" in str(ctx.exception)
+        assert Experiment.objects.filter(team=self.team).count() == 1
 
     def test_duplicate_experiment_uses_flag_variants_over_stale_parameters(self):
         self._create_flag(key="dup-stale-source")

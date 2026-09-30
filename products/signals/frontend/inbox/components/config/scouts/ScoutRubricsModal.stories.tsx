@@ -39,6 +39,7 @@ const DOCUMENT: ScoutRubricDocumentApi = {
 const GENERATION: NonNullable<ScoutRubricDocumentApi['generation']> = {
     id: 'example-generation',
     status: 'completed',
+    context: '',
     requested_at: '2026-09-01T10:00:00Z',
     completed_at: '2026-09-01T10:02:00Z',
     task_id: 'example-task',
@@ -68,13 +69,36 @@ const GENERATION: NonNullable<ScoutRubricDocumentApi['generation']> = {
     ],
 }
 
+const SAVED_DOCUMENT: ScoutRubricDocumentApi = {
+    ...DOCUMENT,
+    revision: 3,
+    criteria: [
+        {
+            id: 'custom-segment',
+            title: 'Check which users are affected before describing a change across the whole product',
+            description:
+                'Look at the relevant segments and explain whether the change affects everyone or a smaller group.',
+            pass_condition:
+                'The report names the affected segment, gives its activity counts, and distinguishes its change from the overall trend.',
+            applicability: 'Runs that find a change concentrated in one segment.',
+            enabled: true,
+            source: 'custom',
+        },
+        ...DOCUMENT.criteria,
+    ],
+}
+
 const RUBRICS_URL = '/api/projects/:team_id/signals/scout/rubrics/:config_id/'
 
 const meta: Meta<typeof ScoutRubricsModal> = {
     title: 'Scenes-App/Inbox/ScoutRubrics',
     component: ScoutRubricsModal,
     args: { teamId: 2, configId: DOCUMENT.config_id, scoutName: 'Activity change scout', onClose: () => {} },
-    parameters: { layout: 'fullscreen', testOptions: { waitForLoadersToDisappear: false } },
+    parameters: {
+        layout: 'fullscreen',
+        mockDate: '2026-09-01T10:01:24Z',
+        testOptions: { waitForLoadersToDisappear: false },
+    },
     decorators: [
         mswDecorator({
             get: { [RUBRICS_URL]: () => [200, DOCUMENT] },
@@ -96,8 +120,36 @@ type Story = StoryObj<typeof ScoutRubricsModal>
 
 export const SharedDefaults: Story = {}
 
+export const WithFocus: Story = {
+    play: async ({ canvasElement }) => {
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Additional focus'))
+        await userEvent.type(
+            await modal.findByLabelText('What should suggestions pay extra attention to?'),
+            'Please emphasize whether comparisons use consistent filters and enough data.'
+        )
+    },
+}
+
 export const SuggestionsReady: Story = {
-    decorators: [mswDecorator({ get: { [RUBRICS_URL]: () => [200, { ...DOCUMENT, generation: GENERATION }] } })],
+    decorators: [mswDecorator({ get: { [RUBRICS_URL]: () => [200, { ...SAVED_DOCUMENT, generation: GENERATION }] } })],
+}
+
+export const SuggestionsSelected: Story = {
+    ...SuggestionsReady,
+    play: async ({ canvasElement }) => {
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Select all'))
+    },
+}
+
+export const EditingSuggestion: Story = {
+    ...SuggestionsReady,
+    play: async ({ canvasElement }) => {
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByLabelText('Edit Compare equivalent time windows'))
+        await userEvent.type(await modal.findByLabelText('Description'), ' Include the same weekdays in each period.')
+    },
 }
 
 export const DetailsExpanded: Story = {
@@ -116,7 +168,7 @@ export const Generating: Story = {
                 [RUBRICS_URL]: () => [
                     200,
                     {
-                        ...DOCUMENT,
+                        ...SAVED_DOCUMENT,
                         generation: { ...GENERATION, status: 'running', suggestions: [], completed_at: null },
                     },
                 ],

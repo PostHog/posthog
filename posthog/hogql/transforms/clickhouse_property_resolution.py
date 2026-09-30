@@ -52,6 +52,9 @@ from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.events_json import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
+    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX,
+    TEMPORARY_EVENT_PROPERTY_ROOTS,
     TEMPORARY_PROPERTIES_COLUMN,
     is_temporary_event_property,
 )
@@ -142,6 +145,12 @@ def resolve_materialized_property_source(
 
     if json_source := resolve_json_subcolumn_source(field_type, table_name, field_name, property_name, context):
         return json_source
+
+    # The registries below list columns of the legacy events table. The native table has no materialized, dmat or
+    # property-group columns, so the reads that reach this point on it (`groupN_properties` keys, and paths that
+    # overlap a restriction) stay JSON reads.
+    if context.uses_new_events_schema() and table_name in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
+        return None
 
     if context.modifiers.materializationMode == "disabled":
         return None
@@ -417,112 +426,62 @@ def _json_subcolumn_access(
     return value
 
 
-def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
-    # Inspect the per-row variant only to choose its string format. Every branch casts the
-    # whole Dynamic value, so mixed numeric variants are never filtered by a typed projection.
-    dynamic_type = ast.Call(
-        name="dynamicType",
-        args=[ast.Call(name="accurateCast", args=[clone_expr(value), _sentinel("Dynamic")])],
-        type=ast.StringType(nullable=False),
-    )
-    # ClickHouse infers DateTime for ISO strings at ingest, and toString renders it as a wall clock in the
-    # session timezone with no zone marker. Take the wall clock from a UTC-typed cast instead, keep the
-    # fractional digits of the plain rendering (they don't depend on the zone), and mark the text 'Z'.
-    utc_wall_clock = ast.Call(
-        name="substring",
-        args=[
-            ast.Call(
-                name="toString",
-                args=[
-                    ast.Call(
-                        name="accurateCastOrNull",
-                        args=[clone_expr(value), _sentinel("DateTime64(9, 'UTC')")],
-                    )
-                ],
-                type=ast.StringType(nullable=True),
-            ),
-            ast.Constant(value=1),
-            ast.Constant(value=19),
-        ],
-        type=ast.StringType(nullable=True),
-    )
-    fractional_seconds = ast.Call(
-        name="substring",
-        args=[
-            ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-            ast.Constant(value=20),
-            ast.Constant(value=10),  # '.' plus at most nine digits
-        ],
-        type=ast.StringType(nullable=False),
-    )
-    datetime_string = ast.Call(
-        name="concat",
-        args=[
-            ast.Call(
-                name="replaceOne",
-                args=[utc_wall_clock, _sentinel(" "), _sentinel("T")],
-                type=ast.StringType(nullable=True),
-            ),
-            fractional_seconds,
-            _sentinel("Z"),
-        ],
-        type=ast.StringType(nullable=False),
-    )
-    datetime_expr: ast.Expr
-    if as_json:
-        datetime_expr = ast.Call(
-            name="concat",
-            args=[_sentinel('"'), datetime_string, _sentinel('"')],
-            type=ast.StringType(nullable=False),
-        )
-    else:
-        datetime_expr = datetime_string
+def _is_declared_array_path(
+    field_type: ast.FieldType, keys: Sequence[str | int], source: MaterializedPropertySource
+) -> bool:
+    """Whether the native events table declares an array type for the path, so that every row holds an array there."""
+    if source.json_column is not None or field_type.name != "properties":
+        return False
+    table_type: ast.Type | None = field_type.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    if not isinstance(table_type, ast.TableType):
+        return False
+    declared_type = EVENTS_PROPERTIES_JSON_SUBCOLUMNS.get(".".join(str(key) for key in keys), "")
+    return declared_type.startswith("Array(")
 
-    json_value = ast.Call(
-        name="toJSONString",
-        args=[clone_expr(value)],
-        type=ast.StringType(nullable=False),
-    )
+
+def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
     json_value = ast.Call(
         name="nullIf",
-        args=[ast.Call(name="nullIf", args=[json_value, _sentinel("[]")]), _sentinel("{}")],
+        args=[
+            ast.Call(
+                name="nullIf",
+                args=[
+                    ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
+                    _sentinel("[]"),
+                ],
+            ),
+            _sentinel("{}"),
+        ],
         type=ast.StringType(nullable=True),
     )
-    scalar_expr: ast.Expr = json_value
-    if not as_json:
-        scalar_expr = ast.Call(
-            name="if",
+    if as_json:
+        return json_value
+
+    # Arrays and maps read as JSON text, like the raw property blob. Their plain text starts with '[' or '{',
+    # which a string can too, but a string's JSON form starts with '"'. toJSONString runs only for those rows.
+    # Compared by character code so no brace literal reaches callers that str.format the printed SQL.
+    def starts_with_container(expr: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="in",
             args=[
-                ast.Or(
-                    exprs=[
-                        ast.Call(
-                            name="startsWith",
-                            args=[clone_expr(dynamic_type), _sentinel(family)],
-                            type=ast.BooleanType(nullable=False),
-                        )
-                        for family in ("Array", "Map", "Tuple")
-                    ]
-                ),
-                json_value,
-                ast.Call(
-                    name="toString",
-                    args=[clone_expr(value)],
-                    type=ast.StringType(nullable=False),
-                ),
+                ast.Call(name="ascii", args=[expr]),
+                ast.Tuple(exprs=[ast.Constant(value=ord("[")), ast.Constant(value=ord("{"))]),
             ],
-            type=ast.StringType(nullable=False),
+            type=ast.BooleanType(nullable=False),
         )
 
+    plain = ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
+    json_text = ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
     return ast.Call(
         name="if",
         args=[
-            ast.Call(
-                name="startsWith", args=[dynamic_type, _sentinel("DateTime")], type=ast.BooleanType(nullable=False)
-            ),
-            datetime_expr,
-            scalar_expr,
+            ast.And(exprs=[starts_with_container(clone_expr(plain)), starts_with_container(json_text)]),
+            json_value,
+            plain,
         ],
-        type=ast.StringType(nullable=False),
+        type=ast.StringType(nullable=True),
     )
 
 
@@ -554,6 +513,16 @@ def _json_subcolumn_value_expr(
     source: MaterializedPropertySource,
     as_json: bool = False,
 ) -> ast.Expr:
+    index_position = next((position for position, key in enumerate(keys) if isinstance(key, int)), None)
+    if index_position is not None and not _is_declared_array_path(field_type, keys[:index_position], source):
+        # ClickHouse runs arrayElement on every type a Dynamic path holds in the block, so one row with a string or
+        # a number at the path fails the whole query. Index the JSON text of the value instead, as the legacy table
+        # indexes the raw document, so that such a row reads NULL.
+        document = _json_subcolumn_value_expr(
+            field_type, cast(Sequence[str], keys[:index_position]), source=source, as_json=True
+        )
+        return ast.PropertyAccess(expr=document, keys=list(keys[index_position:]), type=ast.StringType(nullable=True))
+
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
     scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
     scalar_or_null = ast.Call(
@@ -570,7 +539,7 @@ def _json_subcolumn_value_expr(
         ],
         type=ast.StringType(nullable=True),
     )
-    if any(isinstance(key, int) for key in keys):
+    if index_position is not None:
         return scalar_or_null
     object_value = _dynamic_json_object_string_expr(field_type, list(cast(Sequence[str], keys)), source=source)
     return ast.Call(
@@ -661,6 +630,54 @@ _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS = frozenset(
         "JSONType",
     }
 )
+
+_JSON_KEY_PATH_FUNCTIONS = _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS | {
+    "JSONExtract",
+    "JSONExtractBool",
+    "JSONExtractFloat",
+    "JSONExtractInt",
+    "JSONExtractRaw",
+    "JSONExtractString",
+    "JSONExtractUInt",
+    "JSONHas",
+}
+
+
+def _names_temporary_event_property(key: ast.Expr) -> ast.Expr:
+    """The SQL form of `is_temporary_event_property`, for a key that is computed per row."""
+    name = _call("toString", [key])
+    return _call(
+        "or",
+        [
+            _call("has", [ast.Array(exprs=[_const(root) for root in sorted(TEMPORARY_EVENT_PROPERTY_ROOTS)]), name]),
+            _call("startsWith", [clone_expr(name), _const(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)]),
+        ],
+    )
+
+
+RUNTIME_FEATURE_FLAG_KEY_ERROR = (
+    "A feature flag property can't be read through a key computed per row. "
+    "Use a constant key instead, for example properties.`$feature/my-flag`."
+)
+
+
+def _names_feature_flag_property(key: ast.Expr) -> ast.Expr:
+    """Whether a key that is computed per row names `$feature/<key>` or `$active_feature_flags`."""
+    name = _call("toString", [key])
+    return _call(
+        "ifNull",
+        [
+            _call(
+                "or",
+                [
+                    _call("startsWith", [name, _const(FEATURE_FLAG_PROPERTY_PREFIX)]),
+                    _call("equals", [clone_expr(name), _const("$active_feature_flags")]),
+                ],
+            ),
+            _const(0),
+        ],
+    )
+
 
 _JSON_PATH_FIRST_MEMBER = re.compile(
     r"""^\$(?:\.(?:"(?P<dot_quoted>[^"]*)"|(?P<dot>[^.\[]+))|\[(?:"(?P<bracket_double>[^"]*)"|'(?P<bracket_single>[^']*)')\])"""
@@ -1268,21 +1285,17 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         if node.name in ("toFloat", "toInt") and len(node.args) == 1:
             access = self._lowered_property_operand(node.args[0])
-            if access is not None:
+            # An array index reads through the JSON text of the value, so the cast wraps that read instead.
+            if access is not None and all(isinstance(key, str) for key in access.keys):
                 field_type = _blob_field_type_of(access)
                 assert field_type is not None
-                source = resolve_materialized_property_source(
-                    field_type,
-                    str(access.keys[0])
-                    if any(isinstance(key, int) for key in access.keys)
-                    else ".".join(cast(list[str], access.keys)),
-                    self.context,
-                )
+                keys = cast(list[str], access.keys)
+                source = resolve_materialized_property_source(field_type, ".".join(keys), self.context)
                 if source is not None and source.kind == "json_subcolumn":
                     return ast.Call(
                         name="accurateCastOrNull",
                         args=[
-                            _json_subcolumn_access(field_type, access.keys, source=source, is_nullable=True),
+                            _json_subcolumn_access(field_type, keys, source=source, is_nullable=True),
                             _sentinel("Float64" if node.name == "toFloat" else "Int64"),
                         ],
                         type=node.type,
@@ -1299,6 +1312,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         temporary_property_json_function = self._rewrite_json_function_on_temporary_property(node)
         if temporary_property_json_function is not None:
             return temporary_property_json_function
+
+        runtime_key_json_function = self._rewrite_json_function_with_runtime_key(node)
+        if runtime_key_json_function is not None:
+            return runtime_key_json_function
 
         temporary_property_json_value = self._rewrite_json_value_on_temporary_property(node)
         if temporary_property_json_value is not None:
@@ -1376,8 +1393,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
             return None
         if not isinstance(node.args[1], ast.Constant):
-            # A key computed per row can name a moved property, which the serialized `properties` document lacks.
-            raise QueryError(f"{node.name} over native event properties requires a constant first key")
+            return None
         first_key = node.args[1].value
         if not isinstance(first_key, str) or not is_temporary_event_property(first_key):
             return None
@@ -1402,6 +1418,50 @@ class ClickHousePropertyResolver(CloningVisitor):
             type=node.type,
             name=node.name,
             args=args,
+            params=node.params,
+            distinct=node.distinct,
+            within_group=node.within_group,
+            order_by=node.order_by,
+            filter_expr=node.filter_expr,
+        )
+
+    def _rewrite_json_function_with_runtime_key(self, node: ast.Call) -> ast.Expr | None:
+        """`f(properties, <key computed per row>, ...)` on native events, reading the document that holds the key.
+
+        The serialized `properties` document has no moved keys, so a row whose key names one reads the serialized
+        `temporary_properties` document instead. The printer drops restricted keys from both documents. Neither
+        document holds `$feature/<key>`, so a row whose key names a flag fails the query instead of reading as missing.
+        """
+        if (
+            not self.context.uses_new_events_schema()
+            or node.name not in _JSON_KEY_PATH_FUNCTIONS
+            or len(node.args) < 2
+            or isinstance(node.args[1], ast.Constant)
+        ):
+            return None
+        field_type = resolve_field_type(node.args[0])
+        if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
+            return None
+        key = self.visit(node.args[1])
+        document = ast.Call(
+            name="multiIf",
+            args=[
+                _call(
+                    "throwIf", [_names_feature_flag_property(clone_expr(key)), _const(RUNTIME_FEATURE_FLAG_KEY_ERROR)]
+                ),
+                _const(""),
+                _names_temporary_event_property(clone_expr(key)),
+                _temporary_properties_document(field_type),
+                self.visit(node.args[0]),
+            ],
+            type=ast.StringType(nullable=False),
+        )
+        return ast.Call(
+            start=node.start,
+            end=node.end,
+            type=node.type,
+            name=node.name,
+            args=[document, key, *[self.visit(arg) for arg in node.args[2:]]],
             params=node.params,
             distinct=node.distinct,
             within_group=node.within_group,
@@ -1664,7 +1724,8 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         first_key_arg = node.args[1]
         if not isinstance(first_key_arg, ast.Constant):
-            raise QueryError("JSONHas over native event properties requires a constant first key")
+            # A key computed per row reads the serialized document, which the printer masks for restricted keys.
+            return None
         if not isinstance(first_key_arg.value, str):
             return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
         first_key = first_key_arg.value

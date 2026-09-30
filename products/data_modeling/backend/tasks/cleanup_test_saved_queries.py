@@ -47,7 +47,9 @@ def cleanup_expired_test_saved_queries() -> None:
 
         for saved_query in DataWarehouseSavedQuery.objects.filter(id__in=expired_ids).select_related("table"):
             # Check if any non-deleted saved query depends on this one via DAG edges
-            node = Node.objects.filter(team=saved_query.team, saved_query=saved_query).first()
+            node = (
+                Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query).order_by("created_at").first()
+            )
             if node:
                 has_dependents = (
                     Node.objects.filter(

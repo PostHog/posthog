@@ -65,6 +65,7 @@ from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
     parse_and_validate_metric,
     validate_metric_action_ids,
+    validate_saved_metric_link_overrides,
 )
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -966,7 +967,7 @@ class ExperimentService:
         if not isinstance(saved_metrics_ids, list):
             raise ValidationError("Saved metrics must be a list")
 
-        for saved_metric in saved_metrics_ids:
+        for i, saved_metric in enumerate(saved_metrics_ids):
             if not isinstance(saved_metric, dict):
                 raise ValidationError("Saved metric must be an object")
             if "id" not in saved_metric:
@@ -975,6 +976,10 @@ class ExperimentService:
                 raise ValidationError("Metadata must be an object")
             if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
+            if "metadata" in saved_metric:
+                validate_saved_metric_link_overrides(
+                    saved_metric["metadata"], error_prefix=f"Invalid saved metric metadata at index {i}: "
+                )
 
         saved_metrics = ExperimentSavedMetric.objects.filter(
             id__in=[saved_metric["id"] for saved_metric in saved_metrics_ids],
@@ -3905,8 +3910,12 @@ class ExperimentService:
         should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
-            if existing_flag and existing_flag.variants:
-                clone_variants = deepcopy(existing_flag.variants)
+            if existing_flag:
+                # The same adoption check create_experiment applies, taken before the variants are
+                # read so a flag this product cannot use surfaces as a validation error here too.
+                assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
+                if existing_flag.variants:
+                    clone_variants = deepcopy(existing_flag.variants)
 
         clone_filters: dict[str, Any] = {}
         if clone_variants:

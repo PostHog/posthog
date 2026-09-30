@@ -375,12 +375,25 @@ class TestEventPropertyNames(APIBaseTest):
     def test_empty_for_no_events(self) -> None:
         assert _event_property_names(self.team, [], per_event_limit=15) == {}
 
-    def test_excludes_other_teams_properties(self) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="other")
-        EventProperty.objects.create(team=other_team, event="export created", property="leaked")
+    @parameterized.expand(
+        [
+            ("other_project", False, ["mine"]),
+            ("sibling_environment", True, ["from_other", "mine"]),
+        ]
+    )
+    def test_reads_properties_across_the_project_only(
+        self, _name: str, same_project: bool, expected: list[str]
+    ) -> None:
+        if same_project:
+            other_team = Team.objects.create(organization=self.organization, project=self.team.project, name="other")
+        else:
+            other_team = Team.objects.create(organization=self.organization, name="other")
+        EventProperty.objects.create(
+            team=other_team, project=other_team.project, event="export created", property="from_other"
+        )
         EventProperty.objects.create(team=self.team, event="export created", property="mine")
 
-        assert _event_property_names(self.team, ["export created"], per_event_limit=15) == {"export created": ["mine"]}
+        assert _event_property_names(self.team, ["export created"], per_event_limit=15) == {"export created": expected}
 
 
 class TestAIWindowConfigProperties:

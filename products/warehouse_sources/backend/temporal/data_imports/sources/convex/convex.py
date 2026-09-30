@@ -284,6 +284,7 @@ def list_snapshot(
 
         if cursor is not None:
             resumable_source_manager.save_state(ConvexResumeConfig(cursor=cursor, snapshot=snapshot))
+            resumable_source_manager.safe_point()
 
 
 class InvalidWindowError(Exception):
@@ -355,6 +356,9 @@ def document_deltas(
             return current_cursor
 
         resumable_source_manager.save_state(ConvexResumeConfig(cursor=current_cursor))
+        # Most delta pages carry no change for this table, so a catch-up can walk for hours without
+        # yielding a row. The page's rows (if any) are yielded above, so the cursor loses nothing here.
+        resumable_source_manager.safe_point()
 
 
 def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | None]:

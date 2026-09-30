@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   type AgentSideConnection,
   RequestError,
@@ -185,6 +187,20 @@ function installFakeSession(
     abortController,
     buildInProcessMcpServers,
   };
+}
+
+function pinSettingsFile(session: object, sessionId: string): string {
+  const dir = path.join(
+    process.env.CLAUDE_CONFIG_DIR ?? "",
+    "posthog-session-settings",
+  );
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${sessionId}.json`);
+  fs.writeFileSync(file, "{}");
+  (
+    session as { queryOptions: { extraArgs?: Record<string, string> } }
+  ).queryOptions.extraArgs = { settings: file };
+  return file;
 }
 
 const freshMcpServers = [
@@ -490,6 +506,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     // instead of pushing into the retired input stream.
     const { agent } = makeAgent();
     const { session } = installFakeSession(agent, "s-init-crash");
+    const pinned = pinSettingsFile(session, "s-init-crash");
     const init = deferInit();
 
     const refreshPromise = agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
@@ -499,12 +516,14 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
       /SDK subprocess crashed/,
     );
     await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+    expect(fs.existsSync(pinned)).toBe(true);
     init.reject(new Error("SDK subprocess crashed"));
     await rejection;
 
     expect((session as unknown as { queryClosed: boolean }).queryClosed).toBe(
       true,
     );
+    expect(fs.existsSync(pinned)).toBe(false);
     // The failed replacement query is torn down, not leaked.
     expect(createdQueries).toHaveLength(1);
     expect(createdQueries[0].close).toHaveBeenCalled();
