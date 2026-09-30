@@ -26,7 +26,7 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
+import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyFieldValues } from '../../constants'
 import { HTMLEditor } from '../../SurveyAppearanceUtils'
 import { surveyLogic } from '../../surveyLogic'
 import { splitChoicesOnPaste } from '../../utils'
@@ -326,7 +326,10 @@ interface ConfirmationScreenEditorProps {
 }
 
 function ConfirmationScreenEditor({ appearance, onUpdate }: ConfirmationScreenEditorProps): JSX.Element {
-    const isEnabled = appearance.displayThankYouMessage ?? true
+    // An unset field means no confirmation screen, which is how the SDK, the full editor and
+    // the branching labels all read it. Defaulting to on here would promise users a screen
+    // that never shows.
+    const isEnabled = appearance.displayThankYouMessage ?? false
 
     return (
         <div className="border border-border rounded-lg bg-bg-light overflow-hidden">
@@ -638,7 +641,7 @@ export function QuestionsStep({ editingLanguage, setEditingLanguage }: Questions
 
             {/* Confirmation screen editor */}
             <ConfirmationScreenEditor
-                appearance={{ ...defaultSurveyAppearance, ...survey.appearance }}
+                appearance={survey.appearance ?? {}}
                 onUpdate={(updates) => setSurveyValue('appearance', { ...survey.appearance, ...updates })}
             />
 
