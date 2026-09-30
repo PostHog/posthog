@@ -132,6 +132,7 @@ class TestDesktopFeedback(APIBaseTest):
         assert ticket.identity_verified is True
         message = Comment.objects.get(item_id=str(ticket.id), item_context__is_private=False)
         assert message.content == content
+        assert message.item_context is not None
         assert message.item_context["distinct_id"] == ticket.distinct_id
         media = UploadedMedia.objects.get()
         assert isinstance(message.rich_content, dict)
