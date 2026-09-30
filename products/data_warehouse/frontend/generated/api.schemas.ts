@@ -3506,6 +3506,9 @@ export interface CredentialApi {
  * * `Commslayer` - Commslayer
  * * `Sprinto` - Sprinto
  * * `Gem` - Gem
+ * * `AudioGO` - AudioGO
+ * * `ExactOnline` - ExactOnline
+ * * `LettrLabs` - LettrLabs
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4861,6 +4864,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Commslayer: 'Commslayer',
     Sprinto: 'Sprinto',
     Gem: 'Gem',
+    AudioGO: 'AudioGO',
+    ExactOnline: 'ExactOnline',
+    LettrLabs: 'LettrLabs',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

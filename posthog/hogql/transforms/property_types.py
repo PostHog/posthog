@@ -349,7 +349,8 @@ class PropertySwapper(CloningVisitor):
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
 
-        # On native events, property resolution rewrites JSON functions over a virtual flag key to parse the flag read.
+        # events_json holds no `$feature/<key>` subcolumns: the rebuilt document, or the resolver's map read, serves
+        # these keys with the boolean or string type the SDK sent.
         if (
             self.context.uses_new_events_schema()
             and table_name == "events"

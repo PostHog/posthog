@@ -428,6 +428,13 @@ while True:
 
 Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. A source that saves after yielding still works, but a crash re-yields its last batch (merge dedupes on primary key, append does not). A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
 
+Call `manager.safe_point()` wherever the source can make many requests that return no rows: an empty delta page, a fan-out parent with no children, a page with no comments.
+The pipeline checks for a worker shutdown only when an item arrives, so a run of empty responses otherwise holds the worker for the whole graceful shutdown timeout, and its cursor never commits.
+At a safe point the pipeline can hand the run to another worker, and it commits the staged cursor when nothing is waiting to be written.
+Call it only where resuming from the staged cursor loses no rows: every row the cursor covers is already yielded, and none sits in a local buffer.
+References: `document_deltas` in `convex/convex.py`, the sparse-sweep checkpoint in `stripe/stripe.py`, `_page_fan_out` in `notion/notion.py`.
+The `rest_source` framework reaches a safe point after each page on its own, but only when `SourceResponse.items` returns the framework's `Resource` directly. A source that wraps it gets no framework safe points, because the wrapper could buffer rows.
+
 ### Webhook source pattern
 
 - Implement `webhook_template` returning a `HogFunctionTemplateDC` that transforms incoming webhook payloads.
@@ -893,6 +900,7 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `hog
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Source won't connect despite a valid token: `validate_credentials(schema_name=None)` probes every resource's scope instead of just the token, so one missing scope — often on a table the user won't sync — blocks the whole source. Probe only the token at create; report per-table scope via `get_endpoint_permissions`.
 - Resumable state never saved: forgot to call `save_state`; or called `commit()` on a cursor that covers rows the pipeline has not written yet, which skips them on resume.
+- A deploy waits hours on a resumable source: it pages through responses with no rows and never calls `manager.safe_point()`, so it never sees the worker shutdown.
 - Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
 - Silent truncation risk: page caps hit without logs/metrics.

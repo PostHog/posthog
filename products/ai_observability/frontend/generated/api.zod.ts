@@ -761,10 +761,11 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                                 'together_ai',
                                 'minimax',
                                 'zeabur',
+                                'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -1135,10 +1136,11 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                                 'together_ai',
                                 'minimax',
                                 'zeabur',
+                                'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -1413,10 +1415,11 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                                 'together_ai',
                                 'minimax',
                                 'zeabur',
+                                'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -2065,6 +2068,8 @@ export const LlmAnalyticsParserRecipesPartialUpdateBody = /* @__PURE__ */ zod.ob
 
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
+export const llmAnalyticsProviderKeysCreateBodySystemOneModelMax = 100
+
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20
 
 export const llmAnalyticsProviderKeysCreateBodySetAsActiveDefault = false
@@ -2081,29 +2086,37 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
             'together_ai',
             'minimax',
             'zeabur',
+            'system_one',
             'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysCreateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
     azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysCreateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    base_url: zod
-        .url()
-        .optional()
-        .describe(
-            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
-        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysCreateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysUpdateBodyNameMax = 255
+
+export const llmAnalyticsProviderKeysUpdateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysUpdateBodyApiVersionMax = 20
 
@@ -2121,29 +2134,37 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
             'together_ai',
             'minimax',
             'zeabur',
+            'system_one',
             'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysUpdateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
     azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysUpdateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    base_url: zod
-        .url()
-        .optional()
-        .describe(
-            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
-        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysPartialUpdateBodyNameMax = 255
+
+export const llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax = 20
 
@@ -2161,30 +2182,38 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
             'together_ai',
             'minimax',
             'zeabur',
+            'system_one',
             'openai_compatible',
         ])
         .optional()
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
     azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    base_url: zod
-        .url()
-        .optional()
-        .describe(
-            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
-        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysValidateCreateBodyNameMax = 255
+
+export const llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax = 20
 
@@ -2202,25 +2231,31 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
             'together_ai',
             'minimax',
             'zeabur',
+            'system_one',
             'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
     azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    base_url: zod
-        .url()
-        .optional()
-        .describe(
-            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
-        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault),
 })
 

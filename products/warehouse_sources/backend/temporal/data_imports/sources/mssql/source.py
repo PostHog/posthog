@@ -36,16 +36,30 @@ _FIREWALL_BLOCKED_ERROR = (
     "try again. New rules can take a few minutes to take effect."
 )
 
+# The two connect-time conditions the sync path maps below, reached through the connect form
+# instead. Both need the network cause named, not just the two values: FreeTDS reports a wrong host
+# or port and a server it cannot reach at all in the same words.
+_SERVER_UNREACHABLE_VALIDATION_ERROR = (
+    "Could not reach your SQL Server on the host and port given. Check the host and port are "
+    "correct, and that PostHog's IP addresses are allowed through your firewall."
+)
+
+_CONNECTION_TIMED_OUT_ERROR = (
+    "Connection timed out. Check that your server is reachable from the public internet and that "
+    "PostHog's IP addresses are allowed through your firewall. For a server that can't be exposed "
+    "publicly, use the SSH tunnel option."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
     # sources use and match the stable prefix, not the volatile "'<username>'." that follows it.
     "Login failed for user": "Invalid user or password",
-    "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    "Adaptive Server is unavailable or does not exist": _SERVER_UNREACHABLE_VALIDATION_ERROR,
     # Azure SQL error 40615 — the server-level firewall rejected the connecting client IP. The full
     # message echoes the server name and client IP, so match the stable, distinctive phrase instead.
     "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
-    "connection timed out": "Could not connect to SQL server - check server firewall settings",
+    "connection timed out": _CONNECTION_TIMED_OUT_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()
@@ -101,6 +115,12 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # same login can never succeed. Match the stable message text, not the object/database
             # names that follow it.
             "The SELECT permission was denied on the object": "Your SQL Server login doesn't have permission to read one of the tables or views being synced. Grant it SELECT access (for example via the db_datareader role or an explicit GRANT SELECT) on the objects you want to import, then re-enable the sync.",
+            # SQL Server error 230 — the column-level counterpart of 229: the login has some
+            # access to the object but a column-level GRANT/DENY blocks SELECT on one specific
+            # column ("...denied on the column 'X' of the object 'Y'..."). Same fix as the
+            # object-level case, just scoped to a column, so retrying replays the identical
+            # denial. Match the stable phrase, not the volatile column/object/database names.
+            "The SELECT permission was denied on the column": "Your SQL Server login doesn't have permission to read one of the columns being synced. Grant it SELECT access on that column (for example via the db_datareader role or an explicit column-level GRANT SELECT), then re-enable the sync.",
             # SQL Server error 208 — the SELECT we run during the sync references an object the
             # server can't resolve. Either the table/view we're syncing was dropped or renamed
             # after schema discovery, or (as seen in practice) the view we select from has a body

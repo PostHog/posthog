@@ -30,8 +30,8 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import (
     EXCEPTION_STRING_ARRAY_PROPERTIES,
-    FEATURE_FLAG_FALSE_VARIANT_SENTINEL,
     FEATURE_FLAG_PROPERTY_PREFIX,
+    FEATURE_FLAG_VARIANT_SENTINELS,
     is_virtual_feature_flag_key,
 )
 from posthog.hogql.context import HogQLContext
@@ -423,111 +423,46 @@ def _json_subcolumn_access(
 
 
 def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
-    # Inspect the per-row variant only to choose its string format. Every branch casts the
-    # whole Dynamic value, so mixed numeric variants are never filtered by a typed projection.
-    dynamic_type = ast.Call(
-        name="dynamicType",
-        args=[ast.Call(name="accurateCast", args=[clone_expr(value), _sentinel("Dynamic")])],
-        type=ast.StringType(nullable=False),
-    )
-    # ClickHouse infers DateTime for ISO strings at ingest, and toString renders it as a wall clock in the
-    # session timezone with no zone marker. Take the wall clock from a UTC-typed cast instead, keep the
-    # fractional digits of the plain rendering (they don't depend on the zone), and mark the text 'Z'.
-    utc_wall_clock = ast.Call(
-        name="substring",
-        args=[
-            ast.Call(
-                name="toString",
-                args=[
-                    ast.Call(
-                        name="accurateCastOrNull",
-                        args=[clone_expr(value), _sentinel("DateTime64(9, 'UTC')")],
-                    )
-                ],
-                type=ast.StringType(nullable=True),
-            ),
-            ast.Constant(value=1),
-            ast.Constant(value=19),
-        ],
-        type=ast.StringType(nullable=True),
-    )
-    fractional_seconds = ast.Call(
-        name="substring",
-        args=[
-            ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-            ast.Constant(value=20),
-            ast.Constant(value=10),  # '.' plus at most nine digits
-        ],
-        type=ast.StringType(nullable=False),
-    )
-    datetime_string = ast.Call(
-        name="concat",
-        args=[
-            ast.Call(
-                name="replaceOne",
-                args=[utc_wall_clock, _sentinel(" "), _sentinel("T")],
-                type=ast.StringType(nullable=True),
-            ),
-            fractional_seconds,
-            _sentinel("Z"),
-        ],
-        type=ast.StringType(nullable=False),
-    )
-    datetime_expr: ast.Expr
-    if as_json:
-        datetime_expr = ast.Call(
-            name="concat",
-            args=[_sentinel('"'), datetime_string, _sentinel('"')],
-            type=ast.StringType(nullable=False),
-        )
-    else:
-        datetime_expr = datetime_string
-
-    json_value = ast.Call(
-        name="toJSONString",
-        args=[clone_expr(value)],
-        type=ast.StringType(nullable=False),
-    )
     json_value = ast.Call(
         name="nullIf",
-        args=[ast.Call(name="nullIf", args=[json_value, _sentinel("[]")]), _sentinel("{}")],
+        args=[
+            ast.Call(
+                name="nullIf",
+                args=[
+                    ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
+                    _sentinel("[]"),
+                ],
+            ),
+            _sentinel("{}"),
+        ],
         type=ast.StringType(nullable=True),
     )
-    scalar_expr: ast.Expr = json_value
-    if not as_json:
-        scalar_expr = ast.Call(
-            name="if",
+    if as_json:
+        return json_value
+
+    # Arrays and maps read as JSON text, like the raw property blob. Their plain text starts with '[' or '{',
+    # which a string can too, but a string's JSON form starts with '"'. toJSONString runs only for those rows.
+    # Compared by character code so no brace literal reaches callers that str.format the printed SQL.
+    def starts_with_container(expr: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="in",
             args=[
-                ast.Or(
-                    exprs=[
-                        ast.Call(
-                            name="startsWith",
-                            args=[clone_expr(dynamic_type), _sentinel(family)],
-                            type=ast.BooleanType(nullable=False),
-                        )
-                        for family in ("Array", "Map", "Tuple")
-                    ]
-                ),
-                json_value,
-                ast.Call(
-                    name="toString",
-                    args=[clone_expr(value)],
-                    type=ast.StringType(nullable=False),
-                ),
+                ast.Call(name="ascii", args=[expr]),
+                ast.Tuple(exprs=[ast.Constant(value=ord("[")), ast.Constant(value=ord("{"))]),
             ],
-            type=ast.StringType(nullable=False),
+            type=ast.BooleanType(nullable=False),
         )
 
+    plain = ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
+    json_text = ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
     return ast.Call(
         name="if",
         args=[
-            ast.Call(
-                name="startsWith", args=[dynamic_type, _sentinel("DateTime")], type=ast.BooleanType(nullable=False)
-            ),
-            datetime_expr,
-            scalar_expr,
+            ast.And(exprs=[starts_with_container(clone_expr(plain)), starts_with_container(json_text)]),
+            json_value,
+            plain,
         ],
-        type=ast.StringType(nullable=False),
+        type=ast.StringType(nullable=True),
     )
 
 
@@ -604,29 +539,28 @@ def _mirrored_source_property(field_type: ast.FieldType, context: HogQLContext) 
     return mirrored_property_for_column(field_type.table_type, resolved_field.name, context)
 
 
-def _false_variant_read(value: ast.Expr) -> ast.Expr:
-    """`value` with the `$false` sentinel read back as the variant name "false".
+def feature_flag_variant_read(value: ast.Expr) -> ast.Expr:
+    """`value` with each cleaner sentinel read back as the variant name it stands for.
 
-    The cleaner stores a variant named "false" as `$false` so it stays apart from a flag that was evaluated and switched
-    off, which the typed map holds as 'false'.
+    The cleaner stores a variant named "false" or "true" as `$false` or `$true`, so it stays apart from a boolean flag,
+    which the typed map holds as 'false' or 'true'.
     """
-    return _call(
-        "if",
-        [
-            _call("equals", [clone_expr(value), _const(FEATURE_FLAG_FALSE_VARIANT_SENTINEL)]),
-            _sentinel("false"),
-            value,
-        ],
-    )
+    branches: list[ast.Expr] = []
+    for sentinel, variant in FEATURE_FLAG_VARIANT_SENTINELS.items():
+        branches.append(_call("equals", [clone_expr(value), _const(sentinel)]))
+        branches.append(_sentinel(variant))
+    return _call("multiIf", [*branches, value])
 
 
 def _feature_flag_value_read(feature_flags: ast.Expr, key: str) -> ast.Expr:
-    """`has(map, key) ? map[key] : null`, with the `$false` sentinel mapped back to "false"."""
+    """`has(map, key) ? map[key] : null`, with the cleaner sentinels mapped back to their variant names."""
     return ast.Call(
         name="if",
         args=[
             ast.Call(name="has", args=[clone_expr(feature_flags), ast.Constant(value=key)]),
-            _false_variant_read(ast.ArrayAccess(array=clone_expr(feature_flags), property=ast.Constant(value=key))),
+            feature_flag_variant_read(
+                ast.ArrayAccess(array=clone_expr(feature_flags), property=ast.Constant(value=key))
+            ),
             ast.Constant(value=None),
         ],
     )
@@ -636,8 +570,7 @@ def _feature_flag_json_read(feature_flags: ast.Expr, key: str) -> ast.Expr:
     """The JSON text the legacy document holds for `$feature/<key>`, or NULL when the map has no such flag.
 
     SDKs send a boolean flag as JSON `true`/`false` and a variant as a JSON string. The map stores the booleans as 'true'
-    and 'false' and a variant named "false" as the sentinel, so only the sentinel serializes back to a string. A variant
-    named "true" cannot be told apart from an enabled boolean flag, so it reads as `true`.
+    and 'false' and a variant named "false" or "true" under its sentinel, so only the sentinels serialize back to strings.
     """
     value = ast.ArrayAccess(array=clone_expr(feature_flags), property=_const(key))
     return _call(
@@ -649,7 +582,7 @@ def _feature_flag_json_read(feature_flags: ast.Expr, key: str) -> ast.Expr:
                 [
                     _call("in", [clone_expr(value), ast.Tuple(exprs=[_sentinel("true"), _sentinel("false")])]),
                     clone_expr(value),
-                    _call("toJSONString", [_false_variant_read(value)]),
+                    _call("toJSONString", [feature_flag_variant_read(value)]),
                 ],
             ),
             _const(None),
@@ -748,7 +681,7 @@ def _filter_feature_flags(feature_flags: ast.Expr, restricted_keys: list[str]) -
 def _compact_feature_flags_map(
     feature_flags: ast.Expr, restricted_keys: list[str], *, map_values: bool = True
 ) -> ast.Expr:
-    """The visible flags map, with `$false` read back as "false".
+    """The visible flags map, with the cleaner sentinels read back as their variant names.
 
     Presence checks pass `map_values=False`: the mapping cannot change the key set, so they skip the per-row `mapApply`.
     """
@@ -760,7 +693,9 @@ def _compact_feature_flags_map(
         args=[
             ast.Lambda(
                 args=["key", "value"],
-                expr=ast.Tuple(exprs=[_lambda_string_arg("key"), _false_variant_read(_lambda_string_arg("value"))]),
+                expr=ast.Tuple(
+                    exprs=[_lambda_string_arg("key"), feature_flag_variant_read(_lambda_string_arg("value"))]
+                ),
             ),
             filtered,
         ],
@@ -781,7 +716,7 @@ def _nonempty_container_json(value: ast.Expr, empty_json: str) -> ast.Expr:
 def _active_flag_lambda(restricted_keys: list[str] | None, key_predicate: ast.Expr | None = None) -> ast.Lambda:
     """`(key, value) -> value is active, key is not restricted, and `key_predicate` holds.
 
-    A variant named "false" is stored as `$false`, so it counts as active here.
+    A variant named "false" is stored as `$false`, so it counts as active here, and `$true` does too.
     """
     predicates: list[ast.Expr] = [_not_in_lambda_values("value", ["", "false"])]
     if restricted_keys:

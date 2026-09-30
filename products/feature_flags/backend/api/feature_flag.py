@@ -38,7 +38,7 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
+from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
@@ -119,11 +119,7 @@ from products.feature_flags.backend.api.filters_schema import (
     FinitePercentageField,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
-from products.feature_flags.backend.dependency_formats import (
-    DependencyConfigFormatError,
-    require_v1_config,
-    validate_dependency_formats,
-)
+from products.feature_flags.backend.dependency_formats import DependencyConfigFormatError, validate_dependency_formats
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     apply_approved_encrypted_payloads,
@@ -135,12 +131,13 @@ from products.feature_flags.backend.facade import (
     config_writes,
     filters as flag_filters,
 )
-from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
+from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format, require_v1_config
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
+    STALE_ACTIVE_PARAM_DESCRIPTION,
     FeatureFlagStatusChecker,
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
@@ -930,20 +927,26 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
-def _uses_reserved_variant_key(filters: dict) -> bool:
-    """Whether a `multivariate.variants[].key` is the sentinel the ingest cleaner stores a variant named "false" under.
+def _reserved_variant_key(filters: dict) -> str | None:
+    """The first `multivariate.variants[].key` that is a sentinel the ingest cleaner stores a variant named "false" or
+    "true" under, if any.
 
     Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
     rollout switch.
     """
     multivariate = filters.get("multivariate")
     if not isinstance(multivariate, dict):
-        return False
+        return None
     variants = multivariate.get("variants")
     if not isinstance(variants, list):
-        return False
-    return any(
-        isinstance(variant, dict) and variant.get("key") == FEATURE_FLAG_FALSE_VARIANT_SENTINEL for variant in variants
+        return None
+    return next(
+        (
+            variant["key"]
+            for variant in variants
+            if isinstance(variant, dict) and variant.get("key") in FEATURE_FLAG_VARIANT_SENTINELS
+        ),
+        None,
     )
 
 
@@ -1304,7 +1307,13 @@ class FeatureFlagSerializer(
 
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
-    status = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the "
+            "serving state. Read the `active` field for that. A disabled flag that is not archived or "
+            "deleted reports ACTIVE, because disabled flags are not evaluated for staleness."
+        )
+    )
 
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
@@ -1959,9 +1968,10 @@ class FeatureFlagSerializer(
                 raise self._v2_validation_error(exc) from exc
 
     def _validate_filters_inner(self, filters, operation: str):
-        if _uses_reserved_variant_key(filters):
+        reserved_variant_key = _reserved_variant_key(filters)
+        if reserved_variant_key is not None:
             raise serializers.ValidationError(
-                f"The variant key {FEATURE_FLAG_FALSE_VARIANT_SENTINEL} is reserved. Choose another key.",
+                f"The variant key {reserved_variant_key} is reserved. Choose another key.",
                 code="reserved_variant_key",
             )
 
@@ -2739,7 +2749,8 @@ class FeatureFlagSerializer(
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
-            if instance.has_feature_enrollment:
+            # Enrollment lives in the v1 document; a v2 flag cannot back an early access feature.
+            if detect_config_format(instance.filters).kind == "v1" and instance.has_feature_enrollment:
                 from products.feature_flags.backend.tasks import migrate_feature_enrollment_on_key_change
 
                 migrate_feature_enrollment_on_key_change.delay(instance.team_id, old_key, instance.id)
@@ -3215,9 +3226,11 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
 class FeatureFlagStatusResponseSerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text=(
-            "Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag "
-            "was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled "
-            "out. Use the `rollout` object to determine rollout completeness."
+            "Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving "
+            "state, and this response carries no serving-state field: read the `active` field of the flag "
+            "itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted "
+            "reports 'active', because disabled flags are not evaluated for staleness. 'active' also does "
+            "NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness."
         )
     )
     reason = serializers.CharField(help_text="Human-readable explanation of the status")
@@ -3522,7 +3535,7 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
     active = serializers.ChoiceField(
         choices=["true", "false", "STALE"],
         required=False,
-        help_text="Filter by active state.",
+        help_text=STALE_ACTIVE_PARAM_DESCRIPTION,
     )
     created_by_id = serializers.IntegerField(
         required=False,
@@ -4067,6 +4080,7 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["true", "false", "STALE"],
+                description=STALE_ACTIVE_PARAM_DESCRIPTION,
             ),
             OpenApiParameter(
                 "created_by_id",
@@ -4571,6 +4585,12 @@ class FeatureFlagViewSet(
         rejection = self._deleted_flag_rejection(feature_flag, deleted_hint)
         if rejection is not None:
             return rejection
+        # A format change bumps `version`, so the locked precondition refuses one landing after this.
+        if detect_config_format(feature_flag.filters).kind != "v1":
+            raise exceptions.ValidationError(
+                "This flag uses a configuration format that rollout actions cannot modify yet.",
+                code="unsupported_config_version",
+            )
 
         # A flag written before versioning reads as null; the precondition normalises the stored
         # side the same way, so a caller can send back exactly what the read returned.

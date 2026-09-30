@@ -279,8 +279,8 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 True,
                 None,
                 None,
-                ("JSON_VALUE(",),
-                ("events.properties.`$feature_flags`",),
+                ("JSON_VALUE(", "JSONExtractKeysAndValuesRaw("),
+                ("mapApply(",),
             ),
             (
                 "native_restricted",
@@ -317,8 +317,8 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 True,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                ("JSONMergePatch(", "mapFilter("),
-                (),
+                ("mapFilter(", "'\"$active_feature_flags\":'"),
+                ("JSONMergePatch(",),
             ),
         ]
     )
@@ -1675,13 +1675,17 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
             context=restricted_context,
         )
         assert restricted.results is not None
-        assert json.loads(restricted.results[0][0])["$feature_flags"] == {
-            "checkout": "true",
-            "disabled": "false",
-            "false-variant": "$false",
-            "only-in-map": "true",
-            "variant": "control",
+        restricted_document = json.loads(restricted.results[0][0])
+        assert "$feature_flags" not in restricted_document
+        # The fixture sends "true" as a string, which the cleaner stores as `$true`, so it comes back as a string.
+        assert {key: value for key, value in restricted_document.items() if key.startswith("$feature/")} == {
+            "$feature/checkout": "true",
+            "$feature/disabled": False,
+            "$feature/false-variant": "false",
+            "$feature/only-in-map": "true",
+            "$feature/variant": "control",
         }
+        assert restricted_document["$active_feature_flags"] == ["checkout", "false-variant", "only-in-map", "variant"]
         assert restricted.results[0][1] == 0
         assert json.loads(restricted.results[0][2]) == ["checkout", "false-variant", "only-in-map", "variant"]
 
@@ -1711,6 +1715,94 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
             context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
         )
         assert inactive.results == [("[]", 1, 1)]
+
+
+@pytest.mark.skipif(
+    not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+    reason="requires both event tables created by the new-schema CI variant (#63448)",
+)
+class TestEventsSchemaFlagDocumentParity(ClickhouseTestMixin, BaseTest):
+    def test_sdk_flag_properties_read_the_same_on_both_schemas(self) -> None:
+        sdk_uuid = _create_event(
+            team=self.team,
+            distinct_id="sdk-flags",
+            event="schema-parity",
+            properties={
+                "$browser": "Firefox",
+                "$feature/checkout": True,
+                "$feature/disabled": False,
+                "$feature/variant": "control",
+                "$feature/named-false": "false",
+                "$feature/named-true": "true",
+                "$active_feature_flags": ["checkout", "variant", "named-false", "named-true"],
+            },
+        )
+        flush_persons_and_events()
+
+        query = (
+            "SELECT properties, toString(properties), arraySort(JSONExtractKeys(properties)), "
+            "JSONLength(properties, '$active_feature_flags'), "
+            "arraySort(JSONExtractArrayRaw(properties, '$active_feature_flags')), "
+            "JSONExtractBool(properties, '$feature/checkout'), JSONExtractBool(properties, '$feature/named-true'), "
+            "JSONExtractRaw(properties, '$feature/named-true'), JSONType(properties, '$feature/named-false'), "
+            "JSONType(properties, '$feature/disabled'), JSONExtractString(properties, '$feature/variant'), "
+            "properties.`$feature/named-true`, properties.`$feature/checkout`, "
+            "arraySort(JSONExtractArrayRaw(toString(properties), '$active_feature_flags')) "
+            f"FROM events WHERE uuid = '{sdk_uuid}'"
+        )
+        exploded_query = (
+            "SELECT arrayJoin(JSONExtractArrayRaw(properties, '$active_feature_flags')) AS flag "
+            f"FROM events WHERE uuid = '{sdk_uuid}' ORDER BY flag"
+        )
+
+        def read(use_new_events_schema: bool) -> tuple[dict[str, Any], dict[str, Any], tuple[Any, ...], list[Any]]:
+            context = HogQLContext(
+                team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+            )
+            reads = execute_hogql_query(query, team=self.team, context=context)
+            exploded = execute_hogql_query(exploded_query, team=self.team, context=context)
+            assert reads.results is not None and exploded.results is not None
+            document = json.loads(reads.results[0][0])
+            document["$active_feature_flags"] = sorted(document["$active_feature_flags"])
+            stringified = json.loads(reads.results[0][1])
+            stringified["$active_feature_flags"] = sorted(stringified["$active_feature_flags"])
+            return document, stringified, tuple(reads.results[0][2:]), exploded.results
+
+        native = read(use_new_events_schema=True)
+        assert native == read(use_new_events_schema=False)
+        active_flags = ['"checkout"', '"named-false"', '"named-true"', '"variant"']
+        assert native[0] == {
+            "$browser": "Firefox",
+            "$feature/checkout": True,
+            "$feature/disabled": False,
+            "$feature/variant": "control",
+            "$feature/named-false": "false",
+            "$feature/named-true": "true",
+            "$active_feature_flags": ["checkout", "named-false", "named-true", "variant"],
+        }
+        assert native[2] == (
+            [
+                "$active_feature_flags",
+                "$browser",
+                "$feature/checkout",
+                "$feature/disabled",
+                "$feature/named-false",
+                "$feature/named-true",
+                "$feature/variant",
+            ],
+            4,
+            active_flags,
+            1,
+            0,
+            '"true"',
+            "String",
+            "Bool",
+            "control",
+            "true",
+            "true",
+            active_flags,
+        )
+        assert native[3] == [(flag,) for flag in active_flags]
 
     def test_moved_mutation_properties_read_the_same_on_both_schemas(self) -> None:
         event_uuid = _create_event(
