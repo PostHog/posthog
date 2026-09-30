@@ -25,8 +25,8 @@ from collections.abc import Mapping
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
-from products.business_knowledge.backend import crawl, discover, url_fetch
-from products.business_knowledge.backend.logic import create_crawl_source, refresh_source
+from products.business_knowledge.backend import crawl, discover, logic, url_fetch
+from products.business_knowledge.backend.logic import create_crawl_source, ingest_source, refresh_source
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SourceStatus
 
 
@@ -360,6 +360,21 @@ def _ok(url: str, body: bytes) -> url_fetch.FetchResult:
     )
 
 
+class TestIterFetch(BaseTest):
+    def test_submits_at_most_max_in_flight_before_the_first_outcome(self) -> None:
+        urls = [f"https://example.com/{i}" for i in range(10)]
+        fake = _FakeFetch({url: _ok(url, f"<html><body>Page {url}.</body></html>".encode()) for url in urls})
+
+        with patch.object(crawl.url_fetch, "fetch_url", side_effect=fake):
+            outcomes = crawl.iter_fetch(urls, max_workers=2, max_in_flight=2)
+            first = next(outcomes)
+            assert len(fake.etags_seen) <= 2
+            rest = list(outcomes)
+
+        assert sorted(o.url for o in [first, *rest]) == sorted(urls)
+        assert all(o.status == "ok" for o in [first, *rest])
+
+
 class TestCreateCrawlSource(APIBaseTest):
     def test_happy_path_indexes_all_discovered_pages(self) -> None:
         sitemap = _sitemap_xml(["https://example.com/a", "https://example.com/b", "https://example.com/c"])
@@ -386,6 +401,52 @@ class TestCreateCrawlSource(APIBaseTest):
         docs = KnowledgeDocument.objects.unscoped().filter(source=source)
         assert all(d.content_hash for d in docs)
         assert KnowledgeChunk.objects.unscoped().filter(source=source).count() >= 3
+
+    def test_chunk_cap_hit_in_a_later_batch_leaves_no_documents(self) -> None:
+        urls = ["https://example.com/a", "https://example.com/b"]
+        behaviours = {url: _ok(url, f"<html><body>Body of {url}.</body></html>".encode()) for url in urls}
+        with (
+            patch.object(discover, "_http_get_text", return_value=_sitemap_xml(urls)),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+            patch.object(logic, "CRAWL_WRITE_BATCH_SIZE", 1),
+            patch.object(logic, "MAX_CHUNKS_PER_TEAM", 1),
+        ):
+            source = create_crawl_source(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                name="Handbook",
+                url="https://example.com/sitemap.xml",
+                crawl_mode="sitemap",
+                crawl_config={"max_pages": 10},
+            )
+        assert source.status == SourceStatus.ERROR
+        assert "would exceed" in source.error_message
+        assert not KnowledgeDocument.objects.unscoped().filter(source=source).exists()
+        assert not KnowledgeChunk.objects.unscoped().filter(source=source).exists()
+
+    def test_retried_ingest_replaces_rows_from_the_attempt_before(self) -> None:
+        urls = ["https://example.com/a", "https://example.com/b"]
+        behaviours = {url: _ok(url, f"<html><body>Body of {url}.</body></html>".encode()) for url in urls}
+        with (
+            patch.object(discover, "_http_get_text", return_value=_sitemap_xml(urls)),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+        ):
+            source = create_crawl_source(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                name="Handbook",
+                url="https://example.com/sitemap.xml",
+                crawl_mode="sitemap",
+                crawl_config={"max_pages": 10},
+            )
+            chunks_before = KnowledgeChunk.objects.unscoped().filter(source=source).count()
+            KnowledgeSource.objects.unscoped().filter(id=source.id).update(status=SourceStatus.PROCESSING)
+            retried = ingest_source(source_id=source.id, team_id=self.team.id)
+
+        assert retried is not None
+        assert retried.status == SourceStatus.READY
+        assert KnowledgeDocument.objects.unscoped().filter(source=source).count() == 2
+        assert KnowledgeChunk.objects.unscoped().filter(source=source).count() == chunks_before
 
     def test_zero_safe_urls_returns_error_source(self) -> None:
         sitemap = _sitemap_xml(["http://127.0.0.1/secret"])
@@ -498,6 +559,7 @@ class TestRefreshCrawlSource(APIBaseTest):
         with (
             patch.object(discover, "_http_get_text", return_value=sitemap),
             patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+            patch.object(logic, "CRAWL_WRITE_BATCH_SIZE", 1),
         ):
             refresh_source(source_id=source.id, team_id=self.team.id)
 
