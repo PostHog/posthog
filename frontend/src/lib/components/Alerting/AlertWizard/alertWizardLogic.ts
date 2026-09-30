@@ -735,13 +735,21 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             }
 
             try {
-                await api.hogFunctions.createTestInvocation('new', {
+                // A failed delivery still answers 200, with the failure in `status` and `errors`.
+                // Only `success` means the destination accepted the event.
+                const result = await api.hogFunctions.createTestInvocation('new', {
                     configuration,
                     globals,
                     mock_async_functions: false,
                 })
                 breakpoint()
-                lemonToast.success('Test invocation sent')
+                if (result.status === 'error') {
+                    lemonToast.error(result.errors?.[0] || 'Test invocation failed')
+                } else if (result.status === 'skipped') {
+                    lemonToast.warning('The test event did not match this alert, so nothing was sent')
+                } else {
+                    lemonToast.success('Test invocation sent')
+                }
             } catch (e: any) {
                 breakpoint()
                 lemonToast.error(e.detail || 'Test invocation failed')
