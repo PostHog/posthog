@@ -36,6 +36,7 @@ from products.tasks.backend.logic.services.connection_token import (
     create_sandbox_event_ingest_token,
 )
 from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
     SNAPSHOT_KIND_DIRECTORY,
@@ -634,6 +635,9 @@ def _invoke_start_agent_server(
             claude_model_access=ctx.model_access.access_for("claude"),
             codex_model_access=ctx.model_access.access_for("codex"),
             codex_run_token=params.codex_run_token,
+            sandbox_runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+            if isinstance(sandbox, ModalSandbox)
+            else None,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
