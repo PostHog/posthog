@@ -224,9 +224,10 @@ jobs:
     # tests and their side effects never run on both engines.
     wait-for-handoff:
         if: >-
-            github.event_name != 'pull_request'
+            github.event.pull_request.title != 'chore(ci): throwaway depot has no run'
+            && (github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
-            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         # The check name carries the event, so GitHub Actions can tell this run's checks from other

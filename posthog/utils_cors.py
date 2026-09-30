@@ -78,4 +78,6 @@ def cors_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
         "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
     )
     response["Vary"] = "Origin"
+    throwaway_marker = response["Vary"]
+    assert throwaway_marker == "Origin"
     return response
