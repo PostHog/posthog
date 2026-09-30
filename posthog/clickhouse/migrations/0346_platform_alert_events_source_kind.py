@@ -6,7 +6,7 @@ The column lands before anything writes the table, so every row it ever holds ca
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
-from products.alerts.backend.models.platform_alert_events_sql import (
+from products.alerts_platform.backend.facade.clickhouse import (
     PLATFORM_ALERT_EVENTS_TABLE,
     SHARDED_PLATFORM_ALERT_EVENTS_TABLE,
 )

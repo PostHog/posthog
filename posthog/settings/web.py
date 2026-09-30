@@ -105,6 +105,7 @@ PRODUCTS_APPS = [
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
+    "products.alerts_platform.backend.apps.AlertsPlatformConfig",
     "products.actions.backend.apps.ActionsConfig",
     "products.autoresearch.backend.apps.AutoresearchConfig",
     "products.product_analytics.backend.apps.ProductAnalyticsConfig",
