@@ -6452,23 +6452,26 @@ class HogFlowViewSet(
         return history
 
     def _version_totals(self, hog_flow: HogFlow, versions: list[int], step_id: Optional[str]) -> dict[int, dict]:
-        """Raw metric counts per version, in one grouped query. Each version's series only ever
-        collects while that version is live, so there is no window to choose."""
-        by_source = fetch_app_metric_totals_by_source(
-            team_id=self.team_id,
-            app_source=HOG_FLOW_VERSION_APP_SOURCE,
-            app_source_ids=[f"{hog_flow.id}/{version}" for version in versions],
-            # Scoped to the step the suggestion names; several email steps would otherwise share one denominator.
-            instance_id=step_id or None,
-            name=[
-                TARGET_SEND_METRIC,
-                TARGET_OPEN_METRIC,
-                TARGET_CLICK_METRIC,
-                TARGET_UNTRACKED_METRIC,
-                *GUARDRAIL_METRICS,
-            ],
-        )
-        return {version: by_source.get(f"{hog_flow.id}/{version}", {}) for version in versions}
+        """Raw metric counts per version. Each version's series only ever collects while that
+        version is live, so there is no window to choose."""
+        return {
+            version: fetch_app_metric_totals(
+                team_id=self.team_id,
+                app_source=HOG_FLOW_VERSION_APP_SOURCE,
+                app_source_id=f"{hog_flow.id}/{version}",
+                breakdown_by="name",
+                # Scoped to the step the suggestion names; several email steps would otherwise share one denominator.
+                instance_id=step_id or None,
+                name=[
+                    TARGET_SEND_METRIC,
+                    TARGET_OPEN_METRIC,
+                    TARGET_CLICK_METRIC,
+                    TARGET_UNTRACKED_METRIC,
+                    *GUARDRAIL_METRICS,
+                ],
+            ).totals
+            for version in versions
+        }
 
     def _versions_carrying_change(
         self, hog_flow: HogFlow, proposal: WorkflowProposal
