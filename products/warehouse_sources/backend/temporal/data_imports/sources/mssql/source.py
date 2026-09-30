@@ -101,6 +101,12 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # same login can never succeed. Match the stable message text, not the object/database
             # names that follow it.
             "The SELECT permission was denied on the object": "Your SQL Server login doesn't have permission to read one of the tables or views being synced. Grant it SELECT access (for example via the db_datareader role or an explicit GRANT SELECT) on the objects you want to import, then re-enable the sync.",
+            # SQL Server error 230 — the column-level counterpart of 229: the login has some
+            # access to the object but a column-level GRANT/DENY blocks SELECT on one specific
+            # column ("...denied on the column 'X' of the object 'Y'..."). Same fix as the
+            # object-level case, just scoped to a column, so retrying replays the identical
+            # denial. Match the stable phrase, not the volatile column/object/database names.
+            "The SELECT permission was denied on the column": "Your SQL Server login doesn't have permission to read one of the columns being synced. Grant it SELECT access on that column (for example via the db_datareader role or an explicit column-level GRANT SELECT), then re-enable the sync.",
             # SQL Server error 208 — the SELECT we run during the sync references an object the
             # server can't resolve. Either the table/view we're syncing was dropped or renamed
             # after schema discovery, or (as seen in practice) the view we select from has a body
