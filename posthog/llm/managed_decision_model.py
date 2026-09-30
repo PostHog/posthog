@@ -74,7 +74,10 @@ class BackgroundRefresher[T]:
             # This thread never sees request_finished, so release its connections the way a request would.
             for conn in connections.all(initialized_only=True):
                 if not conn.in_atomic_block:
-                    conn.close_if_unusable_or_obsolete()
+                    try:
+                        conn.close_if_unusable_or_obsolete()
+                    except Exception:
+                        logger.exception("managed_prompt_connection_release_failed", prompt_name=self._prompt_name)
         with self._lock:
             if value is not None:
                 self._value = value
