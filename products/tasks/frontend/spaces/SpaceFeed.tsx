@@ -22,7 +22,7 @@ import { spaceSceneLogic } from './spaceSceneLogic'
 export function SpaceFeed({ id }: { id: string }): JSX.Element {
     const { feedGroups, sessionsById, sessionsLoading, sessionsUnavailable } = useValues(spaceSceneLogic({ id }))
     const { loadSessions } = useActions(spaceSceneLogic({ id }))
-    const { pinnedItems } = useValues(todaySpacesLogic)
+    const { pinnedItems, unreadSessionIds } = useValues(todaySpacesLogic)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
 
     if (sessionsLoading && !feedGroups.length) {
@@ -77,7 +77,12 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                     </Text>
                     {group.items.map((item) =>
                         sessionsById[item.id] ? (
-                            <SpaceFeedCard key={item.id} task={sessionsById[item.id]} pinned={pinnedIds.has(item.id)} />
+                            <SpaceFeedCard
+                                key={item.id}
+                                task={sessionsById[item.id]}
+                                pinned={pinnedIds.has(item.id)}
+                                unread={unreadSessionIds.has(item.id)}
+                            />
                         ) : null
                     )}
                 </Fragment>

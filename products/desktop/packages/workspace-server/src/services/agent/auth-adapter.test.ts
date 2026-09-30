@@ -9,7 +9,11 @@ vi.mock("@posthog/agent/posthog-api", () => ({
 vi.stubGlobal("fetch", mockFetch);
 
 import { configureCustomCloud } from "@posthog/shared";
+import { Container } from "inversify";
+import { AUTH_PROXY_SERVICE } from "../auth-proxy/identifiers";
+import { MCP_PROXY_SERVICE } from "../mcp-proxy/identifiers";
 import { AgentAuthAdapter } from "./auth-adapter";
+import { AGENT_AUTH, AGENT_LOGGER } from "./identifiers";
 
 const baseCredentials = {
   apiHost: "https://app.posthog.com",
@@ -85,11 +89,137 @@ describe("AgentAuthAdapter", () => {
       deps.authProxy as never,
       deps.mcpProxy as never,
       deps.loggerFactory as never,
+      {
+        getRoute: vi.fn().mockResolvedValue({ mode: "legacy", reason: "x" }),
+        remint: vi.fn(),
+        fallBack: vi.fn(),
+      } as never,
     );
+  });
+
+  it("refuses to resolve without a gateway credential source", () => {
+    const container = new Container();
+    container.bind(AGENT_AUTH).toConstantValue(deps.authService);
+    container.bind(AUTH_PROXY_SERVICE).toConstantValue(deps.authProxy);
+    container.bind(MCP_PROXY_SERVICE).toConstantValue(deps.mcpProxy);
+    container.bind(AGENT_LOGGER).toConstantValue(deps.loggerFactory);
+    container.bind(AgentAuthAdapter).toSelf();
+
+    expect(() => container.get(AgentAuthAdapter)).toThrow();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe("ensureGatewayProxy", () => {
+    function withSource(getRoute: ReturnType<typeof vi.fn>) {
+      const authProxy = {
+        start: vi.fn().mockResolvedValue("http://127.0.0.1:9999/legacy"),
+        startGatewaySession: vi
+          .fn()
+          .mockResolvedValue("http://127.0.0.1:9999/session"),
+      };
+      const source = { getRoute, remint: vi.fn(), fallBack: vi.fn() };
+      const withGo = new AgentAuthAdapter(
+        deps.authService as never,
+        authProxy as never,
+        deps.mcpProxy as never,
+        deps.loggerFactory as never,
+        source as never,
+      );
+      return { withGo, authProxy };
+    }
+
+    it("gives a blocked org a session target that answers the usage limit", async () => {
+      const { withGo, authProxy } = withSource(
+        vi.fn().mockResolvedValue({
+          mode: "blocked",
+          reason: "credit_bucket_exhausted",
+          detail: "limit",
+        }),
+      );
+
+      const result = await withGo.ensureGatewayProxy(
+        "https://app.posthog.com",
+        1,
+      );
+
+      expect(result.mode).toBe("go");
+      expect(authProxy.startGatewaySession).toHaveBeenCalled();
+      expect(authProxy.start).not.toHaveBeenCalled();
+    });
+
+    it("uses a Go session target when the project has a session token", async () => {
+      const getRoute = vi
+        .fn()
+        .mockResolvedValue({ mode: "go", token: "phe_x" });
+      const { withGo, authProxy } = withSource(getRoute);
+
+      const result = await withGo.ensureGatewayProxy(
+        "https://app.posthog.com",
+        1,
+      );
+
+      expect(getRoute).toHaveBeenCalledWith(1, { awaitRecheck: true });
+      expect(result).toEqual({
+        proxyUrl: "http://127.0.0.1:9999/session",
+        mode: "go",
+      });
+      expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
+        projectId: 1,
+        legacyGatewayUrl: "https://gateway.example.com",
+        headers: undefined,
+      });
+    });
+
+    it("lets a caller skip waiting on a due re-check", async () => {
+      const getRoute = vi
+        .fn()
+        .mockResolvedValue({ mode: "go", token: "phe_x" });
+      const { withGo } = withSource(getRoute);
+
+      await withGo.ensureGatewayProxy("https://app.posthog.com", 1, {
+        awaitRecheck: false,
+      });
+
+      expect(getRoute).toHaveBeenCalledWith(1, { awaitRecheck: false });
+    });
+
+    it.each([
+      [
+        "a legacy route",
+        vi.fn().mockResolvedValue({ mode: "legacy", reason: "not_rolled_out" }),
+      ],
+      ["a failing source", vi.fn().mockRejectedValue(new Error("boom"))],
+    ])("falls back to the legacy target on %s", async (_label, getRoute) => {
+      const { withGo, authProxy } = withSource(getRoute);
+
+      const result = await withGo.ensureGatewayProxy(
+        "https://app.posthog.com",
+        1,
+      );
+
+      expect(result).toEqual({
+        proxyUrl: "http://127.0.0.1:9999/legacy",
+        mode: "legacy",
+      });
+      expect(authProxy.start).toHaveBeenCalledWith(
+        "https://gateway.example.com",
+        undefined,
+      );
+    });
+
+    it("stays on legacy without a project or a source", async () => {
+      const { withGo } = withSource(vi.fn());
+
+      expect(
+        (await withGo.ensureGatewayProxy("https://app.posthog.com", null)).mode,
+      ).toBe("legacy");
+      expect(
+        (await adapter.ensureGatewayProxy("https://app.posthog.com", 1)).mode,
+      ).toBe("legacy");
+    });
   });
 
   describe("getCurrentCredentials", () => {

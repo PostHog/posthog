@@ -23,6 +23,7 @@ const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
 use personhog_common::partitioning::partition_for_person;
 
 use super::stash::{StashDecision, StashTable};
+use crate::config::Http2Windows;
 use crate::grpc_http::{grpc_error_response, grpc_status_code};
 
 pub type AddressResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -119,6 +120,7 @@ pub struct LeaderBackendConfig {
     pub num_partitions: u32,
     pub timeout: Duration,
     pub num_channels: usize,
+    pub http2_windows: Http2Windows,
 }
 
 struct ChannelPool {
@@ -238,6 +240,7 @@ impl LeaderBackend {
                     .timeout(self.config.timeout)
                     .connect_timeout(self.config.timeout)
                     .tcp_nodelay(true);
+                let endpoint = self.config.http2_windows.apply_to_endpoint(endpoint);
                 let pool = Arc::new(ChannelPool {
                     channels: (0..self.config.num_channels.max(1))
                         .map(|_| endpoint.connect_lazy())
@@ -546,6 +549,7 @@ mod tests {
             num_partitions,
             timeout: Duration::from_secs(5),
             num_channels: 4,
+            http2_windows: Http2Windows::default(),
         }
     }
 
