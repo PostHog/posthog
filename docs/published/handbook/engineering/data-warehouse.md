@@ -124,6 +124,18 @@ This check retains the UTM source catalogue's time window and top-500 limit, so 
 Missing signals mean insufficient evidence to recommend a connection, not proof that traffic is organic.
 The medium count describes only matched events in the lookback window; zero can also mean no events matched that integration.
 This changes setup recommendations and diagnostic actions, not report attribution or connected-source sync checks.
+## Resuming Persona imports
+
+Persona incremental and append imports on V3 can continue a failed pass in a later job.
+A checkpoint stores the page position, the original query window, and the highest timestamp from the pass.
+The next job uses that position only after the queue confirms that all covered batches reached the table.
+If the newest batch did not load, the next job uses the last confirmed checkpoint or starts the window again.
+
+Checkpoints expire after 24 hours without an update.
+A completed pass, reset, pause, deletion, or change to the sync settings clears the checkpoint.
+A change to the source connection or query window also prevents reuse.
+The final batch must complete before the saved timestamp becomes the next sync watermark.
+Append mode can repeat rows after the last confirmed checkpoint.
 
 ## Importing your local Postgres instance
 
