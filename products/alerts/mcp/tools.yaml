@@ -237,7 +237,6 @@ tools:
     platform-alerts-list:
         operation: platform_alerts_list
         enabled: true
-        feature_flag: platform-alerts
         scopes:
             - alert:read
         annotations:
@@ -250,18 +249,18 @@ tools:
             List alert configurations on the shared alerts platform, newest first. This is an early-access, read-only
             view. Today it holds logs alerts copied over from the existing logs alerting setup. It is separate from
             insight alerts (the alert-* tools) and from logs alerts (the logs-alerts-* tools), so use those tools to
-            create or change alerts. Each configuration has an `alerts` list with one entry per `grouping_key`. The
-            key is an empty string when the alert does not group its results. Each entry has a `state`: not_firing
-            (no breach is recorded, which includes entries not checked yet), firing (the threshold is breached),
-            errored (the last check failed to run), snoozed (notifications are paused until `snooze_until`), or
-            broken (the configuration cannot be evaluated and needs a fix). `firing_started_at` is when the current
-            firing started, and is null when the entry is not firing. `last_notified_at` is when a notification was
-            last sent. On the configuration, `next_check_at` is when the next check is due and `consecutive_failures`
-            counts checks in a row that failed to run.
+            create or change alerts. Each configuration has an `alerts` list with one entry per `grouping_key`. The key
+            is an empty string when the alert does not group its results. Each entry has a `state`: not_firing (no
+            breach is recorded, which includes entries not checked yet), firing (the threshold is breached), errored
+            (the last check failed to run), snoozed (notifications are paused until `snooze_until`), or broken (the
+            configuration cannot be evaluated and needs a fix). `firing_started_at` is when the current firing started,
+            and is null when the entry is not firing. `last_notified_at` is when a notification was last sent. On the
+            configuration, `next_check_at` is when the next check is due and `consecutive_failures` counts checks in a
+            row that failed to run.
+        feature_flag: platform-alerts
     platform-alerts-retrieve:
         operation: platform_alerts_retrieve
         enabled: true
-        feature_flag: platform-alerts
         scopes:
             - alert:read
         annotations:
@@ -271,11 +270,12 @@ tools:
         title: Get platform alert
         description: >
             Get one alert configuration from the shared alerts platform by ID, with its runtime state. This is an
-            early-access, read-only view. Today it holds logs alerts copied over from the existing logs alerting
-            setup. It is separate from insight alerts (the alert-* tools) and from logs alerts (the logs-alerts-*
-            tools). The `alerts` list has one entry per `grouping_key`, which is an empty string when the alert does
-            not group its results. Each entry has a `state`: not_firing, firing, errored (the last check failed to
-            run), snoozed (notifications are paused until `snooze_until`), or broken (the configuration cannot be
-            evaluated and needs a fix). `firing_started_at` is when the current firing started, and is null when the
-            entry is not firing. `last_notified_at` is when a notification was last sent. `next_check_at` is when the
-            next check is due, and `consecutive_failures` counts checks in a row that failed to run.
+            early-access, read-only view. Today it holds logs alerts copied over from the existing logs alerting setup.
+            It is separate from insight alerts (the alert-* tools) and from logs alerts (the logs-alerts-* tools). The
+            `alerts` list has one entry per `grouping_key`, which is an empty string when the alert does not group its
+            results. Each entry has a `state`: not_firing, firing, errored (the last check failed to run), snoozed
+            (notifications are paused until `snooze_until`), or broken (the configuration cannot be evaluated and needs
+            a fix). `firing_started_at` is when the current firing started, and is null when the entry is not firing.
+            `last_notified_at` is when a notification was last sent. `next_check_at` is when the next check is due, and
+            `consecutive_failures` counts checks in a row that failed to run.
+        feature_flag: platform-alerts
