@@ -6062,6 +6062,22 @@ snapshots:
         hash: v1.k794b7964.0184f9ca79fe2726f803b9050b013dd0b44a260bb0a6f490400f818ffc27bb55.Y7wikoBvp2ZhegOiwx-qU2WNklUo6ycXa0yGL2beoQo
     products-alerts-simulation-summary--sub-detector-scores--light:
         hash: v1.k794b7964.0a77535b3969cac543ed48fdcd1117a5fe0305a6d7aa38c7bd8af446d4b1e422.ErlO5Qkh3fOCJ8BDf3qU9EkgKb_AUPbuFPhJpFrPr7M
+    products-autoresearch-daily-volume-chart--sparse-days--dark:
+        hash: v1.k794b7964.47b1e118bc8c9e9c27efac87a76591e9d2d31a6e2d0c728e9f71180bf65dbd68._gnh7qhODKrYgIH_Ec2BOaeKSqU-OFl8NQYJxMbXL4Y
+    products-autoresearch-daily-volume-chart--sparse-days--light:
+        hash: v1.k794b7964.870b0a67047e4178e67f74d634013503c70251933c6a413aeddbfe3c8caec512.OajUYKSqaj9iItNqm7LYVShj0OLD2SZVlOY8HQ-BO6w
+    products-autoresearch-daily-volume-chart--two-weeks--dark:
+        hash: v1.k794b7964.9a713abe443d5a52c29c22dd7555ad8005863f1a7a009702606fa5bd8384a98f.2nVLBkjlKykaLju4RbjgIlLkS-JsIqrCGxIqlHvj2ho
+    products-autoresearch-daily-volume-chart--two-weeks--light:
+        hash: v1.k794b7964.657b4864698965984216442d166b797580c2400a075a32a666088955114b6e26.5aBdQrW6RrKJjUXMDizdh6cpFHYQ1hqWTxPzdc2duvk
+    products-autoresearch-probability-histogram--bimodal--dark:
+        hash: v1.k794b7964.54848640bbeba7e0c519e2a4f939bd58aff008ea7f48b96c38f95c825859e29c.8bwWwevDVdQFiWK4kusQ_xTaxhGSYIyHuH6qZFWC18U
+    products-autoresearch-probability-histogram--bimodal--light:
+        hash: v1.k794b7964.7465c08474c8046d542766f38638d29b338aa735187618003250a820305a7f0a.E5Z0ct7fsOPeVK172KqNscasD4VWpkZqHNkAdPwxb0w
+    products-autoresearch-probability-histogram--single-bucket--dark:
+        hash: v1.k794b7964.47dc280e27c512035ac74d86134e2b5771f84b1454556c492f6319d9d3ffa29f.l0n9noDhYfjTrpN-tlvi5TJq4RJCDIkUCFKse51o1O4
+    products-autoresearch-probability-histogram--single-bucket--light:
+        hash: v1.k794b7964.492095448990e600a399d4212b8fb96e8f95c2e7bdafb3f84d8bdc10467fbf4e.1OfZFFoGzmeH8sxtbwrD-H9bR_n08l9kV63NB2Sv1jU
     products-dashboards--dashboard-states--dark:
         hash: v1.k794b7964.cc591635f83447f7bcfb802062302b8b1bbcd51826110b12fa0f68d4830dcfd3.CIgt_KxCyQRgbn7DPF4MDXc5JBlSxbaCPS0Snyx3cRs
     products-dashboards--dashboard-states--light:
