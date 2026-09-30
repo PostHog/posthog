@@ -223,3 +223,17 @@ class TwilioAccount(TypedDict, total=False):
     """Empty when the Twilio request fails."""
 
     sid: str
+
+
+@frozen
+class EditedEmailDesign:
+    design: dict[str, Any]
+    warnings: tuple[str, ...]
+
+
+class EmailDesignRenderingNotConfigured(Exception):
+    pass
+
+
+class EmailDesignRenderFailed(Exception):
+    pass

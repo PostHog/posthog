@@ -105,11 +105,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
-from products.messaging.backend.api.design_operations import apply_design_operations
-from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
-from products.messaging.backend.models import MessageTemplate
-from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
@@ -121,6 +117,12 @@ from products.tasks.backend.facade.workflow_tasks import (
     validate_skill_names,
 )
 from products.workflows.backend.facade.api import create_batch_job
+from products.workflows.backend.facade.contracts import EmailDesignRenderFailed, EmailDesignRenderingNotConfigured
+from products.workflows.backend.facade.email_design import (
+    apply_email_design_operations,
+    get_email_template_content,
+    render_email_design_html,
+)
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
     mask_derived_trigger,
@@ -611,16 +613,15 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool, contex
     # list validates one action at a time, so without this each step re-queries the same row.
     # The context dict is shared across the many=True action list, so the memo (and the
     # materialized-bytes counter below) span all steps in one request.
-    template_cache: dict[str, Optional[MessageTemplate]] = context.setdefault("_message_template_cache", {})
+    template_cache: dict[str, Optional[dict]] = context.setdefault("_message_template_cache", {})
     cache_key = str(parsed_uuid)
     if parsed_uuid is None:
-        template = None
+        email_content = None
     elif cache_key in template_cache:
-        template = template_cache[cache_key]
+        email_content = template_cache[cache_key]
     else:
-        template = MessageTemplate.objects.filter(team_id=team.id, id=parsed_uuid, deleted=False).first()
-        template_cache[cache_key] = template
-    email_content = (template.content or {}).get("email") if template else None
+        email_content = get_email_template_content(team.id, parsed_uuid)
+        template_cache[cache_key] = email_content
     if not isinstance(email_content, dict) or not any(email_content.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
         if strict:
             raise serializers.ValidationError(
@@ -3448,19 +3449,20 @@ def _render_action_email_operations(
                 "operations."
             }
         )
-    new_design = apply_design_operations(design, operations)
-    for warning in validate_design(new_design):
+    edited = apply_email_design_operations(design, operations)
+    new_design = edited.design
+    for warning in edited.warnings:
         logger.info("hog_flow_action_email_design_warning", warning=warning, action_id=action_id)
     try:
-        html = render_design_html(new_design)
-    except UnlayerNotConfiguredError:
+        html = render_email_design_html(new_design)
+    except EmailDesignRenderingNotConfigured:
         raise exceptions.ValidationError(
             {
                 "operations": "Design rendering is not configured on this instance - an administrator "
                 "must set UNLAYER_API_KEY to enable design editing."
             }
         )
-    except UnlayerRenderError as e:
+    except EmailDesignRenderFailed as e:
         raise exceptions.ValidationError({"operations": f"Rendering the design to HTML failed: {e}"})
     return _RenderedActionEmailDesign(base_design=design, design=new_design, html=html)
 

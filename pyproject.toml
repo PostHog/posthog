@@ -732,11 +732,7 @@ ignore_imports = [
     # the facade.
     "products.workflows.backend.presentation.views.hog_flow -> products.feature_flags.backend.person_sampling",
     "products.workflows.backend.presentation.views.hog_flow -> products.feature_flags.backend.user_blast_radius",
-    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.design_operations",
-    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.design_validation",
     "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.message_templates",
-    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.models",
-    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.unlayer",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.metrics",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow.hog_flow",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_batch_job",
