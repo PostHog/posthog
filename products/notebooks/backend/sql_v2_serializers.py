@@ -421,6 +421,24 @@ class NotebookCellLastRunSerializer(serializers.Serializer):
     error = serializers.CharField(required=False, allow_null=True, help_text="Error message when the run failed.")
 
 
+class NotebookCellVisualizationSerializer(serializers.Serializer):
+    display = serializers.CharField(
+        help_text="Chart type the cell opens on, a chart display value such as 'ActionsBar' or 'ActionsLineGraph'."
+    )
+    x_axis = serializers.CharField(
+        allow_null=True,
+        help_text="Column on the X axis. Null means the chart picks it: the first date column.",
+    )
+    y_axis = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Columns plotted as Y series. Empty means the chart picks them: every numeric column.",
+    )
+    series_breakdown = serializers.CharField(
+        allow_null=True,
+        help_text="Column that splits the Y series into one series per value, or null.",
+    )
+
+
 class NotebookCellStateSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="Durable cell identity, used by the cell run and edit endpoints.")
     cell_type = serializers.CharField(
@@ -468,6 +486,14 @@ class NotebookCellStateSerializer(serializers.Serializer):
     )
     last_run = NotebookCellLastRunSerializer(
         required=False, allow_null=True, help_text="Summary of the most recent run; null when never run."
+    )
+    visualization = NotebookCellVisualizationSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "SQL cells only: the chart the cell opens on, set in the editor or with the visualization parameter of "
+            "notebooks-add-cell. Null when the cell opens on its results table."
+        ),
     )
 
 
