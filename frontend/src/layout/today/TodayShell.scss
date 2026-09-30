@@ -91,9 +91,9 @@
     display: flex;
     align-items: center;
     height: 9px;
+    touch-action: none;
     cursor: row-resize;
     outline: none;
-    touch-action: none;
 }
 
 .TodayPaneSection__resize-line {
