@@ -9,7 +9,7 @@ from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.facade.contracts import WorkflowCodeErrorStatus
+from products.workflows.backend.facade.enums import WorkflowCodeErrorStatus
 from products.workflows.backend.services.workflow_code.errors import (
     DocumentError,
     DocumentInvalid,

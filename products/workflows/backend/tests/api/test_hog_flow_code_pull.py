@@ -90,13 +90,14 @@ class TestHogFlowCodePull(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("secret_input", "signing_secret"),
-            ("no_key", "no key"),
-            ("staged_draft", "staged draft"),
-            ("email_design_edited", "design"),
+            ("secret_input", "signing_secret", status.HTTP_200_OK),
+            ("no_key", "no key", status.HTTP_200_OK),
+            ("staged_draft", "staged draft", status.HTTP_200_OK),
+            ("email_design_edited", "design", status.HTTP_200_OK),
+            ("archived", "restores it", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_what_the_file_cannot_carry_comes_back_as_a_warning(self, case: str, named: str) -> None:
+    def test_what_the_file_cannot_carry_comes_back_as_a_warning(self, case: str, named: str, check_status: int) -> None:
         definition = _with_secret_webhook(SAMPLE_DEFINITION) if case == "secret_input" else SAMPLE_DEFINITION
         if case == "no_key":
             workflow = self._create_unkeyed(definition)
@@ -109,6 +110,8 @@ class TestHogFlowCodePull(APIBaseTest):
             email = next(a for a in actions if a["id"] == "thank_the_new_customer")
             email["config"]["inputs"]["email"]["value"]["design"] = {"body": {"rows": []}, "counters": {}}
             HogFlow.objects.filter(id=workflow.id).update(actions=actions)
+        if case == "archived":
+            HogFlow.objects.filter(id=workflow.id).update(status=HogFlow.State.ARCHIVED)
 
         response = self._pull(workflow)
 
@@ -118,7 +121,7 @@ class TestHogFlowCodePull(APIBaseTest):
         assert len(matching) == 1, body["warnings"]
         assert f"# {matching[0]['message']}" in body["content"]
         assert "not-a-real-secret" not in body["content"]
-        assert self._check(body["content"]).status_code == status.HTTP_200_OK
+        assert self._check(body["content"]).status_code == check_status
 
     def test_a_workflow_in_another_project_is_not_found(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")

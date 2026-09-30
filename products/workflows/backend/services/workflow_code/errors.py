@@ -2,7 +2,7 @@ from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.facade.contracts import WorkflowCodeErrorStatus
+from products.workflows.backend.facade.enums import WorkflowCodeErrorStatus
 
 DocumentPath = tuple[str | int, ...]
 

@@ -19,23 +19,19 @@ from products.workflows.backend.facade.api import (
     render_workflow_code,
     workflow_code_schema,
 )
-from products.workflows.backend.facade.contracts import (
+from products.workflows.backend.facade.contracts import WorkflowCodeRejected
+from products.workflows.backend.facade.enums import (
+    WORKFLOW_CODE_APPLY_RESULT_CHOICES,
+    WORKFLOW_CODE_ERROR_STATUS_CHOICES,
+    WORKFLOW_CODE_PLAN_RESULT_CHOICES,
+    WORKFLOW_STATUS_CHOICES,
     WorkflowCodeApplyResult,
-    WorkflowCodeErrorStatus,
-    WorkflowCodePlanResult,
-    WorkflowCodeRejected,
-    WorkflowStatus,
 )
 
 if TYPE_CHECKING:
     from products.workflows.backend.presentation.views.hog_flow import HogFlowViewSet
 
 logger = structlog.get_logger(__name__)
-
-# The (value, label) pairs of HogFlow.State, so the schema reuses its HogFlowStateEnum.
-_WORKFLOW_STATUS_CHOICES = [
-    (workflow_status.value, workflow_status.value.capitalize()) for workflow_status in WorkflowStatus
-]
 
 
 class HogFlowCodeRequestSerializer(serializers.Serializer):
@@ -62,7 +58,7 @@ class HogFlowCodeRequestSerializer(serializers.Serializer):
 
 class HogFlowCodeErrorSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
-        choices=WorkflowCodeErrorStatus.choices, help_text="A machine-readable code for the kind of mistake."
+        choices=WORKFLOW_CODE_ERROR_STATUS_CHOICES, help_text="A machine-readable code for the kind of mistake."
     )
     message = serializers.CharField(help_text="What is wrong, and where.")
     why = serializers.CharField(help_text="Why PostHog refuses it.")
@@ -90,7 +86,7 @@ class HogFlowCodeWorkflowSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The key the file names.")
     name = serializers.CharField(allow_null=True, help_text="The stored workflow name.")
     version = serializers.IntegerField(help_text="The stored workflow version.")
-    status = serializers.ChoiceField(choices=_WORKFLOW_STATUS_CHOICES, help_text="The stored workflow status.")
+    status = serializers.ChoiceField(choices=WORKFLOW_STATUS_CHOICES, help_text="The stored workflow status.")
 
 
 class HogFlowCodeStepSerializer(serializers.Serializer):
@@ -107,13 +103,13 @@ class HogFlowCodeChangedStepSerializer(HogFlowCodeStepSerializer):
 
 
 class HogFlowCodeStatusChangeSerializer(serializers.Serializer):
-    to = serializers.ChoiceField(choices=_WORKFLOW_STATUS_CHOICES, help_text="The status the file sets.")
+    to = serializers.ChoiceField(choices=WORKFLOW_STATUS_CHOICES, help_text="The status the file sets.")
 
     def get_fields(self) -> dict[str, serializers.Field]:
         # `from` is a Python keyword, so it cannot be a class attribute.
         fields = super().get_fields()
         fields["from"] = serializers.ChoiceField(
-            choices=_WORKFLOW_STATUS_CHOICES,
+            choices=WORKFLOW_STATUS_CHOICES,
             allow_null=True,
             help_text="The stored status. Null when the file creates the workflow.",
         )
@@ -122,7 +118,7 @@ class HogFlowCodeStatusChangeSerializer(serializers.Serializer):
 
 class HogFlowCodePlanSerializer(serializers.Serializer):
     result = serializers.ChoiceField(
-        choices=WorkflowCodePlanResult.choices,
+        choices=WORKFLOW_CODE_PLAN_RESULT_CHOICES,
         help_text=(
             "create: no workflow has this key. update: applying the file changes the workflow. "
             "stage: applying it through MCP stages the change as a draft of the active workflow, to publish with workflows-publish. "
@@ -184,7 +180,7 @@ class HogFlowCodeCheckResponseSerializer(serializers.Serializer):
 
 class HogFlowCodeApplyResponseSerializer(serializers.Serializer):
     result = serializers.ChoiceField(
-        choices=WorkflowCodeApplyResult.choices,
+        choices=WORKFLOW_CODE_APPLY_RESULT_CHOICES,
         help_text=(
             "created: the file made a new workflow. updated: it changed the workflow. "
             "staged: the change waits as a draft of the active workflow; publish it with workflows-publish. "

@@ -30,7 +30,8 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 IN_FLIGHT_COUNT = "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count"
 REPORT_USER_ACTION = "products.workflows.backend.presentation.views.hog_flow_code.report_user_action"
 
-SAMPLE_SENDER_ID = 12
+# Far above any id the integrations sequence hands out in a test run, so an explicit id never collides.
+SAMPLE_SENDER_ID = 9_000_012
 
 SAMPLE = dedent(
     """\
@@ -53,7 +54,7 @@ SAMPLE = dedent(
             then:
               - type: email
                 name: Thank the new customer
-                from: { integration_ids: [12], name: The Example team }
+                from: { integration_ids: [9000012], name: The Example team }
                 to: '{{ person.properties.email }}'
                 subject: Thanks for upgrading
                 text: Your pro plan is live.
@@ -261,7 +262,7 @@ PLAIN_EMAIL_STEP = dedent(
           inputs:
             email:
               value:
-                from: { integrationId: SENDER, integrationIds: [SENDER] }
+                from: SENDER
                 to: { email: '{{ person.properties.email }}', name: '' }
                 subject: Welcome
                 text: Welcome aboard.
@@ -270,9 +271,7 @@ PLAIN_EMAIL_STEP = dedent(
 )
 
 
-def _create_email_sender(team: Team, integration_id: int, kind: str = "email") -> Integration:
-    # An explicit id, so the files below can name it. No test in these classes creates an integration
-    # with a generated id, which could otherwise take the same one.
+def _create_integration(team: Team, integration_id: int, kind: str = "email") -> Integration:
     return Integration.objects.create(
         id=integration_id,
         team=team,
@@ -285,7 +284,7 @@ def _create_email_sender(team: Team, integration_id: int, kind: str = "email") -
 def _set_up_project(team: Team) -> None:
     sync_template_to_db(_webhook_template_with_signing_secret())
     sync_template_to_db(_email_template())
-    _create_email_sender(team, SAMPLE_SENDER_ID)
+    _create_integration(team, SAMPLE_SENDER_ID)
 
 
 def _create_keyed_workflow(client: Any, team: Team, key: str, definition: dict[str, Any]) -> HogFlow:
@@ -414,26 +413,29 @@ class TestHogFlowCodeCheck(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("check_another_projects_sender", "code_check", "another_project", "typed"),
-            ("apply_another_projects_sender", "code_apply", "another_project", "typed"),
-            ("check_this_projects_slack_integration", "code_check", "slack", "typed"),
-            ("apply_another_projects_sender_in_a_plain_step", "code_apply", "another_project", "plain"),
+            ("check_another_projects_sender", "code_check", True, "email", "typed"),
+            ("apply_another_projects_sender", "code_apply", True, "email", "typed"),
+            ("check_this_projects_slack_integration", "code_check", False, "slack", "typed"),
+            ("apply_another_projects_sender_in_a_plain_step", "code_apply", True, "email", "plain"),
+            ("apply_another_projects_sender_as_text_in_a_plain_step", "code_apply", True, "email", "plain_text_id"),
         ]
     )
     def test_an_email_sender_the_project_does_not_have_is_refused_at_its_step(
-        self, _name: str, endpoint: str, owner: str, step: str
+        self, _name: str, endpoint: str, in_other_project: bool, kind: str, step: str
     ) -> None:
-        team = Team.objects.create(organization=self.organization, name="Other project")
-        foreign = _create_email_sender(
-            team if owner == "another_project" else self.team,
-            SAMPLE_SENDER_ID + 1,
-            kind="slack" if owner == "slack" else "email",
+        team = (
+            Team.objects.create(organization=self.organization, name="Other project") if in_other_project else self.team
         )
+        sender = _create_integration(team, SAMPLE_SENDER_ID + 1, kind=kind)
+        plain_senders = {
+            "plain": f"{{ integrationId: {sender.id}, integrationIds: [{sender.id}] }}",
+            "plain_text_id": f"{{ integrationId: '{sender.id}' }}",
+        }
         if step == "typed":
-            content = SAMPLE.replace(f"integration_ids: [{SAMPLE_SENDER_ID}]", f"integration_ids: [{foreign.id}]")
+            content = SAMPLE.replace(f"integration_ids: [{SAMPLE_SENDER_ID}]", f"integration_ids: [{sender.id}]")
             located = ("steps[1].arms[0].then[0].from.integration_ids", 20)
         else:
-            content = PLAIN_EMAIL_STEP.replace("SENDER", str(foreign.id))
+            content = PLAIN_EMAIL_STEP.replace("SENDER", plain_senders[step])
             located = ("steps[0].config.inputs.email.value.from", 16)
 
         response = self.client.post(
@@ -443,7 +445,7 @@ class TestHogFlowCodeCheck(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         [error] = response.json()["errors"]
         assert (error["status"], error["path"], error["line"]) == ("invalid_value", *located), error
-        assert str(foreign.id) in error["message"]
+        assert str(sender.id) in error["message"]
         assert not HogFlow.objects.filter(team=self.team).exists()
 
     def test_a_key_in_another_project_is_never_found(self) -> None:

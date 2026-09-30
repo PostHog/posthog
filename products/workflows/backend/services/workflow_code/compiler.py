@@ -2,9 +2,10 @@ import re
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol
 
+from posthog.cdp.validation import MAX_WORKFLOW_EMAIL_SENDERS
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.facade.contracts import WorkflowCodeErrorStatus
+from products.workflows.backend.facade.enums import WorkflowCodeErrorStatus
 from products.workflows.backend.services.workflow_code.document import (
     BranchStep,
     Condition,
@@ -28,6 +29,7 @@ from products.workflows.backend.services.workflow_code.errors import (
 TRIGGER_NODE_ID = "trigger_node"
 EXIT_NODE_ID = "exit_node"
 EMAIL_TEMPLATE_ID = "template-email"
+_EMAIL_INPUT_TYPES = ("email", "native_email")
 WEBHOOK_TEMPLATE_ID = "template-webhook"
 MAX_STEP_ID_LENGTH = 200
 # Set by the workflow editor on each step it creates. They are bookkeeping, not content, so a file keeps them.
@@ -123,10 +125,14 @@ def template_errors(
     return errors
 
 
-def sender_errors(compiled: CompiledWorkflow, project_senders: Callable[[set[int]], set[int]]) -> list[DocumentError]:
+def sender_errors(
+    compiled: CompiledWorkflow,
+    get_template: Callable[[str], FunctionTemplate | None],
+    project_senders: Callable[[set[int]], set[int]],
+) -> list[DocumentError]:
     """Refuse email senders that are not email integrations of the project. `project_senders` returns
     which of the ids it is given are."""
-    senders = {action["id"]: _email_senders(action) for action in compiled.definition["actions"]}
+    senders = {action["id"]: _email_senders(action, get_template) for action in compiled.definition["actions"]}
     named = {integration_id for inputs in senders.values() for ids in inputs.values() for integration_id in ids}
     if not named:
         return []
@@ -140,25 +146,44 @@ def sender_errors(compiled: CompiledWorkflow, project_senders: Callable[[set[int
     return errors
 
 
-def _email_senders(action: dict[str, Any]) -> dict[str, set[int]]:
-    inputs = (action.get("config") or {}).get("inputs")
-    if not isinstance(inputs, dict):
+def _email_senders(
+    action: dict[str, Any], get_template: Callable[[str], FunctionTemplate | None]
+) -> dict[str, set[int]]:
+    config = action.get("config") or {}
+    template_id = config.get("template_id")
+    template = get_template(template_id) if isinstance(template_id, str) else None
+    inputs = config.get("inputs")
+    if template is None or not isinstance(inputs, dict):
         return {}
+    email_inputs = {item["key"] for item in template.inputs_schema or [] if item.get("type") in _EMAIL_INPUT_TYPES}
     senders: dict[str, set[int]] = {}
-    for input_key, entry in inputs.items():
+    for input_key in email_inputs & inputs.keys():
+        entry = inputs[input_key]
         value = entry.get("value") if isinstance(entry, dict) else None
         sender = value.get("from") if isinstance(value, dict) else None
-        if not isinstance(sender, dict):
-            continue
-        listed = sender.get("integrationIds")
-        ids = {
-            integration_id
-            for integration_id in [sender.get("integrationId"), *(listed if isinstance(listed, list) else [])]
-            if isinstance(integration_id, int) and not isinstance(integration_id, bool)
-        }
-        if ids:
+        ids = _sender_ids(sender) if isinstance(sender, dict) else set()
+        # The workflow serializer refuses a longer list, so these ids never reach a query.
+        if ids and len(ids) <= MAX_WORKFLOW_EMAIL_SENDERS:
             senders[input_key] = ids
     return senders
+
+
+def _sender_ids(sender: dict[str, Any]) -> set[int]:
+    # The runtime sends from integrationIds when the list has entries, and from integrationId otherwise.
+    listed = sender.get("integrationIds")
+    candidates = listed if isinstance(listed, list) and listed else [sender.get("integrationId")]
+    return {integration_id for integration_id in map(_integration_id, candidates) if integration_id is not None}
+
+
+def _integration_id(value: Any) -> int | None:
+    # The runtime looks integrations up by their id as text, so "13" names integration 13 too.
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
 
 
 def _sender_path(action_id: str, input_key: str, compiled: CompiledWorkflow) -> DocumentPath | None:
@@ -169,12 +194,16 @@ def _sender_path(action_id: str, input_key: str, compiled: CompiledWorkflow) -> 
 
 
 def _unknown_sender(ids: list[int], path: DocumentPath | None) -> DocumentError:
-    named = f"integration {ids[0]}" if len(ids) == 1 else f"integrations {', '.join(str(i) for i in ids)}"
+    named = (
+        f"integration {ids[0]}, which is not"
+        if len(ids) == 1
+        else f"integrations {', '.join(map(str, ids))}, which are not"
+    )
     return DocumentError(
         status=WorkflowCodeErrorStatus.INVALID_VALUE,
-        message=f"{describe_path(path)} sends from {named}, which this project has no email integration for.",
+        message=f"{describe_path(path)} sends from {named} an email integration of this project.",
         why="An email step sends from one of the project's own email integrations, so PostHog checks each id against them.",
-        fix="Use the id of one of this project's email integrations. The integrations API lists them with kind email.",
+        fix="Use the id of one of this project's email integrations. The integrations API and the integrations-list MCP tool list them, with kind email.",
         path=path,
     )
 

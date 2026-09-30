@@ -1,14 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
-from django.db import models
-
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.facade.enums import HogFlowBatchJobState
+from products.workflows.backend.facade.enums import HogFlowBatchJobState, WorkflowCodeErrorStatus
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -211,44 +208,6 @@ class ComparableContents:
 
 class StaleWorkflowWrite(Exception):
     """The workflow changed after the client loaded it, so the write would overwrite someone else's edit."""
-
-
-class WorkflowStatus(StrEnum):
-    DRAFT = "draft"
-    ACTIVE = "active"
-    ARCHIVED = "archived"
-
-
-class WorkflowCodeErrorStatus(models.TextChoices):
-    INVALID_YAML = "invalid_yaml"
-    YAML_FEATURE_NOT_ALLOWED = "yaml_feature_not_allowed"
-    DUPLICATE_KEY = "duplicate_key"
-    CONTENT_TOO_LARGE = "content_too_large"
-    UNSUPPORTED_VERSION = "unsupported_version"
-    MISSING_FIELD = "missing_field"
-    UNKNOWN_FIELD = "unknown_field"
-    INVALID_VALUE = "invalid_value"
-    UNKNOWN_TYPE = "unknown_type"
-    DUPLICATE_STEP_ID = "duplicate_step_id"
-    SECRET_INPUT = "secret_input"
-    UNKNOWN_TEMPLATE = "unknown_template"
-    INVALID_WORKFLOW = "invalid_workflow"
-    STATUS_CHANGE_NOT_ALLOWED = "status_change_not_allowed"
-    CONFLICT = "conflict"
-
-
-class WorkflowCodePlanResult(models.TextChoices):
-    CREATE = "create"
-    UPDATE = "update"
-    STAGE = "stage"
-    UNCHANGED = "unchanged"
-
-
-class WorkflowCodeApplyResult(models.TextChoices):
-    CREATED = "created"
-    UPDATED = "updated"
-    STAGED = "staged"
-    UNCHANGED = "unchanged"
 
 
 @frozen

@@ -4,7 +4,7 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.facade.contracts import WorkflowCodePlanResult
+from products.workflows.backend.facade.enums import WorkflowCodePlanResult
 from products.workflows.backend.services.workflow_code.compiler import EXIT_NODE_ID, TRIGGER_NODE_ID
 
 _METADATA_FIELDS = ("name", "description")

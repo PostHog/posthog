@@ -264,7 +264,7 @@ class _Renderer:
             return str(stored)
         self.warn(
             None,
-            f"The workflow is {stored}, and a file can only say draft or active. The file says draft, so applying it through the API makes the workflow a draft again.",
+            f"The workflow is {stored}, and a file can only say draft or active. The file says draft, and PostHog refuses to apply it until someone restores it in PostHog.",
         )
         return HogFlow.State.DRAFT
 
