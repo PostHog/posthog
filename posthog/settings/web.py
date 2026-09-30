@@ -123,6 +123,7 @@ PRODUCTS_APPS = [
     "products.data_catalog.backend.apps.DataCatalogConfig",
     "products.data_quality.backend.apps.DataQualityConfig",
     "products.security.backend.apps.SecurityConfig",
+    "products.webmcp.backend.apps.WebmcpConfig",
 ]
 
 INSTALLED_APPS = [
@@ -1287,6 +1288,13 @@ ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDI
 # Extra accepted ID-JAG `resource` values (the advertised resource-server identifier) beyond SITE_URL —
 # e.g. "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
 ID_JAG_ALLOWED_RESOURCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_RESOURCES", ""))
+
+# CIMD client_id of the first-party OAuth app that WebMCP mints its MCP tokens under.
+WEBMCP_OAUTH_CLIENT_ID: str = get_from_env(
+    "WEBMCP_OAUTH_CLIENT_ID", "https://posthog.com/.well-known/oauth/webmcp/client-metadata.json"
+)
+# MCP server endpoint that WebMCP forwards to. Empty selects the MCP server of this instance's region.
+WEBMCP_MCP_URL: str = get_from_env("WEBMCP_MCP_URL", "")
 
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
 TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10

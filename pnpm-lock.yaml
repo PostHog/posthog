@@ -866,6 +866,9 @@ importers:
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
+      '@posthog/products-webmcp':
+        specifier: workspace:*
+        version: link:../products/webmcp
       '@posthog/products-wizard':
         specifier: workspace:*
         version: link:../products/wizard
@@ -5315,6 +5318,28 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+
+  products/webmcp:
+    dependencies:
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.434.14(@types/react@18.3.27)(react@18.3.1)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+    devDependencies:
+      '@testing-library/react':
+        specifier: '*'
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/wizard:
     dependencies:

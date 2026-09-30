@@ -22,6 +22,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
+import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
 import { WizardRunSyncFab } from 'products/wizard/frontend/runs/WizardRunSyncFab'
 
 import { sceneLogic } from './sceneLogic'
@@ -35,6 +36,8 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(eventIngestionRestrictionLogic)
     useMountedLogic(breadcrumbsLogic)
     useMountedLogic(globalSetupLogic)
+    // Registers PostHog as a WebMCP tool for browser agents, where the browser supports it.
+    useMountedLogic(webmcpLogic)
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)

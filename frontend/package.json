@@ -155,6 +155,7 @@
         "@posthog/products-visual-review": "workspace:*",
         "@posthog/products-warehouse-sources": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
+        "@posthog/products-webmcp": "workspace:*",
         "@posthog/products-wizard": "workspace:*",
         "@posthog/products-workflows": "workspace:*",
         "@posthog/quill": "workspace:*",
