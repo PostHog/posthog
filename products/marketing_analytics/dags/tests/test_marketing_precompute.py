@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 _ENSURE = "products.marketing_analytics.dags.marketing_precompute.ensure_precomputed"
 _ACTIVE = "products.marketing_analytics.dags.marketing_precompute._recently_active_team_ids"
 _IS_CLOUD = "products.marketing_analytics.dags.marketing_precompute.is_cloud"
+_SYNC_EXECUTE = "products.marketing_analytics.dags.marketing_precompute.sync_execute"
 _FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false"
 _DB = "products.marketing_analytics.dags.marketing_precompute.Database"
 _FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
@@ -187,7 +188,7 @@ class TestConversionWarming(APIBaseTest):
         with (
             patch.dict(os.environ, {}, clear=False),
             patch(_IS_CLOUD, return_value=cloud),
-            patch(_ACTIVE, return_value={costs_only.pk, costs_no_tables.pk}),
+            patch(_SYNC_EXECUTE, return_value=[(costs_only.pk,), (costs_no_tables.pk,)]),
             patch(_FF, side_effect=read_flag) as feature_enabled,
         ):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
