@@ -13,6 +13,8 @@ import { windowValuesPlugin } from 'kea-window-values'
 import type { PostHog } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
+import { createSafeStorageEngine } from 'lib/utils/safeStorageEngine'
+
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
 import { isToolbarMounted, posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
@@ -33,7 +35,9 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
     const plugins = [
         ...(beforePlugins || []),
         disposablesPlugin,
-        localStoragePlugin(),
+        localStoragePlugin({
+            storageEngine: createSafeStorageEngine((error) => captureToolbarException(error, 'kea_localstorage')),
+        }),
         windowValuesPlugin({ window: window }),
         routerPlugin({
             history: routerHistory,

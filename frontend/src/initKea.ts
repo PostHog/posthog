@@ -18,6 +18,7 @@ import {
     stripTrailingSlash,
     stripTrailingSlashFromUrl,
 } from 'lib/utils/kea-router'
+import { createSafeStorageEngine } from 'lib/utils/safeStorageEngine'
 import { identifierToHuman } from 'lib/utils/strings'
 
 /*
@@ -138,7 +139,9 @@ export function initKea({
     const plugins = [
         ...(beforePlugins || []),
         disposablesPlugin,
-        localStoragePlugin(),
+        localStoragePlugin({
+            storageEngine: createSafeStorageEngine((error) => posthog.captureException(error)),
+        }),
         windowValuesPlugin({ window: window }),
         routerPlugin({
             history: routerHistory,
