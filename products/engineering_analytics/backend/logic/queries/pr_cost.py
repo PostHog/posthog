@@ -215,11 +215,10 @@ _COSTS_BY_PR_SELECT = f"""
 """
 
 
-# A PR's lifetime cost changes only when its CI runs, and cost is an estimate beside the live CI status,
-# so a figure up to this old serves repeat views of the same PRs without the full jobs scan.
+# The endpoint and MCP descriptions state that cost can lag new CI by this long.
 _PR_COSTS_CACHE_SECONDS = 300
-# The cached value is the grouped SQL row (repo owner, repo name, then the five cost columns), not a
-# PRCostAggregate, because the cache key covers the SQL but not the Python classes that read the row.
+# The cache stores the SQL row, not a PRCostAggregate, because the cache key covers the SQL but not
+# the Python classes that read the row.
 _CostRow = tuple[str, str, float | None, float | None, int | None, int | None, int | None]
 
 

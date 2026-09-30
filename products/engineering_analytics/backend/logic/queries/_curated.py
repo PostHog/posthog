@@ -616,23 +616,16 @@ class CuratedGitHubSource:
 
     @property
     def _user(self) -> "User | None":
-        # Forward the real user, not just the access control: a userless build drops the access
-        # control and fails closed (see _compute_system_table_access_decision), so the user is what
-        # lets HogQL honor the per-table warehouse ACL.
         return self._user_access_control.user if self._user_access_control is not None else None
 
     @property
     def _bypass_warehouse_access_control(self) -> bool:
-        # No user means a system / Temporal / CLI caller (the facade's documented userless path).
-        # There is no principal to honor the ACL with, so bypass it rather than fail closed and
-        # strip the tables — bypass is set ONLY in this genuinely userless case.
         return self._user_access_control is None
 
     def _catalog(self) -> Database:
         with self._lock:
             if self._database is None:
-                # The catalog is slow to build for a team with many warehouse tables, and every query
-                # of one request reads the same one.
+                # Building the catalog is slow, and every query of one request reads the same one.
                 self._database = Database.create_for(
                     team=self._team,
                     user=self._user,
@@ -674,10 +667,7 @@ class CuratedGitHubSource:
         return {**values, **loaded}
 
     def _may_read_every_table_in(self, sql: str) -> bool:
-        # The cached value was computed with another reader's access. Warehouse access is granted per
-        # table, so the value is served only when this reader's catalog grants every table the query
-        # names, which is the decision the query itself would get (see posthog/hogql/ACCESS_CONTROL.md,
-        # "Query cache partitioning").
+        # The rule HogQL's own query cache applies: posthog/hogql/ACCESS_CONTROL.md, "Query cache partitioning".
         catalog = self._catalog()
         return all(
             catalog.has_table(table) and not catalog.is_table_access_denied(table)
