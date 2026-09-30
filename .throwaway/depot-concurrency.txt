@@ -10,3 +10,4 @@ c2b
 c3b
 c3a
 script pair b
+self-cancel pair b
