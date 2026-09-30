@@ -1,18 +1,26 @@
 import json
 import dataclasses
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
+import structlog
 from anthropic import Anthropic
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
 
 from products.web_analytics.backend.content_autopilot.edits import PageEdit, apply_edits, page_headings
-from products.web_analytics.backend.content_autopilot.llm import ContentAutopilotLLMError, Effort, call_json
+from products.web_analytics.backend.content_autopilot.llm import (
+    ContentAutopilotLLMError,
+    Effort,
+    build_client,
+    call_json,
+)
 from products.web_analytics.backend.content_autopilot.opportunities import engine_label, site_page_urls, top_site_pages
 from products.web_analytics.backend.content_autopilot.prompts import (
     BRIEF_SCHEMA,
@@ -27,12 +35,22 @@ from products.web_analytics.backend.content_autopilot.prompts import (
     bullet_list,
     tagged,
 )
-from products.web_analytics.backend.content_autopilot.research import MAX_DOCUMENT_CHARS, ResearchBundle, SourceDocument
+from products.web_analytics.backend.content_autopilot.research import (
+    MAX_DOCUMENT_CHARS,
+    ResearchBundle,
+    SourceDocument,
+    fetch_named_competitor_pages,
+    fetch_site_page,
+    gather_research,
+    search_site_pages,
+)
 from products.web_analytics.backend.content_autopilot.site_discovery import site_host
 from products.web_analytics.backend.content_autopilot.validation import (
     LINK_RE,
     JudgeVerdict,
     ValidationCheck,
+    blocking_failures,
+    build_report,
     check_competitor_overlap,
     check_edit_placement,
     check_internal_links,
@@ -44,7 +62,14 @@ from products.web_analytics.backend.content_autopilot.validation import (
     judge_checks,
     word_count,
 )
-from products.web_analytics.backend.models import ContentAutopilotProposal, ContentAutopilotSiteProfile
+from products.web_analytics.backend.models import (
+    ContentAutopilotOpportunity,
+    ContentAutopilotProposal,
+    ContentAutopilotRun,
+    ContentAutopilotSiteProfile,
+)
+
+logger = structlog.get_logger(__name__)
 
 SAFETY_INPUT_CHARS = MAX_DOCUMENT_CHARS
 BRIEF_SITE_PAGE_CHARS = 8_000
@@ -65,6 +90,10 @@ MIN_EDIT_WORDS = 300
 MAX_EDIT_WORDS = 1_200
 PAGE_OPENING_CHARS = 2_000
 MAX_KEY_SITE_PAGES = 200
+MAX_REQUESTED_SITE_PAGES = 3
+DRAFT_ATTEMPTS = 2
+
+ProposalMode = Literal["validate", "regenerate"]
 
 
 @frozen
@@ -504,3 +533,438 @@ def _draft_from_proposal(proposal: ContentAutopilotProposal) -> Draft:
         source_ledger=tuple(_without_kind(entry) for entry in ledger if entry.get("kind") != "competitor"),
         competitor_ledger=tuple(_without_kind(entry) for entry in ledger if entry.get("kind") == "competitor"),
     )
+
+
+def _draft_and_validate(
+    client: Anthropic,
+    *,
+    team_id: int,
+    site: SiteContext,
+    research: ResearchBundle,
+    brief: dict[str, Any],
+    proposal_type: str,
+    original_markdown: str,
+) -> tuple[Draft, list[ValidationCheck]]:
+    previous: Draft | None = None
+    failures: list[ValidationCheck] = []
+    for _attempt in range(DRAFT_ATTEMPTS):
+        draft = generate_draft(
+            client,
+            team_id=team_id,
+            site=site,
+            research=research,
+            brief=brief,
+            proposal_type=proposal_type,
+            original_markdown=original_markdown,
+            previous=previous,
+            failures=failures,
+        )
+        checks = validate_draft(
+            client,
+            team_id=team_id,
+            site=site,
+            research=research,
+            draft=draft,
+            proposal_type=proposal_type,
+            original_markdown=original_markdown,
+        )
+        failures = blocking_failures(checks)
+        if not failures:
+            break
+        previous = draft
+    return draft, checks
+
+
+def _apply_report(proposal: ContentAutopilotProposal, checks: list[ValidationCheck]) -> None:
+    report = build_report(checks)
+    proposal.validation_report = report
+    proposal.lifecycle_status = (
+        ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW
+        if report["passed"]
+        else ContentAutopilotProposal.LifecycleStatus.FAILED
+    )
+
+
+def _save_result(
+    proposal: ContentAutopilotProposal,
+    *,
+    draft: Draft,
+    checks: list[ValidationCheck],
+    site: SiteContext,
+    research: ResearchBundle,
+    also_update: tuple[str, ...] = (),
+) -> None:
+    proposal.title = draft.title or proposal.title
+    proposal.proposed_markdown = draft.markdown
+    proposal.content_package = content_package(draft, origin=site.origin, skipped=research.skipped)
+    proposal.source_ledger = [
+        *({**entry, "kind": "site"} for entry in draft.source_ledger),
+        *({**entry, "kind": "competitor"} for entry in draft.competitor_ledger),
+    ]
+    _apply_report(proposal, checks)
+    if proposal.proposal_type == ContentAutopilotProposal.ProposalType.NEW_CONTENT:
+        proposal.target_url = f"{site.origin}{draft.url_path}" if draft.url_path.startswith("/") else ""
+    proposal.save(
+        update_fields=[
+            "title",
+            "proposed_markdown",
+            "content_package",
+            "source_ledger",
+            "validation_report",
+            "lifecycle_status",
+            "target_url",
+            "updated_at",
+            *also_update,
+        ]
+    )
+
+
+def _save_validation(proposal: ContentAutopilotProposal, checks: list[ValidationCheck]) -> None:
+    _apply_report(proposal, checks)
+    proposal.save(update_fields=["validation_report", "lifecycle_status", "updated_at"])
+
+
+def _run_is_canceled(run: ContentAutopilotRun) -> bool:
+    run.refresh_from_db(fields=["run_status"])
+    return run.run_status == ContentAutopilotRun.RunStatus.CANCELED
+
+
+@frozen
+class Composition:
+    research: ResearchBundle
+    brief: dict[str, Any]
+    original_markdown: str
+    draft: Draft
+    checks: tuple[ValidationCheck, ...]
+    proposal_type: str
+    target_url: str
+
+
+def _site_document(research: ResearchBundle, url: str) -> SourceDocument | None:
+    return next((document for document in research.site_documents if document.url == url), None)
+
+
+def _chosen_target(brief: dict[str, Any], site_pages: list[str]) -> str:
+    target = str(brief.get("target_page", ""))
+    improving = brief.get("recommended_type") == ContentAutopilotProposal.ProposalType.PAGE_IMPROVEMENT
+    return target if improving and target in site_pages else ""
+
+
+def _requested_site_pages(
+    research: ResearchBundle, brief: dict[str, Any], *, site_pages: list[str], target_url: str
+) -> list[SourceDocument]:
+    allowed = set(site_pages)
+    already_read = {document.url for document in research.site_documents}
+    requested = [
+        str(url) for url in brief.get("site_pages_to_read", []) if str(url) in allowed and str(url) not in already_read
+    ][:MAX_REQUESTED_SITE_PAGES]
+    if not requested and not already_read:
+        requested = site_pages[:MAX_REQUESTED_SITE_PAGES]
+    if target_url and target_url not in already_read:
+        requested = [target_url, *(url for url in requested if url != target_url)]
+    return [document for url in requested if (document := fetch_site_page(url)) is not None]
+
+
+def _add_requested_pages(
+    client: Anthropic,
+    *,
+    team_id: int,
+    site: SiteContext,
+    research: ResearchBundle,
+    brief: dict[str, Any],
+    site_pages: list[str],
+    target_url: str,
+) -> ResearchBundle:
+    competitor_urls = [
+        str(item.get("url", ""))
+        for item in brief.get("competitors_to_research", [])
+        if isinstance(item, dict) and item.get("url")
+    ]
+    fetched, unreadable = fetch_named_competitor_pages(competitor_urls, site_origin=site.origin, research=research)
+    fetched += _requested_site_pages(research, brief, site_pages=site_pages, target_url=target_url)
+    if not fetched and not unreadable:
+        return research
+    kept, screened_out = _screen_documents(client, team_id=team_id, documents=tuple(fetched))
+    return dataclasses.replace(
+        research,
+        documents=(*research.documents, *kept),
+        skipped=(*research.skipped, *unreadable, *screened_out),
+    )
+
+
+def compose(
+    client: Anthropic,
+    *,
+    team_id: int,
+    site: SiteContext,
+    prompt: str,
+    target_url: str,
+    proposal_type: str,
+    gap: dict[str, Any],
+) -> Composition:
+    found = search_site_pages(prompt, site_origin=site.origin, site_urls=list(site.site_urls))
+    site_pages = list(dict.fromkeys([*found, *site.key_pages]))
+    research = gather_research(
+        prompt=prompt,
+        target_url=target_url,
+        competitor_urls=[str(url) for url in gap.get("competitor_urls", [])],
+        site_origin=site.origin,
+        link_candidates=site_pages,
+    )
+    answers = [
+        {"engine": str(answer.get("engine", "")), "answer_text": str(answer.get("answer_text", ""))}
+        for answer in gap.get("latest_answers", [])
+        if isinstance(answer, dict) and answer.get("answer_text")
+    ]
+    research, answers = screen_research(client, team_id=team_id, research=research, answers=answers)
+
+    known_target = _site_document(research, target_url)
+    brief = generate_brief(
+        client,
+        team_id=team_id,
+        site=site,
+        research=research,
+        gap=gap,
+        answers=answers,
+        proposal_type=proposal_type,
+        budget=word_budget(proposal_type, known_target.text if known_target else ""),
+        site_pages=site_pages,
+    )
+    if not known_target and (chosen := _chosen_target(brief, site_pages)):
+        target_url = chosen
+    research = _add_requested_pages(
+        client,
+        team_id=team_id,
+        site=site,
+        research=research,
+        brief=brief,
+        site_pages=site_pages,
+        target_url=target_url,
+    )
+    if not research.site_documents:
+        raise ContentAutopilotLLMError(
+            "None of the site's pages could be read, so there's nothing to ground a draft in."
+        )
+
+    target_document = _site_document(research, target_url)
+    if target_document is None:
+        target_url = ""
+    else:
+        proposal_type = ContentAutopilotProposal.ProposalType.PAGE_IMPROVEMENT
+    research = dataclasses.replace(research, target_url=target_url)
+    original_markdown = target_document.text if target_document else ""
+    draft, checks = _draft_and_validate(
+        client,
+        team_id=team_id,
+        site=site,
+        research=research,
+        brief=brief,
+        proposal_type=proposal_type,
+        original_markdown=original_markdown,
+    )
+    return Composition(
+        research=research,
+        brief=brief,
+        original_markdown=original_markdown,
+        draft=draft,
+        checks=tuple(checks),
+        proposal_type=proposal_type,
+        target_url=target_url,
+    )
+
+
+def _generate_for_opportunity(
+    client: Anthropic,
+    *,
+    run: ContentAutopilotRun,
+    opportunity: ContentAutopilotOpportunity,
+    site: SiteContext,
+) -> ContentAutopilotProposal:
+    team_id = run.team_id
+    proposal = ContentAutopilotProposal.objects.for_team(team_id).create(
+        team_id=team_id,
+        run=run,
+        proposal_type=opportunity.recommended_type,
+        lifecycle_status=ContentAutopilotProposal.LifecycleStatus.GENERATING,
+        title=opportunity.title[:512],
+        target_query=opportunity.title[:512],
+        target_url=opportunity.target_url,
+        evidence=opportunity.evidence,
+    )
+    opportunity.proposal = proposal
+    opportunity.save(update_fields=["proposal", "updated_at"])
+    _compose_proposal(client, proposal=proposal, opportunity=opportunity, site=site)
+    return proposal
+
+
+def _compose_proposal(
+    client: Anthropic,
+    *,
+    proposal: ContentAutopilotProposal,
+    opportunity: ContentAutopilotOpportunity,
+    site: SiteContext,
+) -> None:
+    composition = compose(
+        client,
+        team_id=proposal.team_id,
+        site=site,
+        prompt=opportunity.title,
+        target_url=opportunity.target_url,
+        proposal_type=proposal.proposal_type,
+        gap=opportunity.gap if isinstance(opportunity.gap, dict) else {},
+    )
+    proposal.brief = composition.brief
+    proposal.research = composition.research.to_dict()
+    proposal.original_markdown = composition.original_markdown
+    proposal.proposal_type = composition.proposal_type
+    proposal.target_url = composition.target_url
+    _save_result(
+        proposal,
+        draft=composition.draft,
+        checks=list(composition.checks),
+        site=site,
+        research=composition.research,
+        also_update=("brief", "research", "original_markdown", "proposal_type"),
+    )
+
+
+def _claim_run(team_id: int, run_id: str) -> ContentAutopilotRun | None:
+    with transaction.atomic():
+        run = ContentAutopilotRun.objects.for_team(team_id).select_for_update().get(id=run_id)
+        if run.run_status != ContentAutopilotRun.RunStatus.PENDING:
+            return None
+        run.run_status = ContentAutopilotRun.RunStatus.GENERATING
+        run.save(update_fields=["run_status", "updated_at"])
+        return run
+
+
+def _fail_proposal(proposal: ContentAutopilotProposal | None, message: str) -> None:
+    if proposal is None:
+        return
+    _save_validation(
+        proposal,
+        [ValidationCheck(check_key="generation", label="Generation", passed=False, message=message, blocking=True)],
+    )
+
+
+def generate_run(team_id: int, run_id: str, *, client: Anthropic | None = None) -> None:
+    run = _claim_run(team_id, run_id)
+    if run is None:
+        return
+    opportunities = list(
+        ContentAutopilotOpportunity.objects.for_team(team_id)
+        .filter(run=run, status=ContentAutopilotOpportunity.Status.QUEUED)
+        .order_by("-score")
+    )
+    if not opportunities:
+        error = {
+            "error_code": "no_opportunities",
+            "message": "No opportunities were selected. Pick one or more from the list and draft them.",
+        }
+        finish_run(team_id, run_id, errors=[error], ready=0)
+        return
+    errors: list[dict[str, str]] = []
+    ready = 0
+    try:
+        site = site_context(run.profile, run.input_snapshot)
+        resolved_client = client or build_client(team_id=team_id, properties={"content_autopilot_run_id": str(run.id)})
+        for opportunity in opportunities:
+            if _run_is_canceled(run):
+                break
+            try:
+                proposal = _generate_for_opportunity(resolved_client, run=run, opportunity=opportunity, site=site)
+                if proposal.lifecycle_status == ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW:
+                    ready += 1
+            except ContentAutopilotLLMError as error:
+                errors.append({"error_code": "generation_failed", "message": f"{opportunity.title[:120]}: {error}"})
+                _fail_proposal(opportunity.proposal, str(error))
+            except Exception as error:
+                capture_exception(error)
+                logger.exception("content_autopilot_generation_failed", team_id=team_id, run_id=str(run.id))
+                errors.append(
+                    {
+                        "error_code": "generation_failed",
+                        "message": f"{opportunity.title[:120]}: something went wrong while drafting.",
+                    }
+                )
+                opportunity.refresh_from_db(fields=["proposal"])
+                _fail_proposal(opportunity.proposal, "Something went wrong while drafting. Regenerate to try again.")
+            if opportunity.proposal_id:
+                opportunity.status = ContentAutopilotOpportunity.Status.DRAFTED
+                opportunity.save(update_fields=["status", "updated_at"])
+    except ContentAutopilotLLMError as error:
+        errors.append({"error_code": "generation_failed", "message": str(error)})
+    except Exception as error:
+        capture_exception(error)
+        logger.exception("content_autopilot_run_failed", team_id=team_id, run_id=str(run.id))
+        errors.append(
+            {
+                "error_code": "generation_failed",
+                "message": "Something went wrong while drafting. Select opportunities and draft them again.",
+            }
+        )
+    finish_run(team_id, run_id, errors=errors, ready=ready)
+
+
+def finish_run(team_id: int, run_id: str, *, errors: list[dict[str, str]], ready: int) -> None:
+    with transaction.atomic():
+        run = ContentAutopilotRun.objects.for_team(team_id).select_for_update().get(id=run_id)
+        ContentAutopilotOpportunity.objects.for_team(team_id).filter(
+            run=run, status=ContentAutopilotOpportunity.Status.QUEUED
+        ).update(status=ContentAutopilotOpportunity.Status.NEW, updated_at=timezone.now())
+        if run.run_status == ContentAutopilotRun.RunStatus.CANCELED:
+            return
+        run.run_status = (
+            ContentAutopilotRun.RunStatus.READY_FOR_REVIEW if ready else ContentAutopilotRun.RunStatus.FAILED
+        )
+        run.errors = [*run.errors, *errors] if isinstance(run.errors, list) else errors
+        run.completed_at = timezone.now()
+        run.save(update_fields=["run_status", "errors", "completed_at", "updated_at"])
+
+
+def process_proposal(team_id: int, proposal_id: str, mode: ProposalMode, *, client: Anthropic | None = None) -> None:
+    proposal = ContentAutopilotProposal.objects.for_team(team_id).select_related("run__profile").get(id=proposal_id)
+    if proposal.lifecycle_status != ContentAutopilotProposal.LifecycleStatus.GENERATING:
+        return
+    research = ResearchBundle.from_dict(proposal.research if isinstance(proposal.research, dict) else {})
+    opportunity = (
+        ContentAutopilotOpportunity.objects.for_team(team_id).filter(proposal=proposal).first()
+        if mode == "regenerate" and not research.site_documents
+        else None
+    )
+    if not research.site_documents and opportunity is None:
+        _fail_proposal(proposal, "This proposal has no stored research. Draft the opportunity again.")
+        return
+    site = site_context(proposal.run.profile, proposal.run.input_snapshot)
+    resolved_client = client or build_client(team_id=team_id, properties={"content_autopilot_proposal_id": proposal_id})
+    try:
+        if opportunity is not None:
+            _compose_proposal(resolved_client, proposal=proposal, opportunity=opportunity, site=site)
+        elif mode == "validate":
+            checks = validate_draft(
+                resolved_client,
+                team_id=team_id,
+                site=site,
+                research=research,
+                draft=_draft_from_proposal(proposal),
+                proposal_type=proposal.proposal_type,
+                original_markdown=proposal.original_markdown,
+            )
+            _save_validation(proposal, checks)
+        else:
+            draft, checks = _draft_and_validate(
+                resolved_client,
+                team_id=team_id,
+                site=site,
+                research=research,
+                brief=proposal.brief if isinstance(proposal.brief, dict) else {},
+                proposal_type=proposal.proposal_type,
+                original_markdown=proposal.original_markdown,
+            )
+            _save_result(proposal, draft=draft, checks=checks, site=site, research=research)
+    except ContentAutopilotLLMError as error:
+        _fail_proposal(proposal, str(error))
+    except Exception as error:
+        capture_exception(error)
+        logger.exception("content_autopilot_proposal_failed", team_id=team_id, proposal_id=proposal_id)
+        _fail_proposal(proposal, "Something went wrong while drafting. Regenerate to try again.")
