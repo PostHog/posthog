@@ -168,6 +168,9 @@ def _event_row(
         alert_name=configuration.name,
         previous_state=previous_state,
         state=outcome.new_state,
+        # The whole episode, ended or not. A resolve names the firing it closed, which is what a
+        # thread key needs and what the alert row no longer holds.
+        episode_started_at=outcome.firing_episode.started_at if outcome.firing_episode else None,
         value=outcome.value,
         labels=outcome.labels,
         condition_snapshot=_condition_snapshot(configuration),

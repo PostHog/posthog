@@ -22,7 +22,7 @@ from uuid import UUID
 import structlog
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
 from products.alerts.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
@@ -48,6 +48,9 @@ class PlatformAlertEventRow:
     alert_name: str
     previous_state: str
     state: str
+    # The firing this check concerned, which on a resolve is the one it ended. The alert row
+    # holds the firing it is in now, so the two differ on exactly that check.
+    episode_started_at: datetime | None
     value: float | None
     labels: dict[str, str]
     condition_snapshot: dict[str, Any]
@@ -69,6 +72,7 @@ class PlatformAlertEventRow:
             "alert_name": self.alert_name,
             "previous_state": self.previous_state,
             "state": self.state,
+            "episode_started_at": self.episode_started_at,
             "value": self.value,
             "labels": self.labels,
             "condition_snapshot": json.dumps(self.condition_snapshot),
@@ -126,9 +130,9 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
     if not rows:
         return 0
     try:
-        # No product tag: the history table serves every source, so the write belongs to the
-        # shared platform rather than to one of them.
-        tag_queries(feature=Feature.ALERTING)
+        # `sync_execute` requires both tags. The platform product rather than a source's, because
+        # the table serves every source and the write is the platform's own bookkeeping.
+        tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
         sync_execute(
             _INSERT_SQL,
             [row.as_row() for row in rows],

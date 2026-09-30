@@ -93,12 +93,13 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             value=47.0,
             query_duration_ms=12,
             muted_notification="fire",
+            firing_episode=FiringEpisode(started_at=self.cutoff, ended=False),
         )
 
         rows = sync_execute(
             """
             SELECT kind, previous_state, state, value, alert_name, muted_notification,
-                   JSONExtractInt(condition_snapshot, 'threshold_count')
+                   JSONExtractInt(condition_snapshot, 'threshold_count'), episode_started_at
             FROM platform_alert_events
             WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s
             """,
@@ -106,7 +107,24 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
         # `insert_events` never raises, so without reading a row back a broken write is invisible.
-        assert rows == [("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10)]
+        assert rows == [("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10, self.cutoff)]
+
+    def test_a_resolve_row_keeps_the_firing_it_ended(self) -> None:
+        # The alert row clears the firing on a resolve, so history is the only place left holding
+        # the start a delivery needs to reply under the message that fired.
+        self._record(
+            new_state="not_firing",
+            kind=AlertEventKind.RESOLVED,
+            firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
+        )
+
+        rows = sync_execute(
+            "SELECT state, episode_started_at FROM platform_alert_events WHERE team_id = %(team_id)s",
+            {"team_id": self.team.id},
+        )
+
+        assert rows == [("not_firing", self.cutoff)]
+        assert self._alert().firing_started_at is None
 
     def test_a_copied_snooze_mutes_without_holding_back_the_check(self) -> None:
         legacy_id = uuid4()

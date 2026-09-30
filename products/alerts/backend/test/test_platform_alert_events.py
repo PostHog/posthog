@@ -18,6 +18,7 @@ def _row(grouping_key: str) -> PlatformAlertEventRow:
         alert_name="API errors",
         previous_state="not_firing",
         state="firing",
+        episode_started_at=datetime(2026, 9, 16, 10, tzinfo=UTC),
         value=47.0,
         labels={},
         condition_snapshot={},
