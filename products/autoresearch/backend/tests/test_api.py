@@ -275,21 +275,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("create", "post", False, {"name": "New", "target_event": "$signup"}, status.HTTP_201_CREATED),
-            ("patch", "patch", True, {"name": "Renamed"}, status.HTTP_200_OK),
-            ("archive", "post", True, {}, status.HTTP_200_OK),
+            ("create", "post", "", {"name": "New", "target_event": "$signup"}, status.HTTP_201_CREATED),
+            ("patch", "patch", "{id}/", {"name": "Renamed"}, status.HTTP_200_OK),
+            ("archive", "post", "{id}/archive/", {}, status.HTTP_200_OK),
         ]
     )
     def test_user_driven_sandbox_can_change_a_pipeline(
-        self, verb: str, method: str, detail: bool, body: dict, expected: int
+        self, _name: str, method: str, suffix: str, body: dict, expected: int
     ):
         pipeline = self._make_pipeline()
-        suffix = f"{pipeline.id}/" if detail else ""
-        if verb == "archive":
-            suffix += "archive/"
         sandbox, token = self._as_sandbox_task(self._sandbox_task_id(Task.OriginProduct.POSTHOG_AI))
         with sandbox, token:
-            resp = getattr(self.client, method)(f"{self.base_url}/{suffix}", body, format="json")
+            resp = getattr(self.client, method)(f"{self.base_url}/{suffix.format(id=pipeline.id)}", body, format="json")
         assert resp.status_code == expected, resp.json()
 
     @parameterized.expand(
