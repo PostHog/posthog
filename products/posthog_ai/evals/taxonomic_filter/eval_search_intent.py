@@ -325,8 +325,7 @@ async def eval_search_intent(ctx: EvalContext) -> None:
     version = os.environ.get("SEARCH_INTENT_PROMPT_VERSION")
     requested_version = int(version) if version else None
     prompt = await asyncio.to_thread(fetch_search_intent_prompt, version=requested_version)
-    # Same reasoning as the gateway check above: a version pinned but silently unscored (no managed
-    # rows outside US cloud, or the fetch failed) must not read as a model regression.
+    # Version pinned but silently unscored must not read as a model regression.
     if requested_version is not None and prompt.version is None:
         raise RuntimeError(
             f"SEARCH_INTENT_PROMPT_VERSION={requested_version} but the managed prompt is unreachable here "
