@@ -90,6 +90,32 @@ describe('ScoutStructuredOutputSection', () => {
         expect(onUpdate).toHaveBeenCalledWith('config-1', { structured_output_schema: SCHEMA })
     })
 
+    it.each([
+        // The typed JSON is the only copy of the edit, so a refused save must leave it to correct.
+        ['refuses', null, JSON.stringify(SCHEMA)],
+        ['accepts', SCHEMA, JSON.stringify(SCHEMA, null, 2)],
+    ])('keeps the right text in the editor when the API %s the save', (_outcome, stored, expectedText) => {
+        // Like scoutFleetLogic, the save patches the config and marks the scout as updating before the
+        // request settles, and the settled config replaces the patch.
+        let rerender: (ui: JSX.Element) => void = () => {}
+        const onUpdate = (_configId: string, updates: Partial<SignalScoutConfigApi>): void =>
+            rerender(<ScoutStructuredOutputSection config={{ ...CONFIG, ...updates }} onUpdate={jest.fn()} updating />)
+        ;({ rerender } = render(<ScoutStructuredOutputSection config={CONFIG} onUpdate={onUpdate} />))
+        fireEvent.click(screen.getByText('Structured output'))
+        const editor = screen.getByLabelText('signals-scout-hygiene record schema')
+
+        fireEvent.change(editor, { target: { value: JSON.stringify(SCHEMA) } })
+        fireEvent.click(screen.getByText('Save schema'))
+        rerender(
+            <ScoutStructuredOutputSection
+                config={{ ...CONFIG, structured_output_schema: stored }}
+                onUpdate={jest.fn()}
+            />
+        )
+
+        expect(editor).toHaveValue(expectedText)
+    })
+
     it('refuses to save a schema the API would reject', () => {
         const onUpdate = openSection(CONFIG)
 

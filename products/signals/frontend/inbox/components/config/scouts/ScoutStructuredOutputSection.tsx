@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonCollapse, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+
+import { objectsEqual } from 'lib/utils/objects'
 
 import type {
     PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
@@ -42,9 +44,21 @@ export function ScoutStructuredOutputSection({
 }): JSX.Element {
     const saved = config.structured_output_schema ?? null
     const savedText = saved ? JSON.stringify(saved, null, 2) : ''
-    // Null until something is typed, so the saved schema stays the truth, including after a
-    // rejected save, which must leave the section where the server has it.
+    // Null until something is typed, so an untouched editor follows the saved schema.
     const [draft, setDraft] = useState<string | null>(null)
+    // The schema the last save sent, held until the request settles. The draft clears only if the
+    // stored schema then matches it. A rejected save reverts the config, so the typed JSON stays on
+    // screen to correct and save again.
+    const [submitted, setSubmitted] = useState<Record<string, unknown> | null>(null)
+    useEffect(() => {
+        if (updating || !submitted) {
+            return
+        }
+        if (objectsEqual(saved, submitted)) {
+            setDraft(null)
+        }
+        setSubmitted(null)
+    }, [updating, submitted, saved])
     const text = draft ?? savedText
     const { schema, error } = parseScoutStructuredOutputSchema(text)
     const changed = JSON.stringify(schema) !== JSON.stringify(saved)
@@ -145,7 +159,7 @@ export function ScoutStructuredOutputSection({
                                                 return
                                             }
                                             onUpdate(config.id, { structured_output_schema: schema })
-                                            setDraft(null)
+                                            setSubmitted(schema)
                                         }}
                                         data-attr="scout-structured-output-save"
                                     >
