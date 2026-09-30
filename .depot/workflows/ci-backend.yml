@@ -371,45 +371,49 @@ jobs:
                   # Depot creates a run before its workflow, so the job polls until every older
                   # run has a workflow. Workflows are read first, so the run list holds the run
                   # of every listed workflow, and terminal workflows count as present.
-                  for attempt in $(seq 1 12); do
+                  attempts=12
+                  for attempt in $(seq 1 "$attempts"); do
                       if ! workflows=$(depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --trigger pull_request --status queued --status running --status finished --status failed --status cancelled -n 200 -o json) ||
                           ! runs=$(depot ci run list --repo "$REPO" --pr "$PR_NUMBER" --trigger pull_request --status queued --status running -n 200 -o json); then
                           echo "::warning::Could not list this PR's Depot runs, so no run was cancelled."
                           exit 0
                       fi
-                      # Ties on the one-second created_at fall back to the run id, so every run
-                      # of the PR agrees on one order and exactly one run of a commit survives.
-                      # A tie between two commits cancels neither run, because the run id cannot
+                      # Prints how many older runs have no workflow yet, then one "run workflow"
+                      # line per run to cancel. A same-second tie cancels the lower run id of the
+                      # same commit, and neither run of two commits, because the run id cannot
                       # tell which commit is the PR's head. The order is a string comparison, so
                       # any other timestamp format stops the job rather than risk cancelling a newer run.
-                      if ! plan=$(jq -n --arg own "$own_workflow" --argjson workflows "$workflows" --argjson runs "$runs" '
-                          ($runs | map({key: .run_id, value: [.created_at, .run_id]}) | from_entries) as $order
-                          | ($runs | map({key: .run_id, value: "\(.created_at) \(.head_sha)"}) | from_entries) as $event
-                          | [$workflows[] | select(.workflow_path == "ci-backend.yml" and $order[.run_id] != null)] as $backend
+                      if ! plan=$(jq -nr --arg own "$own_workflow" --argjson workflows "$workflows" --argjson runs "$runs" '
+                          ($runs | INDEX(.run_id)) as $run
+                          | ($workflows | map(.run_id)) as $has_workflow
+                          | [$workflows[] | select(.workflow_path == "ci-backend.yml" and $run[.run_id] != null)] as $backend
                           | ($backend | map(select(.workflow_id == $own)) | first) as $me
-                          | if any($runs[]; .created_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") | not) then {unordered: true}
-                            elif $me == null then {cancel: [], waiting: 1}
-                            else $order[$me.run_id] as $mine
-                              | {
-                                  cancel: [$backend[] | select((.status == "queued" or .status == "running") and $order[.run_id] < $mine
-                                      and ($order[.run_id][0] < $mine[0] or $event[.run_id] == $event[$me.run_id])) | "\(.run_id) \(.workflow_id)"],
-                                  waiting: [$runs[] | select([.created_at, .run_id] < $mine) | .run_id as $run
-                                      | select($workflows | all(.run_id != $run))] | length
-                                }
+                          | if any($runs[]; .created_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") | not) then "unordered"
+                            elif $me == null then 1
+                            else $run[$me.run_id] as $mine
+                              | ([$runs[] | select([.created_at, .run_id] < [$mine.created_at, $mine.run_id] and (.run_id | IN($has_workflow[]) | not))] | length),
+                                ($backend[] | $run[.run_id] as $other
+                                  | select((.status == "queued" or .status == "running")
+                                      and ($other.created_at < $mine.created_at
+                                          or ($other.created_at == $mine.created_at and $other.run_id < $mine.run_id and $other.head_sha == $mine.head_sha)))
+                                  | "\(.run_id) \(.workflow_id)")
                             end'); then
                           echo "::warning::Could not read the Depot run lists, so no run was cancelled."
                           exit 0
                       fi
-                      if jq -e '.unordered' <<<"$plan" >/dev/null; then
-                          echo "::warning::A Depot run has no whole-second created_at, so no run was cancelled."
-                          exit 0
-                      fi
-                      while read -r run workflow; do
-                          echo "Cancelling superseded run $run (workflow $workflow)"
-                          depot ci cancel "$run" --workflow "$workflow" || echo "::warning::Could not cancel run $run"
-                      done < <(jq -r '.cancel[]' <<<"$plan")
-                      [ "$(jq '.waiting' <<<"$plan")" -eq 0 ] && exit 0
-                      [ "$attempt" -lt 12 ] && sleep 15
+                      {
+                          read -r waiting
+                          if [ "$waiting" = unordered ]; then
+                              echo "::warning::A Depot run has no whole-second created_at, so no run was cancelled."
+                              exit 0
+                          fi
+                          while read -r run workflow; do
+                              echo "Cancelling superseded run $run (workflow $workflow)"
+                              depot ci cancel "$run" --workflow "$workflow" || echo "::warning::Could not cancel run $run"
+                          done
+                      } <<<"$plan"
+                      [ "$waiting" -eq 0 ] && exit 0
+                      [ "$attempt" -lt "$attempts" ] && sleep 15
                   done
                   echo "::warning::An older run of this PR still had no workflow to cancel."
     # Job to decide if we should run backend ci
