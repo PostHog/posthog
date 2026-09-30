@@ -45,6 +45,11 @@ export function spaceLabel(space: Pick<ChannelDTOApi, 'name' | 'system_role'>): 
     return space.system_role === 'personal' ? 'Me' : space.name
 }
 
+/** Only some people can see it: the personal space, or a private shared space. */
+export function isLockedSpace(space: Pick<ChannelDTOApi, 'channel_type' | 'system_role'>): boolean {
+    return space.system_role === 'personal' || space.channel_type === 'personal' || space.channel_type === 'private'
+}
+
 export function starredSpaces(spaces: ChannelDTOApi[]): ChannelDTOApi[] {
     return [
         ...spaces.filter((space) => space.system_role === 'personal'),
