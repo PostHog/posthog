@@ -11,7 +11,6 @@ run starts with personhog_shadow_lane_start_job and reset_state=true.
 """
 
 import time
-from collections import Counter
 from collections.abc import Callable, Mapping
 from contextlib import closing
 from itertools import groupby
@@ -235,12 +234,13 @@ WHERE p.hash_key IS NULL OR l.hash_key IS NULL OR l.hash_key <> p.hash_key
 LIMIT %(limit)s
 """
 
-_PROPERTY_DIFF_SQL = f"""
+_PROPERTY_DIFF_ROWS = f"""
 {_PERSON_SIDES}, mismatched AS (
     SELECT team_id, uuid
     FROM legacy l
     JOIN personhog p USING (team_id, uuid)
     WHERE l.properties_hash IS DISTINCT FROM p.properties_hash
+    ORDER BY team_id, uuid
     LIMIT %(limit)s
 ), pairs AS (
     SELECT m.team_id, m.uuid, l.properties AS legacy_props, p.properties AS personhog_props
@@ -253,18 +253,31 @@ _PROPERTY_DIFF_SQL = f"""
         SELECT jsonb_object_keys(legacy_props) AS key
         UNION SELECT jsonb_object_keys(personhog_props)
     ) k
+), diff AS (
+    SELECT team_id, uuid, key,
+        CASE WHEN NOT legacy_props ? key THEN 'only_in_personhog'
+             WHEN NOT personhog_props ? key THEN 'only_in_legacy'
+             ELSE 'value_differs' END AS kind,
+        jsonb_typeof(legacy_props -> key) AS legacy_type,
+        jsonb_typeof(personhog_props -> key) AS personhog_type,
+        length((legacy_props -> key)::text) AS legacy_length,
+        length((personhog_props -> key)::text) AS personhog_length
+    FROM keys
+    WHERE (legacy_props -> key)::text IS DISTINCT FROM (personhog_props -> key)::text
 )
-SELECT team_id, uuid, key,
-    CASE WHEN NOT legacy_props ? key THEN 'only_in_personhog'
-         WHEN NOT personhog_props ? key THEN 'only_in_legacy'
-         ELSE 'value_differs' END AS kind,
-    jsonb_typeof(legacy_props -> key) AS legacy_type,
-    jsonb_typeof(personhog_props -> key) AS personhog_type,
-    length((legacy_props -> key)::text) AS legacy_length,
-    length((personhog_props -> key)::text) AS personhog_length
-FROM keys
-WHERE (legacy_props -> key)::text IS DISTINCT FROM (personhog_props -> key)::text
-ORDER BY team_id, uuid, key
+"""
+
+_PROPERTY_KEY_DRIFT_SQL = f"""
+{_PROPERTY_DIFF_ROWS}
+SELECT key, kind, count(*) AS persons, (SELECT count(*) FROM mismatched) AS sampled_persons
+FROM diff
+GROUP BY key, kind
+ORDER BY persons DESC, key
+"""
+
+_PROPERTY_DETAIL_SQL = f"""
+{_PROPERTY_DIFF_ROWS}
+SELECT * FROM diff ORDER BY team_id, uuid, key
 """
 
 # Columns every *_DRIFT_SQL returns. _run_category reports any other column
@@ -364,25 +377,22 @@ def _format_person_property_detail(team_id: object, person_uuid: object, rows: l
 def sample_property_drift(
     connection: psycopg2.extensions.connection, persons_limit: int, detail_limit: int
 ) -> PropertyDriftSample:
+    detail_rows: list[Mapping[str, object]] = []
     with connection.cursor() as cursor:
         _configure_session(cursor)
-        cursor.execute(_PROPERTY_DIFF_SQL, {"limit": persons_limit})
-        rows = cursor.fetchall()
+        cursor.execute(_PROPERTY_KEY_DRIFT_SQL, {"limit": persons_limit})
+        key_rows = cursor.fetchall()
+        if detail_limit > 0:
+            cursor.execute(_PROPERTY_DETAIL_SQL, {"limit": min(detail_limit, persons_limit)})
+            detail_rows = cursor.fetchall()
 
-    key_counts = Counter((row["key"], row["kind"]) for row in rows)
-    key_drifts = [
-        PropertyKeyDrift(key=key, kind=kind, persons=persons)
-        for (key, kind), persons in sorted(key_counts.items(), key=lambda item: (-item[1], item[0]))
-    ]
-    persons = [
-        (person, list(person_rows))
-        for person, person_rows in groupby(rows, key=lambda row: (row["team_id"], row["uuid"]))
-    ]
+    key_drifts = [PropertyKeyDrift(key=row["key"], kind=row["kind"], persons=int(row["persons"])) for row in key_rows]
+    sampled_persons = int(key_rows[0]["sampled_persons"]) if key_rows else 0
     person_details = [
-        _format_person_property_detail(team_id, person_uuid, person_rows)
-        for (team_id, person_uuid), person_rows in persons[: max(0, detail_limit)]
+        _format_person_property_detail(team_id, person_uuid, list(person_rows))
+        for (team_id, person_uuid), person_rows in groupby(detail_rows, key=lambda row: (row["team_id"], row["uuid"]))
     ]
-    return PropertyDriftSample(sampled_persons=len(persons), key_drifts=key_drifts, person_details=person_details)
+    return PropertyDriftSample(sampled_persons=sampled_persons, key_drifts=key_drifts, person_details=person_details)
 
 
 def _property_drift_table(sample: PropertyDriftSample) -> str:
