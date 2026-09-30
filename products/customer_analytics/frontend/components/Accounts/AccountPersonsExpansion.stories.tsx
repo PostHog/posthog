@@ -43,7 +43,7 @@ const PEOPLE: AccountPersonApi[] = [
     },
 ]
 
-type ListState = 'loaded' | 'loading' | 'empty' | 'failed'
+type ListState = 'loaded' | 'loading' | 'notReady' | 'empty' | 'failed'
 
 interface AccountUsersStoryProps {
     state?: ListState
@@ -68,7 +68,8 @@ function AccountUsersStory({
                     return [500, { detail: 'Could not load people.' }]
                 }
                 return {
-                    results: state === 'empty' ? [] : PEOPLE,
+                    results: state === 'empty' || state === 'notReady' ? [] : PEOPLE,
+                    membership_ready: state !== 'notReady',
                     limit: 20,
                     offset: 0,
                     has_more: hasMore,
@@ -121,6 +122,10 @@ export const Loading: Story = {
     args: { state: 'loading' },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
+
+export const NotReady: Story = { args: { state: 'notReady' } }
+
+export const NotReadyNarrow: Story = { args: { state: 'notReady', narrow: true } }
 
 export const Empty: Story = { args: { state: 'empty' } }
 

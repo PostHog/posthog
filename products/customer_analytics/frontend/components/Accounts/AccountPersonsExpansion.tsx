@@ -41,6 +41,19 @@ function PersonsEmptyState({
     viewState: Exclude<AccountPersonsViewState, 'loading' | 'loaded'>
     onRetry: () => void
 }): JSX.Element {
+    if (viewState === 'notReady') {
+        return (
+            <div
+                className="flex flex-col items-center gap-2 py-4"
+                data-attr="customer-analytics-account-persons-not-ready"
+            >
+                <span>People for this account aren't ready yet. Check again later.</span>
+                <LemonButton type="secondary" size="small" onClick={onRetry}>
+                    Check again
+                </LemonButton>
+            </div>
+        )
+    }
     if (viewState === 'error') {
         return (
             <div className="flex flex-col items-center gap-2 py-4" data-attr="customer-analytics-account-persons-error">

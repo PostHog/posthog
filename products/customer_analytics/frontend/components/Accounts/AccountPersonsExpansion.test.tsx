@@ -56,6 +56,7 @@ const pageOf = (results: AccountPersonApi[], hasMore = false): AccountPersonsRes
     limit: 20,
     offset: 0,
     has_more: hasMore,
+    membership_ready: true,
 })
 
 const ADA = person('Ada Lovelace', 'ada@example.com')
@@ -183,11 +184,19 @@ describe('AccountPersonsExpansion', () => {
             expect(screen.queryByText(/Couldn't load people/)).not.toBeInTheDocument()
         })
 
-        it('shows the empty message for an account with no people', async () => {
-            mockList.mockResolvedValue(pageOf([]))
+        it.each([
+            [true, 'No people are associated with this account yet.'],
+            [false, "People for this account aren't ready yet. Check again later."],
+        ])('shows the right empty page when membership_ready is %s', async (membershipReady, message) => {
+            mockList.mockResolvedValueOnce({ ...pageOf([]), membership_ready: membershipReady })
             renderTab()
 
-            expect(await screen.findByText('No people are associated with this account yet.')).toBeInTheDocument()
+            expect(await screen.findByText(message)).toBeInTheDocument()
+            if (!membershipReady) {
+                expect(screen.queryByText('No people are associated with this account yet.')).not.toBeInTheDocument()
+                fireEvent.click(screen.getByText('Check again'))
+                expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument()
+            }
         })
 
         it('shows the filtered-empty message when a search matches nobody', async () => {

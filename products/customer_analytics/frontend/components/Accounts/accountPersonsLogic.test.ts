@@ -46,6 +46,7 @@ const pageOf = (persons: AccountPersonApi[], hasMore = false, offset = 0): Accou
     limit: ACCOUNT_PERSONS_PAGE_SIZE,
     offset,
     has_more: hasMore,
+    membership_ready: true,
 })
 
 const planFilter = (overrides: Partial<PersonPropertyFilter> = {}): PersonPropertyFilter => ({
@@ -382,6 +383,22 @@ describe('accountPersonsLogic', () => {
             expect(logic.values.viewState).toBe('loading')
 
             pending.resolve(pageOf([person('a')]))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.viewState).toBe('loaded')
+        })
+
+        it.each(['', 'Alice'])('shows not-ready rather than empty with search %s, then reloads', async (searchTerm) => {
+            mockList.mockResolvedValue({ ...pageOf([]), membership_ready: false })
+            await mount({ initialConfig: { searchTerm } })
+            expect(logic.values.viewState).toBe('notReady')
+            expect(logic.values.persons).toEqual([])
+            expect(logic.values.hasMore).toBe(false)
+
+            const retry = deferred<AccountPersonsResponseApi>()
+            mockList.mockReturnValueOnce(retry.promise)
+            logic.actions.loadPersons()
+            expect(logic.values.viewState).toBe('loading')
+            retry.resolve(pageOf([person('a')]))
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.viewState).toBe('loaded')
         })
