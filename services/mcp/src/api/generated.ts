@@ -77305,6 +77305,11 @@ export namespace Schemas {
          * @nullable
          */
       primary_dashboard?: number | null;
+      /**
+         * ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view.
+         * @nullable
+         */
+      home_tab_dashboard?: number | null;
       /** @nullable */
       live_events_columns?: string[] | null;
       /**
@@ -82219,6 +82224,11 @@ export namespace Schemas {
          * @nullable
          */
       primary_dashboard?: number | null;
+      /**
+         * ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view.
+         * @nullable
+         */
+      home_tab_dashboard?: number | null;
       /** @nullable */
       live_events_columns?: string[] | null;
       /**
