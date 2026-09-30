@@ -765,3 +765,37 @@ class TestV2RequestBytes(AdmittedV2TestCase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         flag.refresh_from_db()
         assert flag.version == 3
+
+
+class TestV2ValidationErrors(AdmittedV2TestCase):
+    @parameterized.expand(
+        [
+            # Create fails in validate() and update in update(); DRF wraps the two differently.
+            ("create", "invalid_input", "filters.rules[0].value", "Must be true or false."),
+            ("update", "invalid_input", "filters.rules[0].value", "Must be true or false."),
+            (
+                "enable",
+                "unsupported",
+                "filters",
+                "This flag's stored configuration cannot be enabled through this API.",
+            ),
+        ]
+    )
+    def test_the_response_names_the_first_invalid_field_in_attr(
+        self, operation: str, code: str, attr: str, detail: str
+    ) -> None:
+        if operation == "create":
+            filters = config(
+                targeted(rule_id=None, value="yes"), rollout(rule_id=None, seed=None, rollout_percentage=150)
+            )
+            with admit_v2(self.team.id, creation=True):
+                response = self.post_flag({"key": "new-v2", "filters": filters})
+        elif operation == "update":
+            filters = config(targeted(value="yes"), rollout(rollout_percentage=150))
+            response = self.patch_flag(self.flag(), {"version": 3, "filters": filters})
+        else:
+            response = self.patch_flag(
+                self.flag({"version": 2, "rules": "broken"}, active=False), {"version": 3, "active": True}
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": code, "detail": detail, "attr": attr}

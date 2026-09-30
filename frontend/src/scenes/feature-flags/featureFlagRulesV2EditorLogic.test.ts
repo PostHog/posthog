@@ -112,19 +112,24 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 'There is already a feature flag with this key.',
             ],
             [
-                { detail: 'filters.rules[1].rollout_percentage: Must be at most 100.' },
+                { attr: 'filters.rules[1].rollout_percentage', detail: 'Must be at most 100.' },
                 'filters.rules[1].rollout_percentage',
                 'Must be at most 100.',
             ],
             [
-                { detail: 'filters.rules[0].targeting.properties[0].value: Must be a string.' },
+                { attr: 'filters.rules[0].targeting.properties[0].value', detail: 'Must be a string.' },
                 'filters.rules[0].targeting',
                 'filters.rules[0].targeting.properties[0].value: Must be a string.',
             ],
             [
-                { detail: 'filters.rules[2].id: Rule ids are server-assigned.' },
+                { attr: 'filters.rules[2].id', detail: 'Rule ids are server-assigned.' },
                 'filters.rules[2]',
                 'filters.rules[2].id: Rule ids are server-assigned.',
+            ],
+            [
+                { attr: 'filters.rules', detail: 'At most 100 rules are allowed.' },
+                null,
+                'At most 100 rules are allowed.',
             ],
             [
                 { attr: 'tags', detail: 'Add at least one tag. This project requires new feature flags to be tagged.' },
@@ -316,7 +321,8 @@ describe('featureFlagRulesV2EditorLogic', () => {
         it('shows a validation error against its field and clears it on the next edit', async () => {
             jest.spyOn(api, 'update').mockRejectedValue({
                 status: 400,
-                detail: 'filters.rules[1].rollout_percentage: Must be at most 100.',
+                attr: 'filters.rules[1].rollout_percentage',
+                detail: 'Must be at most 100.',
             })
 
             await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
