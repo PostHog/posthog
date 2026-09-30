@@ -38,9 +38,39 @@ Activity history is optional. Use the reader guidance supplied by MCP only when 
 
 If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
 
+## Evaluation-event source check
+
+Do this check first, before you use call volume as evidence.
+PostHog moves flag-evaluation data from `events` into the `flag_evaluations` table, one organization at a time.
+During the move, a source can hold only part of a window.
+`flag_evaluations` gets rows from the day ingestion starts to write to it, and it keeps 90 days.
+`events` stops getting `$feature_flag_called` rows when the organization moves to the new table only.
+A partial source shows a volume step that the code did not cause, so a step on one source is not evidence.
+
+1. Probe the replacement table:
+
+   ```sql
+   SELECT toDate(timestamp) AS day, count() AS calls
+   FROM flag_evaluations
+   WHERE timestamp >= now() - INTERVAL 14 DAY
+   GROUP BY day
+   ORDER BY day
+   ```
+
+   If the query fails because the table is unknown, the project has no replacement source. `events` is authoritative, so continue with the rest of this skill.
+
+2. If the table exists, run the same daily count on `events` (`WHERE event = '$feature_flag_called'`). Compare the two series day by day:
+   - **Both series are empty** — there is no call stream. Follow the "Roster exists, zero calls" branch below.
+   - **The series agree on every day (within ~5%)** — both sources are complete. Use `events`.
+   - **Only one series has rows on every day, with no step at either end of the window** — the source is migrating, and that series is the supported replacement. Use it for every traffic query and chart in this run. A trends chart reads `events`, so chart `flag_evaluations` with a SQL series. On `flag_evaluations`, read the `flag_key` and `response` columns instead of `properties.$feature_flag` and `properties.$feature_flag_response`, drop the `event` filter, and keep every window inside 90 days.
+   - **Neither series covers the whole window** — no complete source exists. Suspend all traffic-based conclusions: file no cliff, ghost, response-shift, or dead-check report, attach no traffic chart, and do not edit an open traffic report to say that it recovered or got worse. Run only the config-side checks ([Stale flags](#stale-flags--one-cleanup-report-each) and dependent-flag sanity). In the close-out, say that you suspended traffic analysis because the evaluation source is migrating.
+3. When one source falls and the other rises by the same amount, the step is the migration. It is never an SDK or capture-path finding.
+4. Every `$feature_flag_called` query in this skill reads the source that this check chose. The stale-flag call count is the one exception: when both sources have rows, count on both, because a partial source can miss the call that expires a candidate.
+5. Save the result under `pattern:feature-flags:event-source`: the chosen source, the date of the check, and the first complete day. Do the probe again on each run, because an organization can move between runs.
+
 ## Quick close-out: are flags even in use?
 
-Read `recent_feature_flags` off `scout-project-profile-get`. Two caveats before shortcutting: `total_count` excludes deleted flags, and `top_events` is only the top 50 by volume — so confirm the traffic side with one cheap count rather than trusting either alone:
+Run the [evaluation-event source check](#evaluation-event-source-check) first, and count on the source it chose. Read `recent_feature_flags` off `scout-project-profile-get`. Two caveats before shortcutting: `total_count` excludes deleted flags, and `top_events` is only the top 50 by volume — so confirm the traffic side with one cheap count rather than trusting either alone:
 
 ```sql
 SELECT count() AS calls
@@ -334,6 +364,7 @@ Harness-level:
 
 - No flags in use → `not-in-use:` entry, close out empty.
 - No `$feature_flag_called` stream → config-side hygiene pass only, then close out.
+- Evaluation source is migrating and no source covers the window → config-side hygiene pass only, then close out.
 - Traffic matches state everywhere (no cliffs, no ghosts, distributions stable or explained by edits) → close out empty; refresh `pattern:` baselines if stale.
 - Candidates all gated by `noise:` / `addressed:` / `dedupe:` entries, or an existing inbox report whose situation hasn't materially changed → skip (refresh `pattern:` memory) and close out; edit only the ones that moved.
 - You've filed (or edited) reports for what's solid → close out. One sharp contradiction report beats a laundry list of P3 debt nits, and a ranked stale queue left in memory beats racing the project's daily report allowance.
