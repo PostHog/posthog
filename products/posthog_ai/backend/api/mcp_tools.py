@@ -26,10 +26,8 @@ from posthog.event_usage import get_event_source
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
-from products.posthog_ai.backend.mcp_tool_errors import MCPToolErrorDetails
-
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolError
+from ee.hogai.tool_errors import MaxToolError, MaxToolErrorType
 from ee.hogai.tools.search import format_inkeep_docs_response
 
 logger = get_logger(__name__)
@@ -43,8 +41,8 @@ class MCPToolRequest(pydantic.BaseModel):
 
 class MCPToolResponse(MCPToolResult):
     success: bool = pydantic.Field(description="Whether the tool completed successfully.")
-    error: MCPToolErrorDetails | None = pydantic.Field(
-        default=None, description="Structured failure and recovery information when the tool did not succeed."
+    error_type: MaxToolErrorType | None = pydantic.Field(
+        default=None, description="Failure category for MCP analytics."
     )
 
 
@@ -171,18 +169,27 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                     return await tool.execute(validated_args)
 
             result = async_to_sync(execute_tool)()
-            if isinstance(result, str):
-                result = MCPToolResult(content=result)
-            return Response({"success": True, **result.model_dump(exclude_none=True)})
+        except MaxToolError as e:
+            return Response(
+                {
+                    "success": False,
+                    "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}",
+                    "error_type": e.error_type,
+                }
+            )
         except Exception as e:
-            error = MCPToolErrorDetails.from_exception(e)
-            if isinstance(e, MaxToolError):
-                content = f"Tool failed: {e.to_summary()}.{error.retry_hint}"
-            else:
-                logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
-                capture_exception(e, properties={"tag": "mcp", "args": args_data})
-                content = f"The tool raised an internal error.{error.retry_hint}"
-            return Response({"success": False, "content": content, "error": error.model_dump()})
+            logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
+            capture_exception(e, properties={"tag": "mcp", "args": args_data})
+            return Response(
+                {
+                    "success": False,
+                    "content": "The tool raised an internal error. Do not immediately retry the tool call.",
+                }
+            )
+
+        if isinstance(result, str):
+            result = MCPToolResult(content=result)
+        return Response({"success": True, **result.model_dump(exclude_none=True)})
 
 
 async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str) -> str:

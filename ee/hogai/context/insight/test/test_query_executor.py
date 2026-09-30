@@ -47,7 +47,7 @@ from ee.hogai.context.insight.query_executor import (
     get_example_prompt,
     is_supported_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
 
 
@@ -246,10 +246,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with self.assertRaises(MaxToolRetryableError) as context:
+        with self.assertRaises(MaxToolFatalError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("API error message", str(context.exception))
+        self.assertEqual(str(context.exception), "API error message")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):

@@ -29,7 +29,7 @@ from ee.hogai.chat_agent.sql.prompts import (
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -166,6 +166,8 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             result = await insight_context.execute_and_format()
         except MaxToolRetryableError as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
+        except MaxToolError as e:
+            return f"{e.to_summary()}.{e.retry_hint}", None
         except Exception:
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 

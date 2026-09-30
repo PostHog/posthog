@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import (
     ArtifactContentType,
@@ -13,6 +15,8 @@ from posthog.schema import (
     HogQLFilters,
     VisualizationArtifactContent,
 )
+
+from posthog.exceptions import ClickHouseAtCapacity
 
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.facade.models import Insight
@@ -70,6 +74,22 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(artifact_messages.messages[1], AssistantToolCallMessage)
         self.assertIn("test_event", artifact_messages.messages[1].content)
         self.assertIn("another_event", artifact_messages.messages[1].content)
+
+    @parameterized.expand(
+        [
+            (
+                ClickHouseAtCapacity("Query service is busy"),
+                "MaxToolTransientError: Query service is busy. You may retry this operation once without changes.",
+            ),
+            (PermissionDenied("Query access denied"), "MaxToolFatalError: Query access denied."),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_query_failures_preserve_recovery_advice(self, error: Exception, expected: str, mock_query) -> None:
+        mock_query.side_effect = error
+        tool = await self._create_tool()
+
+        self.assertEqual(await tool._arun_impl("SELECT 1", "Example query", "Example description"), (expected, None))
 
     async def test_successful_sql_execution_can_set_chart_axis_labels(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")

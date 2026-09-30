@@ -106,19 +106,13 @@ describe('ToolExecutor metrics', () => {
     afterEach(() => vi.unstubAllGlobals())
 
     it.each([
-        { tool: 'execute-sql', useSingleExec: false, type: 'validation', code: 'invalid_input' },
-        { tool: 'execute-sql', useSingleExec: true, type: 'validation', code: 'invalid_input' },
-        { tool: 'read-data-schema', useSingleExec: false, type: 'validation', code: 'invalid_input' },
-        { tool: 'read-data-schema', useSingleExec: true, type: 'validation', code: 'invalid_input' },
-        { tool: 'execute-sql', useSingleExec: false, type: 'timeout', code: 'query_timeout' },
-        { tool: 'execute-sql', useSingleExec: true, type: 'timeout', code: 'query_timeout' },
-        { tool: 'read-data-schema', useSingleExec: false, type: 'timeout', code: 'query_timeout' },
-        { tool: 'read-data-schema', useSingleExec: true, type: 'timeout', code: 'query_timeout' },
-        { tool: 'execute-sql', useSingleExec: false, type: 'api_5xx', code: 'query_limit_exceeded' },
-        { tool: 'execute-sql', useSingleExec: true, type: 'api_5xx', code: 'query_limit_exceeded' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'api_5xx' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'validation' },
+        { tool: 'read-data-schema', useSingleExec: false, type: 'permission' },
+        { tool: 'read-data-schema', useSingleExec: true, type: 'api_5xx' },
     ])(
         'classifies backend result errors without capturing caller content: %j',
-        async ({ tool, useSingleExec, type, code }) => {
+        async ({ tool, useSingleExec, type }) => {
             const tools = catalog
                 .getPreBuiltEntries()
                 .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
@@ -133,7 +127,7 @@ describe('ToolExecutor metrics', () => {
                         JSON.stringify({
                             success: false,
                             content,
-                            error: { type, code, retry_strategy: 'adjusted' },
+                            error_type: type,
                         })
                     )
                 )
@@ -152,11 +146,11 @@ describe('ToolExecutor metrics', () => {
             })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
             const properties = trackToolCallExtras(tool)
-            expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_code: code })
+            expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_message: `Tool failed: ${type}` })
             expect(JSON.stringify(properties)).not.toContain('private caller query')
             const errorMetadata = {
                 isError: true,
-                errorMessage: `Tool failed: ${code} (retry: adjusted)`,
+                errorMessage: `Tool failed: ${type}`,
             }
             expect(trackToolSpan).toHaveBeenCalledWith(tool, state, expect.objectContaining(errorMetadata))
             if (tool === 'execute-sql') {

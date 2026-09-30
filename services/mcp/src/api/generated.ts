@@ -60426,50 +60426,6 @@ export namespace Schemas {
       readonly duration_ms: number | null;
     }
 
-    export type MCPToolErrorCode = typeof MCPToolErrorCode[keyof typeof MCPToolErrorCode];
-
-
-    export const MCPToolErrorCode = {
-      InvalidInput: 'invalid_input',
-      PermissionDenied: 'permission_denied',
-      QueryTimeout: 'query_timeout',
-      QueryCapacityExceeded: 'query_capacity_exceeded',
-      QueryMemoryLimitExceeded: 'query_memory_limit_exceeded',
-      QueryLimitExceeded: 'query_limit_exceeded',
-      ServiceUnavailable: 'service_unavailable',
-      InternalError: 'internal_error',
-    } as const;
-
-    export type MCPToolErrorDetailsTypeEnum = typeof MCPToolErrorDetailsTypeEnum[keyof typeof MCPToolErrorDetailsTypeEnum];
-
-
-    export const MCPToolErrorDetailsTypeEnum = {
-      Validation: 'validation',
-      Permission: 'permission',
-      Timeout: 'timeout',
-      RateLimited: 'rate_limited',
-      Api5xx: 'api_5xx',
-      Internal: 'internal',
-    } as const;
-
-    export type RetryStrategyEnum = typeof RetryStrategyEnum[keyof typeof RetryStrategyEnum];
-
-
-    export const RetryStrategyEnum = {
-      Never: 'never',
-      Once: 'once',
-      Adjusted: 'adjusted',
-    } as const;
-
-    export interface MCPToolErrorDetails {
-      /** Value-free failure category for MCP analytics. */
-      type: MCPToolErrorDetailsTypeEnum;
-      /** Stable failure code that contains no caller input. */
-      code: MCPToolErrorCode;
-      /** Whether the agent can retry unchanged once, retry with adjusted inputs, or should not retry. */
-      retry_strategy: RetryStrategyEnum;
-    }
-
     /**
      * Arguments validated against the selected tool's schema.
      */
@@ -60485,6 +60441,21 @@ export namespace Schemas {
      */
     export type MCPToolResponseStructuredContent = {[key: string]: JsonValue} | null;
 
+    /**
+     * Failure category for MCP analytics.
+     */
+    export type MCPToolResponseErrorType = typeof MCPToolResponseErrorType[keyof typeof MCPToolResponseErrorType] | null;
+
+
+    export const MCPToolResponseErrorType = {
+      Validation: 'validation',
+      Permission: 'permission',
+      Timeout: 'timeout',
+      RateLimited: 'rate_limited',
+      Api5xx: 'api_5xx',
+      Internal: 'internal',
+    } as const;
+
     export interface MCPToolResponse {
       /** Formatted tool output for the model. */
       content: string;
@@ -60492,8 +60463,8 @@ export namespace Schemas {
       structured_content?: MCPToolResponseStructuredContent;
       /** Whether the tool completed successfully. */
       success: boolean;
-      /** Structured failure and recovery information when the tool did not succeed. */
-      error?: MCPToolErrorDetails | null;
+      /** Failure category for MCP analytics. */
+      error_type?: MCPToolResponseErrorType;
     }
 
     /**

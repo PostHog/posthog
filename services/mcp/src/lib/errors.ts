@@ -27,7 +27,7 @@ export class MCPToolError extends Error {
 export class MCPToolResultError extends Error {
     constructor(
         message: string,
-        public readonly detail: Schemas.MCPToolErrorDetails
+        public readonly errorType: NonNullable<Schemas.MCPToolResponse['error_type']>
     ) {
         super(message)
         this.name = 'MCPToolResultError'
@@ -511,7 +511,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         error instanceof MissingOrganizationContextError ||
         error instanceof ToolInputValidationError ||
         error instanceof ExecCommandError ||
-        (error instanceof MCPToolResultError && ['validation', 'permission'].includes(error.detail.type))
+        (error instanceof MCPToolResultError && ['validation', 'permission'].includes(error.errorType))
     ) {
         return {
             content: [
