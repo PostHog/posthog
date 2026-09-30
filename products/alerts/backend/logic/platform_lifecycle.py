@@ -192,6 +192,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     Keyed on the row it came from, so a second run updates rather than duplicates.
     """
     with transaction.atomic():
+        # The alert row is written before `update_or_create` locks the configuration, the same order
+        # as `record_outcomes`. The opposite order can deadlock a backfill with a check of the same alert.
+        PlatformAlert.objects.for_team(upsert.team_id).filter(
+            configuration__legacy_configuration_id=upsert.legacy_configuration_id, grouping_key=""
+        ).update(snooze_until=upsert.snooze_until)
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id,
             defaults={
@@ -212,7 +217,9 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             },
         )
         alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
-        # State is left alone because a muted alert keeps tracking reality.
-        alert.snooze_until = upsert.snooze_until
-        alert.save(update_fields=["snooze_until"])
+        # State is left alone because a muted alert keeps tracking reality. Only a row created just
+        # now can still differ, and no check can hold a lock on it yet.
+        if alert.snooze_until != upsert.snooze_until:
+            alert.snooze_until = upsert.snooze_until
+            alert.save(update_fields=["snooze_until"])
     return created

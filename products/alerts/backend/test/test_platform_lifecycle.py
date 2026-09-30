@@ -4,6 +4,9 @@ from uuid import uuid4
 import time_machine
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from posthog.models.scoping import team_scope
 
 from products.alerts.backend.facade.contracts import (
@@ -121,9 +124,17 @@ class TestPlatformAlertLifecycle(APIBaseTest):
 
         with team_scope(self.team.id):
             PlatformAlert.objects.filter(configuration__legacy_configuration_id=legacy_id).update(state="firing")
-        with time_machine.travel(self.cutoff, tick=False):
+        with time_machine.travel(self.cutoff, tick=False), CaptureQueriesContext(connection) as queries:
             copy(snoozed_until)
         assert snooze_seen_by_check() == ("firing", snoozed_until)
+        # `record_outcomes` writes the alert row before the configuration row. A copy that locks
+        # them in the opposite order deadlocks against a check of the same alert.
+        statements = [q["sql"] for q in queries.captured_queries]
+        alert_write = next(
+            i for i, sql in enumerate(statements) if sql.startswith("UPDATE") and 'platformalert"' in sql
+        )
+        configuration_lock = next(i for i, sql in enumerate(statements) if sql.endswith("FOR UPDATE"))
+        assert alert_write < configuration_lock
 
         copy(None)
         assert snooze_seen_by_check() == ("firing", None)
