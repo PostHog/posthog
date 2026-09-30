@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from django.core.cache import cache
+
 import structlog
 from owners_yaml.resolver import Purpose, team_channel
 from owners_yaml.schema import Producer, TeamEntry
@@ -27,6 +29,10 @@ logger = structlog.get_logger(__name__)
 _CHANNEL_PURPOSE: Purpose = "notifications"
 # Named so a team can keep visual review out of its channel while other bots keep posting there.
 _PRODUCER: Producer = "visual_review"
+
+# Listing channels walks every page of a rate-limited Slack endpoint, and a rate-limited walk returns
+# a partial map. Quarantine notices can arrive in bursts, so one listing serves them all for a while.
+_CHANNEL_MAP_TTL_SECONDS = 10 * 60
 
 
 @frozen
@@ -59,7 +65,12 @@ def open_workspace(team_id: int) -> Workspace | None:
     if integration is None:
         logger.info("visual_review.team_post_no_slack_integration", team_id=team_id)
         return None
-    return Workspace(integration=integration, channels_by_name=fetch_channel_map(integration, source="visual_review"))
+    cache_key = f"visual_review_slack_channels:{integration.id}"
+    channels_by_name = cache.get(cache_key)
+    if channels_by_name is None:
+        channels_by_name = fetch_channel_map(integration, source="visual_review")
+        cache.set(cache_key, channels_by_name, timeout=_CHANNEL_MAP_TTL_SECONDS)
+    return Workspace(integration=integration, channels_by_name=channels_by_name)
 
 
 def resolve_channel(

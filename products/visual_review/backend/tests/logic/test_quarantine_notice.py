@@ -12,7 +12,7 @@ from products.visual_review.backend.logic import quarantine, quarantine_notice, 
 from products.visual_review.backend.models import QuarantinedIdentifier
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
-_SOURCE_PATH = "frontend/src/scenes/Button.stories.tsx"
+_SOURCE_PATH = "frontend/src/scenes/Button`www.example.com`.stories.tsx"
 _IDENTIFIER = "scenes-app-button--primary--light"
 _INDEX = story_index.StoryIndex(path_by_story_id={"scenes-app-button--primary": _SOURCE_PATH})
 
@@ -37,11 +37,12 @@ class TestSendQuarantineNotice:
             patch(
                 f"{channels}.fetch_channel_map",
                 return_value={"team-devex": SlackChannel(channel_id="C1", shared=False)},
-            ),
+            ) as channel_map,
             patch(f"{channels}.post_with_join", return_value="1700000000.1") as post,
         ):
             integration.objects.filter.return_value.first.return_value = MagicMock()
             post.owners = owners
+            post.channel_map = channel_map
             yield post
 
     def _quarantine(self, repo, user, identifier: str = _IDENTIFIER) -> QuarantinedIdentifier:
@@ -58,12 +59,18 @@ class TestSendQuarantineNotice:
         entry = self._quarantine(repo, user)
 
         assert quarantine_notice.send_quarantine_notice(entry.id, team.id) is True
+        second = self._quarantine(repo, user, identifier="scenes-app-button--primary--dark")
+        assert quarantine_notice.send_quarantine_notice(second.id, team.id) is True
 
+        assert post.channel_map.call_count == 1
         _, channel_id, blocks, text = post.call_args.args
         assert channel_id == "C1"
         assert text.startswith(f"*{user.first_name or user.email}* quarantined a story owned by you. Please check.")
         assert "*scenes-app-button--primary* storybook" in blocks[1]["text"]["text"]
         assert "<!channel>" not in str(blocks)
+        assert blocks[2]["elements"] == [
+            {"type": "plain_text", "text": f"org/test-notice · {_SOURCE_PATH}", "emoji": False}
+        ]
 
     @pytest.mark.parametrize(
         "case",

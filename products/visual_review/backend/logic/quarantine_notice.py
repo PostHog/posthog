@@ -18,7 +18,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.ownership.paths import UNOWNED_TEAM
-from posthog.slack.channels import clip_text, context_block, section_block
+from posthog.slack.channels import clip_text, section_block
 from posthog.slack.formatting import escape_slack_mrkdwn
 
 from ..db import WRITER_DB
@@ -47,7 +47,18 @@ def build_message(repo: Repo, entry: QuarantinedIdentifier, actor: str, source_p
                 f"*{story}* {escape_slack_mrkdwn(entry.run_type)}\n{facts}",
                 snapshot_button(repo, entry.run_type, entry.identifier, "Open snapshot"),
             ),
-            context_block(f"{escape_slack_mrkdwn(repo.repo_full_name)} · `{escape_slack_mrkdwn(source_path)}`"),
+            # The path comes from the repository, so it renders as plain text: in mrkdwn a backtick in it
+            # would close the code span and let Slack auto-link whatever follows.
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "plain_text",
+                        "text": clip_text(f"{repo.repo_full_name} · {source_path}", 2000),
+                        "emoji": False,
+                    }
+                ],
+            },
         ],
         text=f"{lead} {story}",
     )
