@@ -12,6 +12,7 @@ from posthog.models.organization import OrganizationMembership
 
 from ..facade import contracts
 from ..facade.contracts import PropertyAccessLevel
+from ..facade.enums import SCOPE_OBJECT_CHOICES
 from ..facade.user_access_control import RULE_RESOURCE_CHOICES
 from .access_control import ResolvedAccessSerializer
 
@@ -222,7 +223,9 @@ class AccessControlResourceDefaultSerializer(serializers.Serializer):
 
 
 class AccessControlObjectRuleResourceSerializer(serializers.Serializer):
-    resource = serializers.CharField(help_text="A resource type that supports rules on single objects.")
+    resource = serializers.ChoiceField(
+        choices=SCOPE_OBJECT_CHOICES, help_text="A resource type that supports rules on single objects."
+    )
     available_access_levels = serializers.ListField(
         child=serializers.CharField(),
         help_text="The levels an object rule on this resource type accepts, lowest first.",
@@ -247,7 +250,9 @@ class AccessControlDefaultsResponseSerializer(_AccessControlSettingsResponseSeri
 class AccessControlObjectRuleSerializer(serializers.Serializer):
     """A stored rule on one object, as configured for a subject."""
 
-    resource = serializers.CharField(help_text="The object's resource type, for example `dashboard`.")
+    resource = serializers.ChoiceField(
+        choices=SCOPE_OBJECT_CHOICES, help_text="The object's resource type, for example `dashboard`."
+    )
     resource_id = serializers.CharField(help_text="The object's primary key.")
     name = serializers.CharField(help_text="The object's display name. Falls back to the id when it has no name.")
     short_id = serializers.CharField(

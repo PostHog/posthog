@@ -14,6 +14,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.redis import get_client
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceInputs,
@@ -124,6 +125,10 @@ class ResumableSourceManager(Generic[ResumableData]):
         self._logger.debug(f"Staging resumable source state. key={self._key}, data={json_data}")
         self._staged[self._key] = json_data
 
+    def has_staged_state(self) -> bool:
+        """Whether the next `commit` will write anything."""
+        return bool(self._staged)
+
     def commit(self) -> None:
         """Persist every staged cursor, across namespaces."""
         if not self._staged:
@@ -148,6 +153,17 @@ class ResumableSourceManager(Generic[ResumableData]):
             yield
         finally:
             self.commit()
+
+    def safe_point(self) -> None:
+        """Mark a point where resuming from the staged cursor loses no rows.
+
+        Call it only when every row the staged cursor covers has been yielded, and the source holds
+        none of them in a local buffer. The pipeline can then hand the run to another worker during a
+        shutdown, or commit the cursor when nothing is waiting to be written. A source that makes many
+        requests that return no rows needs this, because the pipeline otherwise acts only when an
+        item arrives. See `safe_point.py`.
+        """
+        reach_safe_point()
 
     def clear_state(self) -> None:
         """Drop any saved resume state so a subsequent attempt starts from scratch.

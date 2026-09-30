@@ -122,3 +122,16 @@ class TestGladlySource:
         assert "Gladly returned no report" in retryable
         assert set(exhausted) <= retryable
         assert not any("Gladly returned no report" in key for key in self.source.get_non_retryable_errors())
+
+    def test_a_report_gladly_never_served_stops_the_sync_instead_of_retrying(self):
+        observed_error = (
+            "Gladly report unavailable for this account: metricSet=ContactTimestampsReport returned "
+            "an error body instead of a CSV on every attempt, and this table has never completed a "
+            "sync. First line: ['Unexpected error occurred']"
+        )
+        message = self.source.get_non_retryable_errors()["Gladly report unavailable for this account"]
+
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+        assert not any(key in observed_error for key in self.source.get_retryable_errors())
+        assert message is not None
+        assert "gladly support" in message.lower()

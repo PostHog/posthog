@@ -15,31 +15,32 @@ export const manifest: ProductManifest = {
     scenes: {
         BusinessKnowledge: {
             name: 'Business knowledge',
-            import: () => import('./frontend/scenes/BusinessKnowledgeScene'),
+            import: () => import('./frontend/scenes/sources/BusinessKnowledgeScene'),
             projectBased: true,
             activityScope: 'KnowledgeSource',
-            iconType: 'conversations',
+            iconType: 'business_knowledge',
             description:
                 'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
         },
         BusinessKnowledgePlayground: {
             name: 'Business knowledge playground',
-            import: () => import('products/business_knowledge/frontend/scenes/BusinessKnowledgePlaygroundScene'),
+            import: () =>
+                import('products/business_knowledge/frontend/scenes/playground/BusinessKnowledgePlaygroundScene'),
             projectBased: true,
-            iconType: 'conversations',
+            iconType: 'business_knowledge',
         },
         BusinessKnowledgeSettings: {
             name: 'Business knowledge settings',
-            import: () => import('./frontend/scenes/BusinessKnowledgeSettingsScene'),
+            import: () => import('./frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
             projectBased: true,
-            iconType: 'conversations',
+            iconType: 'business_knowledge',
         },
         BusinessKnowledgeSource: {
             name: 'Knowledge source',
-            import: () => import('./frontend/scenes/KnowledgeSourceScene'),
+            import: () => import('./frontend/scenes/source/KnowledgeSourceScene'),
             projectBased: true,
             activityScope: 'KnowledgeSource',
-            iconType: 'conversations',
+            iconType: 'business_knowledge',
         },
     },
     routes: {

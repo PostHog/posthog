@@ -3,18 +3,11 @@ from django.db import models
 
 from posthog.models.team import Team
 
-
-class EmailTrackingConsentMode(models.TextChoices):
-    # No consent enforcement: tracking follows the email step's own setting only.
-    OFF = "off"
-    # Track by default; suppress tracking for recipients who have opted out.
-    OPT_OUT = "opt_out"
-    # Do not track unless the recipient has explicitly opted in.
-    OPT_IN = "opt_in"
+from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_CHOICES, EmailTrackingConsentMode
 
 
 class TeamWorkflowsConfig(models.Model):
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, related_name="+")
 
     # Opt-in toggle for emitting workflows engagement activity (sends, opens, clicks, bounces, etc.)
     # as standard PostHog events alongside the existing workflow metrics.
@@ -23,7 +16,7 @@ class TeamWorkflowsConfig(models.Model):
     # Recipient-consent enforcement for open/click tracking on marketing emails (CNIL/ePrivacy).
     # Enforced at send time in the Node worker; transactional emails are exempt.
     email_tracking_consent_mode = models.CharField(
-        max_length=16, choices=EmailTrackingConsentMode.choices, default=EmailTrackingConsentMode.OFF
+        max_length=16, choices=EMAIL_TRACKING_CONSENT_MODE_CHOICES, default=EmailTrackingConsentMode.OFF.value
     )
 
     # Staff-controlled kill switch: while set, the CDP email worker blocks all workflow email
