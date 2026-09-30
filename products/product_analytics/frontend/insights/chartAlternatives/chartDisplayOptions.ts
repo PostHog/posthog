@@ -33,7 +33,6 @@ export interface ChartDisplayOptionGroup {
 
 export interface ChartDisplayOptionEligibility {
     boxPlotMissingProperty: boolean
-    hasMetricInsight: boolean
     hasSingleSeriesOutput: boolean
     hasTrendsFormula: boolean
     isTrends: boolean
@@ -87,7 +86,6 @@ export function applyChartDisplay(query: TrendsQuery, display: ChartDisplayType)
 
 export function getChartDisplayOptions({
     boxPlotMissingProperty,
-    hasMetricInsight,
     hasSingleSeriesOutput,
     hasTrendsFormula,
     isTrends,
@@ -174,18 +172,14 @@ export function getChartDisplayOptions({
                     disabledReason:
                         trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
                 },
-                ...(hasMetricInsight
-                    ? [
-                          {
-                              display: ChartDisplayType.Metric,
-                              icon: 'metric' as const,
-                              label: 'Metric',
-                              description: 'A headline value with a sparkline and period-over-period change.',
-                              disabledReason:
-                                  trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
-                          },
-                      ]
-                    : []),
+                {
+                    display: ChartDisplayType.Metric,
+                    icon: 'metric',
+                    label: 'Metric',
+                    description: 'A headline value with a sparkline and period-over-period change.',
+                    disabledReason:
+                        trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
+                },
                 {
                     display: ChartDisplayType.ActionsPie,
                     icon: 'pie',

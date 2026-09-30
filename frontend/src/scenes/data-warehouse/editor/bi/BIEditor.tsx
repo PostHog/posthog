@@ -18,11 +18,9 @@ import { LemonButton, LemonCard, LemonInput, LemonLabel, LemonSearchableSelect, 
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { Resizer } from 'lib/components/Resizer/Resizer'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Icon123, IconAreaChart, IconDonutChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import { ChartDisplayType } from '~/types'
@@ -107,7 +105,6 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const { activeDropShelf, activeExpressionEditorId, availableDataSources, config, databaseLoading, sortOptions } =
         useValues(logic)
     const { biEditorHeight, biEditorResizerProps } = useValues(editorSizingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     const { locateTable } = useActions(queryDatabaseLogic)
     const {
@@ -247,10 +244,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Chart type</LemonLabel>
                     <div className="flex flex-wrap gap-1" role="group" aria-label="Chart type">
-                        {CHART_TYPE_OPTIONS.filter(
-                            (option) =>
-                                option.value !== ChartDisplayType.Metric || !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT]
-                        ).map((option) => (
+                        {CHART_TYPE_OPTIONS.map((option) => (
                             <LemonButton
                                 key={option.value}
                                 type={config.chartType === option.value ? 'primary' : 'secondary'}

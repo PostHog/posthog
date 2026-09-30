@@ -4,9 +4,6 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
@@ -29,15 +26,8 @@ const cachedResults: HogQLQueryResponse = {
     ],
 }
 
-function renderTableDisplay(
-    key: string,
-    featureFlags: Record<string, string | boolean> = {}
-): () => DataVisualizationNode {
+function renderTableDisplay(key: string): () => DataVisualizationNode {
     initKeaTests()
-
-    const flags = featureFlagLogic()
-    flags.mount()
-    flags.actions.setFeatureFlags(Object.keys(featureFlags), featureFlags)
 
     let query: DataVisualizationNode = {
         kind: NodeKind.DataVisualizationNode,
@@ -94,8 +84,8 @@ describe('TableDisplay', () => {
         await waitFor(() => expect(query().display).toBe(display))
     })
 
-    it('offers metrics behind the feature flag and saves one Y-series', async () => {
-        const query = renderTableDisplay('table-display-metric', { [FEATURE_FLAGS.METRIC_INSIGHT]: true })
+    it('offers metrics without flag data and saves one Y-series', async () => {
+        const query = renderTableDisplay('table-display-metric')
 
         await selectDisplay('Metric')
 
