@@ -180,6 +180,10 @@
     color: var(--info-foreground);
 }
 
+[data-quill] .text-warning-foreground {
+    color: var(--warning-foreground);
+}
+
 [data-quill] .text-accent-foreground {
     color: var(--accent-foreground);
 }
