@@ -969,7 +969,9 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
                 response.json(),
-                self.validation_error_response("Dashboard does not belong to this team.", attr="home_tab_dashboard"),
+                self.validation_error_response(
+                    "Dashboard does not belong to this team.", code="does_not_exist", attr="home_tab_dashboard"
+                ),
             )
 
         def test_is_generating_demo_data(self):
