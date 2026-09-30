@@ -55,7 +55,7 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
 - **New DB**: we created a new DB to store these tables.
 - **Daily range partitioning** on `created_at`: both tables use `PARTITION BY RANGE (created_at)` with daily partitions and a DEFAULT partition catching rows that miss one.
   A Temporal scheduled workflow (`warehouse-sources-queue-partition-management`, daily at 8 AM UTC) creates the next 7 days of partitions, drops partitions older than 7 days, and deletes DEFAULT-partition rows older than 7 days.
-  It posts to Slack only when someone must act: a partition for tomorrow or later is missing, or a partition is more than a day past its drop date.
+  It posts to Slack only when someone must act: a partition for tomorrow or later is missing, or data is more than a day past retention, in a daily partition or in a DEFAULT partition.
   An S3 lifecycle rule on the warehouse bucket expires the extraction files under `data_pipelines_extract/` after 8 days, so this workflow does not touch S3.
   `DROP TABLE partition` is O(1) metadata-only: no vacuum, no dead tuples.
   The workflow connects with `WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL`, the migration role's credentials, because Postgres lets only the owner of a partitioned table create partitions of it.

@@ -33,19 +33,24 @@ class _FakePgConn:
     ``partitions`` (parent table -> partition names) feeds the pg_inherits
     listing. Executed CREATEs add to it and executed DROPs remove from it, so
     the listing after the run reflects what the activity did. DROPs are also
-    recorded in ``dropped``.
+    recorded in ``dropped``. ``default_rows`` (default partition -> row
+    ``created_at`` values) works the same way for DELETEs.
     """
 
     def __init__(
         self,
         partitions: dict[str, list[str]] | None = None,
         *,
+        default_rows: dict[str, list[datetime]] | None = None,
         denied_creates: frozenset[str] = frozenset(),
         denied_drops: frozenset[str] = frozenset(),
+        denied_deletes: frozenset[str] = frozenset(),
     ) -> None:
         self.partitions = partitions if partitions is not None else {}
+        self.default_rows = default_rows if default_rows is not None else {}
         self.denied_creates = denied_creates
         self.denied_drops = denied_drops
+        self.denied_deletes = denied_deletes
         self.dropped: list[str] = []
         self.deleted: list[tuple[str, datetime]] = []
 
@@ -77,7 +82,16 @@ class _FakePgConn:
                 if partition_name in names:
                     names.remove(partition_name)
         elif sql.strip().startswith("DELETE FROM "):
-            self.deleted.append((sql.split()[2], params["created_before"]))
+            partition_name, created_before = sql.split()[2], params["created_before"]
+            if partition_name in self.denied_deletes:
+                raise psycopg.errors.InsufficientPrivilege(f"permission denied for table {partition_name}")
+            self.deleted.append((partition_name, created_before))
+            rows = self.default_rows.get(partition_name, [])
+            self.default_rows[partition_name] = [r for r in rows if r >= created_before]
+            cursor.rowcount = len(rows) - len(self.default_rows[partition_name])
+        elif sql.startswith("SELECT EXISTS "):
+            partition_name = sql.split()[5]
+            cursor.fetchone.return_value = (any(r < params[0] for r in self.default_rows.get(partition_name, [])),)
         return cursor
 
 
@@ -97,26 +111,50 @@ def _day(offset: int) -> str:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("partitions", "denied_creates", "denied_drops", "expected_alert"),
+    ("partitions", "default_rows", "denied_creates", "denied_retention", "expected_alert"),
     [
-        ({}, {f"sourcebatch_{_day(1)}"}, set(), "`sourcebatch`: 2026-09-23"),
-        ({}, {f"sourcebatch_{_day(0)}"}, set(), None),
-        ({"sourcebatch": [f"sourcebatch_{_day(-9)}"]}, set(), {f"sourcebatch_{_day(-9)}"}, "oldest 2026-09-13"),
-        ({"sourcebatch": [f"sourcebatch_{_day(-8)}"]}, set(), {f"sourcebatch_{_day(-8)}"}, None),
+        ({}, {}, {f"sourcebatch_{_day(1)}"}, set(), "`sourcebatch`: 2026-09-23"),
+        ({}, {}, {f"sourcebatch_{_day(0)}"}, set(), None),
+        ({"sourcebatch": [f"sourcebatch_{_day(-9)}"]}, {}, set(), {f"sourcebatch_{_day(-9)}"}, "oldest 2026-09-13"),
+        ({"sourcebatch": [f"sourcebatch_{_day(-8)}"]}, {}, set(), {f"sourcebatch_{_day(-8)}"}, None),
+        (
+            {"sourcebatch": ["sourcebatch_default"]},
+            {"sourcebatch_default": [datetime(2026, 9, 13, 12, tzinfo=UTC)]},
+            set(),
+            {"sourcebatch_default"},
+            "`sourcebatch_default`: rows created before 2026-09-14",
+        ),
+        (
+            {"sourcebatch": ["sourcebatch_default"]},
+            {"sourcebatch_default": [datetime(2026, 9, 14, 12, tzinfo=UTC)]},
+            set(),
+            {"sourcebatch_default"},
+            None,
+        ),
     ],
-    ids=["tomorrow_missing", "only_today_missing", "drop_overdue_a_day", "first_drop_failure"],
+    ids=[
+        "tomorrow_missing",
+        "only_today_missing",
+        "drop_overdue_a_day",
+        "first_drop_failure",
+        "default_rows_overdue_a_day",
+        "first_default_expiry_failure",
+    ],
 )
 async def test_activity_posts_to_slack_only_when_someone_must_act(
     activity_environment,
     partitions: dict[str, list[str]],
+    default_rows: dict[str, list[datetime]],
     denied_creates: set[str],
-    denied_drops: set[str],
+    denied_retention: set[str],
     expected_alert: str | None,
 ) -> None:
     conn = _FakePgConn(
         {table: list(names) for table, names in partitions.items()},
+        default_rows={name: list(rows) for name, rows in default_rows.items()},
         denied_creates=frozenset(denied_creates),
-        denied_drops=frozenset(denied_drops),
+        denied_drops=frozenset(denied_retention),
+        denied_deletes=frozenset(denied_retention),
     )
 
     with (

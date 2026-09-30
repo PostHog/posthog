@@ -101,7 +101,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                         errors.append(f"Failed to drop {partition_name}: {e}")
                         logger.exception("Failed to drop partition", partition=partition_name)
 
-        alerts = _find_partition_alerts(conn, today)
+        alerts = await sync_to_async(_find_partition_alerts)(conn, today)
 
     result = PartitionResult(ensured=ensured, dropped=dropped, errors=errors)
 
@@ -278,10 +278,11 @@ def _find_partition_alerts(conn: psycopg.Connection, today: date) -> list[str]:
     later. A cause that also blocks tomorrow's partition still alerts through the upcoming check.
     """
     upcoming = [today + timedelta(days=offset) for offset in range(1, PARTITIONS_AHEAD)]
-    # A partition this old was due for a drop in at least two daily runs, so one transient failure does not alert.
+    # Data this old was due for removal in at least two daily runs, so one transient failure does not alert.
     stuck_before = today - timedelta(days=RETENTION_DAYS + 1)
+    stuck_before_at = datetime.combine(stuck_before, datetime.min.time(), tzinfo=UTC)
     missing: dict[str, list[date]] = {}
-    stuck: dict[str, list[date]] = {}
+    stuck: list[str] = []
     for table in PARTITIONED_TABLES:
         existing: set[date] = set()
         for (partition_name,) in conn.execute(
@@ -292,13 +293,20 @@ def _find_partition_alerts(conn: psycopg.Connection, today: date) -> list[str]:
             """,
             [table],
         ).fetchall():
+            if partition_name.endswith("_default"):
+                row = conn.execute(
+                    f"SELECT EXISTS (SELECT 1 FROM {partition_name} WHERE created_at < %s)", [stuck_before_at]
+                ).fetchone()
+                if row and row[0]:
+                    stuck.append(f"• `{partition_name}`: rows created before {stuck_before.isoformat()}")
+                continue
             partition_date = _partition_date(partition_name)
             if partition_date is not None:
                 existing.add(partition_date)
         if table_missing := [d for d in upcoming if d not in existing]:
             missing[table] = table_missing
         if table_stuck := sorted(d for d in existing if d < stuck_before):
-            stuck[table] = table_stuck
+            stuck.append(f"• `{table}`: oldest {table_stuck[0].isoformat()} ({len(table_stuck)} in total)")
 
     alerts: list[str] = []
     if missing:
@@ -312,12 +320,11 @@ def _find_partition_alerts(conn: psycopg.Connection, today: date) -> list[str]:
             "then rerun the `warehouse-sources-queue-partition-management` schedule."
         )
     if stuck:
-        lines = "\n".join(
-            f"• `{table}`: oldest {dates[0].isoformat()} ({len(dates)} in total)" for table, dates in stuck.items()
-        )
+        lines = "\n".join(stuck)
         alerts.append(
-            f"*Retention is stuck.* These partitions should have been dropped at least a day ago:\n{lines}\n"
-            "Find the cause in the worker logs under `Failed to drop partition` or `Failed to terminalize stranded runs`."
+            f"*Retention is stuck.* This data should have been removed at least a day ago:\n{lines}\n"
+            "Find the cause in the worker logs under `Failed to drop partition`, "
+            "`Failed to terminalize stranded runs`, or `Failed to expire old default partition rows`."
         )
     return alerts
 
