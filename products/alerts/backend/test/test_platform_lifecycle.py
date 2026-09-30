@@ -6,7 +6,12 @@ from posthog.test.base import APIBaseTest
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import PlatformAlertOutcome, PlatformAlertUpsert, SourceKind
+from products.alerts.backend.facade.contracts import (
+    FiringEpisode,
+    PlatformAlertOutcome,
+    PlatformAlertUpsert,
+    SourceKind,
+)
 from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes, upsert_configuration
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
@@ -29,7 +34,7 @@ class TestPlatformAlertLifecycle(APIBaseTest):
             )
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
 
-    def _record(self, **overrides) -> None:
+    def _record(self, now: datetime | None = None, **overrides) -> None:
         fields = {
             "configuration_id": self.configuration.id,
             "new_state": "firing",
@@ -37,7 +42,23 @@ class TestPlatformAlertLifecycle(APIBaseTest):
             "consecutive_failures": 0,
         }
         fields.update(overrides)
-        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], self.cutoff, team_timezone=self.team.timezone)
+        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], now or self.cutoff)
+
+    def _alert(self) -> PlatformAlert:
+        with team_scope(self.team.id):
+            return PlatformAlert.objects.get(configuration=self.configuration)
+
+    def test_the_row_holds_the_firing_the_alert_is_in_and_drops_the_one_that_ended(self) -> None:
+        # A field missing from the `bulk_update` list is never persisted and nothing else notices.
+        self._record(firing_episode=FiringEpisode(started_at=self.cutoff, ended=False))
+        assert self._alert().firing_started_at == self.cutoff
+
+        self._record(
+            new_state="not_firing",
+            firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
+            now=self.cutoff + timedelta(hours=1),
+        )
+        assert self._alert().firing_started_at is None
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
@@ -60,7 +81,7 @@ class TestPlatformAlertLifecycle(APIBaseTest):
             self.configuration.refresh_from_db()
         assert self.configuration.next_check_at == after_first
 
-    def test_a_copied_snooze_reaches_the_check_and_a_later_unsnooze_clears_it(self) -> None:
+    def test_a_copied_snooze_mutes_without_holding_back_the_check(self) -> None:
         legacy_id = uuid4()
         snoozed_until = self.cutoff + timedelta(hours=2)
 
@@ -96,13 +117,13 @@ class TestPlatformAlertLifecycle(APIBaseTest):
 
         with time_machine.travel(self.cutoff, tick=False):
             copy(snoozed_until)
-        assert snooze_seen_by_check() == ("snoozed", snoozed_until)
-
-        copy(None)
-        assert snooze_seen_by_check() == ("not_firing", None)
+        assert snooze_seen_by_check() == ("not_firing", snoozed_until)
 
         with team_scope(self.team.id):
             PlatformAlert.objects.filter(configuration__legacy_configuration_id=legacy_id).update(state="firing")
-        expired = self.cutoff - timedelta(hours=1)
-        copy(expired)
-        assert snooze_seen_by_check() == ("firing", expired)
+        with time_machine.travel(self.cutoff, tick=False):
+            copy(snoozed_until)
+        assert snooze_seen_by_check() == ("firing", snoozed_until)
+
+        copy(None)
+        assert snooze_seen_by_check() == ("firing", None)

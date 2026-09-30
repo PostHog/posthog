@@ -1,4 +1,6 @@
 import time
+import asyncio
+import weakref
 import contextlib
 from typing import Optional
 from urllib.parse import urlparse
@@ -44,16 +46,51 @@ def get_s3_client(*, endpoint_url: Optional[str] = None, skip_instance_cache: bo
     )
 
 
+# Shared asynchronous clients, one per (event loop, endpoint). An asynchronous S3FileSystem binds its
+# aiobotocore client to the loop that called set_session, so it can only be reused on that loop.
+# fsspec's own instance cache keys on the calling thread id instead, and async_to_sync runs each
+# call on a new loop in a new thread whose id the OS may hand out again, so that cache could return
+# a client bound to a loop that was already closed ("Event loop is closed"). Keying on the loop
+# object itself does not evict on its own, though: the client's aiohttp session keeps a strong
+# reference back to the loop that created it, so the loop stays reachable through our own value and
+# is never weakly collected. _evict_closed_event_loops sweeps dead loops out explicitly instead.
+_LOOP_S3_CLIENTS: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[Optional[str], s3fs.S3FileSystem]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _evict_closed_event_loops() -> None:
+    for closed_loop in [loop for loop in _LOOP_S3_CLIENTS if loop.is_closed()]:
+        del _LOOP_S3_CLIENTS[closed_loop]
+
+
+async def _shared_async_s3_client(endpoint_url: Optional[str]) -> s3fs.S3FileSystem:
+    loop = asyncio.get_running_loop()
+    _evict_closed_event_loops()
+    clients = _LOOP_S3_CLIENTS.setdefault(loop, {})
+    s3 = clients.get(endpoint_url)
+    if s3 is None:
+        # endpoint_url only forwarded when set; see get_s3_client and s3_proxy for the proxy-bypass reasoning.
+        extra = {"endpoint_url": endpoint_url} if endpoint_url is not None else {}
+        s3 = s3fs.S3FileSystem(
+            asynchronous=True,
+            skip_instance_cache=True,
+            config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url),
+            **extra,
+        )
+        await s3.set_session()
+        clients[endpoint_url] = s3
+    return s3
+
+
 @contextlib.asynccontextmanager
 async def aget_s3_client(*, fresh_instance: bool = False, endpoint_url: Optional[str] = None):
-    # fresh_instance=True bypasses the fsspec instance cache: a new S3FileSystem bound to the current
-    # event loop, closed on context exit. The cached default hands every caller the same instance
-    # regardless of loop, so async_to_sync-driven code (each call runs on a fresh, short-lived loop)
-    # gets an aiobotocore client bound to an already-closed loop ("Event loop is closed") and a
-    # dircache that goes stale whenever delta-rs writes to S3 through its own object store behind
-    # s3fs's back. Reserve it for low-frequency, correctness-critical paths (repartition purge/swap):
-    # every fresh instance pays connection setup + credential resolution, so defaulting it on would
-    # hammer the credential provider from hot paths.
+    # fresh_instance=True builds a new S3FileSystem bound to the current event loop and closes it on
+    # context exit. The shared default is one client per event loop (see _LOOP_S3_CLIENTS), whose
+    # dircache goes stale whenever delta-rs writes to S3 through its own object store behind s3fs's
+    # back. Reserve fresh_instance for low-frequency, correctness-critical paths (repartition
+    # purge/swap): every fresh instance pays connection setup + credential resolution, so defaulting
+    # it on would hammer the credential provider from hot paths.
     uncached = fresh_instance or settings.USE_LOCAL_SETUP
     if settings.USE_LOCAL_SETUP:
         # Defaults for localhost dev and test suites. skip_instance_cache avoids "Event loop is
@@ -65,18 +102,18 @@ async def aget_s3_client(*, fresh_instance: bool = False, endpoint_url: Optional
             skip_instance_cache=True,
             asynchronous=True,
         )
-    else:
-        # endpoint_url only forwarded when set, so the shared cached client isn't split; see
-        # get_s3_client and s3_proxy for the proxy-bypass reasoning.
+        await s3.set_session()
+    elif fresh_instance:
         extra = {"endpoint_url": endpoint_url} if endpoint_url is not None else {}
         s3 = s3fs.S3FileSystem(
             asynchronous=True,
-            skip_instance_cache=fresh_instance,
+            skip_instance_cache=True,
             config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url),
             **extra,
         )
-
-    await s3.set_session()
+        await s3.set_session()
+    else:
+        s3 = await _shared_async_s3_client(endpoint_url)
 
     if not uncached:
         yield s3

@@ -27,6 +27,10 @@ class TestFusionAuthSource:
             ("AuditLogs", True),
             ("EventLogs", True),
             ("LoginRecords", True),
+            ("Applications", False),
+            ("Tenants", False),
+            ("Groups", False),
+            ("GroupMembers", False),
         ],
     )
     def test_schema_incremental_support(self, endpoint, incremental):

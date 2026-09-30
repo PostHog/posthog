@@ -32,8 +32,35 @@ tools:
     ai-observability-offline-experiments-fail-create:
         operation: ai_observability_offline_experiments_fail_create
         enabled: false
+    ai-observability-offline-experiments-items-list:
+        operation: ai_observability_offline_experiments_items_list
+        enabled: false
+    ai-observability-offline-experiments-items-payload-retrieve:
+        operation: ai_observability_offline_experiments_items_payload_retrieve
+        enabled: false
+    ai-observability-offline-experiments-items-results-list:
+        operation: ai_observability_offline_experiments_items_results_list
+        enabled: false
+    ai-observability-offline-experiments-items-retrieve:
+        operation: ai_observability_offline_experiments_items_retrieve
+        enabled: false
+    ai-observability-offline-experiments-list:
+        operation: ai_observability_offline_experiments_list
+        enabled: false
+    ai-observability-offline-experiments-results-payload-retrieve:
+        operation: ai_observability_offline_experiments_results_payload_retrieve
+        enabled: false
+    ai-observability-offline-experiments-retrieve:
+        operation: ai_observability_offline_experiments_retrieve
+        enabled: false
+    ai-observability-offline-experiments-scorer-summaries-list:
+        operation: ai_observability_offline_experiments_scorer_summaries_list
+        enabled: false
     ai-observability-offline-experiments-upload-create:
         operation: ai_observability_offline_experiments_upload_create
+        enabled: false
+    ai-observability-offline-scorers-history-list:
+        operation: ai_observability_offline_scorers_history_list
         enabled: false
     datasets-exports-content-retrieve:
         operation: datasets_exports_content_retrieve
@@ -76,6 +103,12 @@ tools:
         enabled: false
     llm-analytics-parser-recipes-retrieve:
         operation: llm_analytics_parser_recipes_retrieve
+        enabled: false
+    llm-analytics-score-definitions-versions-list:
+        operation: llm_analytics_score_definitions_versions_list
+        enabled: false
+    llm-analytics-score-definitions-versions-retrieve:
+        operation: llm_analytics_score_definitions_versions_retrieve
         enabled: false
     llma-clustering-config-get:
         operation: llm_analytics_clustering_config_list
@@ -891,6 +924,7 @@ tools:
             Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON
             object). Optionally pass 'config', a JSON object with model parameters or any agent configuration (e.g.
             model, temperature, tools) — it is versioned with the prompt and returned as-is when fetching it.
+        category: Experiments
         include_params:
             - name
             - prompt
@@ -910,6 +944,7 @@ tools:
             Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new
             prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after
             creation.
+        category: Experiments
     llma-prompt-get:
         operation: llm_prompts_name_retrieve
         enabled: true
@@ -940,6 +975,7 @@ tools:
             with the tags intact — always do this before editing the prompt (see llma-prompt-update).
             References are rolling out gradually: when not enabled for the team, responses return the raw tags
             and no `resolved_references`, so treat content containing `@@@prompt:` as unresolved.
+        category: Experiments
         param_overrides:
             prompt_name:
                 aliases:
@@ -961,6 +997,7 @@ tools:
         description: >
             Remove a label from an LLM prompt. The label stops pointing at any version; recreate it with the set-label
             tool if needed. Confirm nothing depends on the label before removing it.
+        category: Experiments
     llma-prompt-label-set:
         operation: llm_prompts_name_labels_update
         enabled: true
@@ -977,6 +1014,7 @@ tools:
             there. Use labels to mark a version as released ('production', 'staging') or roll back by pointing the label
             at an earlier version. Label names use lowercase letters, numbers, dots, hyphens and underscores; 'latest'
             is reserved and numbers-only names are not allowed. Each prompt can have at most 50 labels.
+        category: Experiments
     llma-prompt-list:
         operation: llm_prompts_list
         enabled: true
@@ -1002,6 +1040,7 @@ tools:
             `resolved_references` listing the spliced versions; unlabeled listings return raw content with any reference
             tags intact. Reference resolution is rolling out gradually and returns raw tags when not enabled for the
             team.
+        category: Experiments
     llma-prompt-resolve:
         operation: llm_prompts_resolve_name_retrieve
         enabled: false
@@ -1031,6 +1070,7 @@ tools:
             that raw text: the default llma-prompt-get response inlines the referenced prompts, so republishing
             it replaces the references with flattened copies that stop following label moves. 'edits' written
             against resolved content also fail to match, because the stored content keeps the tags.
+        category: Experiments
         include_params:
             - prompt
             - edits

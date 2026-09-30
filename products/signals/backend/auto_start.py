@@ -67,6 +67,7 @@ from products.signals.backend.signal_metadata import (
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
+from products.signals.backend.stack_plan import dependency_head_branch
 from products.signals.backend.supersession import (
     TargetVerificationUnavailable,
     decision_is_current,
@@ -312,6 +313,17 @@ def _head_branch_instruction(head_branch: str) -> str:
     )
 
 
+def _stack_base_instruction(stack_base_branch: str | None) -> str:
+    if not stack_base_branch:
+        return ""
+    return (
+        f"\n\nThis report is one layer of a stack of dependent pull requests. The run starts on "
+        f"`{stack_base_branch}`, the head branch of the pull request this layer builds on. Open your PR "
+        f"with `{stack_base_branch}` as its base, and do not push to that branch. Change only what this "
+        "layer's summary asks for, because the layer below already carries the rest."
+    )
+
+
 def _superseded_pr_instruction(supersede: SupersedeDecision) -> str:
     """Tell the agent which pull request it is replacing, and to say so in its own description.
 
@@ -536,6 +548,22 @@ def _capture_autostart_skipped(
         logger.exception("Failed to capture signals_autostart_skipped", report_id=report_id)
 
 
+def _duplicate_claims(*, team_id: int, report_id: str, duplicate_ids: list[str]) -> list[str]:
+    """Every report this one duplicates, directly or through a chain, the oldest claim's chain first.
+
+    `duplicate_chain` follows only the oldest `duplicate_of` link, so the cluster keeps a stable name.
+    The gate asks whether the work is already in flight, and the work can sit behind any claim, so
+    each later claim's chain is walked too. The node budget bounds a report that holds many claims.
+    """
+    claims = duplicate_chain(team_id=team_id, report_id=report_id)
+    for target_id in duplicate_ids:
+        if len(claims) >= SignalReportArtefact.MAX_REPORT_LINK_GRAPH_NODES:
+            break
+        if target_id not in claims:
+            claims += [target_id, *duplicate_chain(team_id=team_id, report_id=target_id)]
+    return list(dict.fromkeys(claims))
+
+
 def _duplicate_already_worked_on(*, team_id: int, chain: list[str]) -> str | None:
     """The nearest report in the duplicate chain that already holds this work, or None.
 
@@ -573,9 +601,11 @@ def _evaluate_link_gates(team_id: int, report_id: str) -> AutostartSkip | None:
     """
     links = outgoing_links(team_id=team_id, report_id=report_id)
 
-    if any(edge.kind == ReportLinkKind.DUPLICATE_OF for edge in links):
+    duplicate_ids = [edge.target_id for edge in links if edge.kind == ReportLinkKind.DUPLICATE_OF]
+    if duplicate_ids:
         deciding_id = _duplicate_already_worked_on(
-            team_id=team_id, chain=duplicate_chain(team_id=team_id, report_id=report_id)
+            team_id=team_id,
+            chain=_duplicate_claims(team_id=team_id, report_id=report_id, duplicate_ids=duplicate_ids),
         )
         if deciding_id is not None:
             return AutostartSkip(
@@ -692,6 +722,7 @@ def _create_implementation_task_if_absent(
     user_id: int,
     repository: str,
     base_branch: str | None,
+    stack_base_branch: str | None = None,
     billing_exempt_reason: str | None = None,
     steering: ReportSteering = NO_STEERING,
     free_trial_enabled: bool | None = None,
@@ -844,6 +875,7 @@ def _create_implementation_task_if_absent(
             # The pre-generated branch the description instructs the agent to push to; stamped
             # into protected run state so the review carve-out can verify the PR is this run's.
             self_driving_head_branch=head_branch,
+            stack_base_branch=stack_base_branch,
             # Internal so the run stays out of the default task list; the report surfaces it by id.
             internal=True,
             runtime_adapter=agent_runtime.runtime_adapter,
@@ -1488,6 +1520,11 @@ async def maybe_autostart_implementation_task(
         return AutostartOutcome(status="blocked", reason="Organization is on a free trial")
 
     base_branch = team_config.base_branch_for(repository) if team_config else None
+    stack_base_branch = await database_sync_to_async(dependency_head_branch, thread_sensitive=False)(
+        team_id=team_id, report_id=report_id, repository=repository
+    )
+    if stack_base_branch:
+        base_branch = stack_base_branch
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id
@@ -1511,10 +1548,12 @@ async def maybe_autostart_implementation_task(
                 source_references=source_references,
                 steering=steering,
                 supersede=supersede,
-            ),
+            )
+            + _stack_base_instruction(stack_base_branch),
             user_id=task_user.id,
             repository=repository,
             base_branch=base_branch,
+            stack_base_branch=stack_base_branch,
             billing_exempt_reason=billing_exempt_reason,
             steering=steering,
             # The verdict resolved above, so the create-time gate re-reads no flag while it holds the

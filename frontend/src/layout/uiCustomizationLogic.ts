@@ -76,6 +76,7 @@ export interface uiCustomizationLogicValues {
     isSidebarSectionShown: (section: keyof SidebarSectionsConfiguration) => boolean
     pendingUiConfiguration: UserUIConfiguration | null
     sidebarDensity: SidebarDensity
+    starredProductsSetupCompleted: boolean
     uiConfiguration: UserUIConfiguration | null
     uiCustomizationEnabled: boolean
 }
@@ -111,6 +112,9 @@ export interface uiCustomizationLogicActions {
         }
         user: UserType
     } // userLogic
+    completeStarredProductsSetup: () => {
+        value: true
+    }
     setPendingUiConfiguration: (configuration: UserUIConfiguration | null) => {
         configuration: UserUIConfiguration | null
     }
@@ -149,6 +153,7 @@ export interface uiCustomizationLogicMeta {
             uiConfiguration: UserUIConfiguration | null,
             uiCustomizationEnabled: boolean
         ) => (item: keyof SidebarItemsConfiguration) => boolean
+        starredProductsSetupCompleted: (uiConfiguration: UserUIConfiguration | null) => boolean
         sidebarDensity: (uiConfiguration: UserUIConfiguration | null, uiCustomizationEnabled: boolean) => SidebarDensity
     }
 }
@@ -176,6 +181,7 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
         setSidebarDensity: (density: SidebarDensity) => ({ density }),
         setSidebarItemShown: (item: SidebarItemKey, shown: boolean) => ({ item, shown }),
         setPendingUiConfiguration: (configuration: UserUIConfiguration | null) => ({ configuration }),
+        completeStarredProductsSetup: true,
     }),
     reducers({
         // Optimistic copy held while the user PATCH is in flight, so toggles apply instantly.
@@ -208,6 +214,12 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
             (uiConfiguration: UserUIConfiguration | null, uiCustomizationEnabled: boolean) =>
                 (item: SidebarItemKey): boolean =>
                     !uiCustomizationEnabled || uiConfiguration?.sidebar?.items?.[item]?.visible !== false,
+        ],
+        // Unlike the visibility settings, this is read whether or not UI customization is on.
+        starredProductsSetupCompleted: [
+            (s) => [s.uiConfiguration],
+            (uiConfiguration: UserUIConfiguration | null): boolean =>
+                !!uiConfiguration?.sidebar?.starred_products_setup_completed,
         ],
         sidebarDensity: [
             (s) => [s.uiConfiguration, s.uiCustomizationEnabled],
@@ -244,6 +256,11 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
                 element_kind: 'density',
                 element_key: density,
             })
+        },
+        completeStarredProductsSetup: () => {
+            const configuration = withSidebarPatch(values.uiConfiguration, { starred_products_setup_completed: true })
+            actions.setPendingUiConfiguration(configuration)
+            actions.updateUser({ ui_configuration: configuration })
         },
         updateUserSuccess: () => {
             actions.setPendingUiConfiguration(null)
