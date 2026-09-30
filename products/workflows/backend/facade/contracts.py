@@ -7,6 +7,7 @@ from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
     HogFlowBatchJobState,
+    HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
 )
@@ -63,6 +64,39 @@ class WorkflowBatchJob:
     created_at: datetime
     updated_at: datetime
     created_by: "User | None"
+
+
+class WorkflowBatchJobNotFound(Exception):
+    pass
+
+
+@frozen
+class WorkflowSchedule:
+    """One recurring schedule of a workflow."""
+
+    id: UUID
+    hog_flow_id: UUID
+    rrule: str
+    starts_at: datetime
+    timezone: str
+    variables: dict[str, Any]
+    status: HogFlowScheduleStatus
+    next_run_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowScheduleNotFound(Exception):
+    pass
+
+
+@frozen
+class ProcessedSchedules:
+    """The schedule ids one scheduler pass fired, initialized, or failed on."""
+
+    processed: list[str]
+    initialized: list[str]
+    failed: list[str]
 
 
 @dataclass(frozen=True)
