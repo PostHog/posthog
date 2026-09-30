@@ -368,6 +368,7 @@ the row lists both.
 | heroku                           | HTTP                        | requests                                                        | ✅                          |
 | hetzner                          | HTTP                        | requests                                                        | ✅                          |
 | hex                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| heygen                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | heyreach                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | hibob                            | HTTP                        | requests                                                        | ✅                          |
 | hightouch                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1138,7 +1139,6 @@ doesn't conflict with concurrent PRs.
 - healthie
 - heap
 - hetzner
-- heygen
 - hibob
 - high_level
 - hivebrite
