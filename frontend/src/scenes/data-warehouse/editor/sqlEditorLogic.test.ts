@@ -917,6 +917,56 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('reopening a view from the URL hash', () => {
+        beforeEach(() => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            ;(posthog.capture as jest.Mock).mockClear()
+        })
+
+        it.each([
+            ['keeps the unsaved hash text', {}, 'SELECT 2', true],
+            ['loads the saved query for an explicit open', { open_view: MOCK_VIEW.id }, MOCK_VIEW.query.query, false],
+        ])('%s', async (_case, searchParams, expectedQuery, expectRestoreEvent) => {
+            router.actions.push(urls.sqlEditor(), searchParams, { view: MOCK_VIEW.id, q: 'SELECT 2' })
+
+            await expectLogic(logic)
+                .toDispatchActions(['editView', 'createTab', 'setQueryInput'])
+                .toMatchValues({
+                    editingView: partial({ id: MOCK_VIEW.id }),
+                    queryInput: expectedQuery,
+                    changesToSave: expectRestoreEvent,
+                })
+            if (expectRestoreEvent) {
+                expect(posthog.capture).toHaveBeenCalledWith('sql-editor-unsaved-view-edits-restored')
+            } else {
+                expect(posthog.capture).not.toHaveBeenCalledWith('sql-editor-unsaved-view-edits-restored')
+            }
+        })
+
+        it.each([
+            ['leaving the editor', () => router.actions.push(urls.savedInsights()), true],
+            [
+                'syncing the editor hash',
+                () => router.actions.replace(urls.sqlEditor(), undefined, { view: MOCK_VIEW.id, q: 'SELECT 3' }),
+                false,
+            ],
+        ])('asks before %s with unsaved view edits', async (_case, navigate, expectPrompt) => {
+            router.actions.push(urls.sqlEditor(), undefined, { view: MOCK_VIEW.id, q: 'SELECT 2' })
+            await expectLogic(logic).toDispatchActions(['editView', 'createTab', 'setQueryInput'])
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+
+            navigate()
+
+            expect(confirmSpy).toHaveBeenCalledTimes(expectPrompt ? 1 : 0)
+            confirmSpy.mockRestore()
+        })
+    })
+
     describe('open_insight URL parameter', () => {
         it('sets editingInsight when opening an insight via open_insight search param', async () => {
             logic = sqlEditorLogic({
