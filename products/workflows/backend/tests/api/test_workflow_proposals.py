@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -659,10 +660,8 @@ class TestWorkflowProposals(APIBaseTest):
         self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
         self._publish(flow_id)
 
-        with patch(
-            "products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals_by_source"
-        ) as mock_totals:
-            mock_totals.return_value = {}
+        with patch("products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals") as mock_totals:
+            mock_totals.return_value = SimpleNamespace(totals={})
             response = self.client.get(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
             )
