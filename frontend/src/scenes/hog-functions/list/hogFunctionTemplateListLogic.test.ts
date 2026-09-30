@@ -1,6 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import {
@@ -62,6 +65,42 @@ describe('hogFunctionTemplateListLogic - configuration structure', () => {
         expect(configuration).toHaveProperty('filters')
         expect(configuration.filters).toHaveProperty('properties')
         expect(configuration).not.toHaveProperty('properties') // Should not be at top level
+    })
+
+    describe('routing messaging templates to workflows', () => {
+        const slack: HogFunctionTemplateWithSubTemplateType = {
+            id: 'template-slack',
+            name: 'Slack',
+            type: 'destination',
+            status: 'stable',
+            free: true,
+            code: 'return event',
+            code_language: 'hog',
+        }
+
+        function urlWithFlag(template: HogFunctionTemplateWithSubTemplateType, flagOn: boolean): string | null {
+            const logic = hogFunctionTemplateListLogic.build({ type: 'destination' })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags(
+                flagOn ? [FEATURE_FLAGS.WORKFLOWS_MESSAGING_DESTINATIONS] : [],
+                flagOn ? { [FEATURE_FLAGS.WORKFLOWS_MESSAGING_DESTINATIONS]: true } : {}
+            )
+            return logic.values.urlForTemplate(template)
+        }
+
+        it('sends a messaging template to the workflow wizard while the flag is on', () => {
+            expect(urlWithFlag(slack, true)).toEqual(urls.workflowNewFromDestination('template-slack'))
+        })
+
+        it.each([
+            ['the flag is off', slack, false],
+            ['the template is an alert sub-template', { ...slack, sub_template_id: 'insight-alert-firing' }, true],
+            ['the template is not a messaging one', { ...slack, id: 'template-webhook', name: 'HTTP Webhook' }, true],
+        ])('keeps the destination form when %s', (_, template, flagOn) => {
+            expect(urlWithFlag(template as HogFunctionTemplateWithSubTemplateType, flagOn)).toMatch(
+                new RegExp(`^${urls.hogFunctionNew(template.id)}`)
+            )
+        })
     })
 })
 
