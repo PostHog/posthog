@@ -84,6 +84,11 @@ BACKFILL_START_GRACE = timedelta(minutes=2)
 # no timeout, and the list still answers 200, so nothing upstream slows the polling down.
 BACKFILL_ALIVE_CACHE_SECONDS = 60
 
+# Candidates come from `events`, but each generation is read back from `ai_events`, which a
+# separate pipeline fills later, and a small share of generations take longer than the shared
+# ingestion margin to land there.
+BACKFILL_AI_EVENTS_LAG = timedelta(seconds=30)
+
 
 @frozen
 class BackfillWindow:
@@ -332,10 +337,9 @@ class EvaluationBackfillViewSet(
     def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> BackfillWindow:
         """The requested window, bounded to the span whose verdicts can be read back."""
         now = timezone.now()
-        # Candidates come from `events`, but each generation is read back from `ai_events`, which a
-        # separate pipeline fills later. A generation that has not reached `ai_events` yet fails its
-        # run for good, so the window stops short of the newest events.
-        window_end: datetime = min(data["window_end"], now - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))
+        # A generation that has not reached `ai_events` yet fails its run, so the window stops short
+        # of the newest events.
+        window_end: datetime = min(data["window_end"], now - BACKFILL_AI_EVENTS_LAG)
         settle_hold = settle_horizon(evaluation.target, evaluation.target_config)
         if settle_hold:
             # A trace or session is graded over `settle_hold` from its first event, so a unit any

@@ -43,6 +43,10 @@ class Waiter:
         self.heartbeater: Heartbeater | None = None
         self.heartbeater_sync: HeartbeaterSync | None = None
         self.shutdown_monitor: ShutdownMonitor | None = None
+        self.shutdown_callback_ran = threading.Event()
+
+    def _on_shutdown(self) -> None:
+        self.shutdown_callback_ran.set()
 
     @activity.defn
     async def wait_for_activity(self, inputs: WaitInputsActivity) -> None:
@@ -57,6 +61,7 @@ class Waiter:
         await asyncio.sleep(0)
 
         async with self.heartbeater, self.shutdown_monitor:
+            self.shutdown_monitor.run_on_shutdown(self._on_shutdown)
             while True:
                 elapsed = loop.time() - start
 

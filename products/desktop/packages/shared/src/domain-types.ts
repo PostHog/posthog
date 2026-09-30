@@ -276,7 +276,7 @@ export type TaskActivityKind =
  */
 export interface TaskActivity {
   id: string;
-  task_id: string;
+  task_id: string | null;
   task_title: string;
   channel_id?: string | null;
   channel_name?: string | null;
@@ -300,7 +300,7 @@ export interface TaskActivityPage {
 }
 
 export interface TaskActivityReadMarker {
-  task_id: string;
+  task_id: string | null;
   seen_before: string;
   activity_id?: string;
 }
@@ -1139,6 +1139,8 @@ import type { SignalReportOrderingField } from "./signal-types";
 export type { SignalReportOrderingField };
 
 export interface SignalReportsQueryParams {
+  unread?: boolean;
+  search?: string;
   limit?: number;
   offset?: number;
   status?: CommaSeparatedSignalReportStatuses | string;

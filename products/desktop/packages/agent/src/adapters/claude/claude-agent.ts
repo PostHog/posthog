@@ -201,6 +201,14 @@ const SESSION_ENDED_MESSAGE =
   "The Claude Agent session has ended. Please start a new session.";
 
 const MAX_TITLE_LENGTH = 256;
+const BUDGET_EXHAUSTED_INTERRUPT_REASON = "budget_exhausted";
+
+function budgetExhaustedResponse(): PromptResponse {
+  return {
+    stopReason: "cancelled",
+    _meta: { interruptReason: BUDGET_EXHAUSTED_INTERRUPT_REASON },
+  };
+}
 const LOCAL_ONLY_COMMANDS = new Set(["/context", "/heapdump", "/extra-usage"]);
 
 /**
@@ -719,6 +727,28 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     await this.reportBudgetSteer(guard, sessionId, stage, delivered, summary);
   }
 
+  /** Cancel the turn so no model call starts after the budget is spent. */
+  private stopForBudget(session: Session, sessionId: string): void {
+    const guard = session.budgetGuard;
+    if (this.session !== session || !guard?.takeStop()) return;
+    const message = `[BudgetGuard] stop: $${guard.spentUsd.toFixed(2)} of $${guard.capUsd.toFixed(2)} spent, cancelling the turn before the gateway refuses it`;
+    this.logger.warn(message);
+    void this.client
+      .extNotification(POSTHOG_NOTIFICATIONS.CONSOLE, {
+        sessionId,
+        level: "warn",
+        message,
+      })
+      .catch((error) =>
+        this.logger.warn("[BudgetGuard] Failed to report the stop", { error }),
+      );
+    if (!session.activeTurn || session.activeTurn.settled) return;
+    session.interruptReason = BUDGET_EXHAUSTED_INTERRUPT_REASON;
+    this.interrupt().catch((error) =>
+      this.logger.warn("[BudgetGuard] Stop failed", { error }),
+    );
+  }
+
   private async reportBudgetSteer(
     guard: RunBudgetGuard,
     sessionId: string,
@@ -758,6 +788,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // is unreliable in this embedding — see UPSTREAM.md "Hide /clear").
       // Ahead of the SDK conversion below, which this path never reads.
       return this.clearConversation(params);
+    }
+
+    if (this.session.budgetGuard?.exhausted) {
+      this.logger.warn("[BudgetGuard] Refusing a prompt: budget exhausted");
+      return budgetExhaustedResponse();
     }
 
     const budgetSteerMode = (
@@ -895,11 +930,38 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     return response;
   }
 
+  /** Settle prompts queued before the budget ran out, without sending them. */
+  private refuseQueuedTurnsForBudget(session: Session): void {
+    const refused = session.turnQueue.filter(
+      (turn) => !turn.settled && turn.pendingInput,
+    );
+    if (refused.length === 0) return;
+    this.logger.warn(
+      "[BudgetGuard] Refusing queued prompts: budget exhausted",
+      {
+        count: refused.length,
+      },
+    );
+    for (const turn of refused) {
+      turn.settled = true;
+      turn.pendingInput = undefined;
+      declinePendingSteers(turn, "cancelled");
+      turn.resolve(budgetExhaustedResponse());
+    }
+    session.turnQueue = session.turnQueue.filter(
+      (turn) => !refused.includes(turn),
+    );
+  }
+
   private dispatchQueuedInput(session: Session): void {
     if (session.queryClosed) {
       return;
     }
     if (session.activeTurn && !session.activeTurn.settled) {
+      return;
+    }
+    if (session.budgetGuard?.exhausted) {
+      this.refuseQueuedTurnsForBudget(session);
       return;
     }
     const head = session.turnQueue.find((turn) => !turn.settled);
@@ -1823,6 +1885,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               if (budgetEvent) {
                 void this.deliverBudgetSteer(session, sessionId, budgetEvent);
               }
+              this.stopForBudget(session, sessionId);
               if (message.parent_tool_use_id === null) {
                 confirmConsumedBackgroundSteers(session);
               }
@@ -2494,6 +2557,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           if (event) {
             void this.deliverBudgetSteer(session, sessionId, event);
           }
+          this.stopForBudget(session, sessionId);
         }),
         SIDE_QUESTION_TIMEOUT_MS,
       );
