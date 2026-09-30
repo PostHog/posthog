@@ -307,6 +307,9 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == EarlyAccessFeature.Stage.CONCEPT
         assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
+        # The response carries the version a rollout action checks, so it has to match the row.
+        stored_flag = FeatureFlag.objects.get(pk=response_data["feature_flag"]["id"])
+        assert response_data["feature_flag"]["version"] == stored_flag.version
 
     def test_archive(self):
         response = self.client.post(

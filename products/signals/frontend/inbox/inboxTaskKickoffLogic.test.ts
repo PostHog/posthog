@@ -206,6 +206,20 @@ describe('inboxTaskKickoffLogic', () => {
             })
         })
 
+        it('shows the prompt it sent, so the message pairs with the agent echo', async () => {
+            logic.actions.openReportDiscussion(report, 'https://example.com/report')
+
+            await expectLogic(logic, () =>
+                logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
+            ).toFinishAllListeners()
+
+            const { streamKey } = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation ?? {}
+            const { threadItems } = runStreamLogic({ streamKey: String(streamKey) }).values
+            expect(threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)).toEqual([
+                createdTasks[0].description,
+            ])
+        })
+
         it('warms a repo-less sandbox for the report when Ask AI opens, and only once per report', async () => {
             warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
 

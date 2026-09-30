@@ -1102,6 +1102,15 @@ class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "30/minute"
 
 
+class LLMPromptFetchRateThrottle(PersonalApiKeyRateThrottle):
+    # SDK fleets poll prompt fetches on a fixed interval, so the shared sustained budget
+    # (4800/hour) rejects steady polling that the burst budget allows. A per-minute-only
+    # bucket keeps prompt fetches out of the general API budget, mirroring the dedicated
+    # feature_flag_remote_config throttle.
+    scope = "llm_prompt_fetch"
+    rate = "600/minute"
+
+
 class EventValuesBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "event_values_burst"
     rate = "60/minute"
