@@ -354,6 +354,7 @@ class TestReportCheckExecution(APIBaseTest):
         self._check()
         with (
             patch(_CAPTURE) as capture,
+            patch(_ASYNC_CONNECT, return_value=AsyncMock()),
             patch(_MEASURE, return_value=MetricMeasurement(value=42.0, measured_at=timezone.now(), series=None)),
         ):
             with self.captureOnCommitCallbacks(execute=True):

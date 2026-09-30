@@ -1,5 +1,5 @@
 import { trialFixtureComparison, trialFixtureResult, trialFixtureSetup } from './scoutTrialsFixtures'
-import { comparisonScoreDisabledReason, initialTrialVariants, trialFormError } from './scoutTrials'
+import { comparisonScoreDisabledReason, initialTrialVariants, trialFormError } from './scoutTrialUtils'
 
 describe('scout trial validation', () => {
     test.each([0, 1.5, 21, 100])('rejects %s repeats when the trial has two versions', (repeats) => {

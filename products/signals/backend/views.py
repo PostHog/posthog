@@ -2220,15 +2220,17 @@ class SignalReportViewSet(
     )
     @tracer.start_as_current_span("signals.reports.list")
     def list(self, request: ValidatedRequest, *args, **kwargs):
+        count_only: bool = request.validated_query_data["count_only"]
+        include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
         with trial_state_errors():
             store = trial_store_for_request(request, self.team_id)
             if store is not None:
-                return TrialInboxReads(self, store).list()
+                return TrialInboxReads(self, store).list(
+                    count_only=count_only, include_source_metadata=include_source_metadata
+                )
         # The reports list is the primary inbox-load endpoint. Each phase gets its own child span
         # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
         # products), the task facade (PR urls), or serialization, rather than one opaque request.
-        count_only: bool = request.validated_query_data["count_only"]
-        include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
         list_span = trace.get_current_span()
         list_span.set_attribute(
             "signals.reports.list.client", classify_report_list_client(request.headers.get("user-agent"))
@@ -2498,11 +2500,15 @@ class SignalReportViewSet(
                 if private is not None:
                     document = TrialInboxReads(self, store).detail(str(pk))
                     evidence = fetch_signals_for_report_sync(self.team, str(pk)) if private.source_report_id else []
-                    return Response({"report": document, "signals": [*evidence, *private.evidence]})
+                    return Response(
+                        ReportSignalsResponseSerializer(
+                            {"report": document, "signals": [*evidence, *private.evidence]}
+                        ).data
+                    )
         report = self.get_object()
         report_data = SignalReportSerializer(report, context=self._enriched_report_context(report)).data
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
-        return Response({"report": report_data, "signals": signals_list})
+        return Response(ReportSignalsResponseSerializer({"report": report_data, "signals": signals_list}).data)
 
     @extend_schema(
         request=SignalReportStateRequestSerializer,

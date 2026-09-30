@@ -64,10 +64,10 @@ class RunSignalsScoutInput:
     # One-off steering typed alongside a manual trigger. Never set on a scheduled dispatch,
     # where standing steering is a scout note instead.
     run_note: str | None = None
+    trial_launch_id: str | None = None
     # The report check a `check` dispatch answers. Stamped on the run row so the check can name
     # its run and the run can record the check's verdict.
     check_id: str | None = None
-    trial_launch_id: str | None = None
 
 
 @frozen
@@ -209,8 +209,8 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 repository=input.repository,
                 triggered_by=input.triggered_by,
                 run_note=input.run_note,
-                check_id=input.check_id,
                 trial_launch_id=input.trial_launch_id,
+                check_id=input.check_id,
             )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay

@@ -976,11 +976,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if user_id is None:
             raise NotFound()
         return Response(
-            {
-                "task_ids": tasks_facade.list_pinned_task_ids(
-                    self.team_id, user_id, exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id)
-                )
-            }
+            PinnedTaskIdsResponseSerializer(
+                {
+                    "task_ids": tasks_facade.list_pinned_task_ids(
+                        self.team_id, user_id, exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id)
+                    )
+                }
+            ).data
         )
 
     @extend_schema(
@@ -1655,16 +1657,19 @@ def _sandbox_bound_task_id(request) -> UUID | None:
 
 
 def _hidden_scout_trial_task_ids(request: Request, team_id: int) -> Iterable[UUID]:
-    if not is_sandbox_oauth_request(request):
-        return ()
-    return tasks_facade.scout_trial_task_ids(team_id, visible_task_id=_sandbox_bound_task_id(request))
+    if is_sandbox_oauth_request(request):
+        return tasks_facade.scout_trial_task_ids(team_id, visible_task_id=_sandbox_bound_task_id(request))
+    return tasks_facade.scout_trial_task_ids(team_id, visible_user_id=request.user.pk)
 
 
 def _ensure_scout_trial_visible(request: Request, team_id: int, task_id: str) -> None:
     if not tasks_facade.is_scout_trial_task(task_id, team_id):
         return
     tag_queries(is_scout_experiment=True)
-    if is_sandbox_oauth_request(request) and _sandbox_bound_task_id(request) != UUID(task_id):
+    if is_sandbox_oauth_request(request):
+        if _sandbox_bound_task_id(request) != UUID(task_id):
+            raise NotFound("Task not found")
+    elif not tasks_facade.task_visible(task_id, team_id, request.user.pk):
         raise NotFound("Task not found")
 
 
@@ -1717,7 +1722,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return False
         if "state" in payload:
             state = payload["state"]
-            if not isinstance(state, dict) or set(state) - {"token_usage", "budget_guard", "benjamin_version"}:
+            if not isinstance(state, dict) or set(state) - {
+                "token_usage",
+                "budget_guard",
+                "benjamin_version",
+                "agent_version",
+            }:
                 return False
         return True
 
@@ -1824,6 +1834,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._user_id(),
             bypass_visibility=bypass_visibility,
             for_control=not (is_read_only or is_visibility_only),
+            sandbox_task_id=_sandbox_bound_task_id(self.request),
         ):
             raise NotFound("Task not found")
         run_id = self.kwargs.get("pk")
@@ -4290,6 +4301,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             getattr(self.request.user, "id", None),
             bypass_visibility=bypass_visibility,
             for_control=not is_read,
+            sandbox_task_id=_sandbox_bound_task_id(self.request),
         ):
             raise NotFound("Task not found")
         if not is_read and not tasks_facade.task_run_matches_current_ownership(self._run_id(), task_id, self.team_id):

@@ -269,9 +269,9 @@ async def _create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
-    output_schema: dict[str, Any] | None = None,
     origin_key: str | None = None,
     before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
+    output_schema: dict[str, Any] | None = None,
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -317,9 +317,9 @@ async def _create_task_and_trigger(
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         interaction_origin=context.interaction_origin,
         extra_run_state=extra_run_state,
-        output_schema=output_schema,
         origin_key=origin_key,
         before_task_dispatch=before_task_dispatch,
+        output_schema=output_schema,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
@@ -958,6 +958,12 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
             continue
         result = notification.get("result")
         stop_reason = result.get("stopReason") if isinstance(result, dict) else None
+        if stop_reason == "cancelled" and isinstance(result, dict):
+            metadata = result.get("_meta")
+            if isinstance(metadata, dict) and metadata.get("interruptReason") == "budget_exhausted":
+                # Budget stops cannot retry or return partial output through the final-log drain.
+                message = "The agent run reached its model budget."
+                raise AgentTurnFailed(message, category="task_spend_limit", agent_message=message)
         if stop_reason == "end_turn":
             # A successful end_turn outranks a refusal in the same slice, in either order:
             # once the turn finished, failing it as refused would discard a good response.

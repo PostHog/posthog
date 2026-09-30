@@ -74,12 +74,10 @@ describe('ScoutTrialsPanel', () => {
 
             expect(screen.queryByText('Start trial')).toBeNull()
             await waitFor(() =>
-                expect(screen.getByRole('button', { name: 'New trial' }).getAttribute('aria-disabled')).toBe('false')
+                expect(screen.getByTestId('scout-comparison-new').getAttribute('aria-disabled')).toBe('false')
             )
-            await userEvent.click(screen.getByRole('button', { name: 'New trial' }))
-            expect((await screen.findByRole('button', { name: 'Start trial' })).getAttribute('aria-disabled')).toBe(
-                'true'
-            )
+            await userEvent.click(screen.getByTestId('scout-comparison-new'))
+            expect((await screen.findByTestId('scout-comparison-start')).getAttribute('aria-disabled')).toBe('true')
 
             await act(async () =>
                 resolveRubric({
@@ -90,7 +88,7 @@ describe('ScoutTrialsPanel', () => {
             )
 
             await waitFor(() =>
-                expect(screen.getByRole('button', { name: 'Start trial' }).getAttribute('aria-disabled')).toBe(
+                expect(screen.getByTestId('scout-comparison-start').getAttribute('aria-disabled')).toBe(
                     hasReference ? 'false' : 'true'
                 )
             )

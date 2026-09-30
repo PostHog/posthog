@@ -83,6 +83,7 @@ describe('StateManager', () => {
 
     describe('getApiKey', () => {
         const cacheOnlyApi = { config: { apiToken: 'phx_test' } } as unknown as ApiClient
+        const cacheOnlyOauthApi = { config: { apiToken: 'pha_test' } } as unknown as ApiClient
 
         function oauthApi(clientName: string | null, impersonated?: boolean, scope = 'insight:read'): ApiClient {
             return {
@@ -118,7 +119,7 @@ describe('StateManager', () => {
 
                 expect(result.is_impersonated).toBe(impersonated === true)
                 expect(result.suppress_analytics).toBe(suppressed)
-                expect(await new StateManager(cache, cacheOnlyApi).getApiKey()).toEqual(result)
+                expect(await new StateManager(cache, cacheOnlyOauthApi).getApiKey()).toEqual(result)
 
                 const otherTokenCache = new MemoryCache<State>('other-token')
                 await otherTokenCache.clear()

@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiError } from 'lib/api'
+import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { downloadFile, uuid } from 'lib/utils/dom'
 
 import {
@@ -56,7 +56,7 @@ import {
     trialFormError,
     trialIsActive,
     trialTaskIsActive,
-} from '../components/config/scouts/trials/scoutTrials'
+} from '../components/config/scouts/trials/scoutTrialUtils'
 
 const TRIAL_POLL_INTERVAL_MS = 10_000
 const EMPTY_LOAD_ERRORS = { configs: null, setup: null, history: null, comparisonHistory: null }
@@ -1090,16 +1090,17 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 values.evaluationState.preparedRequest ?? {
                     evaluation_id: comparison.id,
                     baseline_variant_id: comparison.baselineVariantId,
-                    rubric_source: 'mock',
+                    rubric_source: 'saved',
                     variants: comparison.groups.map((group, index) => ({
                         id: group.variantId,
                         label:
                             values.batch?.labels[group.variantId] ??
                             values.history?.results.find((run) => group.launchIds.includes(run.launch_id))?.variant ??
-                            `Variant ${index + 1}`,
+                            `Version ${index + 1}`,
                         launch_ids: group.launchIds,
                     })),
                 }
+            actions.updateEvaluation(comparison.id, { preparedRequest: request })
             const manager = cache.disposables
             const context = getContext()
             try {
@@ -1137,8 +1138,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 !previous ||
                 state.loading ||
                 state.scoring ||
-                evaluation?.status !== 'completed' ||
-                !evaluation.report?.variants.some((variant) => variant.judge_errors > 0)
+                (evaluation?.status !== 'completed' && evaluation?.status !== 'failed')
             ) {
                 return
             }
@@ -1150,7 +1150,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             actions.registerComparison(previous)
             actions.registerComparison(comparison)
             actions.updateEvaluation(comparison.id, {
-                preparedRequest: { ...evaluation.request, evaluation_id: comparison.id },
+                preparedRequest: { ...evaluation.request, evaluation_id: comparison.id, rubric_source: 'saved' },
             })
             actions.selectComparison(comparison.configId, comparison.id)
         },

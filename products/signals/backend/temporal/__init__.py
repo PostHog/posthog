@@ -130,8 +130,6 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
-    generate_scout_rubrics_activity,
-    fail_scout_rubrics_activity,
     load_scout_trial_evaluation_activity,
     dispatch_scout_trial_comparison_activity,
     fail_scout_trial_comparison_activity,
@@ -139,6 +137,8 @@ ACTIVITIES = [
     finish_scout_trial_comparison_activity,
     judge_scout_trial_run_activity,
     finish_scout_trial_evaluation_activity,
+    generate_scout_rubrics_activity,
+    fail_scout_rubrics_activity,
     dispatch_inbox_slack_notifications_activity,
     get_inbox_notification_state_activity,
     send_report_github_comments_activity,

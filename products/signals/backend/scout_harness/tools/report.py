@@ -370,6 +370,12 @@ def _trial_store(run: SignalScoutRun) -> ScoutTrialStore | None:
     return ScoutTrialStore(run) if is_scout_trial(run) else None
 
 
+def _reject_trial_report_links(store: ScoutTrialStore | None, links: Sequence[ReportLinkInput] | None) -> None:
+    if store is not None and links:
+        store.invalidate("Report links are not supported by private capture; this run cannot be compared.")
+        raise InvalidScoutReportError("Report links are not supported for this run.")
+
+
 def _private_report_gateway(function: Callable[_Parameters, _Return]) -> Callable[_Parameters, _Return]:
     @wraps(function)
     def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _Return:
@@ -1945,6 +1951,9 @@ async def emit_report(
     of a twin (see `_emit_idempotency_key`). One is derived from the content when the caller supplies
     none, so a resent call is safe either way."""
     _assert_team_owns_run(team, run)
+    trial_store = _trial_store(run)
+    if trial_store is not None and links:
+        await database_sync_to_async(_reject_trial_report_links, thread_sensitive=False)(trial_store, links)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
     # Off the loop because the gate reads a feature flag, which can block on the flag service.
@@ -1962,7 +1971,6 @@ async def emit_report(
     )
     priority_assessment = _build_priority(priority, priority_explanation)
     emit_key = _emit_idempotency_key(run=run, supplied=idempotency_key, title=title, summary=summary, evidence=evidence)
-    trial_store = _trial_store(run)
 
     async def finish(result: EmitReportResult) -> EmitReportResult:
         if trial_store is not None:
@@ -2137,6 +2145,8 @@ def emit_report_sync(
     report transaction, so they don't share its connection). Wrapping the whole async function instead
     would run every DB op on a separate connection, which a request's transaction can't see."""
     _assert_team_owns_run(team, run)
+    trial_store = _trial_store(run)
+    _reject_trial_report_links(trial_store, links)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
     metric_contents = _build_metrics(_allowed_metrics(team, metrics))
@@ -2152,7 +2162,6 @@ def emit_report_sync(
     )
     priority_assessment = _build_priority(priority, priority_explanation)
     emit_key = _emit_idempotency_key(run=run, supplied=idempotency_key, title=title, summary=summary, evidence=evidence)
-    trial_store = _trial_store(run)
 
     def finish(result: EmitReportResult) -> EmitReportResult:
         if trial_store is not None:
@@ -2776,13 +2785,11 @@ def _validate_edit_inputs(
 ) -> None:
     _assert_team_owns_run(team, run)
     trial_store = _trial_store(run)
+    _reject_trial_report_links(trial_store, links)
     if trial_store is not None:
         validate_scout_report_text("title", title)
         validate_scout_report_text("summary", summary)
         validate_scout_report_text("note", append_note)
-        if links:
-            trial_store.invalidate("Report links are not supported by private capture; this run cannot be compared.")
-            raise InvalidScoutReportError("Report links are not supported for this run.")
     if summary is not None and len(summary) > MAX_REPORT_SUMMARY_LENGTH:
         raise InvalidScoutReportError(f"summary exceeds {MAX_REPORT_SUMMARY_LENGTH} chars ({len(summary)})")
     if append_note is not None and len(append_note) > MAX_NOTE_CONTENT_LENGTH:
@@ -2846,7 +2853,7 @@ async def edit_report(
     Content-changing edits pass the same safety judge as `emit_report` before anything is written
     (see `_raise_if_unsafe_edit`); an unsafe edit is rejected whole and the report keeps what it
     had."""
-    _validate_edit_inputs(
+    await database_sync_to_async(_validate_edit_inputs, thread_sensitive=False)(
         team,
         run,
         title,

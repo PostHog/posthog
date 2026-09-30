@@ -587,7 +587,7 @@ class TestProvisioningBoundaries:
         with (
             override_settings(SANDBOX_LLM_GATEWAY_URL=gateway_url),
             patch.object(utils, "ai_gateway_env_vars", return_value={}) as ordinary_route,
-            patch.object(utils, "record_gateway_routing"),
+            patch.object(utils, "record_gateway_routing") as record_routing,
         ):
             out = utils.run_gateway_env_vars(ctx, task)
 
@@ -602,20 +602,26 @@ class TestProvisioningBoundaries:
                 "AI_GATEWAY_AI_STAGE": "",
             }
             ordinary_route.assert_not_called()
+            record_routing.assert_not_called()
         else:
             assert out == {}
             ordinary_route.assert_called_once()
+            record_routing.assert_called_once_with(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
 
     @pytest.mark.parametrize(
-        ("private_capture", "model_access"),
+        ("private_capture", "claude_model_access", "codex_model_access"),
         [
-            (False, "posthog-gateway"),
-            (True, "own-subscription"),
+            (False, "posthog-gateway", "posthog-gateway"),
+            (True, "own-subscription", "posthog-gateway"),
+            (True, "posthog-gateway", "own-subscription"),
         ],
     )
-    def test_trial_cannot_fall_back_to_an_ordinary_gateway(self, private_capture: bool, model_access: str) -> None:
+    def test_trial_cannot_fall_back_to_an_ordinary_gateway(
+        self, private_capture: bool, claude_model_access: str, codex_model_access: str
+    ) -> None:
         ctx = self._ctx()
-        ctx.claude_model_access = model_access
+        ctx.claude_model_access = claude_model_access
+        ctx.codex_model_access = codex_model_access
         task = Task(origin_product="signals_scout", origin_key="scout-trial:11111111-1111-1111-1111-111111111111")
 
         with (

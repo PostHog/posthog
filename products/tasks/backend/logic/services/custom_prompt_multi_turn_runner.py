@@ -210,9 +210,9 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
-            output_schema=output_schema,
             before_task_dispatch=before_task_dispatch,
             origin_key=origin_key,
+            output_schema=output_schema,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns.

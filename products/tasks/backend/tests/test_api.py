@@ -467,24 +467,40 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         client = self._trial_log_client()
         base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
         entry = {"type": "info", "message": "Synthetic scout inspected recent activity"}
+        log_objects: dict[str, str] = {}
 
-        with patch("products.tasks.backend.models.TaskRun.heartbeat_workflow"):
+        with (
+            patch("products.tasks.backend.models.TaskRun.heartbeat_workflow"),
+            patch.object(object_storage, "read", side_effect=lambda key, **_kwargs: log_objects.get(key)),
+            patch.object(object_storage, "write", side_effect=log_objects.__setitem__),
+            patch.object(object_storage, "tag"),
+        ):
             response = client.post(f"{base}append_log/", {"entries": [entry]}, format="json")
+            logs = client.get(f"{base}session_logs/")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert "scout_trial_private" not in response.json()["state"]
-        logs = client.get(f"{base}session_logs/")
         assert logs.status_code == status.HTTP_200_OK
         assert logs.json()[0]["message"] == entry["message"]
         usage = {"input_tokens": 12, "output_tokens": 4}
         response = client.patch(
             base,
-            {"status": "in_progress", "state": {"token_usage": usage, "budget_guard": {}, "benjamin_version": "test"}},
+            {
+                "status": "in_progress",
+                "state": {
+                    "token_usage": usage,
+                    "budget_guard": {},
+                    "benjamin_version": "test",
+                    "agent_version": "test-agent",
+                },
+            },
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         run.refresh_from_db()
         assert run.state is not None
         assert run.state["token_usage"] == usage
+        assert run.state["agent_version"] == "test-agent"
+        marker = run.state["scout_trial"]
         assert run.state["scout_trial_private"] == {"reports": []}
         response = client.patch(f"{base}set_summary/", {"summary": "Reviewed recent exports"}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -498,11 +514,23 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             client.post("/api/projects/@current/tasks/", {"title": "Child task"}, format="json").status_code
             == status.HTTP_403_FORBIDDEN
         )
-        response = client.patch(base, {"status": "failed", "error_message": "Synthetic failure"}, format="json")
-        assert response.status_code == status.HTTP_200_OK
+        with patch.object(tasks_facade, "signal_workflow_completion") as signal_completion:
+            response = client.patch(
+                base,
+                {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure")
         run.refresh_from_db()
         assert run.status == TaskRun.Status.FAILED
         assert run.error_message == "Synthetic failure"
+        assert run.completed_at is not None
+        assert run.state is not None
+        assert run.state["agent_version"] == "test-agent"
+        assert run.state["token_usage"] == usage
+        assert run.state["scout_trial"] == marker
+        assert run.state["scout_trial_private"] == {"reports": []}
 
     @parameterized.expand(
         [
@@ -511,6 +539,9 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("marker", {"state": {"scout_trial": {}}}),
             ("private", {"state": {"scout_trial_private": {}}}),
             ("other_state", {"state": {"custom_key": "value"}}),
+            ("mixed_state", {"status": "failed", "state": {"agent_version": "test-agent", "model": "other"}}),
+            ("state_type", {"status": "failed", "state": ["agent_version"]}),
+            ("state_null", {"status": "failed", "state": None}),
             ("remove", {"state_remove_keys": ["scout_trial"]}),
             ("branch", {"branch": "other"}),
             ("output", {"output": {"url": "https://example.com"}}),
@@ -520,8 +551,13 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
     def test_trial_cannot_patch_non_lifecycle_fields(self, _name: str, payload: dict[str, object]) -> None:
         task, run = self.trial_tasks[0], self.trial_runs[0]
         client = self._trial_log_client()
+        original_state = run.state
+        original_status = run.status
         response = client.patch(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", payload, format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        run.refresh_from_db()
+        assert run.state == original_state
+        assert run.status == original_status
 
     @parameterized.expand(
         [
@@ -559,6 +595,8 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             run.state = {"scout_trial": {"version": 1, "launch_id": str(uuid.uuid4())}}
             run.save(update_fields=["state"])
 
+        original_state = run.state
+        original_status = run.status
         response = client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
             {"entries": [{"type": "info", "message": "Synthetic log entry"}]},
@@ -566,9 +604,14 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         response = client.patch(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", {"status": "in_progress"}, format="json"
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+            format="json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        run.refresh_from_db()
+        assert run.state == original_state
+        assert run.status == original_status
         response = client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
             {"summary": "Synthetic summary"},
@@ -617,6 +660,70 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         own_response = client.get(f"{base}{own_task.id}/")
         assert own_response.status_code == status.HTTP_200_OK
         assert own_response.json()["origin_key"] is None
+
+    @parameterized.expand([("session", False), ("api_key", False), ("shared_channel", True)])
+    def test_other_member_cannot_discover_read_or_control_trials(self, auth: str, shared_channel: bool) -> None:
+        member = self.create_organization_user("trial-reader")
+        client = APIClient()
+        if auth == "api_key":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Trial reader", user=member, secure_value=hash_key_value(key), scopes=["task:read", "task:write"]
+            )
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+        else:
+            client.force_login(member)
+        if shared_channel:
+            channel = Channel.objects.for_team(self.team.id).create(
+                team=self.team, name="Trial review", created_by=self.user, channel_type=Channel.ChannelType.PUBLIC
+            )
+            Task.objects.filter(id__in=[task.id for task in self.trial_tasks]).update(channel=channel)
+        for task in self.trial_tasks:
+            TaskPin.objects.create(user=member, task=task)
+
+        base = f"/api/projects/{self.team.id}/tasks/"
+        trial_ids = {str(task.id) for task in self.trial_tasks}
+        for path in (base, f"{base}?all_team_tasks=true&ph_debug=true"):
+            response = client.get(path)
+            assert response.status_code == status.HTTP_200_OK
+            assert not trial_ids.intersection(row["id"] for row in response.json()["results"])
+        response = client.get(f"{base}search/?q=saved")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+        response = client.post(f"{base}summaries/", {"ids": list(trial_ids)}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+        assert client.get(f"{base}pinned/").json()["task_ids"] == []
+        assert client.get(f"{base}repositories/").json()["repositories"] == []
+
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        detail = f"{base}{task.id}/"
+        run_detail = f"{detail}runs/{run.id}/"
+        with patch.object(object_storage, "read") as read, patch.object(object_storage, "get_presigned_url") as presign:
+            for path in (
+                detail,
+                f"{detail}?ph_debug=true",
+                f"{detail}runs/",
+                f"{detail}artifacts/",
+                run_detail,
+                f"{run_detail}logs/",
+                f"{run_detail}session_logs/",
+                f"{run_detail}artifacts/presign/",
+                f"{run_detail}artifacts/download/",
+                f"{run_detail}living_artifacts/",
+                f"{run_detail}stream_token/",
+                f"{run_detail}connection_token/",
+            ):
+                with self.subTest(path=path):
+                    assert client.get(path).status_code == status.HTTP_404_NOT_FOUND
+            read.assert_not_called()
+            presign.assert_not_called()
+        assert client.patch(detail, {"title": "Changed"}, format="json").status_code == status.HTTP_404_NOT_FOUND
+        assert client.patch(run_detail, {"status": "failed"}, format="json").status_code == status.HTTP_404_NOT_FOUND
+        assert client.post(f"{detail}run/", {}, format="json").status_code == status.HTTP_404_NOT_FOUND
+        assert client.post(f"{run_detail}cancel/", {}, format="json").status_code == status.HTTP_404_NOT_FOUND
+        task.refresh_from_db()
+        assert task.title == "Saved scout result"
 
     def test_own_sandbox_and_operator_can_read_trial_without_exposing_private_state(self) -> None:
         task, run = self.trial_tasks[0], self.trial_runs[0]
@@ -7479,12 +7586,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state_append": {
                     "systemPrompt": "Caller-controlled instructions",
+                    "scout_trial": {"version": 2},
+                    "scout_trial_private": {"reports": {}},
                     "task_management_ci_idle_skips": 0,
                     "task_management_ci_wait_checks": 0,
                     "pending_external_followups_checkpoint": {"generation": 99},
                     "scratch": "ok",
-                    "scout_trial": {"version": 2},
-                    "scout_trial_private": {"reports": {}},
                 }
             },
             format="json",
@@ -12100,10 +12207,22 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
             },
         )
 
-    def test_handoff_rejects_nonterminal_runs(self):
+    @parameterized.expand(
+        [
+            ("active_run", False, "Finish or cancel active runs before handing off this task."),
+            ("scout_trial", True, "Scout comparison tasks stay with the operator who launched them."),
+        ]
+    )
+    def test_handoff_rejects_restricted_tasks(self, _name: str, is_trial: bool, message: str) -> None:
         recipient = self.create_organization_user("recipient")
         task = self.create_task(created_by=self.user)
-        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        if is_trial:
+            task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+            task.origin_key = f"scout-trial:{uuid.uuid4()}"
+            task.save(update_fields=["origin_product", "origin_key"])
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED if is_trial else TaskRun.Status.QUEUED
+        )
 
         response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
 
@@ -12113,7 +12232,7 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Finish or cancel active runs before handing off this task.",
+                "detail": message,
                 "attr": "user",
             },
         )

@@ -573,7 +573,7 @@ export interface inboxSceneLogicActions {
         open: boolean
     }
     setScoutDetailTab: (tab: ScoutDetailTab | null) => {
-        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | null
+        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | 'trials' | null
     }
     setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => {
         draft: ScoutCreateInitialValues | null
@@ -595,7 +595,7 @@ export interface inboxSceneLogicActions {
     ) => {
         findingId: string | null
         skillName: string | null
-        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | null
+        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | 'trials' | null
     }
     setTriageOpen: (open: boolean) => {
         open: boolean

@@ -585,7 +585,7 @@ def _build_environment_variables(
         # Pinned eval runs must not switch models after an overload.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
 
-    if ctx.agent_otel_telemetry_enabled:
+    if ctx.agent_otel_telemetry_enabled and task.is_scout_experiment is not True:
         environment_variables.update(get_sandbox_otel_env_vars())
 
     if ctx.allowed_domains is not None:

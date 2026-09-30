@@ -18,7 +18,7 @@ import {
     trialRunVerdictCounts,
     trialVersionResults,
 } from './scoutTrialPresentation'
-import { ScoutTrialRow, trialPercentage } from './scoutTrials'
+import { ScoutTrialRow, trialPercentage } from './scoutTrialUtils'
 
 export function ScoutTrialComparisonReport({
     report,

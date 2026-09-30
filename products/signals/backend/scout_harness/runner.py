@@ -221,9 +221,9 @@ def run_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
-    check_id: str | None = None,
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
+    check_id: str | None = None,
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -239,9 +239,9 @@ def run_signals_scout(
             verbose=verbose,
             triggered_by=triggered_by,
             run_note=run_note,
-            check_id=check_id,
             agent_runtime=agent_runtime,
             trial_launch_id=trial_launch_id,
+            check_id=check_id,
         )
     )
 
@@ -255,9 +255,9 @@ async def _arun_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
-    check_id: str | None = None,
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
+    check_id: str | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -514,8 +514,8 @@ async def _arun_signals_scout(
             service_tier=service_tier,
             triggered_by=triggered_by,
             run_note=run_note,
-            check_id=check_id,
             trial=trial,
+            check_id=check_id,
         )
         trial_status = tasks_facade.TaskRunStatus.COMPLETED.value
         runtime_s = time.monotonic() - started
@@ -709,9 +709,9 @@ async def arun_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
-    check_id: str | None = None,
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
+    check_id: str | None = None,
 ) -> RunResult:
     with private_capture_context() if trial_launch_id is not None else nullcontext():
         return await _arun_signals_scout(
@@ -722,9 +722,9 @@ async def arun_signals_scout(
             verbose=verbose,
             triggered_by=triggered_by,
             run_note=run_note,
-            check_id=check_id,
             agent_runtime=agent_runtime,
             trial_launch_id=trial_launch_id,
+            check_id=check_id,
         )
 
 
@@ -881,8 +881,8 @@ async def _spawn_and_run(
     service_tier: str | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
-    check_id: str | None = None,
     trial: TrialLaunch | None = None,
+    check_id: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -997,6 +997,7 @@ async def _spawn_and_run(
         # Frames the note: a check dispatch carries an assignment the run has to answer, where a
         # manual trigger carries a nudge a person typed alongside the scout's usual work.
         triggered_by=triggered_by,
+        is_private_trial=trial is not None,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -1025,8 +1026,8 @@ async def _spawn_and_run(
             repositories=repositories,
             triggered_by=triggered_by,
             run_note=run_note,
-            check_id=check_id,
             trial=trial,
+            check_id=check_id,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1261,8 +1262,8 @@ def _create_run_row(
     repositories: list[str] | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
-    check_id: str | None = None,
     trial: TrialLaunch | None = None,
+    check_id: str | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1334,10 +1335,6 @@ def _create_run_row(
     # because the note is deliberately never stored as a scout note.
     if run_note:
         metadata["run_note"] = run_note
-    # The check a coordinator dispatch was started to answer. `scout-check-record-result` and
-    # `scout-report-check-list` read it to tie the check to this run.
-    if check_id:
-        metadata["check_id"] = check_id
     if trial is not None:
         metadata[SCOUT_TRIAL_METADATA_KEY] = {
             "version": 1,
@@ -1345,6 +1342,10 @@ def _create_run_row(
             "context_id": str(trial.context_id),
             "variant": trial.variant,
         }
+    # The check a coordinator dispatch was started to answer. `scout-check-record-result` and
+    # `scout-report-check-list` read it to tie the check to this run.
+    if check_id:
+        metadata["check_id"] = check_id
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run_id=task_run_id,

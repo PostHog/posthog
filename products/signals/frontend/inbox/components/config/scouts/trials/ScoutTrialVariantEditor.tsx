@@ -6,7 +6,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { ScoutTrialSetupApi } from 'products/signals/frontend/generated/api.schemas'
 
-import type { ScoutTrialVariant } from './scoutTrials'
+import type { ScoutTrialVariant } from './scoutTrialUtils'
 
 export interface ScoutTrialVariantEditorProps {
     variant: ScoutTrialVariant

@@ -36,6 +36,7 @@ class SavedScoutReads:
         limit: int = 20,
         content_max_chars: int | None = None,
         exclude_origins: Sequence[str] = (),
+        text: str | None = None,
     ) -> list[ScoutNote]:
         rows = TypeAdapter(list[ScoutNote]).validate_python(self.context.notes)
         now = timezone.now()
@@ -50,6 +51,8 @@ class SavedScoutReads:
             if row.origin in exclude_origins or not _within_dates(row.created_at, date_from, date_to):
                 continue
             if not include_expired and row.expires_at and datetime.fromisoformat(row.expires_at) <= now:
+                continue
+            if text and text.casefold() not in row.content.casefold():
                 continue
             selected.append(
                 replace(row, content=row.content[:content_max_chars]) if content_max_chars is not None else row

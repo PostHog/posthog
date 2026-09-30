@@ -20,6 +20,7 @@ class TrialEvaluationStatus(models.TextChoices):
 
 class TrialRubricSource(models.TextChoices):
     MOCK = "mock"
+    SAVED = "saved"
 
 
 class ScoutTrialEvaluationVariantSerializer(serializers.Serializer):
@@ -47,7 +48,8 @@ class ScoutTrialEvaluationRequestSerializer(serializers.Serializer):
         help_text=f"Up to {MAX_TRIAL_VARIANTS} variant groups, each with up to {MAX_TRIAL_REPEATS} trial runs.",
     )
     rubric_source = serializers.ChoiceField(
-        choices=TrialRubricSource.choices, help_text="Explicit rubric input source."
+        choices=TrialRubricSource.choices,
+        help_text="Use saved for new evaluations. Mock is retained only for exact retries of existing evaluations.",
     )
 
 

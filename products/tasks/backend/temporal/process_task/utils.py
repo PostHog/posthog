@@ -1332,7 +1332,7 @@ def build_sandbox_environment_variables(
     env_vars.update(run_gateway_env_vars(ctx, task))
     env_vars.update(mcp_exec_skills_env_vars(ctx))
 
-    if otel_telemetry_enabled:
+    if otel_telemetry_enabled and task.is_scout_experiment is not True:
         env_vars.update(get_sandbox_otel_env_vars())
 
     return env_vars
@@ -1368,7 +1368,6 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         ensure_scout_trial_capture_ready()
         if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
             raise GatewayNotConfiguredError("Scout trials require gateway OAuth instead of subscription credentials")
-        record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {
             **({"LLM_GATEWAY_URL": settings.SANDBOX_LLM_GATEWAY_URL} if settings.SANDBOX_LLM_GATEWAY_URL else {}),
             "AI_GATEWAY_URL": "",

@@ -308,7 +308,7 @@ def _probe_run_ids(
             WHERE run.team_id = %s
               AND run.skill_name = scout.skill_name
               AND run.created_at >= scout.cutoff
-              AND NOT (run.metadata ? 'scout_trial')
+              AND NOT (COALESCE(run.metadata, '{{}}'::jsonb) ? 'scout_trial')
             ORDER BY run.created_at DESC
             LIMIT %s
         ) probe

@@ -861,8 +861,17 @@ class TestPollForTurnTerminalDrain:
             with pytest.raises(RuntimeError, match="terminal status"):
                 await poll_for_turn(fake_task_run, skip_lines=skip)
 
+    @parameterized.expand(
+        [
+            ("no_cancel", None),
+            ("cancel_without_reason", {}),
+            ("cancel_for_other_reason", {"_meta": {"interruptReason": "user_cancelled"}}),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_terminal_status_recovers_mid_turn_agent_message(self):
+    async def test_terminal_status_recovers_mid_turn_agent_message(
+        self, _name: str, cancellation: dict[str, JsonValue] | None
+    ) -> None:
         """The original commit's intent must still hold: when the agent emitted an
         agent_message earlier in *this* turn but the workflow then hit terminal status
         without `end_turn`, the drain recovers that message. Verified with skip_lines>0
@@ -874,6 +883,10 @@ class TestPollForTurnTerminalDrain:
             _agent_message_line("turn-2-partial-answer"),
             _usage_update_line(0),  # cursor has advanced past the agent_message by now
         ]
+        if cancellation is not None:
+            turn_2_recoverable.append(
+                json.dumps({"notification": {"result": {"stopReason": "cancelled", **cancellation}}})
+            )
 
         log = "\n".join(turn_1 + turn_2_recoverable)
         skip = len(turn_1)
@@ -1264,6 +1277,59 @@ class TestMultiTurnSessionRetry:
         assert followup_calls[1].args[1] == "please respond" + _EMPTY_TURN_RETRY_NUDGE
         # Offsets advanced past the recovered turn.
         assert session.log_lines_seen == 8
+
+    @parameterized.expand(
+        [
+            ("without_partial_text", False, False),
+            ("with_partial_text", True, False),
+            ("first_visible_in_terminal_drain", True, True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_budget_stop_fails_without_retrying_or_returning_partial_text(
+        self, _name: str, partial_text: bool, stop_visible_in_drain: bool
+    ) -> None:
+        previous_turn = [_agent_message_line("previous response"), _end_turn_line()]
+        current_turn = [_user_message_line("followup question")]
+        if partial_text:
+            current_turn.append(_agent_message_line("unfinished response"))
+        stopped_log = "\n".join(
+            [
+                *previous_turn,
+                *current_turn,
+                json.dumps(
+                    {
+                        "notification": {
+                            "result": {"stopReason": "cancelled", "_meta": {"interruptReason": "budget_exhausted"}}
+                        }
+                    }
+                ),
+            ]
+        )
+        visible_logs = iter(["\n".join(previous_turn + current_turn)] if stop_visible_in_drain else [])
+
+        def read_log(*_args: object, **_kwargs: object) -> str:
+            return next(visible_logs, stopped_log)
+
+        session = self._make_session()
+        session.log_lines_seen = len(previous_turn)
+        session.printed_lines = len(previous_turn)
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=read_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 1),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 1),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=FakeTaskRun(status="failed")),
+        ):
+            with pytest.raises(AgentTurnFailed) as exc_info:
+                await session.send_followup_raw("followup question")
+
+        assert exc_info.value.category == "task_spend_limit"
+        assert exc_info.value.retryable_upstream is False
+        assert isinstance(session._workflow_handle, AsyncMock)
+        followup_calls = [call for call in session._workflow_handle.signal.await_args_list if len(call.args) >= 2]
+        assert len(followup_calls) == 1
+        assert followup_calls[0].args[1] == "followup question"
 
     @pytest.mark.asyncio
     async def test_advances_offsets_from_error_before_retrying(self):

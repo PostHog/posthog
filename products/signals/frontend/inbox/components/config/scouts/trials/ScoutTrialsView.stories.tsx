@@ -14,7 +14,7 @@ import {
     trialFixtureSetup,
 } from './scoutTrialsFixtures'
 import { ScoutTrialsView, ScoutTrialsViewProps } from './ScoutTrialsView'
-import { createTrialBatch, initialTrialVariants } from './scoutTrials'
+import { createTrialBatch, initialTrialVariants } from './scoutTrialUtils'
 
 const noop = (): void => {}
 const variants = initialTrialVariants(trialFixtureSetup)

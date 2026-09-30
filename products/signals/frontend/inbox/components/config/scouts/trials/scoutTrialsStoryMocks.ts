@@ -52,9 +52,12 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
                 outcome: {
                     status: candidates.length === 1 ? 'winner' : candidates.length > 1 ? 'tie' : 'inconclusive',
                     variant_ids: candidates.map((variant) => variant.id),
-                    summary: candidates.length
-                        ? 'The candidate variants passed every rubric check in these fixed Storybook results.'
-                        : 'Add another variant to compare results.',
+                    summary:
+                        candidates.length === 1
+                            ? `${candidates[0].label} passed every rubric check. The baseline passed half.`
+                            : candidates.length > 1
+                              ? 'The candidate versions tied: each passed every rubric check. The baseline passed half.'
+                              : 'Add another version to compare results.',
                 },
                 rubric_source: payload.rubric_source,
                 rubric_revision: payload.rubric_source === 'saved' ? rubric.revision : 0,

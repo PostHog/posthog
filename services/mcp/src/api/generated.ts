@@ -92347,6 +92347,75 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `none` - None
+     * * `emit` - Emit
+     * * `edit` - Edit
+     * * `both` - Both
+     */
+    export type ScoutRubricReportChannelEnum = typeof ScoutRubricReportChannelEnum[keyof typeof ScoutRubricReportChannelEnum];
+
+
+    export const ScoutRubricReportChannelEnum = {
+      None: 'none',
+      Emit: 'emit',
+      Edit: 'edit',
+      Both: 'both',
+    } as const;
+
+    export interface ScoutRubricReferenceTextDocument {
+      /** Path of the reference supplied to the generator. */
+      path: string;
+      /** Content type of the supplied reference. */
+      content_type: string;
+      /** Exact reference text supplied to the generator. */
+      content: string;
+    }
+
+    export interface ScoutRubricReferenceLimitsDocument {
+      /**
+         * Number of reference files not supplied.
+         * @minimum 0
+         */
+      omitted_files: number;
+      /** Reference paths whose supplied content was truncated. */
+      truncated_files: string[];
+    }
+
+    export interface ScoutRubricReferenceContextDocument {
+      /** Version of the saved reference-context format. */
+      schema_version: number;
+      /** Exact skill record used for generation. */
+      skill_id: string;
+      /** Name of the skill used for generation. */
+      skill_name: string;
+      /** Skill version used for generation. */
+      skill_version: number;
+      /** Scout description supplied to the generator. */
+      description: string;
+      /** Exact instructions supplied to the generator. */
+      instructions: string;
+      /** Whether the supplied instructions were truncated. */
+      instructions_truncated: boolean;
+      /** Report capabilities used to select the source rules.
+       *
+       * * `none` - None
+       * * `emit` - Emit
+       * * `edit` - Edit
+       * * `both` - Both */
+      report_channel: ScoutRubricReportChannelEnum;
+      /** Exact report-disposition rules supplied to the generator. */
+      report_disposition_instructions: string;
+      /** Reference-file inventory supplied to the generator. */
+      reference_files: string[];
+      /** Whether the reference-file inventory was truncated. */
+      reference_files_truncated: boolean;
+      /** Reference texts supplied to the generator. */
+      reference_texts: ScoutRubricReferenceTextDocument[];
+      /** Limits on the supplied reference texts. */
+      reference_limits: ScoutRubricReferenceLimitsDocument;
+    }
+
     export interface ScoutRubricGeneration {
       /** Identifier for this generation attempt. */
       id: string;
@@ -92388,6 +92457,8 @@ export namespace Schemas {
       suggestions: ScoutRubricCriterion[];
       /** Investigation summary and limitations. */
       summary: string;
+      /** Immutable governing source captured for this generation. */
+      readonly reference_context: ScoutRubricReferenceContextDocument | null;
     }
 
     export interface ScoutRubricDocument {
@@ -92404,6 +92475,13 @@ export namespace Schemas {
       criteria: ScoutRubricCriterion[];
       /** Latest background generation, if any. */
       generation: ScoutRubricGeneration | null;
+      /** Governing source explicitly adopted for the saved rubric. */
+      readonly reference_context: ScoutRubricReferenceContextDocument | null;
+      /**
+         * Generation whose governing source was adopted for the saved rubric.
+         * @nullable
+         */
+      readonly reference_generation_id: string | null;
     }
 
     export interface ScoutRubricGenerate {
@@ -92414,6 +92492,44 @@ export namespace Schemas {
       context?: string;
     }
 
+    export type ScoutRubricReportChannel = typeof ScoutRubricReportChannel[keyof typeof ScoutRubricReportChannel];
+
+
+    export const ScoutRubricReportChannel = {
+      None: 'none',
+      Emit: 'emit',
+      Edit: 'edit',
+      Both: 'both',
+    } as const;
+
+    export interface ScoutRubricReferenceText {
+      path: string;
+      content_type: string;
+      content: string;
+    }
+
+    export interface ScoutRubricReferenceLimits {
+      /** @minimum 0 */
+      omitted_files: number;
+      truncated_files: string[];
+    }
+
+    export interface ScoutRubricReferenceContext {
+      schema_version?: 1;
+      skill_id: string;
+      skill_name: string;
+      skill_version: number;
+      description: string;
+      instructions: string;
+      instructions_truncated: boolean;
+      report_channel: ScoutRubricReportChannel;
+      report_disposition_instructions: string;
+      reference_files: string[];
+      reference_files_truncated: boolean;
+      reference_texts: ScoutRubricReferenceText[];
+      reference_limits: ScoutRubricReferenceLimits;
+    }
+
     export interface ScoutRubricSave {
       /**
          * Revision read by the editor; stale saves return 409.
@@ -92422,6 +92538,11 @@ export namespace Schemas {
       revision: number;
       /** Complete set of criteria to save. */
       criteria: ScoutRubricCriterion[];
+      /**
+         * Use this completed generation's governing source for the whole saved rubric. Omit to keep its source.
+         * @nullable
+         */
+      adopt_generation_id?: string | null;
     }
 
     /**
@@ -92560,6 +92681,460 @@ export namespace Schemas {
       items: ScoutSuggestionItem[];
     }
 
+    /**
+     * One MCP tool, with what a scout would need to call it.
+     */
+    export interface ScoutToolCatalogueEntry {
+      /** The tool's permanent identifier, for example `insight-get`. This is the name a scout calls. */
+      name: string;
+      /** The label people read, for example `Get insight`. */
+      title: string;
+      /** One line on what the tool does. The tool's full description runs to several kilobytes on some tools, so it is not part of this listing. */
+      summary: string;
+      /** The product area the tool belongs to, for example `Error tracking`. Use it to group the listing. */
+      category: string;
+      /** The feature key the MCP server filters on, for example `error_tracking`. Narrower than `category`. */
+      feature: string;
+      /** The API scopes a token must carry to call the tool. Empty for a tool that needs none. */
+      required_scopes: string[];
+      /** True when the tool only reads. A false value means the tool can change the project's data. */
+      is_read_only: boolean;
+      /** True when the tool is hidden until the project consents to AI features. */
+      requires_ai_consent: boolean;
+      /** True when a scout run can hold every scope the tool requires. A false value means no scout reaches the tool, whatever it is granted, so it cannot be configured for one. */
+      holdable: boolean;
+      /** Required scopes the baseline `signals_scout` preset does not carry. On a holdable tool these are what the scout has to be granted, or the preset it has to opt into. On a tool that is not holdable they include every scope no scout can reach, and can also include scopes a person can grant. Compare them with `grantable_write_scopes` and `presets` to tell the two apart. */
+      missing_scopes: string[];
+      /**
+         * Feature flag key that gates the tool, or null when the tool is always served. The flag resolves per project, so evaluate it for the project you are configuring before you offer the tool.
+         * @nullable
+         */
+      feature_flag: string | null;
+      /**
+         * How `feature_flag` gates the tool: `enable` (served only while the flag is on) or `disable` (served only while the flag is off). Null means the default, `enable`.
+         * @nullable
+         */
+      feature_flag_behavior: string | null;
+      /**
+         * Variant of `feature_flag` the tool needs, or null when any truthy value serves it.
+         * @nullable
+         */
+      feature_flag_variant: string | null;
+      /**
+         * A second flag key that hides the tool while it is on, independent of `feature_flag`. Usually null.
+         * @nullable
+         */
+      hidden_when_flag_on: string | null;
+      /**
+         * Plan feature the organization must have for the tool to be served, or null when the tool is free.
+         * @nullable
+         */
+      feature_entitlement: string | null;
+    }
+
+    /**
+     * The MCP tool catalogue, with the scout scope postures to read it against.
+     */
+    export interface ScoutToolCatalogue {
+      /** Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out. */
+      tools: ScoutToolCatalogueEntry[];
+      /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
+      presets: ScoutScopePreset[];
+      /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
+      grantable_write_scopes: string[];
+    }
+
+    export interface ScoutTrialComparisonVariant {
+      /** Variant identity. */
+      id: string;
+      /** Saved variant name. */
+      label: string;
+      /** Scout runs in this variant. */
+      launch_ids: string[];
+      /** Saved scout model. */
+      model: string;
+      /** Saved reasoning effort. */
+      reasoning_effort: string;
+      /** Hash of the saved scout instructions. */
+      skill_body_sha256: string;
+    }
+
+    /**
+     * * `not_started` - not_started
+     * * `starting` - starting
+     * * `running` - running
+     * * `judging` - judging
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `unknown` - unknown
+     */
+    export type ScoutTrialComparisonStatusEnum = typeof ScoutTrialComparisonStatusEnum[keyof typeof ScoutTrialComparisonStatusEnum];
+
+
+    export const ScoutTrialComparisonStatusEnum = {
+      NotStarted: 'not_started',
+      Starting: 'starting',
+      Running: 'running',
+      Judging: 'judging',
+      Completed: 'completed',
+      Failed: 'failed',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ScoutTrialEvaluationVariant {
+      /** Stable identity for this variant, independent of its display label. */
+      id: string;
+      /**
+         * Name shown in the comparison report.
+         * @maxLength 100
+         */
+      label: string;
+      /**
+         * Trial launches forming this variant's repeats.
+         * @minItems 1
+         * @maxItems 20
+         */
+      launch_ids: string[];
+    }
+
+    /**
+     * * `mock` - Mock
+     * * `saved` - Saved
+     */
+    export type TrialRubricSourceEnum = typeof TrialRubricSourceEnum[keyof typeof TrialRubricSourceEnum];
+
+
+    export const TrialRubricSourceEnum = {
+      Mock: 'mock',
+      Saved: 'saved',
+    } as const;
+
+    export interface ScoutTrialEvaluationRequest {
+      /** Stable evaluation identity. Reuse for retries of this exact request. */
+      evaluation_id: string;
+      /** Variant to use as the baseline for descriptive differences. */
+      baseline_variant_id: string;
+      /** Up to 20 variant groups, each with up to 20 trial runs. */
+      variants: ScoutTrialEvaluationVariant[];
+      /** Use saved for new evaluations. Mock is retained only for exact retries of existing evaluations.
+       *
+       * * `mock` - Mock
+       * * `saved` - Saved */
+      rubric_source: TrialRubricSourceEnum;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `unknown` - Unknown
+     * * `not_started` - Not Started
+     */
+    export type TrialEvaluationStatusEnum = typeof TrialEvaluationStatusEnum[keyof typeof TrialEvaluationStatusEnum];
+
+
+    export const TrialEvaluationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Unknown: 'unknown',
+      NotStarted: 'not_started',
+    } as const;
+
+    export type TrialComparisonOutcomeStatusEnum = typeof TrialComparisonOutcomeStatusEnum[keyof typeof TrialComparisonOutcomeStatusEnum];
+
+
+    export const TrialComparisonOutcomeStatusEnum = {
+      Winner: 'winner',
+      Tie: 'tie',
+      Inconclusive: 'inconclusive',
+    } as const;
+
+    export interface TrialComparisonOutcome {
+      status: TrialComparisonOutcomeStatusEnum;
+      variant_ids?: string[];
+      summary: string;
+    }
+
+    export type TrialComparisonReportRubricSourceEnum = typeof TrialComparisonReportRubricSourceEnum[keyof typeof TrialComparisonReportRubricSourceEnum];
+
+
+    export const TrialComparisonReportRubricSourceEnum = {
+      Mock: 'mock',
+      Saved: 'saved',
+    } as const;
+
+    export interface TrialEvaluationCriterion {
+      id: string;
+      title: string;
+      description: string;
+      pass_condition: string;
+      applicability: string;
+    }
+
+    export interface TrialCriterionAggregate {
+      criterion_id: string;
+      passed: number;
+      failed: number;
+      unknown: number;
+      not_applicable: number;
+      pass_rate: number | null;
+      coverage: number | null;
+      baseline_delta?: number | null;
+    }
+
+    export interface TrialVariantAggregate {
+      variant_id: string;
+      label: string;
+      is_baseline: boolean;
+      total_runs: number;
+      judged_runs: number;
+      excluded_runs: number;
+      judge_errors: number;
+      score: number | null;
+      coverage: number | null;
+      baseline_delta?: number | null;
+      criteria: TrialCriterionAggregate[];
+    }
+
+    export type TrialRunJudgmentStatusEnum = typeof TrialRunJudgmentStatusEnum[keyof typeof TrialRunJudgmentStatusEnum];
+
+
+    export const TrialRunJudgmentStatusEnum = {
+      Judged: 'judged',
+      Excluded: 'excluded',
+      JudgeError: 'judge_error',
+    } as const;
+
+    export type TrialCriterionVerdictVerdictEnum = typeof TrialCriterionVerdictVerdictEnum[keyof typeof TrialCriterionVerdictVerdictEnum];
+
+
+    export const TrialCriterionVerdictVerdictEnum = {
+      Pass: 'pass',
+      Fail: 'fail',
+      Unknown: 'unknown',
+      NotApplicable: 'not_applicable',
+    } as const;
+
+    export interface TrialCriterionEvidence {
+      /** @maxLength 100 */
+      source_id: string;
+      /**
+         * @minLength 1
+         * @maxLength 1000
+         */
+      quote: string;
+    }
+
+    export interface TrialCriterionVerdict {
+      /** @maxLength 100 */
+      criterion_id: string;
+      verdict: TrialCriterionVerdictVerdictEnum;
+      /**
+         * @minLength 1
+         * @maxLength 2000
+         */
+      reason: string;
+      confidence: ConfidenceTierEnum;
+      /** @maxItems 6 */
+      evidence?: TrialCriterionEvidence[];
+    }
+
+    export interface TrialRunJudgment {
+      launch_id: string;
+      variant_id: string;
+      status: TrialRunJudgmentStatusEnum;
+      score?: number | null;
+      coverage?: number | null;
+      summary: string;
+      criteria?: TrialCriterionVerdict[];
+      error?: string | null;
+      input_tokens?: number | null;
+      output_tokens?: number | null;
+    }
+
+    export type TrialEvidenceSourceKindEnum = typeof TrialEvidenceSourceKindEnum[keyof typeof TrialEvidenceSourceKindEnum];
+
+
+    export const TrialEvidenceSourceKindEnum = {
+      Instructions: 'instructions',
+      Context: 'context',
+      Summary: 'summary',
+      Report: 'report',
+      Memory: 'memory',
+      Trace: 'trace',
+    } as const;
+
+    export interface TrialEvidenceSource {
+      id: string;
+      kind: TrialEvidenceSourceKindEnum;
+      text: string;
+    }
+
+    export interface TrialRunEvidence {
+      launch_id: string;
+      variant_id: string;
+      run_id: string | null;
+      task_id: string | null;
+      task_run_id: string | null;
+      execution_status: string;
+      exclusion_reason?: string | null;
+      model: string;
+      runtime_adapter: RuntimeAdapterEnum;
+      service_tier?: string | null;
+      reasoning_effort: string;
+      skill_body_sha256: string;
+      input_tokens?: number | null;
+      output_tokens?: number | null;
+      sources?: TrialEvidenceSource[];
+      limitations?: string[];
+    }
+
+    export interface TrialComparisonReport {
+      version?: 1;
+      evaluation_id: string;
+      context_id: string;
+      created_at: string;
+      completed_at: string;
+      summary: string;
+      outcome?: TrialComparisonOutcome | null;
+      rubric_source: TrialComparisonReportRubricSourceEnum;
+      rubric_revision: number;
+      rubric_reference_context?: ScoutRubricReferenceContext | null;
+      rubric_reference_generation_id?: string | null;
+      criteria: TrialEvaluationCriterion[];
+      baseline_variant_id: string;
+      judge_model: string;
+      judge_prompt_version: string;
+      variants: TrialVariantAggregate[];
+      runs: TrialRunJudgment[];
+      evidence: TrialRunEvidence[];
+      limitations: string[];
+    }
+
+    export interface ScoutTrialEvaluation {
+      /** Immutable request for exact retries, including saved variant labels. */
+      request: ScoutTrialEvaluationRequest;
+      /** Stable identity for this saved evaluation. */
+      evaluation_id: string;
+      /** Starting context shared by every evaluated run. */
+      context_id: string;
+      /** Evaluation workflow status.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `unknown` - Unknown
+       * * `not_started` - Not Started */
+      status: TrialEvaluationStatusEnum;
+      /**
+         * Sanitized execution error, separate from quality verdicts.
+         * @nullable
+         */
+      error: string | null;
+      /** Saved comparison scores and their supporting evidence. */
+      report: TrialComparisonReport | null;
+    }
+
+    export interface ScoutTrialComparison {
+      /** Comparison and automatic evaluation identity. */
+      comparison_id: string;
+      /** Source scout configuration. */
+      config_id: string;
+      /** Frozen starting context shared by every run. */
+      context_id: string;
+      /** Time the comparison was saved. */
+      created_at: string;
+      /** Baseline variant identity. */
+      baseline_variant_id: string;
+      /** Reviewed rubric revision frozen before the runs started. */
+      rubric_revision: number;
+      /** Saved variant groups and runtime settings. */
+      variants: ScoutTrialComparisonVariant[];
+      /** Comparison lifecycle, including automatic judging.
+       *
+       * * `not_started` - not_started
+       * * `starting` - starting
+       * * `running` - running
+       * * `judging` - judging
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `unknown` - unknown */
+      status: ScoutTrialComparisonStatusEnum;
+      /**
+         * Sanitized comparison error, if any.
+         * @nullable
+         */
+      error: string | null;
+      /** Saved evaluation and report when available. */
+      evaluation: ScoutTrialEvaluation | null;
+    }
+
+    export interface ScoutTrialComparisonHistory {
+      /** This operator's most recent saved comparisons. */
+      results: ScoutTrialComparison[];
+      /** Whether more comparisons exist than the requested limit. */
+      has_more: boolean;
+    }
+
+    export interface ScoutTrialComparisonQuery {
+      /** Saved comparison identity. */
+      comparison_id: string;
+    }
+
+    export interface ScoutTrialComparisonVariantRequest {
+      /** Stable variant identity within this comparison. */
+      id: string;
+      /**
+         * Variant name shown in the report.
+         * @maxLength 100
+         */
+      label: string;
+      /**
+         * Stable run IDs for this variant's repeats.
+         * @minItems 1
+         * @maxItems 20
+         */
+      launch_ids: string[];
+      /**
+         * Scout model to run.
+         * @maxLength 200
+         */
+      model: string;
+      /**
+         * Reasoning effort supported by this model.
+         * @maxLength 20
+         */
+      reasoning_effort: string;
+      /**
+         * Replacement scout instructions. Omit to use the saved source instructions.
+         * @maxLength 100000
+         */
+      skill_body?: string;
+    }
+
+    export interface ScoutTrialComparisonRequest {
+      /** Stable comparison ID. Reuse for an exact request retry. */
+      comparison_id: string;
+      /** Variant used as the comparison baseline. */
+      baseline_variant_id: string;
+      /** Up to 20 variants, each with up to 20 scout runs. */
+      variants: ScoutTrialComparisonVariantRequest[];
+      /**
+         * Shared investigation note.
+         * @maxLength 1000
+         */
+      note?: string;
+      /**
+         * Source version shown in the editor. Refuse a new trial if the instructions changed since setup.
+         * @minimum 1
+         */
+      expected_skill_version?: number;
+    }
+
     export interface ScoutTrialHistoryItem {
       /** Launch identity for result retrieval. */
       launch_id: string;
@@ -92632,69 +93207,6 @@ export namespace Schemas {
       model: string;
       /** Reasoning efforts supported by this model. */
       reasoning_efforts: string[];
-    }
-
-    /**
-     * One MCP tool, with what a scout would need to call it.
-     */
-    export interface ScoutToolCatalogueEntry {
-      /** The tool's permanent identifier, for example `insight-get`. This is the name a scout calls. */
-      name: string;
-      /** The label people read, for example `Get insight`. */
-      title: string;
-      /** One line on what the tool does. The tool's full description runs to several kilobytes on some tools, so it is not part of this listing. */
-      summary: string;
-      /** The product area the tool belongs to, for example `Error tracking`. Use it to group the listing. */
-      category: string;
-      /** The feature key the MCP server filters on, for example `error_tracking`. Narrower than `category`. */
-      feature: string;
-      /** The API scopes a token must carry to call the tool. Empty for a tool that needs none. */
-      required_scopes: string[];
-      /** True when the tool only reads. A false value means the tool can change the project's data. */
-      is_read_only: boolean;
-      /** True when the tool is hidden until the project consents to AI features. */
-      requires_ai_consent: boolean;
-      /** True when a scout run can hold every scope the tool requires. A false value means no scout reaches the tool, whatever it is granted, so it cannot be configured for one. */
-      holdable: boolean;
-      /** Required scopes the baseline `signals_scout` preset does not carry. On a holdable tool these are what the scout has to be granted, or the preset it has to opt into. On a tool that is not holdable they include every scope no scout can reach, and can also include scopes a person can grant. Compare them with `grantable_write_scopes` and `presets` to tell the two apart. */
-      missing_scopes: string[];
-      /**
-         * Feature flag key that gates the tool, or null when the tool is always served. The flag resolves per project, so evaluate it for the project you are configuring before you offer the tool.
-         * @nullable
-         */
-      feature_flag: string | null;
-      /**
-         * How `feature_flag` gates the tool: `enable` (served only while the flag is on) or `disable` (served only while the flag is off). Null means the default, `enable`.
-         * @nullable
-         */
-      feature_flag_behavior: string | null;
-      /**
-         * Variant of `feature_flag` the tool needs, or null when any truthy value serves it.
-         * @nullable
-         */
-      feature_flag_variant: string | null;
-      /**
-         * A second flag key that hides the tool while it is on, independent of `feature_flag`. Usually null.
-         * @nullable
-         */
-      hidden_when_flag_on: string | null;
-      /**
-         * Plan feature the organization must have for the tool to be served, or null when the tool is free.
-         * @nullable
-         */
-      feature_entitlement: string | null;
-    }
-
-    /**
-     * The MCP tool catalogue, with the scout scope postures to read it against.
-     */
-    export interface ScoutToolCatalogue {
-      /** Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out. */
-      tools: ScoutToolCatalogueEntry[];
-      /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
-      presets: ScoutScopePreset[];
-      /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
-      grantable_write_scopes: string[];
     }
 
     /**
@@ -120060,6 +120572,29 @@ export namespace Schemas {
      * @minLength 1
      */
     tags?: string;
+    };
+
+    export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Maximum number of recent private runs to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type SignalsScoutConfigTrialComparisonRetrieveParams = {
+    /**
+     * Saved comparison identity.
+     */
+    comparison_id: string;
+    };
+
+    export type SignalsScoutConfigTrialEvaluationRetrieveParams = {
+    /**
+     * Saved evaluation identity to inspect without starting a judge.
+     */
+    evaluation_id: string;
     };
 
     export type SignalsScoutConfigTrialHistoryParams = {

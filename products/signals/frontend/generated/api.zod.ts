@@ -1418,9 +1418,11 @@ export const SignalsScoutConfigTrialEvaluationCreateBody = /* @__PURE__ */ zod.o
         )
         .describe('Up to 20 variant groups, each with up to 20 trial runs.'),
     rubric_source: zod
-        .enum(['mock'])
-        .describe('\* `mock` - Mock')
-        .describe('Explicit rubric input source.\n\n\* `mock` - Mock'),
+        .enum(['mock', 'saved'])
+        .describe('\* `mock` - Mock\n\* `saved` - Saved')
+        .describe(
+            'Use saved for new evaluations. Mock is retained only for exact retries of existing evaluations.\n\n\* `mock` - Mock\n\* `saved` - Saved'
+        ),
 })
 
 /**
@@ -1507,6 +1509,12 @@ export const SignalsScoutRubricsUpdateBody = /* @__PURE__ */ zod.object({
             })
         )
         .describe('Complete set of criteria to save.'),
+    adopt_generation_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Use this completed generation's governing source for the whole saved rubric. Omit to keep its source."
+        ),
 })
 
 export const signalsScoutRubricsGenerateBodyContextDefault = ``

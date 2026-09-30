@@ -130,6 +130,7 @@ A variant's score is the equal mean of its non-null run scores.
 Coverage is `(pass + fail) / (pass + fail + unknown)`; not applicable is excluded from both score and coverage denominators.
 Execution exclusions and judge errors have no quality score and are counted separately.
 A scout runner failure remains an execution exclusion even if its sandbox task completed; the saved trial outcome records the runner failure.
+A scout that reaches its task's model spending limit fails without an automatic retry; its partial output is not graded.
 Reports retain each run's verdicts, reasons, quotations and evidence limitations alongside aggregate counts.
 Each baseline difference compares one variant with the baseline. The overall difference requires complete, comparable verdicts for that pair; a per-check difference requires complete, comparable verdicts for that check in the pair. Another incomplete variant does not hide these differences.
 New reports include a best variant, a tie, or an inconclusive result, with an explanation.
@@ -140,7 +141,10 @@ These conclusions describe the captured runs; they do not establish statistical 
 Historical reports without a saved conclusion remain readable without inventing one.
 Shared starting history does not freeze the live project data read during each run.
 
-Scoring uses `POST /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_evaluation/`.
+Start a comparison with `POST /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_comparison/`.
+Under the same scout URL, `trial_comparison_result/` reads its status and report, and `trial_comparison_history/` lists the operator's saved comparisons.
+`POST trial_comparison_resume/` recovers the same saved work without creating fresh scout runs or repeating claimed judge calls.
+Separate scoring of existing runs uses `POST /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_evaluation/`.
 Read the saved outcome with `GET /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_evaluation_result/?evaluation_id=...`.
 Reuse an evaluation ID only for the same request; a different request with that ID is rejected.
 Retries reuse saved work and do not repeat an attempted judge call automatically.
@@ -157,7 +161,7 @@ Once the comparison is accepted, execution and judging continue after the page c
 Progress distinguishes starting, running scouts, judging and completed results. Reloading reads saved state without starting another paid attempt.
 
 The current comparison is separate from the operator's run history. Active runs can be stopped; captured reports, memory changes and available usage can be exported as JSON.
-The report leads with the comparison conclusion and variant results. It shows average pass rates and counts of passed, failed and undecided checks.
+The report leads with the comparison conclusion and variant results. It shows average pass rates and counts of passed checks, failed checks and checks without enough evidence.
 Counts across repeated runs count each execution's checks, rather than distinct rubric definitions. Not-applicable checks remain separate.
 Individual runs are grouped by variant. Each run has compact criterion name/status rows; expand a criterion to read its explanation and supporting quotations.
 Saved rubric definitions, captured reference instructions and raw evidence remain available as supporting details.

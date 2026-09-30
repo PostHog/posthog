@@ -1664,6 +1664,16 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         on every path, a scout can tell "you asked for the wrong thing" from "you are out"."""
         return audits_remaining_for_run(run.metadata or {})
 
+    def _assert_report_checks_available(self, request: Request, report_id: str) -> None:
+        private = trial_store_for_request(request, _canonical_team_id(self))
+        if private is not None:
+            with trial_state_errors():
+                report = private.get_report(report_id)
+            if report is not None and report.source_report_id is None:
+                raise exceptions.ValidationError(
+                    {"detail": "Follow-up checks are unavailable for reports emitted in private trials."}
+                )
+
     @validated_request(
         request_serializer=CreateReportCheckRequestSerializer,
         parameters=[_RUN_ID_PATH_PARAMETER],
@@ -1745,6 +1755,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def report_checks(self, request: Request, **kwargs) -> Response:
         run = self._resolve_own_in_progress_run(request, kwargs, required_tool="edit_report")
         validated = getattr(request, "validated_query_data", {}) or {}
+        self._assert_report_checks_available(request, str(validated["report_id"]))
         try:
             checks = list_report_checks(team=run.team, report_id=str(validated["report_id"]))
         except InvalidCheckWriteError as exc:
@@ -1782,6 +1793,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # A read needs no run: the project scope is the tenant boundary, and the REST
         # report-checks endpoint shows the same rows to anyone who can read the report.
         validated = getattr(request, "validated_query_data", {}) or {}
+        self._assert_report_checks_available(request, str(validated["report_id"]))
         try:
             checks = list_report_checks(team=_canonical_team(self), report_id=str(validated["report_id"]))
         except InvalidCheckWriteError as exc:
