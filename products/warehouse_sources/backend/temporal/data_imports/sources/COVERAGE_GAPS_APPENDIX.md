@@ -3397,18 +3397,18 @@ Note: The `/api/selector/\*` family is a set of ~18 small lookup collections (al
 
 ## Freshservice — gaps
 
-Today (24): `agent_groups`, `agent_roles`, `agents`, `asset_types`, `assets`, `changes`, `contract_types`, `contracts`, `departments`, `locations`, `problems`, `products`, `purchase_orders`, `relationship_types`, `relationships`, `releases`, `requester_groups`, `requesters`, `software`, `software_installations`, `software_users`, `ticket_time_entries`, `tickets`, `vendors`
+Today (31): `agent_groups`, `agent_roles`, `agents`, `approvals`, `asset_types`, `assets`, `change_tasks`, `changes`, `contract_types`, `contracts`, `departments`, `locations`, `problem_tasks`, `problems`, `products`, `purchase_orders`, `relationship_types`, `relationships`, `release_tasks`, `releases`, `requester_groups`, `requesters`, `sla_policies`, `software`, `software_installations`, `software_users`, `ticket_conversations`, `ticket_tasks`, `ticket_time_entries`, `tickets`, `vendors`
 
 Diffed against: <https://api.freshservice.com/>
 
-- [ ] `tickets/{id}/conversations` — the actual reply and note bodies on every ticket — required for any response-content or agent-activity analysis (high)
+- [x] `tickets/{id}/conversations` — the actual reply and note bodies on every ticket — required for any response-content or agent-activity analysis (high) — synced as `ticket_conversations`
 - [x] `tickets/{id}/time_entries` — time tracked per ticket, the basis of effort and cost-per-ticket reporting (high)
 - [x] `contracts (+ contract_types lookup)` — asset/vendor contracts with cost and renewal dates; contract_types resolves the type ID carried on each contract (high)
 - [x] `applications/{id}/users and /installations (software users, software installations)` — membership tables joining the software we already sync to users and devices — license utilization is impossible without them (high)
 - [x] `assets/{id}/relationships (+ relationship_types lookup)` — the CMDB dependency graph plus the lookup that names each relationship type (high) — synced through the account-wide `/api/v2/relationships` listing, which returns the same edges without fanning out per asset
-- [ ] `sla_policies` — lookup that resolves the SLA policy ID on tickets into targets and escalation rules (medium)
-- [ ] `tickets/{id}/tasks (and problem/change/release tasks)` — sub-task breakdown and completion state under each ticket (medium)
-- [ ] `approvals` — account-wide approval records with approver, state and timestamps — the service-request bottleneck metric (medium)
+- [x] `sla_policies` — lookup that resolves the SLA policy ID on tickets into targets and escalation rules (medium)
+- [x] `tickets/{id}/tasks (and problem/change/release tasks)` — sub-task breakdown and completion state under each ticket (medium) — synced as `ticket_tasks`, `problem_tasks`, `change_tasks` and `release_tasks`
+- [x] `approvals` — account-wide approval records with approver, state and timestamps — the service-request bottleneck metric (medium) — the listing needs a filter beyond `parent`, so it is swept once per ticket/change module and approval status
 - [ ] `alerts (+ alert logs)` — alert-management records that precede incidents; logs give the state transition history (medium)
 - [ ] `service_catalog/items (+ service_categories lookup)` — resolves what was actually requested in each service request, and the category lookup (medium)
 - [ ] `tickets/{id}/csat_response` — satisfaction score per ticket — the headline support quality metric (medium)
