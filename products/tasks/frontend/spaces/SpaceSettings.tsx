@@ -13,10 +13,14 @@ import {
     Button,
     Field,
     FieldDescription,
+    FieldError,
     FieldGroup,
     FieldLabel,
     FieldTitle,
     Input,
+    NumberFieldGroup,
+    NumberFieldInput,
+    NumberFieldRoot,
     Select,
     SelectContent,
     SelectItem,
@@ -31,26 +35,38 @@ import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
 import { SpaceAccess } from './SpaceAccess'
 import { SpaceRepositories } from './SpaceRepositories'
-import { spaceSceneLogic } from './spaceSceneLogic'
+import {
+    AUTO_ARCHIVE_MAX_DAYS,
+    AUTO_ARCHIVE_MIN_DAYS,
+    AUTO_ARCHIVE_PRESET_DAYS,
+    AutoArchiveSelection,
+    spaceSceneLogic,
+} from './spaceSceneLogic'
 
-const AUTO_ARCHIVE_DAYS = [1, 3, 7, 14, 30]
+const AUTO_ARCHIVE_OPTIONS: { value: AutoArchiveSelection; label: string }[] = [
+    { value: null, label: 'Never' },
+    ...AUTO_ARCHIVE_PRESET_DAYS.map((days) => ({ value: days, label: `After ${days} ${days === 1 ? 'day' : 'days'}` })),
+    { value: 'custom', label: 'Custom…' },
+]
 
 export function SpaceSettings({ id }: { id: string }): JSX.Element | null {
-    const { space, savingSpace } = useValues(spaceSceneLogic({ id }))
-    const { updateSpace, deleteSpace } = useActions(spaceSceneLogic({ id }))
+    const {
+        space,
+        savingSpace,
+        autoArchiveSelection,
+        autoArchiveDisabledReason,
+        autoArchiveCustomDays,
+        autoArchiveCustomError,
+        autoArchiveCustomSaveDisabledReason,
+    } = useValues(spaceSceneLogic({ id }))
+    const { updateSpace, deleteSpace, setAutoArchiveSelection, setAutoArchiveCustomDays, saveAutoArchiveCustomDays } =
+        useActions(spaceSceneLogic({ id }))
     const [name, setName] = useState(space?.name ?? '')
 
     if (!space) {
         return null
     }
     const defaultSpace = space.system_role !== null
-    const autoArchiveDays = space.auto_archive_after_days ?? null
-    const autoArchiveOptions = [
-        { value: null, label: 'Never' },
-        ...[...new Set([...AUTO_ARCHIVE_DAYS, ...(autoArchiveDays ? [autoArchiveDays] : [])])]
-            .sort((first, second) => first - second)
-            .map((days) => ({ value: days, label: `After ${days} ${days === 1 ? 'day' : 'days'}` })),
-    ]
     const trimmedName = name.trim()
     const renameDisabledReason = defaultSpace
         ? 'Default spaces can’t be renamed'
@@ -108,30 +124,82 @@ export function SpaceSettings({ id }: { id: string }): JSX.Element | null {
             </Field>
             <Field>
                 <FieldLabel htmlFor="space-auto-archive">Auto-archive sessions</FieldLabel>
-                <div>
-                    <Select
-                        items={autoArchiveOptions}
-                        value={autoArchiveDays}
-                        onValueChange={(days: number | null) => updateSpace({ auto_archive_after_days: days })}
-                        disabled={savingSpace}
-                    >
-                        <SelectTrigger id="space-auto-archive" data-attr="today-space-settings-auto-archive">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {autoArchiveOptions.map((option) => (
-                                <SelectItem key={option.label} value={option.value}>
-                                    {option.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
+                <Tooltip disabled={!autoArchiveDisabledReason || savingSpace}>
+                    <TooltipTrigger render={<div className="w-fit" />}>
+                        <Select<AutoArchiveSelection>
+                            items={AUTO_ARCHIVE_OPTIONS}
+                            value={autoArchiveSelection}
+                            onValueChange={(selection: AutoArchiveSelection) => setAutoArchiveSelection(selection)}
+                            disabled={!!autoArchiveDisabledReason}
+                        >
+                            <SelectTrigger id="space-auto-archive" data-attr="today-space-settings-auto-archive">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {AUTO_ARCHIVE_OPTIONS.map((option) => (
+                                    <SelectItem key={option.label} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </TooltipTrigger>
+                    <TooltipContent>{autoArchiveDisabledReason}</TooltipContent>
+                </Tooltip>
                 <FieldDescription>
-                    Sessions with no activity for this long move to the archive. In shared spaces, only project admins
-                    can change this.
+                    Sessions with no activity for this long move to the archive. New messages and session runs reset
+                    this period. Sessions being viewed, pinned, or actively running are not archived. In shared spaces,
+                    only project admins can change this.
                 </FieldDescription>
             </Field>
+            {autoArchiveSelection === 'custom' && (
+                <Field data-invalid={!!autoArchiveCustomError || undefined}>
+                    <FieldLabel htmlFor="space-auto-archive-custom-days">Days of inactivity</FieldLabel>
+                    <div className="flex flex-wrap gap-2">
+                        <NumberFieldRoot
+                            id="space-auto-archive-custom-days"
+                            className="w-24"
+                            value={autoArchiveCustomDays}
+                            onValueChange={(days: number | null) => setAutoArchiveCustomDays(days)}
+                            min={AUTO_ARCHIVE_MIN_DAYS}
+                            max={AUTO_ARCHIVE_MAX_DAYS}
+                            step={1}
+                            allowOutOfRange
+                            disabled={!!autoArchiveDisabledReason}
+                        >
+                            <NumberFieldGroup>
+                                <NumberFieldInput
+                                    aria-invalid={!!autoArchiveCustomError || undefined}
+                                    data-attr="today-space-settings-auto-archive-custom-days"
+                                />
+                            </NumberFieldGroup>
+                        </NumberFieldRoot>
+                        <Tooltip disabled={!autoArchiveCustomSaveDisabledReason || savingSpace}>
+                            <TooltipTrigger
+                                render={
+                                    <Button
+                                        variant="outline"
+                                        loading={savingSpace}
+                                        disabled={!!autoArchiveCustomSaveDisabledReason}
+                                        onClick={() => saveAutoArchiveCustomDays()}
+                                        data-attr="today-space-settings-auto-archive-custom-save"
+                                    />
+                                }
+                            >
+                                Save
+                            </TooltipTrigger>
+                            <TooltipContent>{autoArchiveCustomSaveDisabledReason}</TooltipContent>
+                        </Tooltip>
+                    </div>
+                    {autoArchiveCustomError ? (
+                        <FieldError>{autoArchiveCustomError}</FieldError>
+                    ) : (
+                        <FieldDescription>
+                            Choose a value from {AUTO_ARCHIVE_MIN_DAYS} to {AUTO_ARCHIVE_MAX_DAYS} days.
+                        </FieldDescription>
+                    )}
+                </Field>
+            )}
             <Field>
                 <FieldTitle>Delete space</FieldTitle>
                 <div>
