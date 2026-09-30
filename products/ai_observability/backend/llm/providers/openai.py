@@ -109,7 +109,6 @@ class OpenAIAdapter:
     """OpenAI provider implementing the unified Client interface."""
 
     name = "openai"
-    MAX_RETRIES = openai.DEFAULT_MAX_RETRIES
 
     def _create_client(
         self,
@@ -128,7 +127,6 @@ class OpenAIAdapter:
                 base_url=base_url,
                 timeout=OpenAIConfig.TIMEOUT,
                 default_headers=default_headers or None,
-                max_retries=self.MAX_RETRIES,
                 http_client=http_client,
             )
         return openai.OpenAI(
@@ -136,7 +134,6 @@ class OpenAIAdapter:
             base_url=base_url,
             timeout=OpenAIConfig.TIMEOUT,
             default_headers=default_headers or None,
-            max_retries=self.MAX_RETRIES,
             http_client=http_client,
         )
 
@@ -221,8 +218,6 @@ class OpenAIAdapter:
             if mapped is not None:
                 raise mapped from e
             raise
-        finally:
-            client.close()
 
     def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
         """Normalize a provider exception into the shared taxonomy, or None when it isn't ours.
@@ -401,8 +396,6 @@ Return ONLY the JSON object, no other text or markdown formatting."""
 
         except Exception as e:
             yield stream_error_chunk(e, self._mapped_error(e, model_id), logger=logger, provider=self.name)
-        finally:
-            client.close()
 
     @staticmethod
     def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:

@@ -1,6 +1,3 @@
-import json
-from collections.abc import AsyncIterator
-
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -11,7 +8,7 @@ from parameterized import parameterized
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import PinnedUrlVerdict
 
-from products.ai_observability.backend.llm.errors import ProviderConfigurationError, ProviderConnectionError
+from products.ai_observability.backend.llm.errors import ProviderConfigurationError
 from products.ai_observability.backend.llm.providers import openai_compatible
 from products.ai_observability.backend.llm.providers.openai_compatible import (
     DISALLOWED_BASE_URL_MESSAGE,
@@ -85,56 +82,6 @@ class TestPinnedHttpClient:
 
 
 class TestOpenAICompatibleAdapter:
-    @pytest.mark.parametrize("streaming", [False, True])
-    def test_sdk_completions_use_the_bounded_transport_and_close_it(self, streaming: bool) -> None:
-        choice = {"index": 0, "finish_reason": "stop", "delta" if streaming else "message": {"content": "hello"}}
-        payload = {"id": "example", "model": "some-model", "created": 0, "choices": [choice]}
-
-        class Body(httpx.AsyncByteStream):
-            closed = False
-
-            async def __aiter__(self) -> AsyncIterator[bytes]:
-                if streaming:
-                    yield f"data: {json.dumps(payload)}\n\n".encode()
-                    yield b"data: [DONE]\n\n"
-                else:
-                    yield json.dumps(payload).encode()
-
-            async def aclose(self) -> None:
-                self.closed = True
-
-        body = Body()
-        with patch(
-            "httpx.AsyncHTTPTransport.handle_async_request", return_value=httpx.Response(200, stream=body)
-        ) as send:
-            adapter = OpenAICompatibleAdapter(ALLOWED_BASE_URL)
-            if streaming:
-                chunks = adapter.stream(_completion_request(), "test-key", AnalyticsContext(capture=False))
-                assert next(chunks).data == {"text": "hello"}
-                chunks.close()
-            else:
-                assert (
-                    adapter.complete(_completion_request(), "test-key", AnalyticsContext(capture=False)).content
-                    == "hello"
-                )
-        send.assert_awaited_once()
-        assert body.closed
-
-    @pytest.mark.parametrize("operation", ["validation", "completion"])
-    def test_oversized_responses_are_closed_without_sdk_retries(self, operation: str) -> None:
-        response = httpx.Response(200, headers={"Content-Length": str(9 * 1024 * 1024)}, stream=httpx.ByteStream(b""))
-        with patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as send:
-            if operation == "validation":
-                state, _ = OpenAICompatibleAdapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
-                assert state == "error"
-            else:
-                with pytest.raises(ProviderConnectionError):
-                    OpenAICompatibleAdapter(ALLOWED_BASE_URL).complete(
-                        _completion_request(), "test-key", AnalyticsContext(capture=False)
-                    )
-        send.assert_awaited_once()
-        assert response.is_closed
-
     @patch(OPENAI_PATCH_TARGET)
     def test_validate_key_uses_configured_base_url(self, mock_openai):
         mock_client = MagicMock()

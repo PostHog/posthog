@@ -92,13 +92,7 @@ def _pinned_http_client(base_url: str, timeout: float) -> httpx.Client:
     verdict = validate_url_and_pin_ips(base_url)
     if not verdict.allowed:
         raise SSRFBlockedError(verdict.reason or "URL blocked by SSRF protection")
-    return tagged_http_client(
-        timeout=timeout,
-        pin=(base_url, verdict.pinned_ips),
-        follow_redirects=False,
-        total_timeout=timeout,
-        max_response_bytes=8 * 1024 * 1024,
-    )
+    return tagged_http_client(timeout=timeout, pin=(base_url, verdict.pinned_ips), follow_redirects=False)
 
 
 class OpenAICompatibleAdapter(OpenAIAdapter):
@@ -113,7 +107,6 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
     """
 
     name = "openai_compatible"
-    MAX_RETRIES = 0
 
     def __init__(self, base_url: str = ""):
         self.base_url = base_url

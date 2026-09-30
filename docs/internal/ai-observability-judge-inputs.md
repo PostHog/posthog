@@ -58,13 +58,13 @@ An empty key selects no authentication.
 Changing the endpoint requires entering its credential again, or explicitly choosing no authentication, so an existing key is not forwarded to a new host.
 Private network destinations and redirects are blocked by the shared DNS-pinned HTTP transport.
 Saving a connection validates it with a short synthetic input and a Noul question, without sending evaluation data, using a 10-second request timeout.
-System One and OpenAI-compatible BYOK connections share a bounded HTTPX transport.
+System One connections opt into the shared HTTPX client's bounded transport.
 Each HTTP request has a total deadline covering connection setup, response headers, and the body; expiry cancels the network operation and closes the connection.
-Validation uses 10 seconds, System One evaluations use 60 seconds, and OpenAI-compatible completions use 300 seconds.
-The transport rejects response bodies above 1 MiB for System One and 8 MiB for OpenAI-compatible endpoints, including errors and streamed responses.
+Validation uses 10 seconds and System One evaluations use 60 seconds.
+The transport rejects response bodies above 1 MiB, including errors.
 It requests uncompressed responses and rejects compressed responses to prevent decompression from bypassing the size limit.
 Responses stream incrementally, with a separate connection per request; connections are not pooled across requests.
-The OpenAI-compatible SDK does not retry requests internally; callers retain their existing retry handling.
+OpenAI-compatible BYOK connections retain their existing transport and SDK retry behavior.
 Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
 Provider keys keep the provider they were created with; switching providers requires a new key.
 The evaluation integration uses Noul for boolean outputs, with the same formatted text for generation, trace, and session targets.
