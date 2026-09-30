@@ -1,6 +1,6 @@
 import json
 import base64
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
@@ -16,6 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alegra import AlegraSourceConfig
+
+
+def rows(response: SourceResponse) -> list[Any]:
+    return list(cast(Iterable[Any], response.items()))
 
 
 def response_for(config: AlegraSourceConfig, inputs: SourceInputs) -> SourceResponse:
@@ -49,7 +53,7 @@ def test_endpoint_requests_preserve_raw_rows_and_omit_watermarks(
     row = {"id": "00000000-0000-4000-8000-000000000001", "items": [{"id": "line-test", "price": "12.50"}]}
     sent = http_boundary([(200, [row])])
     response = response_for(config, replace(inputs, schema_name=schema))
-    assert list(response.items()) == [[row]]
+    assert rows(response) == [[row]]
     url = urlsplit(sent[0].url or "")
     assert url.scheme == "https"
     assert url.netloc == "api.alegra.com"
@@ -74,7 +78,7 @@ def test_offset_pagination_and_checkpoint_resume(
     source = AlegraSource()
     manager = source.get_resumable_source_manager(inputs)
     response = source.source_for_pipeline(config, manager, inputs)
-    pages = cast(Iterator[list[dict[str, Any]]], iter(response.items()))
+    pages = iter(cast(Iterable[list[dict[str, Any]]], response.items()))
     assert next(pages) == first_page
     assert not manager.has_staged_state()
     assert list(pages) == ([terminal_rows] if terminal_rows else [])
@@ -83,7 +87,7 @@ def test_offset_pagination_and_checkpoint_resume(
     assert [json.loads(value) for value in redis_boundary.values()] == [{"offset": 30}]
 
     resumed_requests = http_boundary([(200, [{"id": "resumed-test"}])])
-    assert list(response_for(config, inputs).items()) == [[{"id": "resumed-test"}]]
+    assert rows(response_for(config, inputs)) == [[{"id": "resumed-test"}]]
     assert parse_qs(urlsplit(resumed_requests[0].url or "").query)["start"] == ["30"]
 
 
@@ -97,7 +101,7 @@ def test_unexpected_envelope_fails_instead_of_replacing_with_garbage(
 ) -> None:
     http_boundary([(200, body)])
     with pytest.raises(ValueError, match="Required a list response body"):
-        list(response_for(config, inputs).items())
+        rows(response_for(config, inputs))
 
 
 @pytest.mark.parametrize("status", [401, 403])
@@ -110,7 +114,7 @@ def test_pipeline_auth_errors_match_terminal_errors(
 ) -> None:
     sent = http_boundary([(status, {"code": "AUTH_TEST"})])
     with pytest.raises(HTTPError) as error:
-        list(response_for(config, inputs).items())
+        rows(response_for(config, inputs))
     assert error_message_matches(str(error.value), AlegraSource().get_non_retryable_errors())
     assert len(sent) == 1
 
@@ -125,9 +129,9 @@ def test_transient_failures_retry_through_framework(
     status: int,
 ) -> None:
     delays: list[float] = []
-    monkeypatch.setattr(RESTClient._send_request.retry, "sleep", delays.append)
+    monkeypatch.setattr(RESTClient._send_request.retry, "sleep", delays.append)  # type: ignore[attr-defined]
     sent = http_boundary([(status, {})] * 7 + [(200, [{"id": "recovered-test"}])], {"Retry-After": "10"})
-    assert list(response_for(config, inputs).items()) == [[{"id": "recovered-test"}]]
+    assert rows(response_for(config, inputs)) == [[{"id": "recovered-test"}]]
     assert len(sent) == 8
     assert delays == [10.0] * 7
 
