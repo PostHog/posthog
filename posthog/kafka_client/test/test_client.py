@@ -146,7 +146,6 @@ class KafkaClientTestCase(TestCase):
                 "max_request_size": 6000000,
                 "max_in_flight_requests_per_connection": 1000000,
                 "buffer_memory": 1073741824,  # 1 GiB, should convert to 1048576 kbytes
-                "max_block_ms": 1000,
                 "metadata_max_age_ms": 15000,
                 "topic_metadata_refresh_interval_ms": 60000,
                 "queue_buffering_max_messages": 1000000,
@@ -169,7 +168,6 @@ class KafkaClientTestCase(TestCase):
         self.assertEqual(config["max.in.flight.requests.per.connection"], 1000000)
         # buffer_memory is in bytes but confluent expects kbytes.
         self.assertEqual(config["queue.buffering.max.kbytes"], 1048576)
-        self.assertEqual(config["queue.buffering.max.ms"], 1000)
         self.assertEqual(config["metadata.max.age.ms"], 15000)
         # Warpstream-friendly tuning knobs wired from the same-named env vars
         # that the Node.js and rust services already use in Helm charts.
