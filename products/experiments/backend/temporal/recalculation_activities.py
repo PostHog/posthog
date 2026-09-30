@@ -96,14 +96,15 @@ async def calculate_experiment_metric_for_recalculation(
     metric_uuid: str,
     recalculation_id: str,
     query_to: str,
-    metric_type: str = "primary",
+    role: str = "primary",
 ) -> MetricRecalculationResult:
     """Calculate one metric, write its recalc-fingerprinted result to ExperimentMetricResult, and fold the
     progress update (counter + error) into the same job atomically. query_to is the run's shared data-window end.
 
-    metric_type is the primary/secondary classification carried from discovery; it's threaded into the per-metric
-    PostHog event so the capture path doesn't have to re-query the saved-metric M2M to resolve it. Defaults to
-    "primary" so existing call sites and tests that don't pass it remain valid.
+    role ("primary" or "secondary") is carried from discovery in ExperimentMetricToRecalculate.metric_type; it's
+    threaded into the per-metric PostHog event so the capture path doesn't have to re-query the saved-metric M2M
+    to resolve it. Defaults to "primary" so existing call sites and tests that don't pass it remain valid. The
+    workflow passes these arguments by position, so recorded histories depend on their order, not their names.
 
     Finality is derived from activity.info().attempt against MAX_METRIC_ATTEMPTS, the same constant the
     workflow's RetryPolicy is built from, so both sides agree on which attempt is the last. On the final
@@ -115,7 +116,7 @@ async def calculate_experiment_metric_for_recalculation(
     deadline = asyncio.get_running_loop().time() + METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS
     task = asyncio.ensure_future(
         _calculate_experiment_metric_for_recalculation_sync(
-            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+            experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
         )
     )
     try:

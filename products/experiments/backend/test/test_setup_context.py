@@ -1105,7 +1105,7 @@ class TestPostgresSections(APIBaseTest):
         self._saved_metric(
             "Retention", _retention_metric("retention", start_event="purchase", completion_event="renewed")
         )
-        for experiment, saved_metric, metric_type in [
+        for experiment, saved_metric, role in [
             (live_a, popular, "primary"),
             (live_b, popular, "secondary"),
             (live_a, inflated, "primary"),
@@ -1113,7 +1113,7 @@ class TestPostgresSections(APIBaseTest):
             (deleted_b, inflated, "primary"),
         ]:
             ExperimentToSavedMetric.objects.create(
-                experiment=experiment, saved_metric=saved_metric, metadata={"type": metric_type}
+                experiment=experiment, saved_metric=saved_metric, metadata={"type": role}
             )
 
         # Three aggregates over the same experiments subquery; a refactor that unrolls them turns
