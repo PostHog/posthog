@@ -164,7 +164,7 @@ def test_fanout_resume_skips_completed_documents() -> None:
 
 @pytest.mark.parametrize("status", [429, 500, 503, 401, 403, 404])
 def test_status_retries_are_owned_by_shared_transport(status: int) -> None:
-    with requests_mock.Mocker() as http, patch.object(RESTClient._send_request.retry, "sleep"):
+    with requests_mock.Mocker() as http, patch.object(RESTClient._send_request.retry, "sleep"):  # type: ignore[attr-defined]
         http.get(
             f"{BASE}/contacts",
             [

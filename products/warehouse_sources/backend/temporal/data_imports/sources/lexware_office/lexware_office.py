@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 from requests import HTTPError
 
@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
+    PaginatorConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
@@ -49,13 +50,13 @@ def client_config(api_key: str) -> ClientConfig:
     }
 
 
-def list_endpoint(path: str, params: dict[str, str | int]) -> Endpoint:
+def list_endpoint(path: str, params: dict[str, Any]) -> Endpoint:
     endpoint: Endpoint = {
         "path": path,
         "params": params,
         "data_selector": "content",
         "data_selector_required": True,
-        "paginator": {"type": "page_number", "base_page": 0, "total_path": "totalPages"},
+        "paginator": cast(PaginatorConfig, {"type": "page_number", "base_page": 0, "total_path": "totalPages"}),
         # totalElements is capped, so a full search window cannot prove the collection is complete.
         "response_actions": [
             {
