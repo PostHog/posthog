@@ -10656,10 +10656,15 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
 
 
 def _visible_canvas_comment_ids(team_id: int, user_id: int) -> QuerySet[Canvas, dict[str, str]]:
+    from products.canvas.backend.access_control import (  # noqa: PLC0415 — keeps access-control dependencies local
+        filter_canvases_by_access_level_for_user_id,
+    )
+
+    canvases = (
+        Canvas.objects.for_team(team_id).filter(deleted=False).filter(visible_channels_q(user_id, relation="channel"))
+    )
     return (
-        Canvas.objects.for_team(team_id)
-        .filter(deleted=False)
-        .filter(visible_channels_q(user_id, relation="channel"))
+        filter_canvases_by_access_level_for_user_id(canvases, team_id, user_id)
         .annotate(comment_item_id=Cast("id", output_field=CharField()))
         .values("comment_item_id")
     )
@@ -10690,13 +10695,18 @@ def _visible_canvases_by_id(
             continue
     if not canvas_ids:
         return {}
+    from products.canvas.backend.access_control import (  # noqa: PLC0415 — keeps access-control dependencies local
+        filter_canvases_by_access_level_for_user_id,
+    )
+
     canvases = (
         Canvas.objects.for_team(team_id)
         .filter(id__in=canvas_ids, deleted=False)
         .filter(visible_channels_q(user_id, relation="channel"))
         .select_related("channel")
     )
-    return {str(canvas.id): canvas for canvas in canvases}
+    readable_canvases = filter_canvases_by_access_level_for_user_id(canvases, team_id, user_id)
+    return {str(canvas.id): canvas for canvas in readable_canvases}
 
 
 @frozen
