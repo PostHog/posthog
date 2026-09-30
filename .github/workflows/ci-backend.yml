@@ -505,10 +505,10 @@ jobs:
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
               run: python3 .github/scripts/ci_backend_route.py
 
-    # The only signal Depot CI acts on. Its wait job in .depot/workflows/ci-backend.yml
-    # polls this check by name and runs the backend tests only when it concluded
-    # `success`, so a skipped hand-off keeps the event on GitHub Actions. Renaming
-    # this job breaks that lookup.
+    # The commit's routing record. Depot's wait job in .depot/workflows/ci-backend.yml runs
+    # nothing once this check is skipped, and for a pull request it runs the tests only in
+    # the workflow the relay names. A manual Depot run needs this check to succeed. Renaming
+    # this job breaks those lookups.
     hand-off-to-depot:
         name: Hand off backend tests to Depot CI
         runs-on: ubuntu-24.04

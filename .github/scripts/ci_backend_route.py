@@ -30,7 +30,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ci_backend_relay import (
-    EVENT_TIME,
     MIRROR_APP_ID,
     STARTED_JOB,
     CheckReader,
@@ -51,6 +50,8 @@ ENGINE_BY_HANDOFF_CONCLUSION = {"success": "depot", "skipped": "github"}
 API_ROOT = "https://api.github.com"
 API_ATTEMPTS = 3
 API_BACKOFF_SECONDS = 5
+# How a pull request event payload renders `updated_at`.
+EVENT_TIME = "%Y-%m-%dT%H:%M:%SZ"
 # How long after the event Depot's wait job may take to start before the event stays on GitHub Actions.
 DEPOT_START_SECONDS = 180
 DEPOT_POLL_SECONDS = 10

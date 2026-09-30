@@ -16,6 +16,7 @@ import re
 import sys
 import json
 import time
+import functools
 import http.client
 import urllib.error
 import urllib.parse
@@ -40,8 +41,6 @@ STARTED_JOB = "Depot run started"
 NAMED_HANDOFF = "Hand off backend tests to Depot workflow {workflow}"
 # Renders the same text as the wait job's name expression in .depot/workflows/ci-backend.yml.
 EVENT_SUFFIX = " (PR {pr}, event {event_at})"
-# How a pull request event payload renders `updated_at`.
-EVENT_TIME = "%Y-%m-%dT%H:%M:%SZ"
 GATE_CHECK = f"{DEPOT_WORKFLOW} / Django Tests Pass on Depot"
 DEPOT_RUN_URL = re.compile(r"^https://depot\.dev/orgs/([^/?]+)/workflows/([a-z0-9]+)(?:[?/]|$)")
 PENDING_STATES = frozenset({"queued", "in_progress", "pending", "waiting", "requested"})
@@ -115,6 +114,7 @@ class CheckRun:
 
 class Phase(Enum):
     ABSENT = "absent"
+    NOT_HANDED_OFF = "not handed off"
     STARTING = "starting"
     DECLINED = "declined"
     CANCELLED = "cancelled"
@@ -174,6 +174,14 @@ def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
     return Progress(Phase.FINISHED, check.state, check.details_url)
 
 
+def api_headers(token: str) -> dict[str, str]:
+    return {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Authorization": f"Bearer {token}",
+    }
+
+
 class CheckReader(Protocol):
     def read(self, name: str) -> list[CheckRun]: ...
 
@@ -209,11 +217,7 @@ class CheckRunReader:
         return f"{API_ROOT}/repos/{self._repo}/commits/{self._sha}/check-runs?{query}"
 
     def _get(self, url: str, etag: str = "") -> tuple[int, str, dict[str, Any]]:
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "Authorization": f"Bearer {self._token}",
-        }
+        headers = api_headers(self._token)
         if etag:
             headers["If-None-Match"] = etag
         try:
@@ -305,28 +309,23 @@ def post_handoff(
     token: str,
     workflow: str,
     opener: Callable[..., Any] = urllib.request.urlopen,
-    sleep: Callable[[float], None] = time.sleep,
 ) -> bool:
-    """Post the check that lets Depot workflow `workflow` run this commit's tests, retrying transient failures."""
-    body = {"name": NAMED_HANDOFF.format(workflow=workflow), "head_sha": sha, "status": "completed"}
+    """Post the check that lets Depot workflow `workflow` run this commit's tests. `poll` retries a failure."""
+    body = {
+        "name": NAMED_HANDOFF.format(workflow=workflow),
+        "head_sha": sha,
+        "status": "completed",
+        "conclusion": "success",
+    }
     request = urllib.request.Request(
-        f"{API_ROOT}/repos/{repo}/check-runs",
-        data=json.dumps({**body, "conclusion": "success"}).encode(),
-        method="POST",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "Authorization": f"Bearer {token}",
-        },
+        f"{API_ROOT}/repos/{repo}/check-runs", data=json.dumps(body).encode(), method="POST", headers=api_headers(token)
     )
-    for attempt in range(1, 4):
-        try:
-            with opener(request, timeout=30):
-                return True
-        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
-            sys.stdout.write(f"::warning::Hand-off check not posted ({attempt}/3): {error}\n")
-        sleep(5 * attempt)
-    return False
+    try:
+        with opener(request, timeout=30):
+            return True
+    except (OSError, http.client.HTTPException) as error:
+        sys.stdout.write(f"::warning::Hand-off check not posted: {error}\n")
+        return False
 
 
 def prerequisite_failure(reader: CheckReader, wait: CheckRun, current: Progress) -> Progress:
@@ -365,8 +364,8 @@ def poll(
                 if newest and hand_off(newest):
                     workflow = newest
                     sys.stdout.write(f"Handed the tests to Depot workflow {workflow}\n")
-                else:
-                    current = Progress(Phase.ABSENT, "hand-off not posted")
+                elif newest:
+                    current = Progress(Phase.NOT_HANDED_OFF)
             if workflow:
                 wait = current_check(reader.read(event_name), workflow)
                 checks = reader.read(check_name) if wait and wait.state == "success" else []
@@ -379,7 +378,7 @@ def poll(
             elapsed = clock() - start
             if current.phase in (Phase.FINISHED, Phase.DECLINED, Phase.CANCELLED):
                 return current
-            if current.phase == Phase.ABSENT and elapsed >= absent_minutes * 60:
+            if current.phase in (Phase.ABSENT, Phase.NOT_HANDED_OFF) and elapsed >= absent_minutes * 60:
                 return current
         except ReadFailedError as error:
             # A failed read says nothing about the run, so it must not end the wait as absent.
@@ -441,7 +440,7 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
         ]
     if result.phase == Phase.DECLINED:
         return 1, [f"::error::Depot declined the hand-off for {event.sha} (wait job: {result.state})"]
-    if result.phase == Phase.ABSENT and result.state:
+    if result.phase == Phase.NOT_HANDED_OFF:
         return 1, [f"::error::The GitHub API refused the Depot hand-off for {event.sha}. Re-run this job."]
     if result.phase == Phase.ABSENT:
         return 1, [f"::error::Depot CI started no run for this event of {event.sha}"]
@@ -456,9 +455,7 @@ def main(argv: Sequence[str]) -> int:
     event = Event(repo=env["REPO"], sha=env["SHA"], pr_number=int(env["PR_NUMBER"]), event_at=env["EVENT_AT"])
     reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"], pr_number=event.pr_number)
 
-    def hand_off(workflow: str) -> bool:
-        return post_handoff(event.repo, event.sha, env["GH_TOKEN"], workflow)
-
+    hand_off = functools.partial(post_handoff, event.repo, event.sha, env["GH_TOKEN"])
     try:
         result = poll(reader, event, GATE_CHECK, hand_off=hand_off, deadline_minutes=90, absent_minutes=15)
     except ReadRefusedError as error:

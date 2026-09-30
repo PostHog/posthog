@@ -78,18 +78,18 @@ def test_depot_waits_for_the_hand_off_check_the_relay_posts() -> None:
     assert awaited.group(1).replace("${BASH_REMATCH[1]}", "w1") == relay.NAMED_HANDOFF.format(workflow="w1")
 
 
-@pytest.mark.parametrize("failures,posted", [(0, True), (2, True), (3, False)])
-def test_post_handoff_retries_transient_failures(failures: int, posted: bool) -> None:
-    calls: list[Any] = []
+@pytest.mark.parametrize("fails,posted", [(False, True), (True, False)])
+def test_post_handoff_reports_a_failed_post_instead_of_raising(fails: bool, posted: bool) -> None:
+    sent: list[Any] = []
 
     def opener(request: Any, timeout: int) -> FakeResponse:
-        calls.append(json.loads(request.data))
-        if len(calls) <= failures:
+        sent.append(json.loads(request.data))
+        if fails:
             raise urllib.error.URLError("unavailable")
         return FakeResponse(b"{}", "")
 
-    assert relay.post_handoff("PostHog/posthog", "abc", "t", "w1", opener=opener, sleep=lambda _: None) is posted
-    assert calls[-1]["name"] == relay.NAMED_HANDOFF.format(workflow="w1")
+    assert relay.post_handoff("PostHog/posthog", "abc", "t", "w1", opener=opener) is posted
+    assert sent[0]["name"] == relay.NAMED_HANDOFF.format(workflow="w1")
 
 
 @pytest.mark.parametrize(
@@ -229,11 +229,22 @@ def test_poll_follows_the_handed_off_workflow(
     assert clock.now >= min_minutes * 60
 
 
-def test_poll_fails_with_the_api_error_when_the_hand_off_cannot_be_posted() -> None:
-    result, _, reader = poll([{STARTED: [run(1, "success")], EVENT_WAIT: [run(2, "success")]}], lambda workflow: False)
+def test_poll_retries_a_failed_hand_off_then_fails_with_the_api_error() -> None:
+    polls = [{STARTED: [run(1, "success")], EVENT_WAIT: [run(2, "success")], relay.GATE_CHECK: [run(3, "success")]}]
+    attempts: list[str] = []
+
+    def flaky(workflow: str) -> bool:
+        attempts.append(workflow)
+        return len(attempts) > 1
+
+    result, _, _ = poll(polls, flaky)
+    assert (result.phase, result.state) == (relay.Phase.FINISHED, "success")
+
+    result, clock, reader = poll(polls, lambda workflow: False)
     code, lines = relay.relay_gate(result, EVENT, "123")
     assert code == 1
     assert "refused the Depot hand-off" in lines[0]
+    assert clock.now >= 15 * 60
     assert EVENT_WAIT not in reader.reads
 
 

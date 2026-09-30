@@ -44,14 +44,14 @@ class Workflow:
 def superseded(own_workflow_id: str, active_workflows: Sequence[Workflow], runs: Sequence[Run]) -> list[Workflow]:
     runs_by_id = {run.run_id: run for run in runs}
     own = {workflow.workflow_id: workflow for workflow in active_workflows}[own_workflow_id]
-    me = runs_by_id[own.run_id]
+    mine = runs_by_id[own.run_id].created_at
     return [
         workflow
         for workflow in active_workflows
         if workflow.path == WORKFLOW_PATH
-        and workflow.run_id != me.run_id
+        and workflow.run_id != own.run_id
         and workflow.run_id in runs_by_id
-        and runs_by_id[workflow.run_id].created_at <= me.created_at
+        and runs_by_id[workflow.run_id].created_at <= mine
     ]
 
 

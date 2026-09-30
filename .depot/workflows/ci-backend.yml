@@ -246,7 +246,7 @@ jobs:
             checks: read
         outputs:
             handed_off: ${{ steps.handoff.outputs.handed_off }}
-            github_kept: ${{ steps.handoff.outputs.github_kept }}
+            knows_kept_event: ${{ steps.handoff.outputs.knows_kept_event }}
         steps:
             # Depot's ambient token can come from an installation spent for the hour. It answers 403,
             # and the wait would decline a real hand-off. The same token posts the relay's checks.
@@ -281,17 +281,19 @@ jobs:
                   EVENT: ${{ github.event_name }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.fork == true }}
                   SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-                  # The routing job's check from .github/workflows/ci-backend.yml. A skipped one after this
-                  # event means GitHub Actions kept the commit, and routing never changes for a commit.
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   # Two open PRs can share a head SHA, so only this PR's routing counts.
                   PR_NUMBER: ${{ github.event.pull_request.number }}
+                  # The routing job's check from .github/workflows/ci-backend.yml. A skipped one after this
+                  # event means GitHub Actions kept the commit, and routing never changes for a commit.
                   HANDOFF_CHECK: Hand off backend tests to Depot CI
                   GITHUB_ACTIONS_APP_ID: '15368'
               run: |
                   set -uo pipefail
                   handed_off=false
                   github_kept=false
+                  routing_state=absent
+                  attempts=45
                   # Prints the newest non-cancelled state of the check named $2 among rows the jq test $3
                   # keeps. A 304 costs no rate limit, so the state is kept for it. A cancelled check comes
                   # from a GitHub run cancelled before it finished, so it carries no decision.
@@ -329,14 +331,16 @@ jobs:
                       # .github/workflows/ci-backend.yml hands the tests to one of them by id
                       # (NAMED_HANDOFF in .github/scripts/ci_backend_relay.py; change both).
                       named="Hand off backend tests to Depot workflow ${BASH_REMATCH[1]}"
+                      # shellcheck disable=SC2016 # $since and $pr are jq variables
                       this_pr='(.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr))'
-                      for attempt in $(seq 1 45); do
+                      for attempt in $(seq 1 "$attempts"); do
                           named_state=$(state_of named "$named" true)
-                          routing_state=$(state_of routing "$HANDOFF_CHECK" "$this_pr")
+                          # Once routing chose Depot for this commit, only the named hand-off can still change.
+                          [ "$routing_state" = success ] || routing_state=$(state_of routing "$HANDOFF_CHECK" "$this_pr")
                           if [ "$named_state" = success ]; then handed_off=true; break; fi
                           if [ "$routing_state" = skipped ]; then github_kept=true; break; fi
                           if [ "$named_state" = refused ] || [ "$routing_state" = refused ]; then break; fi
-                          [ "$attempt" -lt 45 ] && sleep 20
+                          [ "$attempt" -lt "$attempts" ] && sleep 20
                       done
                   else
                       echo "::warning::DEPOT_JOB_URL names no workflow, so no hand-off can name this one."
@@ -347,7 +351,10 @@ jobs:
                       echo "::notice::GitHub Actions handed the backend tests elsewhere. This Depot workflow runs nothing."
                   fi
                   echo "handed_off=$handed_off" >> "$GITHUB_OUTPUT"
-                  echo "github_kept=$github_kept" >> "$GITHUB_OUTPUT"
+                  # Either answer tells this workflow which event GitHub Actions kept.
+                  if [ "$handed_off" = true ] || [ "$github_kept" = true ]; then
+                      echo "knows_kept_event=true" >> "$GITHUB_OUTPUT"
+                  fi
             # Mirrors Depot's own checks for .github/scripts/ci_backend_relay.py (see MIRROR_APP_ID).
             # A declined event also gets the gate's skipped check, as Depot posts it.
             - name: Post the hand-off checks for the relay
@@ -367,13 +374,10 @@ jobs:
                   }
                   post "$WAIT_CHECK" success
                   [ "$HANDED_OFF" = true ] || post "$GATE_CHECK" skipped
-    # Runs only in a workflow that knows the event GitHub Actions kept: the one a hand-off named, or
-    # one whose commit GitHub Actions kept for itself. Its script explains why older runs are stale.
+    # .github/scripts/cancel_superseded_depot_runs.py explains why only this workflow may cancel.
     cancel-superseded-runs:
         needs: wait-for-handoff
-        if: >-
-            github.event_name == 'pull_request'
-            && (needs.wait-for-handoff.outputs.handed_off == 'true' || needs.wait-for-handoff.outputs.github_kept == 'true')
+        if: github.event_name == 'pull_request' && needs.wait-for-handoff.outputs.knows_kept_event == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Cancel superseded Backend CI runs
