@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from rest_framework import status
 
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -9,6 +11,7 @@ from posthog.models.utils import generate_random_token_personal
 from products.webmcp.backend.tests.test_logic import create_webmcp_app, mcp_response
 
 
+@override_settings(MCP_SERVER_URL="https://mcp.example.com/mcp")
 @patch("products.webmcp.backend.logic.mcp_server.requests.post")
 class TestWebMCPViewSet(APIBaseTest):
     def setUp(self) -> None:
@@ -19,9 +22,6 @@ class TestWebMCPViewSet(APIBaseTest):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
-        region_patcher = patch("products.webmcp.backend.logic.mcp_server.get_instance_region", return_value="US")
-        region_patcher.start()
-        self.addCleanup(region_patcher.stop)
 
     def test_exec_forwards_the_command_and_returns_the_tool_result(self, mock_post: MagicMock) -> None:
         mock_post.return_value = mcp_response(

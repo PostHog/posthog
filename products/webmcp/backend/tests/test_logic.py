@@ -3,14 +3,13 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 
-from products.webmcp.backend.logic.mcp_server import WebMCPProxy, resolve_mcp_url
+from products.webmcp.backend.logic.mcp_server import WebMCPProxy
 from products.webmcp.backend.logic.tokens import WEBMCP_OAUTH_CLIENT_ID, WebMCPTokenIssuer
 
 
@@ -31,22 +30,6 @@ def mcp_response(status_code: int, payload: dict) -> MagicMock:
     response = MagicMock(status_code=status_code, ok=200 <= status_code < 300)
     response.json.return_value = payload
     return response
-
-
-class TestResolveMcpUrl(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("us", "US", False, "https://mcp.us.posthog.com/mcp"),
-            ("eu", "EU", False, "https://mcp.eu.posthog.com/mcp"),
-            ("self_hosted", None, False, None),
-            ("local_dev", None, True, "http://localhost:8787/mcp"),
-        ]
-    )
-    def test_resolves_the_mcp_server_for_the_instance(
-        self, _name: str, region: str | None, debug: bool, expected: str | None
-    ) -> None:
-        with override_settings(CLOUD_DEPLOYMENT=region, DEBUG=debug):
-            assert resolve_mcp_url() == expected
 
 
 class TestWebMCPTokenIssuer(BaseTest):

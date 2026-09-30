@@ -6,7 +6,6 @@ from django.conf import settings
 import requests
 
 from posthog.models import User
-from posthog.utils import get_instance_region
 
 from ..facade.contracts import ExecResult, ExecTool, McpServerError, McpServerUnauthorizedError
 from .tokens import WebMCPTokenIssuer
@@ -18,21 +17,7 @@ EXEC_TOOL_NAME = "exec"
 # Connect, read. The read timeout covers slow tools such as SQL queries.
 REQUEST_TIMEOUT_SECONDS = (5, 120)
 
-REGIONAL_MCP_URLS = {
-    "US": "https://mcp.us.posthog.com/mcp",
-    "EU": "https://mcp.eu.posthog.com/mcp",
-    "DEV": "https://mcp.dev.posthog.dev/mcp",
-}
-LOCAL_MCP_URL = "http://localhost:8787/mcp"
-
 T = TypeVar("T")
-
-
-def resolve_mcp_url() -> str | None:
-    if url := REGIONAL_MCP_URLS.get(get_instance_region() or ""):
-        return url
-    # A self-hosted instance runs no PostHog MCP server, so WebMCP has nothing to forward to there.
-    return LOCAL_MCP_URL if settings.DEBUG else None
 
 
 class McpServerClient:
@@ -70,6 +55,7 @@ class McpServerClient:
             "Accept": "application/json, text/event-stream",
             "MCP-Protocol-Version": PROTOCOL_VERSION,
             "Mcp-Method": method,
+            # CLI mode makes the MCP server advertise only the single `exec` tool, which WebMCP registers as its one tool.
             "x-posthog-mcp-mode": "cli",
             "x-posthog-mcp-consumer": "webmcp",
         }
@@ -120,10 +106,9 @@ class WebMCPProxy:
 
     @classmethod
     def for_user(cls, user: User, team_id: int) -> "WebMCPProxy":
-        url = resolve_mcp_url()
-        if url is None:
+        if not settings.MCP_SERVER_URL:
             raise McpServerError("WebMCP is not available on this instance")
-        return cls(user, team_id, issuer=WebMCPTokenIssuer.for_instance(), url=url)
+        return cls(user, team_id, issuer=WebMCPTokenIssuer.for_instance(), url=settings.MCP_SERVER_URL)
 
     def get_exec_tool(self) -> ExecTool:
         return self._call(lambda client: client.get_exec_tool())
