@@ -129,7 +129,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     validate_skill_names,
 )
 from products.workflows.backend.facade.api import create_batch_job, workflow_writer
-from products.workflows.backend.facade.contracts import WorkflowUpdate
+from products.workflows.backend.facade.contracts import StaleWorkflowWrite, WorkflowUpdate
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
     GUARDRAIL_METRICS,
@@ -5130,17 +5130,20 @@ class HogFlowViewSet(
 
         # The web builder sends "includes_staged_draft" (raw body, like "stage_draft") when a save on a
         # non-active workflow carries the staged draft merged into it.
-        before_update = self._workflow_writer().update(
-            serializer.instance,
-            serializer,
-            WorkflowUpdate(
-                stage_as_draft=route_to_draft,
-                base_updated_at=self.request.data.get("base_updated_at"),
-                base_live_updated_at=self.request.data.get("base_live_updated_at"),
-                replaces_staged_draft=bool(self.request.data.get("includes_staged_draft"))
-                and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
-            ),
-        )
+        try:
+            before_update = self._workflow_writer().update(
+                serializer.instance,
+                serializer,
+                WorkflowUpdate(
+                    stage_as_draft=route_to_draft,
+                    base_updated_at=self.request.data.get("base_updated_at"),
+                    base_live_updated_at=self.request.data.get("base_live_updated_at"),
+                    replaces_staged_draft=bool(self.request.data.get("includes_staged_draft"))
+                    and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
+                ),
+            )
+        except StaleWorkflowWrite:
+            raise StaleWorkflowUpdateError() from None
 
         # PostHog capture for hog_flow activated (draft -> active)
         if (
@@ -5221,7 +5224,7 @@ class HogFlowViewSet(
             before_update = HogFlow.objects.get(pk=instance.pk)
             writer = self._workflow_writer()
             if route_to_draft:
-                writer.write_draft(locked, locked, serializer.validated_data)
+                writer.write_draft(locked, locked, serializer)
             else:
                 # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
                 writer.write_live(locked, before_update, serializer)
@@ -5231,7 +5234,7 @@ class HogFlowViewSet(
         # Explicit "updated" (the action name "graph" isn't in ACTIVITY_TYPES, which would fall back to
         # the indistinct "changed" and miss the describer's per-field rendering).
         log_activity_from_viewset(self, locked, activity="updated", name=locked.name, previous=before_update)
-        self._emit_resource_edited(locked)
+        writer.announce_edited(locked)
         self._report_workflow_action(
             "hog_flow_graph_updated",
             locked,
@@ -5310,7 +5313,7 @@ class HogFlowViewSet(
             before_update = HogFlow.objects.get(pk=instance.pk)
             writer = self._workflow_writer()
             if route_to_draft:
-                writer.write_draft(locked, locked, serializer.validated_data)
+                writer.write_draft(locked, locked, serializer)
             else:
                 bump = writer.stage_revision_bump(locked, before_update, serializer.validated_data)
                 # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
@@ -5321,7 +5324,7 @@ class HogFlowViewSet(
         # Unlike /graph, no action-redirect refresh or timing reschedule: an email edit can't delete
         # steps or change timing config.
         log_activity_from_viewset(self, locked, activity="updated", name=locked.name, previous=before_update)
-        self._emit_resource_edited(locked)
+        writer.announce_edited(locked)
         self._report_workflow_action(
             "hog_flow_action_email_updated",
             locked,

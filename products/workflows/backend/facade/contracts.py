@@ -196,3 +196,7 @@ class WorkflowUpdate:
     base_updated_at: str | None = None
     base_live_updated_at: str | None = None
     replaces_staged_draft: bool = False
+
+
+class StaleWorkflowWrite(Exception):
+    """The workflow changed after the client loaded it, so the write would overwrite someone else's edit."""

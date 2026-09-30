@@ -224,6 +224,10 @@ def workflow_writer(
     Creating, updating and publishing a workflow all go through it, so every caller gets the same
     revisions, action redirects, activity log and edit broadcast. ``report_usage`` receives the usage
     events a write triggers on its own, with the caller's request attribution.
+
+    For this product's own presentation layer only. It hands out ORM models and takes a bound
+    serializer, which a cross-product contract must not, and it exists here because the import
+    contract lets the workflows views reach product internals only through this facade.
     """
     from products.workflows.backend.services.workflow_writes import (  # noqa: PLC0415 - heavy DRF import: the service reads the viewset module's content helpers
         WorkflowWriter,

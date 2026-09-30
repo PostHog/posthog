@@ -14,7 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.notifications.backend.facade.api import publish_resource_edited
-from products.workflows.backend.facade.contracts import WorkflowUpdate
+from products.workflows.backend.facade.contracts import StaleWorkflowWrite, WorkflowUpdate
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -22,7 +22,6 @@ from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
 from products.workflows.backend.presentation.views.hog_flow import (
     DRAFT_CONTENT_FIELDS,
-    StaleWorkflowUpdateError,
     TemplateCache,
     _trigger_has_audience,
     snapshot_flow_content,
@@ -46,6 +45,7 @@ _CLEARED_DRAFT: dict[str, Any] = {"draft": None, "draft_updated_at": None, "draf
 class ValidatedWorkflow(Protocol):
     """A validated workflow payload that knows how to persist itself, such as a bound `HogFlowSerializer`."""
 
+    # A property on DRF serializers, but it returns the live dict, so writers may narrow it in place before save().
     @property
     def validated_data(self) -> dict[str, Any]: ...
 
@@ -96,14 +96,14 @@ class WorkflowWriter:
         self.announce_edited(workflow)
         return workflow
 
-    def update(self, instance: HogFlow, validated: ValidatedWorkflow, request: WorkflowUpdate) -> Optional[HogFlow]:
+    def update(self, instance: HogFlow, validated: ValidatedWorkflow, options: WorkflowUpdate) -> Optional[HogFlow]:
         """Apply an update to `instance` and return the workflow as it was before the write."""
         # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
         # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
         # between, so we reject with 409 rather than silently clobbering it. Strictly-newer (not equality)
         # avoids false positives from timestamp round-tripping — equal means the client is already current.
         # Callers that omit `base_updated_at` keep the previous last-writer-wins behavior.
-        base_updated_at = _parse_client_timestamp(request.base_updated_at)
+        base_updated_at = _parse_client_timestamp(options.base_updated_at)
 
         with transaction.atomic():
             try:
@@ -115,16 +115,16 @@ class WorkflowWriter:
             # Draft edits race against other draft edits, not against the live row (which they don't
             # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
             guard_timestamp = before_update.updated_at if before_update else None
-            if request.stage_as_draft and before_update and before_update.draft_updated_at:
+            if options.stage_as_draft and before_update and before_update.draft_updated_at:
                 guard_timestamp = before_update.draft_updated_at
             # The draft is only cleared on the caller's explicit signal, so an API caller that resends live
             # content never loses a draft.
             clears_staged_draft = (
-                not request.stage_as_draft
+                not options.stage_as_draft
                 and before_update is not None
                 and before_update.status != HogFlow.State.ACTIVE
                 and before_update.draft is not None
-                and request.replaces_staged_draft
+                and options.replaces_staged_draft
             )
             if clears_staged_draft:
                 assert before_update is not None
@@ -134,17 +134,17 @@ class WorkflowWriter:
                 ):
                     guard_timestamp = before_update.draft_updated_at
             if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
-                raise StaleWorkflowUpdateError()
+                raise StaleWorkflowWrite()
 
-            if request.stage_as_draft:
+            if options.stage_as_draft:
                 assert before_update is not None
-                self._stage_update(instance, before_update, validated, request)
+                self._stage_update(instance, before_update, validated, options)
             else:
                 self.write_live(instance, before_update, validated, **(_CLEARED_DRAFT if clears_staged_draft else {}))
                 if clears_staged_draft:
                     unstage_workflow_proposals(instance)
 
-        if not request.stage_as_draft:
+        if not options.stage_as_draft:
             self.after_live_write(before_update, instance)
         self._log_activity(instance, "updated", previous=before_update)
         self.announce_edited(instance)
@@ -191,7 +191,9 @@ class WorkflowWriter:
             assert before is not None
             self.append_revisions(target, before)
 
-    def write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
+    def write_draft(self, instance: HogFlow, locked: HogFlow, validated: ValidatedWorkflow) -> None:
+        """Stage validated content as the draft. Runs inside the caller's transaction, with `locked` locked."""
+        validated_data = validated.validated_data
         # The draft is always a full content snapshot (live config as the base, staged draft on top,
         # this edit's validated fields last) so publish is a plain copy with no merge logic.
         draft = {**snapshot_flow_content(locked), **(locked.draft or {})}
@@ -215,6 +217,7 @@ class WorkflowWriter:
         unstage_workflow_proposals(instance)
 
     def stage_revision_bump(self, instance: HogFlow, before: HogFlow, validated_data: dict) -> bool:
+        """Set the next version on `instance` when the content changed. Call it inside the locked write transaction."""
         # Revision history: only live-content changes get a version. Compared pre-save so the bumped
         # version lands in the same UPDATE (and worker reload) as the content it describes. The
         # serializer injects derived fields (trigger, billable_action_types) into every validated
@@ -280,9 +283,9 @@ class WorkflowWriter:
         )
 
     def _stage_update(
-        self, instance: HogFlow, locked: HogFlow, validated: ValidatedWorkflow, request: WorkflowUpdate
+        self, instance: HogFlow, locked: HogFlow, validated: ValidatedWorkflow, options: WorkflowUpdate
     ) -> None:
-        self.write_draft(instance, locked, validated.validated_data)
+        self.write_draft(instance, locked, validated)
         # Metadata in the same payload still applies live. Content (and the fields validate()
         # derives from it — trigger, billable_action_types) must not leak onto the live row:
         # they were computed from the draft's graph.
@@ -297,9 +300,9 @@ class WorkflowWriter:
         # live-metadata edit bumps updated_at but not draft_updated_at, so a staged save
         # would silently overwrite it. Clients that write metadata alongside a staged
         # draft send the live stamp they loaded as a second fence.
-        base_live = _parse_client_timestamp(request.base_live_updated_at)
+        base_live = _parse_client_timestamp(options.base_live_updated_at)
         if base_live and locked.updated_at and locked.updated_at > base_live:
-            raise StaleWorkflowUpdateError()
+            raise StaleWorkflowWrite()
         validated.validated_data.clear()
         validated.validated_data.update(remaining)
         validated.save()
@@ -392,7 +395,7 @@ class WorkflowWriter:
                 scope="HogFlow",
                 activity=activity,
                 detail=Detail(
-                    name=workflow.name,
+                    name=workflow.name or "HogFlow",
                     type=detail_type,
                     changes=changes_between("HogFlow", previous=previous, current=workflow)
                     if previous is not None

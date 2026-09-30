@@ -62,14 +62,18 @@ class TestWorkflowWriter(BaseTest):
     def _create(self, **fields: Any) -> HogFlow:
         return self.writer.create(self._validated({"name": "Nudge", "actions": [_trigger_action()], **fields}))
 
-    def test_create_persists_the_workflow_for_the_acting_user_and_logs_it(self) -> None:
-        workflow = self._create()
+    @parameterized.expand([("named", "Nudge", "Nudge"), ("unnamed", "", "HogFlow")])
+    def test_create_persists_the_workflow_for_the_acting_user_and_logs_it(
+        self, _case: str, name: str, logged_name: str
+    ) -> None:
+        workflow = self._create(name=name)
 
         stored = HogFlow.objects.get(pk=workflow.pk)
-        assert (stored.team_id, stored.created_by, stored.name) == (self.team.id, self.user, "Nudge")
-        assert list(ActivityLog.objects.filter(item_id=str(workflow.pk)).values_list("activity", flat=True)) == [
-            "created"
-        ]
+        assert (stored.team_id, stored.created_by, stored.name) == (self.team.id, self.user, name)
+        assert [
+            (log.activity, (log.detail or {}).get("name"))
+            for log in ActivityLog.objects.filter(item_id=str(workflow.pk))
+        ] == [("created", logged_name)]
 
     @parameterized.expand(
         [
@@ -103,8 +107,7 @@ class TestWorkflowWriter(BaseTest):
             actions=[_trigger_action(), _webhook_action("action_1"), _webhook_action("action_2")],
             edges=[_continue("trigger_node", "action_1"), _continue("action_1", "action_2")],
         )
-        self.writer.write_draft(
-            workflow,
+        self.writer.update(
             workflow,
             self._validated(
                 {
@@ -113,7 +116,8 @@ class TestWorkflowWriter(BaseTest):
                     "edges": [_continue("trigger_node", "action_2")],
                 },
                 workflow,
-            ).validated_data,
+            ),
+            WorkflowUpdate(stage_as_draft=True),
         )
 
         published = self.writer.publish_draft(
