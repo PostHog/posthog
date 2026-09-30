@@ -81,7 +81,7 @@ The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scan
 
 ### The benchmark, and its one limit
 
-Each case carries the recorded production output and the human thumbs label, and the scorers grade the PR's prompts against those, so one run already benchmarks a prompt change against production.
+Each case carries the recorded production output, and labeled cases also carry the human thumbs label. The scorers grade the PR's prompts against whichever reference a case has, so one run already benchmarks a prompt change against production.
 What it is not yet is a standing benchmark comparable across PRs and over time: the collector re-samples per run (deterministic for a fixed source, but the source drifts as observations accumulate and expire), so run-over-run score deltas mix a prompt change with a set change.
 A dataset pinned to the same sessions every run would fix that. It needs two things this workflow deliberately does not do: an internal store to hold the pinned set (the recordings cannot live in this public repo, and the consent model refuses a set older than 30 days), and a data-governance decision on persisting a curated set of customer recordings for reuse. Until both exist, the per-run benchmark above is the signal.
 
