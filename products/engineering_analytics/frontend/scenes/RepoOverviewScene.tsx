@@ -261,7 +261,8 @@ export function RepoOverviewScene(): JSX.Element {
                         />
                         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
                             <span>
-                                Showing {shownPrs.length} of {humanFriendlyNumber(attention.total)} needing attention
+                                Showing <span translate="no">{shownPrs.length}</span> of{' '}
+                                <span translate="no">{humanFriendlyNumber(attention.total)}</span> needing attention
                             </span>
                             <div className="flex items-center gap-3">
                                 {canShowMorePrs && (

@@ -215,7 +215,7 @@ def query_attention_pull_requests(*, curated: CuratedGitHubSource) -> AttentionP
         curated=curated,
         scope_where=OPEN_PR_SQL,
         rows_where=f"pr.{OPEN_PR_SQL} AND ({FAILING_CI_SQL} OR {stuck_pr_sql('pr.')})",
-        order_by=f"{FAILING_CI_SQL} DESC, pr.created_at DESC",
+        order_by=f"{FAILING_CI_SQL} DESC, pr.created_at DESC, pr.repo_owner, pr.repo_name, pr.number DESC",
         limit=_ATTENTION_LIMIT,
         query_type="engineering_analytics.attention_pull_requests",
         placeholders={},
