@@ -17,8 +17,9 @@ export function releaseStageProductForScene(sceneId: string | null): FileSystemI
     if (!sceneId) {
         return undefined
     }
-    return getTreeItemsProducts().find(
-        (product) =>
-            (product.sceneKey === sceneId || product.sceneKeys?.includes(sceneId)) && releaseStage(product) !== null
-    )
+    const products = getTreeItemsProducts()
+    const owners = products.filter((product) => product.sceneKey === sceneId)
+    // Many products list scenes they do not own in `sceneKeys`, so a scene listed by more than one has no clear owner.
+    const candidates = owners.length > 0 ? owners : products.filter((product) => product.sceneKeys?.includes(sceneId))
+    return candidates.length === 1 && releaseStage(candidates[0]) !== null ? candidates[0] : undefined
 }

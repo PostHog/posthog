@@ -18,6 +18,9 @@ describe('releaseStage', () => {
         ['DataCatalog', 'beta'],
         ['Inbox', 'beta'],
         ['Dashboard', null],
+        ['AIObservability', null],
+        ['AIObservabilityTags', 'alpha'],
+        ['SQLEditor', null],
         [null, null],
     ])('the %s scene shows %s', (sceneId, expected) => {
         const product = releaseStageProductForScene(sceneId)
