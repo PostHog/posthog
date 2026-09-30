@@ -330,7 +330,7 @@ def _get_or_create_ai_property_definition(team_id: int, property_name: str) -> P
     project_definitions = PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
         effective_project_id=project_id
     )
-    definition = project_definitions.filter(
+    definition: PropertyDefinition | None = project_definitions.filter(
         name=property_name, type=PropertyDefinition.Type.EVENT, group_type_index=None
     ).first()
     if definition is None:
