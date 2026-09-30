@@ -1082,6 +1082,30 @@ database "posthog" {
     }
   }
 
+  table "person_group_membership_config" {
+    order_by = ["team_id"]
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "enabled" {
+      type = "UInt8"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.person_group_membership_config"
+      replica_name   = "{replica}-{shard}"
+      version_column = "version"
+    }
+  }
+
   table "platform_alert_events" {
     column "team_id" {
       type = "Int64"
@@ -2266,6 +2290,37 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.marketing_touchpoints_preaggregated"
       replica_name   = "{replica}-{shard}"
       version_column = "computed_at"
+    }
+  }
+
+  table "sharded_person_group_membership" {
+    order_by = ["team_id", "group_type_index", "group_key", "distinct_id"]
+    settings = {
+      index_granularity       = "8192"
+      min_bytes_for_wide_part = "0"
+      min_rows_for_wide_part  = "0"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "group_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_seen" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "last_seen" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_person_group_membership"
+      replica_name = "{replica}"
     }
   }
 

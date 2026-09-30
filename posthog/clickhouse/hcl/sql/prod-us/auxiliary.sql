@@ -167,6 +167,12 @@ CREATE TABLE posthog.message_assets_data (
   INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX recipient_idx recipient TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.message_assets_data', '{replica}-{shard}', version) ORDER BY (team_id, function_kind, function_id, invocation_id, action_id) PARTITION BY toYYYYMMDD(sent_at) TTL toDate(sent_at) + toIntervalDay(30) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.person_group_membership_config (
+  team_id Int64,
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_group_membership_config', '{replica}-{shard}', version) ORDER BY (team_id) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.property_values (
   team_id Int64 CODEC(DoubleDelta, ZSTD(1)),
   property_type LowCardinality(String),
@@ -415,6 +421,14 @@ CREATE TABLE posthog.sharded_marketing_touchpoints_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.marketing_touchpoints_preaggregated', '{replica}-{shard}', computed_at) ORDER BY (team_id, job_id, person_id, touchpoint_timestamp) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_person_group_membership', '{replica}') ORDER BY (team_id, group_type_index, group_key, distinct_id) SETTINGS index_granularity = 8192, min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0;
 CREATE TABLE posthog.sharded_platform_alert_events (
   team_id Int64,
   configuration_id UUID,
