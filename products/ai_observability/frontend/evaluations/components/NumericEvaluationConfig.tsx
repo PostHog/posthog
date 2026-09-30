@@ -27,6 +27,11 @@ export function NumericEvaluationConfig({
                     <LemonField.Pure
                         key={field}
                         htmlFor={`${id}-${field}`}
+                        info={
+                            field === 'step'
+                                ? 'Suggests a score increment to LLM judges, including System One. Scores are not rounded or restricted to this increment. Hog evaluations use the score returned by your code.'
+                                : undefined
+                        }
                         label={
                             {
                                 min: requiresBounds ? 'Minimum' : 'Minimum (optional)',
@@ -46,7 +51,7 @@ export function NumericEvaluationConfig({
                     </LemonField.Pure>
                 ))}
             </div>
-            <p className="text-muted text-sm">Bounds are inclusive. Step guides scoring without rounding results.</p>
+            <p className="text-muted text-sm">Bounds are inclusive.</p>
             <LemonSwitch
                 label="Allow N/A responses"
                 checked={config.allows_na ?? false}

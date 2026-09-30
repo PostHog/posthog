@@ -122,6 +122,8 @@ The playground keeps the provider's explanation so users can correct the setting
 
 Boolean online evaluations write their raw verdict to `$ai_evaluation_result`.
 Numeric evaluations write their score to `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max` bounds.
+For online LLM judges, including System One, `step` is a suggested score increment in the prompt; results are not rounded or restricted to its multiples.
+Hog evaluations use the numeric value returned by the code and do not apply `step`.
 `$ai_evaluation_result_type` identifies the output type; events without it are legacy boolean results.
 Categorical evaluations write a list of category keys to `$ai_evaluation_categorical_result`, including for single selection.
 Sentiment evaluations keep their `$ai_sentiment_*` properties.
