@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
@@ -20,8 +20,8 @@ export type MemberSelectMultipleOptionsProps = {
 
 /**
  * Dropdown overlay of the multi-select member pickers: a search input, a "Clear selection" button,
- * and a scrollable checkbox list of organization members. Members selected when the dropdown opens
- * are listed first, above a divider.
+ * and a scrollable checkbox list of organization members. Selected members also appear at the top
+ * after selection activity stops.
  */
 export function MemberSelectMultipleOptions({
     value,
@@ -30,13 +30,15 @@ export function MemberSelectMultipleOptions({
 }: MemberSelectMultipleOptionsProps): JSX.Element {
     const { me, selectableMembers, membersLoading, search } = useValues(membersLogic)
     const { setSearch } = useActions(membersLogic)
-    // The popover mounts this overlay on open, so this is the selection at open time. Sorting by it
-    // instead of `value` keeps a row from jumping to the top while the user toggles its checkbox.
-    const [pinnedIds] = useState(() => new Set(value))
+    const [selectedIdsAtTop, setSelectedIdsAtTop] = useState(() => new Set(value))
+
+    useEffect(() => {
+        const timeout = setTimeout(() => setSelectedIdsAtTop(new Set(value)), 600)
+        return () => clearTimeout(timeout)
+    }, [value])
 
     const members = selectableMembers(excludedMembers, 'id')
-    const pinnedMembers = members.filter((member) => pinnedIds.has(member.user.id))
-    const otherMembers = members.filter((member) => !pinnedIds.has(member.user.id))
+    const selectedMembersAtTop = search ? [] : members.filter((member) => selectedIdsAtTop.has(member.user.id))
 
     const toggleMember = (userId: number): void => {
         const selected = new Set(value)
@@ -48,9 +50,9 @@ export function MemberSelectMultipleOptions({
         onChange(Array.from(selected))
     }
 
-    const renderRow = (member: OrganizationMemberType): JSX.Element => (
+    const renderRow = (member: OrganizationMemberType, keyPrefix = ''): JSX.Element => (
         <MemberSelectRow
-            key={member.user.uuid}
+            key={`${keyPrefix}${member.user.uuid}`}
             member={member}
             isYou={member.user.uuid === me?.user.uuid}
             onClick={() => toggleMember(member.user.id)}
@@ -73,22 +75,26 @@ export function MemberSelectMultipleOptions({
             >
                 Clear selection
             </LemonButton>
-            <ul className="max-h-80 overflow-y-auto flex flex-col gap-px" aria-label="Members">
-                {pinnedMembers.map(renderRow)}
-                {pinnedMembers.length > 0 && otherMembers.length > 0 && (
-                    <li>
-                        <LemonDivider className="my-1" />
-                    </li>
+            <div className="max-h-80 overflow-y-auto flex flex-col gap-px">
+                {selectedMembersAtTop.length > 0 && (
+                    <ul className="flex flex-col gap-px" aria-label="Selected members">
+                        {selectedMembersAtTop.map((member) => renderRow(member, 'selected-'))}
+                        <li>
+                            <LemonDivider className="my-1" />
+                        </li>
+                    </ul>
                 )}
-                {otherMembers.map(renderRow)}
-                {membersLoading ? (
-                    <li className="p-2 text-secondary italic truncate border-t">Loading...</li>
-                ) : members.length === 0 ? (
-                    <li className="p-2 text-secondary italic truncate border-t">
-                        {search ? 'No matches' : 'No users'}
-                    </li>
-                ) : null}
-            </ul>
+                <ul className="flex flex-col gap-px" aria-label="Members">
+                    {members.map((member) => renderRow(member))}
+                    {membersLoading ? (
+                        <li className="p-2 text-secondary italic truncate border-t">Loading...</li>
+                    ) : members.length === 0 ? (
+                        <li className="p-2 text-secondary italic truncate border-t">
+                            {search ? 'No matches' : 'No users'}
+                        </li>
+                    ) : null}
+                </ul>
+            </div>
         </div>
     )
 }

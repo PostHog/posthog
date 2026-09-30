@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_SECOND_BASIC_USER, MOCK_USER_UUID } from 
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
@@ -72,25 +72,63 @@ describe('multi-select member pickers', () => {
         )
     }
 
-    async function expectListedInOrder(first: string, second: string): Promise<void> {
-        const firstRow = await screen.findByText(first)
-        const secondRow = await screen.findByText(second)
+    function expectListedInOrder(list: HTMLElement, first: string, second: string): void {
+        const firstRow = within(list).getByText(first)
+        const secondRow = within(list).getByText(second)
         expect(firstRow.compareDocumentPosition(secondRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     }
 
-    it('lists members selected at open first and keeps rows in place while toggling', async () => {
+    it('keeps the member list in place and updates selected duplicates after selection activity stops', async () => {
         renderPicker(MemberSelectMultiplePopover)
         await userEvent.click(screen.getByText('Created by'))
-        await expectListedInOrder('John', 'Rose')
+        const members = await screen.findByRole('list', { name: 'Members' })
+        await within(members).findByText('Rose')
+        expectListedInOrder(members, 'John', 'Rose')
 
-        await userEvent.click(screen.getByText('Rose'))
-        expect(screen.getByText('Created by (1)')).toBeInTheDocument()
-        await expectListedInOrder('John', 'Rose')
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate'] })
+        try {
+            const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
+            await user.click(within(members).getByText('Rose'))
+            expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
 
-        await userEvent.click(screen.getByText('Outside'))
-        await waitFor(() => expect(screen.queryByLabelText('Members')).not.toBeInTheDocument())
+            await act(async () => jest.advanceTimersByTime(400))
+            await user.click(within(members).getByText('John'))
+            await act(async () => jest.advanceTimersByTime(599))
+            expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
+            expectListedInOrder(members, 'John', 'Rose')
+
+            await act(async () => jest.advanceTimersByTime(1))
+            const selected = screen.getByRole('list', { name: 'Selected members' })
+            expectListedInOrder(selected, 'John', 'Rose')
+            expectListedInOrder(members, 'John', 'Rose')
+
+            await user.click(within(selected).getByText('Rose'))
+            expect(within(members).getByText('Rose').closest('[role="menuitemcheckbox"]')).toHaveAttribute(
+                'aria-checked',
+                'false'
+            )
+            await act(async () => jest.advanceTimersByTime(600))
+            expect(within(screen.getByRole('list', { name: 'Selected members' })).queryByText('Rose')).toBeNull()
+
+            await user.click(within(members).getByText('John'))
+            await act(async () => jest.advanceTimersByTime(600))
+            expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
+            expectListedInOrder(members, 'John', 'Rose')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('shows selected duplicates on open but hides them during search', async () => {
+        renderPicker(MemberSelectMultiplePopover, [MOCK_SECOND_BASIC_USER.id])
         await userEvent.click(screen.getByText('Created by (1)'))
-        await expectListedInOrder('Rose', 'John')
+        const members = await screen.findByRole('list', { name: 'Members' })
+        await within(members).findByText('Rose')
+        expect(within(screen.getByRole('list', { name: 'Selected members' })).getByText('Rose')).toBeInTheDocument()
+        expectListedInOrder(members, 'John', 'Rose')
+
+        fireEvent.change(screen.getByPlaceholderText('Search'), { target: { value: 'Rose' } })
+        expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
     })
 
     it.each([
