@@ -84,7 +84,7 @@ class TestAccountPersons(ClickhouseTestMixin, APIBaseTest):
         self.addCleanup(sync_execute, f"TRUNCATE TABLE {SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE}")
         self.alice = create_person(
             team=self.team,
-            distinct_ids=["alice", "alice-device"],
+            distinct_ids=["alice", "alice-device", "unrelated-device"],
             properties={"name": "Alice", "email": "alice@example.com", "tier": "gold", "secret": "hidden"},
         )
         self.bob = create_person(
@@ -156,6 +156,9 @@ class TestAccountPersons(ClickhouseTestMixin, APIBaseTest):
         [
             ({"search": "alice@example.com"}, "alice"),
             ({"search": "alice-device"}, "alice"),
+            ({"search": "DEVICE"}, "alice"),
+            ({"search": "unrelated-device"}, None),
+            ({"search": "outsider"}, None),
             ({"search": "Alice"}, "alice"),
             ({"search": "bob"}, "bob"),
             ({"properties": json.dumps([{"key": "tier", "operator": "exact", "value": "silver"}])}, "bob"),
@@ -163,9 +166,9 @@ class TestAccountPersons(ClickhouseTestMixin, APIBaseTest):
             ({"order_by": "-account_first_seen", "limit": 1}, "bob"),
         ]
     )
-    def test_search_filter_sort_after_membership(self, params: dict, expected: str) -> None:
+    def test_search_filter_sort_after_membership(self, params: dict, expected: str | None) -> None:
         result = self.get(**params)
-        assert [row["id"] for row in result["results"]] == [str(getattr(self, expected).uuid)]
+        assert [row["id"] for row in result["results"]] == ([str(getattr(self, expected).uuid)] if expected else [])
 
     def test_property_keys_are_data_not_hogql(self) -> None:
         key = "custom, `column` ' OR true --"
@@ -242,6 +245,7 @@ class TestAccountPersons(ClickhouseTestMixin, APIBaseTest):
         )
         self.client.force_login(viewer)
         assert self.client.get(self.url).status_code == 404
+        assert self.client.get(self.url.replace(str(self.account.id), "not-a-uuid")).status_code == 404
         other = Team.objects.create(organization=self.organization)
         assert (
             self.client.get(self.url.replace(f"/projects/{self.team.id}/", f"/projects/{other.id}/")).status_code == 404
@@ -268,7 +272,11 @@ class TestAccountPersons(ClickhouseTestMixin, APIBaseTest):
         assert self.client.get(self.url, data={"properties": json.dumps(filters)}).status_code == 400
         assert self.client.get(self.url, data={"select": '["secret"]', "order_by": "secret"}).status_code == 400
 
-    def test_query_tags_and_slo_do_not_record_values(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_query_tags_and_slo_do_not_record_values(self, missing_distinct_id: bool) -> None:
+        if missing_distinct_id:
+            self.user.distinct_id = None
+            self.user.save(update_fields=["distinct_id"])
         labels = {"has_filters": "true", "has_search": "true", "outcome": "success"}
         metric = "customer_analytics_account_persons_duration_seconds_count"
         duration_count = REGISTRY.get_sample_value(metric, labels) or 0
@@ -294,6 +302,7 @@ class TestAccountPersons(ClickhouseTestMixin, APIBaseTest):
             call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == "slo_operation_completed"
         ]
         assert len(events) == 1
+        assert events[0]["distinct_id"] == (self.user.distinct_id or str(self.team.uuid))
         props = events[0]["properties"]
         assert props["operation"] == "account_persons_list"
         assert props["target_ms"] == 500

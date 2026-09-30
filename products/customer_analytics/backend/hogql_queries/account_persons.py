@@ -95,7 +95,7 @@ class AccountPersonStrategy(PersonStrategy):
                     ]
                     + [
                         parse_expr(
-                            "persons.id IN (SELECT person_id FROM person_distinct_ids WHERE ilike(distinct_id, {search}))",
+                            "arrayExists(distinct_id -> ilike(distinct_id, {search}), source.distinct_ids)",
                             placeholders={"search": value},
                         )
                     ]

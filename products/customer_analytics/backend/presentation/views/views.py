@@ -1862,8 +1862,6 @@ class AccountViewSet(
         result_count = 0
         outcome = "failure"
         try:
-            if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
-                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
             try:
                 account = api.get_account_for_view(
                     team_id=self.team_id,
@@ -1875,7 +1873,7 @@ class AccountViewSet(
                 return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
             with slo_operation(
                 spec=SloSpec(
-                    distinct_id=str(request.user.distinct_id),
+                    distinct_id=str(getattr(request.user, "distinct_id", None) or self.team.uuid),
                     area=SloArea.ANALYTIC_PLATFORM,
                     operation=SloOperation.ACCOUNT_PERSONS_LIST,
                     team_id=self.team_id,
