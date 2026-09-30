@@ -29,6 +29,8 @@ class TestRedactWebhookUrlsInDestinationNames(TestMigrations):
                 hog="return",
             )
 
+        FileSystemShortcut = apps.get_model("posthog", "FileSystemShortcut")
+
         self.alert_webhook = make(LEAKED_NAME, ALERT_FILTERS)
         self.file_entry = FileSystem.objects.create(
             team_id=self.team.id,
@@ -37,13 +39,26 @@ class TestRedactWebhookUrlsInDestinationNames(TestMigrations):
             type="hog_function/internal_destination",
             ref=str(self.alert_webhook.id),
         )
+        self.shortcut = FileSystemShortcut.objects.create(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            path=LEAKED_NAME.replace("/", "\\/"),
+            type="hog_function/internal_destination",
+            ref=str(self.alert_webhook.id),
+        )
         self.user_webhook_name = "My webhook https://hooks.example.com/services/T000/B000/mine"
         self.user_webhook = make(self.user_webhook_name, {"source": "internal-events", "events": []})
+
+        self.quoted_webhook = make(
+            "Logs — Errors (firing) → Webhook https://hooks.example.com/hook?token='s3cr3t",
+            ALERT_FILTERS,
+        )
 
     def test_only_alert_managed_webhook_names_are_redacted(self) -> None:
         assert self.apps is not None
         HogFunction = self.apps.get_model("cdp", "HogFunction")
         FileSystem = self.apps.get_model("posthog", "FileSystem")
+        FileSystemShortcut = self.apps.get_model("posthog", "FileSystemShortcut")
 
         assert (
             HogFunction.objects.get(id=self.alert_webhook.id).name
@@ -53,4 +68,15 @@ class TestRedactWebhookUrlsInDestinationNames(TestMigrations):
             FileSystem.objects.get(id=self.file_entry.id).path
             == "Unfiled/Destinations/Logs — Errors (firing) → Webhook hooks.example.com"
         )
+        # A starred destination keeps its own copy of the name.
+        assert (
+            FileSystemShortcut.objects.get(id=self.shortcut.id).path
+            == "Logs — Errors (firing) → Webhook hooks.example.com"
+        )
         assert HogFunction.objects.get(id=self.user_webhook.id).name == self.user_webhook_name
+        # An apostrophe is legal in a URL query, and treating it as the end of the URL used to
+        # leave everything after it in the name.
+        assert (
+            HogFunction.objects.get(id=self.quoted_webhook.id).name
+            == "Logs — Errors (firing) → Webhook hooks.example.com"
+        )
