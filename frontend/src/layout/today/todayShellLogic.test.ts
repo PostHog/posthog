@@ -20,7 +20,7 @@ describe('todayShellLogic', () => {
         ['/project/1/spaces/abc', 'spaces'],
         ['/project/1/feature_flags/920847', 'library'],
         ['/project/1/insights/abc', 'library'],
-        ['/project/1/feature_flags', null],
+        ['/project/1/feature_flags', 'library'],
         ['/project/1/data-management/destinations', 'tools'],
         ['/project/1/sql', 'tools'],
         ['/project/1/airplane', null],

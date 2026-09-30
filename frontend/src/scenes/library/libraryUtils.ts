@@ -1,6 +1,6 @@
 import { routes } from 'scenes/scenes'
 
-import { fileSystemTypes } from '~/products'
+import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 // These file system types are working pages rather than saved objects, so they belong to Tools.
@@ -70,13 +70,23 @@ function sceneForPath(path: string): string | null {
 
 export function libraryTypeForPath(path: string): string | null {
     if (!objectTypeByScene) {
-        objectTypeByScene = new Map()
-        for (const [type, definition] of Object.entries(fileSystemTypes)) {
-            const scene = TOOL_FILE_SYSTEM_TYPES.has(type) ? null : sceneForPath(definition.href(REF_PLACEHOLDER))
-            if (scene && !objectTypeByScene.has(scene)) {
-                objectTypeByScene.set(scene, type)
+        const scenes = new Map<string, string>()
+        const addPage = (type: string, href: string | undefined): void => {
+            const scene = href && !TOOL_FILE_SYSTEM_TYPES.has(type) ? sceneForPath(href) : null
+            if (scene && !scenes.has(scene)) {
+                scenes.set(scene, type)
             }
         }
+        for (const [type, definition] of Object.entries(fileSystemTypes)) {
+            addPage(type, definition.href(REF_PLACEHOLDER))
+        }
+        for (const item of [...getTreeItemsProducts(), ...getTreeItemsMetadata()]) {
+            const type = baseObjectType(item.type) || item.iconType || ''
+            if (Object.hasOwn(fileSystemTypes, type)) {
+                addPage(type, item.href)
+            }
+        }
+        objectTypeByScene = scenes
     }
     const scene = sceneForPath(path)
     return (scene && objectTypeByScene.get(scene)) || null
