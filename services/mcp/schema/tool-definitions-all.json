@@ -1770,6 +1770,36 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-repositories-file-retrieve": {
+        "description": "Read one file from a GitHub repository selected for business knowledge. The path must come from business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file contents.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Read a file from a selected repository",
+        "title": "Read a file from a selected repository",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "business-knowledge-github-repos"
+    },
+    "business-knowledge-repositories-search": {
+        "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Pass file names, path fragments, or identifiers, not a full sentence. Then read a matching file. Does not search inside file contents and does not call GitHub code search.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Search selected repositories",
+        "title": "Search selected repositories",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "business-knowledge-github-repos"
+    },
     "business-knowledge-sources-list": {
         "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
         "category": "Business knowledge",

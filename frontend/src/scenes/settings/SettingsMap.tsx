@@ -51,6 +51,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
@@ -1403,6 +1404,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LearnFromSupportSetting />,
                 docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
                 keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
+            },
+            {
+                id: 'business-knowledge-github-repos',
+                title: 'GitHub repositories',
+                description:
+                    'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
+                component: <GithubReposSetting />,
+                flag: 'BUSINESS_KNOWLEDGE_GITHUB_REPOS',
+                keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
             },
         ],
     },

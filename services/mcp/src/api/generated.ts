@@ -82430,6 +82430,8 @@ export namespace Schemas {
     /**
      * * `business-knowledge-documents-search` - Search
      * * `business-knowledge-document-window-retrieve` - Window
+     * * `business-knowledge-repositories-search` - Repository search
+     * * `business-knowledge-repositories-file-retrieve` - Repository file
      */
     export type SandboxToolNameEnum = typeof SandboxToolNameEnum[keyof typeof SandboxToolNameEnum];
 
@@ -82437,13 +82439,17 @@ export namespace Schemas {
     export const SandboxToolNameEnum = {
       BusinessKnowledgeDocumentsSearch: 'business-knowledge-documents-search',
       BusinessKnowledgeDocumentWindowRetrieve: 'business-knowledge-document-window-retrieve',
+      BusinessKnowledgeRepositoriesSearch: 'business-knowledge-repositories-search',
+      BusinessKnowledgeRepositoriesFileRetrieve: 'business-knowledge-repositories-file-retrieve',
     } as const;
 
     export interface SandboxSearch {
       /** Business knowledge tool the agent called.
        *
        * * `business-knowledge-documents-search` - Search
-       * * `business-knowledge-document-window-retrieve` - Window */
+       * * `business-knowledge-document-window-retrieve` - Window
+       * * `business-knowledge-repositories-search` - Repository search
+       * * `business-knowledge-repositories-file-retrieve` - Repository file */
       tool: SandboxToolNameEnum;
       /** Tool input the agent sent. */
       input: string;
@@ -89576,6 +89582,74 @@ export namespace Schemas {
       signals: SignalNode[];
     }
 
+    /**
+     * * `ready` - Ready
+     * * `warming` - Warming
+     */
+    export type RepositoryCacheStatusEnum = typeof RepositoryCacheStatusEnum[keyof typeof RepositoryCacheStatusEnum];
+
+
+    export const RepositoryCacheStatusEnum = {
+      Ready: 'ready',
+      Warming: 'warming',
+    } as const;
+
+    export interface RepositoryCacheState {
+      /** Lowercased owner/repo. */
+      repo: string;
+      /** True when the cached file list is incomplete because the repository has too many files. */
+      tree_truncated: boolean;
+      /** ready means the file list was cached recently. warming means a refresh was just queued.
+       *
+       * * `ready` - Ready
+       * * `warming` - Warming */
+      cache_status: RepositoryCacheStatusEnum;
+    }
+
+    export interface RepositoryConnect {
+      /** Id of a GitHub integration on this environment. */
+      integration_id: number;
+    }
+
+    export interface RepositoryConnection {
+      /** True when a GitHub installation is connected for this environment. */
+      connected: boolean;
+      /**
+         * Connected GitHub integration id, or null when GitHub is not connected.
+         * @nullable
+         */
+      integration_id: number | null;
+      /** GitHub account name for the connected installation. Empty when GitHub is not connected. */
+      integration_name: string;
+      /** Lowercased owner/repo names business knowledge is allowed to read. */
+      repos: string[];
+    }
+
+    export interface RepositoryFile {
+      /** Lowercased owner/repo. */
+      repo: string;
+      /** File path that was read. */
+      path: string;
+      /** Permalink for this file at the cached commit. Cite this when you use the file. */
+      url: string;
+      /** File text, cut off at 32,000 characters. */
+      content: string;
+      /** True when content was cut off at 32,000 characters. */
+      truncated: boolean;
+    }
+
+    /**
+     * * `path` - Path
+     * * `readme` - Readme
+     */
+    export type RepositoryHitKindEnum = typeof RepositoryHitKindEnum[keyof typeof RepositoryHitKindEnum];
+
+
+    export const RepositoryHitKindEnum = {
+      Path: 'path',
+      Readme: 'readme',
+    } as const;
+
     export interface ScanEvidence {
       /** Number of files scanned */
       filesScanned: number;
@@ -89616,6 +89690,37 @@ export namespace Schemas {
       cacheAgeSeconds: number;
       /** Scan evidence details */
       scan?: ScanEvidence;
+    }
+
+    export interface RepositorySearchHit {
+      /** Lowercased owner/repo the hit came from. */
+      repo: string;
+      /** File path. Empty for a README hit. */
+      path: string;
+      /** Permalink for the hit. Cite this when you use the hit. */
+      url: string;
+      /** path is a file name match. readme is a short excerpt of the repository README.
+       *
+       * * `path` - Path
+       * * `readme` - Readme */
+      kind: RepositoryHitKindEnum;
+      /** Short README excerpt. Empty for a path hit. */
+      excerpt: string;
+    }
+
+    export interface RepositorySearchResponse {
+      /** Path matches, then README excerpts. */
+      results: RepositorySearchHit[];
+      /** Cache state for each repository that was searched. */
+      repositories: RepositoryCacheState[];
+    }
+
+    export interface RepositorySelection {
+      /**
+         * owner/repo names to allow. At most 20. Replaces the current list.
+         * @maxItems 20
+         */
+      repos: string[];
     }
 
     export interface RescoreRequest {
@@ -111341,6 +111446,31 @@ export namespace Schemas {
      * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
      */
     ticket_id?: string;
+    };
+
+    export type BusinessKnowledgeRepositoriesFileRetrieveParams = {
+    /**
+     * File path returned by the repository search.
+     * @minLength 1
+     */
+    path: string;
+    /**
+     * owner/repo to read. It must already be selected.
+     * @minLength 1
+     */
+    repo: string;
+    };
+
+    export type BusinessKnowledgeRepositoriesSearchParams = {
+    /**
+     * File names, path fragments, or identifiers to match. Not a full sentence.
+     * @minLength 1
+     */
+    query: string;
+    /**
+     * Limit the search to this owner/repo. It must already be selected. Omit to search every selected repository.
+     */
+    repo?: string;
     };
 
     export type BusinessKnowledgeSourcesListParams = {
