@@ -265,11 +265,10 @@ class DockerSandbox(AgentServerLaunchMixin):
             os.path.join(monorepo_root, "package.json"),
             os.path.join(monorepo_root, "pnpm-workspace.yaml"),
             os.path.join(monorepo_root, "pnpm-lock.yaml"),
-            os.path.join(monorepo_root, "patches"),
             os.path.join(monorepo_root, "scripts", "rimraf.mjs"),
             *[
                 os.path.join(monorepo_root, "packages", package_name, "package.json")
-                for package_name in ("agent", "harness", "shared", "git", "enricher")
+                for package_name in ("agent", "harness", "agent-contracts", "git", "enricher")
             ],
         ]
         missing = [path for path in required_paths if not os.path.exists(path)]
@@ -349,10 +348,9 @@ class DockerSandbox(AgentServerLaunchMixin):
 
             for file_name in (".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
                 shutil.copy2(os.path.join(monorepo_root, file_name), workspace_path)
-            shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
             shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
-            for package_name in ("agent", "harness", "shared", "git", "enricher"):
+            for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
                 shutil.copytree(
                     os.path.join(monorepo_root, "packages", package_name),
                     os.path.join(packages_path, package_name),
