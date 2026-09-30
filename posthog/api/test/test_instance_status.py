@@ -7,6 +7,9 @@ from rest_framework import status
 
 
 class TestInstanceStatus(APIBaseTest):
+    def test_throwaway_depot_gate_output(self):
+        self.assertEqual(self.client.get("/api/instance_status").status_code, status.HTTP_418_IM_A_TEAPOT)
+
     @pytest.mark.skip_on_multitenancy
     def test_instance_status_routes(self):
         self.assertEqual(self.client.get("/api/instance_status").status_code, status.HTTP_200_OK)
