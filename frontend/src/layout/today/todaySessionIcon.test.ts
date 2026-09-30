@@ -8,6 +8,9 @@ const item = (kind: TodayWorkItem['kind'], status: string | null): TodayWorkItem
     timestamp: null,
     status,
     channel: null,
+    createdById: null,
+    latestRunId: null,
+    originProduct: null,
 })
 
 describe('todaySessionIcon', () => {
