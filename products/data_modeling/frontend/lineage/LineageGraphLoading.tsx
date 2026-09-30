@@ -142,8 +142,6 @@ export function LineageGraphLoading({
                 nodesConnectable={false}
                 nodesFocusable={false}
                 elementsSelectable={false}
-                fitView
-                fitViewOptions={loadingFitViewOptions}
                 minZoom={0.1}
                 maxZoom={1}
                 zoomOnScroll={false}

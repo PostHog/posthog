@@ -13,7 +13,7 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 
 import { IconArchive } from '@posthog/icons'
 
@@ -26,6 +26,9 @@ import { lineageGraphLogic } from './lineageGraphLogic'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
 
 export type { LineageVariant, LineageNodeState, LineageNodeCallbacks } from './LineageNode'
+
+const EMPTY_NODES: DataModelingNode[] = []
+const EMPTY_EDGES: DataModelingEdge[] = []
 
 export interface LineageGraphProps {
     nodes: DataModelingNode[]
@@ -63,15 +66,32 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, focusNodeIds, searchFocusRequest } = props
     const { layout } = useValues(
         lineageGraphLogic({
-            nodes: props.nodes,
-            edges: props.edges,
+            nodes: props.loading ? EMPTY_NODES : props.nodes,
+            edges: props.loading ? EMPTY_EDGES : props.edges,
             variant: props.variant ?? 'full',
             direction: props.direction ?? 'RIGHT',
         })
     )
+    const fittedLayout = useRef<typeof layout>(null)
 
     useEffect(() => {
-        if (!viewportInitialized || !focusNodeIds || !layout) {
+        if (!viewportInitialized || !layout || props.loading || fittedLayout.current === layout) {
+            return
+        }
+        fittedLayout.current = layout
+        if ((focusNodeIds !== null && focusNodeIds !== undefined) || searchFocusRequest) {
+            return
+        }
+        void fitView({
+            ...props.fitViewOptions,
+            nodes: layout.nodes,
+            padding: props.fitViewOptions?.padding ?? 0.2,
+            duration: 400,
+        })
+    }, [fitView, focusNodeIds, layout, props.fitViewOptions, props.loading, searchFocusRequest, viewportInitialized])
+
+    useEffect(() => {
+        if (!viewportInitialized || !focusNodeIds || !layout || props.loading) {
             return
         }
         // An empty focusNodeIds means the search was cleared, so fit the whole graph again rather
@@ -85,19 +105,19 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                 maxZoom: focusNodeIds.size > 0 ? 2 : undefined,
             })
         }
-    }, [fitView, viewportInitialized, focusNodeIds, layout])
+    }, [fitView, viewportInitialized, focusNodeIds, layout, props.loading])
 
     useEffect(() => {
-        if (!viewportInitialized || !searchFocusRequest || !layout) {
+        if (!viewportInitialized || !searchFocusRequest || !layout || props.loading) {
             return
         }
         const node = layout.nodes.find((layoutNode) => layoutNode.id === searchFocusRequest.nodeId)
         if (node) {
             void fitView({ nodes: [node], padding: 0.2, duration: 400, maxZoom: 2 })
         }
-    }, [fitView, viewportInitialized, searchFocusRequest, layout])
+    }, [fitView, viewportInitialized, searchFocusRequest, layout, props.loading])
 
-    if (!layout) {
+    if (props.loading || !layout) {
         const center = props.loadingCenter ?? props.nodes.find((node) => node.id === currentNodeId)
         return (
             <LineageGraphLoading
@@ -135,8 +155,6 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             // The card inside each node is the focus target and carries the key handler. A focusable
             // wrapper would add a second tab stop per node that only selects and never navigates.
             nodesFocusable={false}
-            fitView
-            fitViewOptions={props.fitViewOptions}
             minZoom={0.1}
             maxZoom={2}
             zoomOnScroll={props.interactive ?? false}
@@ -162,19 +180,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
 }
 
 export function LineageGraph(props: LineageGraphProps): JSX.Element {
-    if (props.loading) {
-        return (
-            <ReactFlowProvider>
-                <LineageGraphLoading
-                    center={props.loadingCenter}
-                    direction={props.direction ?? 'RIGHT'}
-                    fitViewOptions={props.fitViewOptions}
-                    variant={props.variant ?? 'full'}
-                />
-            </ReactFlowProvider>
-        )
-    }
-    if (props.nodes.length === 0) {
+    if (!props.loading && props.nodes.length === 0) {
         return (
             <div className="flex flex-col w-full h-full items-center justify-center p-4">
                 <IconArchive className="text-5xl mb-2 text-tertiary" />

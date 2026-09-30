@@ -47,21 +47,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         router.actions.push(lineageNodeUrl(node, 'lineage'))
     }
 
-    if (lineageGraphLoading) {
-        return (
-            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light overflow-hidden">
-                <LineageGraph
-                    nodes={[]}
-                    edges={[]}
-                    loading
-                    loadingCenter={node ? { name: node.name, type: node.type } : undefined}
-                    variant="full"
-                />
-            </div>
-        )
-    }
-
-    if (lineageGraphError) {
+    if (!lineageGraphLoading && lineageGraphError) {
         return (
             <LemonBanner type="error" action={{ children: 'Retry', onClick: loadLineageGraph }}>
                 Couldn't load lineage.
@@ -69,7 +55,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         )
     }
 
-    if (nodes.length <= 1 && !nodes[0]?.lineage_issue) {
+    if (!lineageGraphLoading && nodes.length <= 1 && !nodes[0]?.lineage_issue) {
         return (
             <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded border bg-bg-light p-6 text-center">
                 <div className="max-w-120">
@@ -88,11 +74,13 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
 
     return (
         <>
-            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light">
+            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light overflow-hidden">
                 <LineageGraph
                     nodes={nodes}
                     edges={lineageGraph?.edges ?? []}
                     currentNodeId={lineageGraph?.currentNodeId}
+                    loading={lineageGraphLoading}
+                    loadingCenter={lineageGraphLoading && node ? { name: node.name, type: node.type } : undefined}
                     variant="full"
                     interactive
                     showControls
