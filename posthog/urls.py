@@ -75,7 +75,7 @@ from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
 from products.user_interviews.backend.presentation.webhooks import start_call as user_interviews_start_call
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
-from products.workflows.backend.api import hog_flow, hog_flow_template
+from products.workflows.backend.presentation.views import hog_flow, hog_flow_template
 
 from .utils import opt_slash_path
 from .views import (

@@ -130,7 +130,6 @@ posthog/hogql_queries/utils/test/test_formula_ast.py::TestFormulaAST
 posthog/hogql_queries/utils/test/test_sampling.py::TestQueriesUtil
 posthog/kafka_client/test/test_client.py::KafkaClientRoundtripTestCase
 posthog/management/commands/test/test_analyze_migration_risk.py::TestAnalyzeMigrationRisk
-posthog/management/commands/test/test_backfill_workflows_slack_integration.py::TestRewriteSlackWorkspaceInActions
 posthog/management/commands/test/test_base_hypercache_command.py::TestVerificationResultsErrorReporting
 posthog/management/commands/test/test_survey_cohort_bytecode_stl.py::TestBytecodeWalker
 posthog/models/filters/test/test_filter_mixins.py::TestFilterMixins
@@ -327,10 +326,6 @@ products/marketing_analytics/backend/test_max_tools.py::TestFormatTimestampForLl
 products/marketing_analytics/backend/test_max_tools.py::TestFormatUtmMappingSuggestionsForLlm
 products/marketing_analytics/backend/test_max_tools.py::TestSanitizeForPrompt
 products/mcp_store/backend/test/test_api.py::TestIsValidPosthogCodeCallbackUrl
-products/mcp_store/backend/test/test_oauth.py::TestAuthServerMetadataDiscoveryChain
-products/mcp_store/backend/test/test_oauth.py::TestResolveIssuer
-products/mcp_store/backend/test/test_oauth.py::TestSSRFProtection
-products/mcp_store/backend/test/test_oauth.py::TestValidateEndpointsBoundToIssuer
 products/messaging/backend/services/test_customerio_track_client.py::TestCustomerIOTrackClient
 products/metrics/backend/tests/test_metric_query_runner.py::TestAlignToInterval
 products/posthog_ai/eval_harness/test/test_acp_log.py::TestSandboxedTraceCaptureParser
@@ -390,4 +385,5 @@ products/web_analytics/dags/tests/test_cache_warming.py::TestMaybeExpandWarmingD
 products/web_analytics/dags/tests/test_cache_warming.py::TestMaybeOptIntoLazyPrecompute
 products/web_analytics/dags/tests/test_cache_warming.py::TestSplitWarmableQueries
 products/web_analytics/dags/tests/test_cache_warming.py::TestWarmableQueriesCaching
+products/workflows/backend/test/test_backfill_workflows_slack_integration.py::TestRewriteSlackWorkspaceInActions
 products/workflows/backend/test/test_email_sending_tier.py::TestEmailSendingTierDecision

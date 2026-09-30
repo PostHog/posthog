@@ -18,8 +18,34 @@ const ACCOUNT_ICON_ENDPOINT = 'api/projects/:team_id/accounts/icon/'
 const VALUES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/custom_property_values/'
 const ASSIGNMENTS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
 const ACCOUNT_SIDEBAR_CONFIG_ENDPOINT = 'api/projects/:team_id/user_customer_analytics_config/@me/'
+const ACCOUNT_VIEWS_ENDPOINT = 'api/projects/:team_id/account_views/'
+const ACCOUNT_VIEW_ID = '77777777-8888-4999-8aaa-bbbbbbbbbbbb'
 const CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/custom_property_definitions/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
+
+const accountView = {
+    id: ACCOUNT_VIEW_ID,
+    name: 'Account workspace',
+    visibility: 'private',
+    content: {
+        type: 'doc',
+        content: [
+            {
+                type: 'ph-markdown-notebook',
+                attrs: {
+                    nodeId: 'markdown-notebook-v2',
+                    markdown: '<Notes nodeId="notes" />\n\n<Relationships nodeId="relationships" />',
+                },
+            },
+        ],
+    },
+    text_content: 'Notes\nRelationships',
+    version: 1,
+    created_by: 1,
+    last_modified_by: 1,
+    created_at: '2026-05-10T10:00:00Z',
+    updated_at: '2026-05-20T14:30:00Z',
+}
 
 const account = {
     id: ACCOUNT_ID,
@@ -77,8 +103,9 @@ const meta: Meta = {
             FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS,
         ],
-        pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID),
+        pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID, `view:${ACCOUNT_VIEW_ID}`),
         testOptions: {
             waitForSelector: [
                 '[data-attr="customer-analytics-account-scene"]',
@@ -103,6 +130,7 @@ const meta: Meta = {
                         { headers: { 'Content-Type': 'image/svg+xml' } }
                     ),
                 [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: { pinned_properties: [] },
+                [ACCOUNT_VIEWS_ENDPOINT]: [accountView],
                 [VALUES_ENDPOINT]: [],
                 [ASSIGNMENTS_ENDPOINT]: [],
                 [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: {

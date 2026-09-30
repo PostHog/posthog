@@ -14,6 +14,8 @@ import type {
     AcknowledgeCelebrationResponseApi,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
+    ContentAutopilotOpportunityApi,
+    ContentAutopilotOpportunityRefreshRequestApi,
     ContentAutopilotProposalApi,
     ContentAutopilotProposalEditRequestApi,
     ContentAutopilotRunApi,
@@ -36,6 +38,7 @@ import type {
     HeatmapsResponseApi,
     LlmsTxtFetchRequestApi,
     LlmsTxtFetchResponseApi,
+    PaginatedContentAutopilotOpportunityListApi,
     PaginatedContentAutopilotProposalListListApi,
     PaginatedContentAutopilotRunListApi,
     PaginatedContentAutopilotSiteProfileListApi,
@@ -54,6 +57,7 @@ import type {
     SavedHeatmapRequestApi,
     SavedListParams,
     WebAnalyticsBotRuleApi,
+    WebAnalyticsContentAutopilotOpportunitiesListParams,
     WebAnalyticsContentAutopilotProfilesListParams,
     WebAnalyticsContentAutopilotProposalsListParams,
     WebAnalyticsContentAutopilotRunsListParams,
@@ -718,6 +722,103 @@ export const webAnalyticsBotRulesDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getWebAnalyticsContentAutopilotOpportunitiesListUrl = (
+    projectId: string,
+    params: WebAnalyticsContentAutopilotOpportunitiesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/`
+}
+
+export const webAnalyticsContentAutopilotOpportunitiesList = async (
+    projectId: string,
+    params: WebAnalyticsContentAutopilotOpportunitiesListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotOpportunityListApi> => {
+    return apiMutator<PaginatedContentAutopilotOpportunityListApi>(
+        getWebAnalyticsContentAutopilotOpportunitiesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotOpportunitiesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/${id}/`
+}
+
+export const webAnalyticsContentAutopilotOpportunitiesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotOpportunityApi> => {
+    return apiMutator<ContentAutopilotOpportunityApi>(
+        getWebAnalyticsContentAutopilotOpportunitiesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotOpportunitiesDismissUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/${id}/dismiss/`
+}
+
+/**
+ * Marks an opportunity as dismissed. It stays dismissed across refreshes, and list responses still include it with status `dismissed`.
+ * @summary Dismiss a content opportunity
+ */
+export const webAnalyticsContentAutopilotOpportunitiesDismiss = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotOpportunityApi> => {
+    return apiMutator<ContentAutopilotOpportunityApi>(
+        getWebAnalyticsContentAutopilotOpportunitiesDismissUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotOpportunitiesRefreshUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/refresh/`
+}
+
+/**
+ * Re-reads AI citation checks and updates the site's content opportunities. Makes no model calls.
+ * @summary Refresh content opportunities
+ */
+export const webAnalyticsContentAutopilotOpportunitiesRefresh = async (
+    projectId: string,
+    contentAutopilotOpportunityRefreshRequestApi: ContentAutopilotOpportunityRefreshRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotOpportunityApi[]> => {
+    return apiMutator<ContentAutopilotOpportunityApi[]>(
+        getWebAnalyticsContentAutopilotOpportunitiesRefreshUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(contentAutopilotOpportunityRefreshRequestApi),
+        }
+    )
 }
 
 export const getWebAnalyticsContentAutopilotProfilesListUrl = (

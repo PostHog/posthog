@@ -1742,8 +1742,9 @@ async fn probe_file(
 }
 
 /// Probe `files` with bounded concurrency, splitting them into (files that contain at
-/// least one match, count of files proven match-free). Order is preserved. A kept file
-/// carries the footer its probe parsed; a skipped file's footer is dropped here.
+/// least one match, count of files proven match-free). Order is preserved. Up to one
+/// reader wave of kept files carries the footer its probe parsed; retaining every hit
+/// footer would make memory grow with the partition's file count before rewrites start.
 #[allow(clippy::too_many_arguments)]
 async fn probe_files(
     store: &Arc<dyn ObjectStore>,
@@ -1755,33 +1756,34 @@ async fn probe_files(
     opts: &UpsertOptions,
     budgets: &Budgets,
 ) -> Result<(Vec<TargetFile>, usize)> {
-    let results: Vec<(TargetFile, bool, Arc<ParquetMetaData>)> =
-        futures::stream::iter(files.into_iter().map(|f| {
-            let store = store.clone();
-            async move {
-                let (hit, metadata) = probe_file(
-                    &store,
-                    &f,
-                    pkset,
-                    table_schema,
-                    partition_col,
-                    partition_value,
-                    opts,
-                    budgets,
-                )
-                .await?;
-                Ok::<_, Error>((f, hit, metadata))
-            }
-        }))
-        .buffered(opts.probe_concurrency.max(1))
-        .try_collect()
-        .await?;
+    let results = futures::stream::iter(files.into_iter().map(|f| {
+        let store = store.clone();
+        async move {
+            let (hit, metadata) = probe_file(
+                &store,
+                &f,
+                pkset,
+                table_schema,
+                partition_col,
+                partition_value,
+                opts,
+                budgets,
+            )
+            .await?;
+            Ok::<_, Error>((f, hit, metadata))
+        }
+    }))
+    .buffered(opts.probe_concurrency.max(1));
+    futures::pin_mut!(results);
 
+    let retained_footer_limit = opts.max_parallel_files.max(1);
     let mut keep = Vec::new();
     let mut skipped = 0usize;
-    for (mut f, hit, metadata) in results {
+    while let Some((mut f, hit, metadata)) = results.try_next().await? {
         if hit {
-            f.metadata = Some(metadata);
+            if keep.len() < retained_footer_limit {
+                f.metadata = Some(metadata);
+            }
             keep.push(f);
         } else {
             skipped += 1;

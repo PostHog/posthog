@@ -49,6 +49,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     is_default_exposure_config,
     normalize_to_exposure_criteria,
     resolve_default_exposure_event,
+    resolve_filter_test_accounts,
 )
 
 
@@ -78,13 +79,13 @@ def get_exposure_config_params_for_builder(
     start_date: Optional[datetime],
 ) -> ExposureQueryParams:
     criteria = normalize_to_exposure_criteria(exposure_criteria)
+    filter_test_accounts = resolve_filter_test_accounts(criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(
             event=resolve_default_exposure_event(team, start_date), properties=[]
         )
-        filter_test_accounts = True
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if criteria.exposure_config is None:
@@ -106,7 +107,6 @@ def get_exposure_config_params_for_builder(
         # must not silently change semantics).
         if is_default_exposure_config(criteria.exposure_config):
             activation_config = criteria.activation_config
-        filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else True
         multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
 
     return ExposureQueryParams(

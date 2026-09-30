@@ -8,8 +8,9 @@ unrelated to ``filters.version``.
 
 Detection follows the Feature Flag Rules v2 contract: an absent ``version`` or a number that
 equals 1 selects v1, a number that equals 2 selects v2, and everything else is unsupported.
-A JSON string or boolean never selects a version. An unsupported document is never read as
-v1, so a reader with only a v1 branch checks the format before it touches any v1 key.
+A JSON string or boolean never selects a version, and a stored value that is not an object
+(a list, say) is unsupported outright. An unsupported document is never read as v1, so a
+reader with only a v1 branch checks the format before it touches any v1 key.
 
 The v2 DTOs are structural reads of a stored document. They carry the fields later consumers
 route on (return type, ordered rule identities, experiment identity) and nothing else. The
@@ -45,8 +46,13 @@ class ConfigFormatError(ValueError):
         self.config_format = config_format
 
 
-def detect_config_format(filters: Mapping[str, Any] | None) -> ConfigFormat:
-    if not filters or "version" not in filters:
+def detect_config_format(filters: object) -> ConfigFormat:
+    if filters is None:
+        return ConfigFormat(kind="v1", raw_version=None)
+    if not isinstance(filters, Mapping):
+        # A list, string or number is no config document at all, so it is never read as v1.
+        return ConfigFormat(kind="unsupported", raw_version=None)
+    if "version" not in filters:
         return ConfigFormat(kind="v1", raw_version=None)
     version = filters["version"]
     # bool is an int subclass, so ``True == 1`` would read as v1 without this guard.
@@ -57,6 +63,18 @@ def detect_config_format(filters: Mapping[str, Any] | None) -> ConfigFormat:
     if version == 2:
         return ConfigFormat(kind="v2", raw_version=version)
     return ConfigFormat(kind="unsupported", raw_version=version)
+
+
+def require_v1_config(filters: Mapping[str, Any] | None) -> None:
+    """Raise ``ConfigFormatError`` unless ``filters`` is a config version 1 document."""
+    config_format = detect_config_format(filters)
+    if config_format.kind != "v1":
+        raise ConfigFormatError(config_format)
+
+
+def is_v1_config(filters: object) -> bool:
+    """Whether a stored ``filters`` value is a config version 1 document (or null)."""
+    return detect_config_format(filters).kind == "v1"
 
 
 @frozen
