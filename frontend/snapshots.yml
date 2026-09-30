@@ -7243,9 +7243,9 @@ snapshots:
     products-workflows-editor-graph--pending-ticket-cleanup--light:
         hash: v1.k794b7964.8a28c5eca9e95f1b6170a7e97cfecd7dc59af90dbe90c175226420931b4dd841.A8w0Sz2VUnYMz5xA-cNvdPONFGEs0QiBpGm2QCH2zXs
     products-workflows-editor-graph--renewal-window-alerts--dark:
-        hash: v1.k794b7964.e262932c316a84d6e05ad90bae8c5cedc77bdb9d5b39804aa6b48ebcc0603581._vvGJVTaEGD2tI4GdyktkuUZ2mXbWetsfgJ9m_Z0QQY
+        hash: v1.k794b7964.3b6c7f020e3c7ce0188a06282a018eaa42e521a1278541719a3337d1ea3de10b.HzZOpe36BWvZ864mH5avLYc8gYs-KENfDrhvxEE1Zu8
     products-workflows-editor-graph--renewal-window-alerts--light:
-        hash: v1.k794b7964.bb2d7c26dce2e0db78eccc6ae66b4f3780f156c26dc70af43ebfd7ffb6a09349.m74JFK2zZNeUxlNjDWkwzXyozyN1Yvd9cF6bIVn5pvo
+        hash: v1.k794b7964.d3fe6c3d02804c30f26954568887ed5a5ef9c785d1fc26f284f7a2f0dd76eac2.HTMSYx49Jo-NeeS97rzkX8DTAkTMC4iHqUjtC6CVTrA
     products-workflows-editor-graph--support-sla-routing--dark:
         hash: v1.k794b7964.7c60c3d139d5b5dabbd7fb974f621f135149176f1c86184aed079c6deaef414e.AkijMDM4cBxIWBu4E8V7VThp1fwVqHJcfVB24fcGK0Y
     products-workflows-editor-graph--support-sla-routing--light:
@@ -10778,6 +10778,14 @@ snapshots:
         hash: v1.k794b7964.170cc8f24367e614fa935570b13f4ce7d5f83f617b567e045032502491a4530b.Z7u0Hvsxpxt0kN-NVXCmvNAunsxT4eu_x18JZOMjbf0
     scenes-app-notebooks-generated-widgets--before-generation--light:
         hash: v1.k794b7964.f8eabbbe270e16f6db6253fac4ccc1298d6486f4fcc54d086f39b494e32276bb.byEVF2WvcVULWZ_b-qJMNkCK-hCMqS-EcQNFNyVUVd4
+    scenes-app-notebooks-jupyter-mode--jupyter-mode--dark:
+        hash: v1.k794b7964.4678b191c771fe0c0593aa93b8d0b62fd8b9f3c1dd958cb963034c6cbdd95cd2.Tfre1OcmbTSVaZPnM7_uiLjLlDpDJJbtqNxUYzm6-vA
+    scenes-app-notebooks-jupyter-mode--jupyter-mode--light:
+        hash: v1.k794b7964.24330c4edeab5a38956fa014fbf859fdc874050658ddb9585f909eac1aceb739.eh_118mNWGm7reWRfWsLlZFnZw7gAXF2LPNB6_ZluMM
+    scenes-app-notebooks-jupyter-mode--jupyter-mode-off--dark:
+        hash: v1.k794b7964.277116fce677f75bb75be222a6a91416047a3a8aef9221b70a4602a2a1f91118.nJQl_5GzulunBt5VIjKR9ByHVZrjwhzYorS_fc_Q6dk
+    scenes-app-notebooks-jupyter-mode--jupyter-mode-off--light:
+        hash: v1.k794b7964.f2c87efce184c69b63fba231e46387e92d9dbb74dbddaa21ba1503187967ba85.0GphB7CthVrEdGBUs1Fo3ZrACRCQs0v1FjCYvA2Htr8
     scenes-app-notebooks-kernel-info--free-compute--dark:
         hash: v1.k794b7964.e8e81cc18d66dcca3d1cd23cc5017833b040abcaa4a3be85c6161787fed0efcd.OiaNuBz69zbpOxiLQsFYOQuJn_226577RmjJ_GbOdyQ
     scenes-app-notebooks-kernel-info--free-compute--light:
