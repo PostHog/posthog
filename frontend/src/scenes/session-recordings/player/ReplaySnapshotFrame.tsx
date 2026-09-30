@@ -3,7 +3,7 @@ import { CSSProperties, MutableRefObject, useEffect, useRef, useState } from 're
 import { PLAYER_FRAME_CONTENT_ID, PLAYER_FRAME_SRC } from './playerFrameDocument'
 
 export interface ReplaySnapshotFrameProps {
-    /** Markup copied out of the replay iframe. */
+    /** Inner markup of the replay iframe's <html> element. */
     html: string
     title: string
     /** Sandbox of the frame that renders the snapshot. */
@@ -19,7 +19,7 @@ export interface ReplaySnapshotFrameProps {
 }
 
 /**
- * Renders a snapshot of the replayed page in an about:srcdoc frame. An about:srcdoc frame in the
+ * Renders a snapshot of the replayed page. A local-scheme frame (about:srcdoc, about:blank) in the
  * app document gets the app policy, which refuses the fonts and stylesheets of the recorded page.
  * So the snapshot frame goes inside the player frame document and gets the replay frame policy.
  */
@@ -58,16 +58,20 @@ export function ReplaySnapshotFrame({
             snapshot.tabIndex = tabIndex
         }
         snapshot.style.cssText = 'display: block; width: 100%; height: 100%; border: 0;'
-        const handleLoad = (): void => onSnapshotLoadRef.current?.()
-        snapshot.addEventListener('load', handleLoad)
-        // Set srcdoc before the frame connects, so it does not load about:blank first.
-        snapshot.srcdoc = html
         hostDocument.body.appendChild(snapshot)
+        // Written rather than set as srcdoc: WebKit closes the page when a srcdoc frame loads inside
+        // this sandboxed host. Nothing written here runs, because the sandbox has no allow-scripts.
+        const snapshotDocument = snapshot.contentDocument
+        if (snapshotDocument) {
+            snapshotDocument.open()
+            snapshotDocument.write(`<!DOCTYPE html><html>${html}</html>`)
+            snapshotDocument.close()
+        }
         if (snapshotRef) {
             snapshotRef.current = snapshot
         }
+        onSnapshotLoadRef.current?.()
         return () => {
-            snapshot.removeEventListener('load', handleLoad)
             snapshot.remove()
             if (snapshotRef?.current === snapshot) {
                 snapshotRef.current = null

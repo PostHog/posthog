@@ -62,7 +62,8 @@ export function SessionRecordingPlayerExplorer({
                     key={iframeKey}
                     html={html}
                     title="Session recording DOM explorer"
-                    sandbox=""
+                    // The app writes the snapshot into this frame, so it must be same-origin. Nothing runs in it.
+                    sandbox="allow-same-origin"
                     className="origin-top-left ph-no-capture"
                     style={{ width, height, transform: `scale(${scale})` }}
                 />

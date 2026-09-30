@@ -30,10 +30,8 @@ describe('ReplaySnapshotFrame', () => {
 
         const snapshot = snapshotRef.current!
         expect(snapshot.ownerDocument).toBe(hostDocument)
-        expect(snapshot).toHaveAttribute('srcdoc', '<body>recorded page</body>')
         expect(snapshot).toHaveAttribute('sandbox', 'allow-same-origin')
-
-        fireEvent.load(snapshot)
+        expect(snapshot.contentDocument!.body.textContent).toBe('recorded page')
         expect(onSnapshotLoad).toHaveBeenCalledTimes(1)
     })
 })
