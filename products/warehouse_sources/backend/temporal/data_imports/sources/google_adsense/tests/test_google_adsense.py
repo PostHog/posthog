@@ -100,11 +100,15 @@ def _fake_response(status_code: int, json_body: dict | None = None, headers: dic
 
 
 def _capture_query(monkeypatch, captured: dict) -> None:
-    """Stub `_query_reports`, recording the kwargs it was called with."""
+    """Stub `_query_reports`, recording the kwargs it was called with.
+
+    `_query_reports` is a generator of (window_start, window_end, headers, rows); the stub
+    yields one empty window so the caller still walks its loop and saves a checkpoint.
+    """
 
     def fake_query_reports(**kwargs):
         captured.update(kwargs)
-        return {"headers": [], "rows": []}
+        yield kwargs["start_date"], kwargs["end_date"], [], []
 
     monkeypatch.setattr(ads, "_query_reports", fake_query_reports)
 
@@ -911,18 +915,22 @@ def test_query_reports_single_request_when_not_truncated(monkeypatch):
         },
     )
 
-    # A single window fetch that isn't truncated costs exactly 1 request.
-    data = _query_reports(
-        session,
-        "accounts/pub-1",
-        dt.date(2024, 4, 30),
-        dt.date(2026, 4, 29),
-        ["DATE"],
-        ["CLICKS"],
-        table_name="daily_stats",
+    # A single window fetch that isn't truncated costs exactly 1 request and yields one window.
+    windows = list(
+        _query_reports(
+            session,
+            "accounts/pub-1",
+            dt.date(2024, 4, 30),
+            dt.date(2026, 4, 29),
+            ["DATE"],
+            ["CLICKS"],
+            table_name="daily_stats",
+        )
     )
     assert session.get.call_count == 1
-    assert len(data["rows"]) == 1
+    assert len(windows) == 1
+    _, _, _, rows = windows[0]
+    assert len(rows) == 1
 
 
 def test_query_reports_splits_window_in_half_on_truncation(monkeypatch):
@@ -939,19 +947,22 @@ def test_query_reports_splits_window_in_half_on_truncation(monkeypatch):
 
     session.get.side_effect = fake_get
 
-    data = _query_reports(
-        session,
-        "accounts/pub-1",
-        dt.date(2026, 4, 1),
-        dt.date(2026, 4, 10),
-        ["DATE"],
-        ["CLICKS"],
-        table_name="page_url_stats",
+    windows = list(
+        _query_reports(
+            session,
+            "accounts/pub-1",
+            dt.date(2026, 4, 1),
+            dt.date(2026, 4, 10),
+            ["DATE"],
+            ["CLICKS"],
+            table_name="page_url_stats",
+        )
     )
 
-    # 1 (truncated whole window) + 2 (both halves) = 3 requests, both halves' rows accumulated.
+    # 1 (truncated whole window) + 2 (both halves) = 3 requests; both leaf halves are yielded.
     assert session.get.call_count == 3
-    assert len(data["rows"]) == 2
+    assert len(windows) == 2
+    assert sum(len(rows) for _, _, _, rows in windows) == 2
 
 
 def test_query_reports_stops_splitting_at_single_day_and_logs(monkeypatch):
@@ -965,18 +976,21 @@ def test_query_reports_stops_splitting_at_single_day_and_logs(monkeypatch):
     logged = []
     monkeypatch.setattr(ads.logger, "warning", lambda msg, **kw: logged.append((msg, kw)))
 
-    data = _query_reports(
-        session,
-        "accounts/pub-1",
-        dt.date(2026, 4, 1),
-        dt.date(2026, 4, 2),
-        ["DATE"],
-        ["CLICKS"],
-        table_name="page_url_stats",
+    windows = list(
+        _query_reports(
+            session,
+            "accounts/pub-1",
+            dt.date(2026, 4, 1),
+            dt.date(2026, 4, 2),
+            ["DATE"],
+            ["CLICKS"],
+            table_name="page_url_stats",
+        )
     )
 
-    # Does not loop forever: stops once start == end, keeping whatever rows came back.
-    assert len(data["rows"]) == 2  # one truncated single-day row per day in the range
+    # Does not loop forever: stops once start == end, yielding each truncated single day.
+    assert len(windows) == 2
+    assert sum(len(rows) for _, _, _, rows in windows) == 2
     assert any("row cap" in msg for msg, _ in logged)
 
 
@@ -1001,16 +1015,19 @@ def test_query_reports_preserves_headers_across_split(monkeypatch):
 
     session.get.side_effect = fake_get
 
-    data = _query_reports(
-        session,
-        "accounts/pub-1",
-        dt.date(2026, 4, 1),
-        dt.date(2026, 4, 2),
-        ["DATE"],
-        ["CLICKS"],
-        table_name="page_url_stats",
+    windows = list(
+        _query_reports(
+            session,
+            "accounts/pub-1",
+            dt.date(2026, 4, 1),
+            dt.date(2026, 4, 2),
+            ["DATE"],
+            ["CLICKS"],
+            table_name="page_url_stats",
+        )
     )
-    assert data["headers"] == [{"name": "DATE", "type": "DIMENSION"}]
+    # Headers captured from the first (truncated) request are carried onto every leaf window.
+    assert all(headers == [{"name": "DATE", "type": "DIMENSION"}] for _, _, headers, _ in windows)
 
 
 # ---------------------------------------------------------------------------
@@ -1140,18 +1157,20 @@ def test_reports_source_yields_cast_rows(monkeypatch):
     config = _config(start_date=TODAY - dt.timedelta(days=1))
     monkeypatch.setattr(ads, "_today", lambda *_a, **_kw: TODAY)
     monkeypatch.setattr(ads, "google_adsense_session", lambda *a, **kw: mock.MagicMock())
-    monkeypatch.setattr(
-        ads,
-        "_query_reports",
-        lambda **kwargs: {
-            "headers": [
+
+    def fake_query_reports(**kwargs):
+        yield (
+            kwargs["start_date"],
+            kwargs["end_date"],
+            [
                 {"name": "DATE", "type": "DIMENSION"},
                 {"name": "CLICKS", "type": "METRIC_TALLY"},
                 {"name": "ESTIMATED_EARNINGS", "type": "METRIC_CURRENCY", "currencyCode": "USD"},
             ],
-            "rows": [{"cells": [{"value": "2026-04-15"}, {"value": "3"}, {"value": "1.25"}]}],
-        },
-    )
+            [{"cells": [{"value": "2026-04-15"}, {"value": "3"}, {"value": "1.25"}]}],
+        )
+
+    monkeypatch.setattr(ads, "_query_reports", fake_query_reports)
 
     response = google_adsense_source(
         config=config, resource_name="daily_stats", team_id=1, resumable_source_manager=_resume_manager()
@@ -1175,7 +1194,11 @@ def test_reports_source_yields_nothing_when_no_rows(monkeypatch):
     config = _config(start_date=TODAY - dt.timedelta(days=1))
     monkeypatch.setattr(ads, "_today", lambda *_a, **_kw: TODAY)
     monkeypatch.setattr(ads, "google_adsense_session", lambda *a, **kw: mock.MagicMock())
-    monkeypatch.setattr(ads, "_query_reports", lambda **kwargs: {"headers": [], "rows": []})
+
+    def fake_query_reports(**kwargs):
+        yield kwargs["start_date"], kwargs["end_date"], [], []
+
+    monkeypatch.setattr(ads, "_query_reports", fake_query_reports)
 
     response = google_adsense_source(
         config=config, resource_name="daily_stats", team_id=1, resumable_source_manager=_resume_manager()
@@ -1324,11 +1347,11 @@ def test_reports_source_saves_checkpoint_while_streaming(monkeypatch):
     config = _config(start_date=TODAY - dt.timedelta(days=1))
     monkeypatch.setattr(ads, "_today", lambda *_a, **_kw: TODAY)
     monkeypatch.setattr(ads, "google_adsense_session", lambda *a, **kw: mock.MagicMock())
-    monkeypatch.setattr(
-        ads,
-        "_query_reports",
-        lambda **kwargs: {"headers": [], "rows": [{"cells": [{"value": "2026-04-29"}]}]},
-    )
+
+    def fake_query_reports(**kwargs):
+        yield kwargs["start_date"], kwargs["end_date"], [], [{"cells": [{"value": "2026-04-29"}]}]
+
+    monkeypatch.setattr(ads, "_query_reports", fake_query_reports)
 
     manager = _resume_manager()
     response = google_adsense_source(
@@ -1343,6 +1366,36 @@ def test_reports_source_saves_checkpoint_while_streaming(monkeypatch):
     assert saved.schema_name == "daily_stats"
     assert saved.window_start == (TODAY - dt.timedelta(days=1)).isoformat()
     assert saved.window_end == (TODAY - dt.timedelta(days=FRESHNESS_LAG_DAYS)).isoformat()
+
+
+def test_reports_source_checkpoints_each_window_and_empty_windows(monkeypatch):
+    # get_rows yields a batch per window and saves a checkpoint per window — including
+    # windows with no rows, which yield nothing but must still advance the resume point.
+    config = _config(start_date=TODAY - dt.timedelta(days=4))
+    monkeypatch.setattr(ads, "_today", lambda *_a, **_kw: TODAY)
+    monkeypatch.setattr(ads, "google_adsense_session", lambda *a, **kw: mock.MagicMock())
+
+    def fake_query_reports(**kwargs):
+        yield dt.date(2026, 4, 26), dt.date(2026, 4, 27), [{"name": "DATE", "type": "DIMENSION"}], []
+        yield (
+            dt.date(2026, 4, 28),
+            dt.date(2026, 4, 29),
+            [{"name": "DATE", "type": "DIMENSION"}],
+            [{"cells": [{"value": "2026-04-29"}]}],
+        )
+
+    monkeypatch.setattr(ads, "_query_reports", fake_query_reports)
+
+    manager = _resume_manager()
+    response = google_adsense_source(
+        config=config, resource_name="daily_stats", team_id=1, resumable_source_manager=manager
+    )
+    batches = list(response.items())
+
+    assert batches == [[{"date": "2026-04-29", "account": "accounts/pub-1234567890"}]]
+    saved = [call.args[0] for call in manager.save_state.call_args_list]
+    assert [s.window_start for s in saved] == ["2026-04-26", "2026-04-28"]
+    assert [s.window_end for s in saved] == ["2026-04-27", "2026-04-29"]
 
 
 def test_unknown_resource_name_raises():

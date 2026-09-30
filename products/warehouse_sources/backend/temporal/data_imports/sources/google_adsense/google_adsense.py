@@ -619,7 +619,7 @@ def _query_reports(
     metrics: list[str],
     table_name: str,
     reporting_time_zone: str | None = None,
-) -> dict[str, Any]:
+) -> collections.abc.Iterator[tuple[dt.date, dt.date, list[dict[str, Any]], list[dict[str, Any]]]]:
     """Adaptive-window fetch: requests the whole range in one call. If totalMatchedRows
     exceeds the rows actually returned, the request was truncated at the 100K row cap —
     split the window in half and retry each half. Stop at single days; if a single day
@@ -628,7 +628,6 @@ def _query_reports(
     where nothing needs splitting.
     """
     stack: list[tuple[dt.date, dt.date]] = [(start_date, end_date)]
-    all_rows: list[dict[str, Any]] = []
     headers: list[dict[str, Any]] = []
 
     while stack:
@@ -650,7 +649,7 @@ def _query_reports(
         if total_matched > len(rows) and window_start != window_end:
             midpoint = window_start + (window_end - window_start) // 2
             # Push right half first so the left half (earlier dates) pops and
-            # processes first, keeping accumulation roughly ascending.
+            # processes first, so the earlier half is yielded first and checkpoints stay monotonic.
             stack.append((midpoint + dt.timedelta(days=1), window_end))
             stack.append((window_start, midpoint))
             continue
@@ -667,9 +666,7 @@ def _query_reports(
                 rows_returned=len(rows),
             )
 
-        all_rows.extend(rows)
-
-    return {"headers": headers, "rows": all_rows}
+        yield window_start, window_end, headers, rows
 
 
 def _coerce_date(value: Any) -> dt.date | None:
@@ -693,8 +690,7 @@ def _initial_start_date(
     start_date: dt.date | str | None,
     history_days: int = DEFAULT_HISTORY_DAYS,
 ) -> dt.date:
-    # start_date is the user-configurable SourceFieldInputConfig override; falls back to
-    # the 2-year default when unset.
+    # start_date is the user-configurable override; falls back to the 2-year default when unset.
     configured_start = _coerce_date(start_date)
     return configured_start if configured_start is not None else today - dt.timedelta(days=history_days)
 
@@ -705,12 +701,11 @@ def _resolve_window(
     start_date: dt.date | str | None = None,
     end_lag_days: int = FRESHNESS_LAG_DAYS,
 ) -> tuple[dt.date, dt.date]:
-    # No lookback arithmetic here. The pipeline already shifted
-    # db_incremental_field_last_value back by the schema's incremental lookback
-    # (default_incremental_lookback_seconds, see _reports_schema), so subtracting one again
-    # would double the trailing window. db_incremental_field_last_value_before_lookback is
-    # the un-shifted cursor, handed to the caller when it needs to tell re-read overlap
-    # from new ground.
+    # No lookback arithmetic here. The pipeline shifts db_incremental_field_last_value
+    # back by the schema's incremental lookback (default_incremental_lookback_seconds,
+    # set in _reports_schema from the form's lookback_days) before get_rows runs, so
+    # subtracting one again would double the trailing window.
+
     end_date = today - dt.timedelta(days=end_lag_days)
 
     cursor = _coerce_date(db_incremental_field_last_value)
@@ -799,23 +794,12 @@ def google_adsense_source(
         session = google_adsense_session(config.google_adsense_integration_id, team_id)
         today = _today(team_id, config.google_adsense_integration_id, session, config.account)
 
-        # db_incremental_field_last_value is already the schema's lookback-shifted cursor;
-        # ..._before_lookback is the same cursor as stored, i.e. the last day the table
-        # already holds. Only the days past it are new ground.
-        cursor = db_incremental_field_last_value if should_use_incremental_field else None
-        cursor_before_lookback = (
-            _coerce_date(db_incremental_field_last_value_before_lookback) if should_use_incremental_field else None
-        )
-
         start_date, end_date = _resolve_window(
             today,
-            cursor,
+            db_incremental_field_last_value if should_use_incremental_field else None,
             start_date=config.start_date,
             end_lag_days=end_lag_days,
         )
-        if cursor_before_lookback is None:
-            # Full refresh, or the first incremental run: everything in the window is new.
-            cursor_before_lookback = start_date
 
         if resumable_source_manager.can_resume():
             resume = resumable_source_manager.load_state()
@@ -825,7 +809,7 @@ def google_adsense_source(
         if start_date > end_date:
             return
 
-        response = _query_reports(
+        for w_start, w_end, headers, rows in _query_reports(
             session=session,
             account_name=config.account,
             start_date=start_date,
@@ -833,35 +817,23 @@ def google_adsense_source(
             dimensions=dimensions,
             metrics=metrics,
             table_name=name,
-        )
+        ):
+            if rows:
+                yield [_report_row_to_dict(r, headers, account_name=config.account) for r in rows]
 
-        headers = response.get("headers", [])
-        rows = response.get("rows", [])
-
-        if rows:
-            yield [_report_row_to_dict(row, headers, account_name=config.account) for row in rows]
-
-        # Days up to cursor_before_lookback were re-read, not new ground. Optional: this is
-        # the only consumer of the before-lookback value today; it becomes load-bearing if
-        # you ever add a drain budget (see §3). Drop it if you'd rather not log.
-        logger.info(
-            "google_adsense.reports_window",
-            resource=name,
-            start=start_date.isoformat(),
-            end=end_date.isoformat(),
-            rows=len(rows),
-            landed_new_ground=start_date > cursor_before_lookback,
-        )
-
-        # Save only after the batch has been yielded. If the consumer fails mid-batch,
-        # the window is safely retried rather than skipped.
-        resumable_source_manager.save_state(
-            GoogleAdSenseResumeConfig(
-                schema_name=name,
-                window_start=start_date.isoformat(),
-                window_end=end_date.isoformat(),
+            logger.info(
+                "google_adsense.reports_window",
+                resource=name,
+                start=start_date.isoformat(),
+                end=end_date.isoformat(),
+                rows=len(rows),
             )
-        )
+
+            resumable_source_manager.save_state(
+                GoogleAdSenseResumeConfig(
+                    schema_name=name, window_start=w_start.isoformat(), window_end=w_end.isoformat()
+                )
+            )
 
     return SourceResponse(
         name=name,
