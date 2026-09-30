@@ -234,6 +234,17 @@
     white-space: nowrap;
 }
 
+.TodayPaneRow__wrap:has(.TodayPaneRow__meta) {
+    .TodayPaneRow--withAction {
+        padding-right: 8px;
+    }
+
+    &:hover .TodayPaneRow__meta,
+    &:focus-within .TodayPaneRow__meta {
+        visibility: hidden;
+    }
+}
+
 .TodayPaneRow__chevron {
     flex: 0 0 14px;
     width: 14px;
