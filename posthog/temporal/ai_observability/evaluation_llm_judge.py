@@ -12,7 +12,16 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
-from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, NoulAnswer, NoulQuestion, Question
+from posthog.llm.system_one import (
+    MAX_SCORE_LEVELS,
+    ChoiceAnswer,
+    ChoiceQuestion,
+    NoulAnswer,
+    NoulQuestion,
+    Question,
+    ScoreAnswer,
+    ScoreQuestion,
+)
 from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
@@ -474,11 +483,11 @@ def call_llm_judge(
     key_id = str(provider_key.id) if provider_key else None
 
     if provider == "system_one":
-        if output_type not in ("boolean", "categorical"):
+        if output_type not in ("boolean", "categorical", "numeric"):
             return build_skipped_evaluation_result(
                 output_type=output_type,
                 allows_na=allows_na,
-                reasoning="System One supports boolean and categorical evaluations.",
+                reasoning="System One supports boolean, categorical, and numeric evaluations.",
                 skip_reason="unsupported_output_type",
             )
         base_url = provider_key.encrypted_config.get("base_url", "") if provider_key else ""
@@ -509,8 +518,36 @@ def call_llm_judge(
             categorical_config = (
                 CategoricalOutputConfig.model_validate(output_config) if output_type == "categorical" else None
             )
+            numeric_levels: list[float] | None = None
             questions: dict[str, Question]
-            if categorical_config is None:
+            if output_type == "numeric":
+                numeric_config = NumericOutputConfig.model_validate(output_config)
+                if numeric_config.min is None or numeric_config.max is None or numeric_config.min >= numeric_config.max:
+                    return build_skipped_evaluation_result(
+                        output_type=output_type,
+                        allows_na=allows_na,
+                        reasoning="System One numeric evaluations require a minimum score below the maximum score.",
+                        skip_reason="request_rejected",
+                    )
+                # Avoid subtracting the bounds: their difference can overflow even when both are finite.
+                numeric_levels = [
+                    numeric_config.min * (1 - index / (MAX_SCORE_LEVELS - 1))
+                    + numeric_config.max * (index / (MAX_SCORE_LEVELS - 1))
+                    for index in range(MAX_SCORE_LEVELS)
+                ]
+                if numeric_config.step is not None:
+                    prompt += (
+                        f"\nSuggested score increment: {numeric_config.step}; do not round an otherwise valid score."
+                    )
+                questions = {
+                    "score": ScoreQuestion(
+                        instructions=prompt,
+                        criteria=[
+                            f"The score according to the evaluation criteria is {value}." for value in numeric_levels
+                        ],
+                    )
+                }
+            elif categorical_config is None:
                 questions = {"verdict": NoulQuestion(instructions=prompt)}
             elif categorical_config.selection_mode == "single":
                 questions = {
@@ -549,8 +586,26 @@ def call_llm_judge(
                 if not isinstance(applicability_answer, NoulAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid applicability answer.")
                 applicable = applicability_answer.probability >= 0.5
-            parsed: BooleanEvalResult | BooleanWithNAEvalResult | CategoricalEvalResult | CategoricalWithNAEvalResult
-            if categorical_config is not None:
+            parsed: (
+                BooleanEvalResult
+                | BooleanWithNAEvalResult
+                | CategoricalEvalResult
+                | CategoricalWithNAEvalResult
+                | NumericEvalResult
+                | NumericWithNAEvalResult
+            )
+            if numeric_levels is not None:
+                score_answer = system_one_result.answers["score"]
+                if not isinstance(score_answer, ScoreAnswer):
+                    raise StructuredOutputParseError("The endpoint returned an invalid score answer.")
+                weight = score_answer.score / (len(numeric_levels) - 1)
+                score = numeric_levels[0] * (1 - weight) + numeric_levels[-1] * weight
+                parsed = (
+                    NumericWithNAEvalResult(reasoning="", score=score if applicable else None)
+                    if allows_na
+                    else NumericEvalResult(reasoning="", score=score)
+                )
+            elif categorical_config is not None:
                 categories: list[str] = []
                 if categorical_config.selection_mode == "single":
                     category_answer = system_one_result.answers["category"]

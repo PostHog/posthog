@@ -75,8 +75,14 @@ Multiple selection uses one Noul question per option and includes each category 
 The endpoint must support the configured number of options and questions; model limits can be lower than the evaluation's configuration limit.
 Results use the existing categorical event property and passing rules.
 An empty selection is an applicable result; N/A remains a separate outcome.
-`$ai_evaluation_probability` remains the probability of true for boolean evaluations and is not emitted for categorical results.
-Numeric evaluations retain their existing arbitrary ranges and completion-based judges.
+Numeric evaluations use a native Score question and require finite minimum and maximum bounds, with the minimum below the maximum.
+The evaluation prompt defines the scoring criteria, including what low and high scores mean.
+The judge generates ten evenly spaced reference scores across the configured range and sends them as ordered rubric levels.
+The endpoint's fractional index (0–9) is mapped linearly back to that range and stored in `$ai_evaluation_numeric_result`.
+For example, an index of 6.75 on a 0–10 range produces 7.5. Step remains a prompt hint and does not round the result.
+These are estimated ratings, not exact counts; unbounded numeric outputs still require a completion-based judge.
+Numeric results use the existing passing rules and N/A handling. No new output configuration fields are required.
+`$ai_evaluation_probability` remains the probability of true for boolean evaluations and is not emitted for categorical or numeric results.
 API compatibility does not guarantee equivalent judgments or calibration across models.
 Compare results on representative inputs when changing models.
 

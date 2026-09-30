@@ -63,6 +63,7 @@ import {
     evaluationTypeHasEditableCriteria,
     evaluationTypeUsesModelConfiguration,
     isBooleanEvaluationOutput,
+    isLLMJudgeEvaluation,
 } from './evaluationCapabilities'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import {
@@ -189,7 +190,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
             : evaluation.output_type === 'categorical'
               ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
               : evaluation.output_type === 'numeric'
-                ? (numericOutputConfigError(evaluation.output_config) ?? undefined)
+                ? (numericOutputConfigError(
+                      evaluation.output_config,
+                      isLLMJudgeEvaluation(evaluation) && evaluation.model_configuration?.provider === 'system_one'
+                  ) ?? undefined)
                 : undefined
 
     const focusTriggers = (): void => {
@@ -773,6 +777,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 <NumericEvaluationConfig
                                                     config={evaluation.output_config}
                                                     onChange={patchOutputConfig}
+                                                    requiresBounds={
+                                                        isLLMJudgeEvaluation(evaluation) &&
+                                                        evaluation.model_configuration?.provider === 'system_one'
+                                                    }
                                                 />
                                             )}
                                             <LemonField.Pure label="Description (optional)">
@@ -960,6 +968,7 @@ function EvaluationModelPicker(): JSX.Element {
         (group) =>
             evaluation?.output_type === 'boolean' ||
             evaluation?.output_type === 'categorical' ||
+            evaluation?.output_type === 'numeric' ||
             group.provider !== 'system_one'
     )
     const loading = byokModelsLoading || providerKeysLoading
@@ -991,7 +1000,9 @@ function EvaluationModelPicker(): JSX.Element {
                             <p className="text-sm text-muted mt-2">
                                 {evaluation.output_type === 'categorical'
                                     ? 'This judge selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
-                                    : 'This judge returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
+                                    : evaluation.output_type === 'numeric'
+                                      ? 'This judge estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
+                                      : 'This judge returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
                             </p>
                         )}
                         {modelSelectionRequired && !selectedModel && (

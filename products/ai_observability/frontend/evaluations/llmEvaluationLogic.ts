@@ -1510,7 +1510,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return false
                 }
                 if (
-                    (evaluation.output_type === 'numeric' && numericOutputConfigError(evaluation.output_config)) ||
+                    (evaluation.output_type === 'numeric' &&
+                        numericOutputConfigError(
+                            evaluation.output_config,
+                            isLLMJudgeEvaluation(evaluation) &&
+                                evaluation.model_configuration?.provider === 'system_one'
+                        )) ||
                     (evaluation.output_type === 'categorical' && categoricalOutputConfigError(evaluation.output_config))
                 ) {
                     return false
