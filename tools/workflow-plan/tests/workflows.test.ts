@@ -190,6 +190,7 @@ const EXPECTATIONS: Expectation[] = [
                 'build_django_matrix',
                 'test-selection-verdict',
                 'capture-test-selection',
+                'cancel-superseded-depot-runs',
             ],
             skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure', 'hand-off-to-depot'],
         }
@@ -305,6 +306,7 @@ const EXPECTATIONS: Expectation[] = [
                 'report-test-timings',
                 'capture-test-selection',
                 'handle-snapshots',
+                'cancel-superseded-depot-runs',
             ],
         }
     ),
