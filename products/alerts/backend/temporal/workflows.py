@@ -18,7 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.alerts.backend.temporal.metrics import increment_deliveries_previewed, safe_record
+from products.alerts.backend.temporal.metrics import increment_deliveries_previewed, record_inventory, safe_record
 from products.alerts.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
 from products.alerts.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
 
@@ -44,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
         TickPage,
     )
     from products.alerts.backend.logic.demand import discover_demand
+    from products.alerts.backend.logic.inventory import count_inventory
     from products.alerts.backend.temporal.postgres import check_postgres_connection
 
 
@@ -76,7 +77,19 @@ class AlertsPlatformInputs:
 
 @activity.defn
 async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
-    return await database_sync_to_async_pool(discover_demand)(inputs.cutoff)
+    demand = await database_sync_to_async_pool(discover_demand)(inputs.cutoff)
+    await _record_inventory(dt.datetime.fromisoformat(inputs.cutoff))
+    return demand
+
+
+async def _record_inventory(now: dt.datetime) -> None:
+    """Dashboard telemetry, so a failure is logged and never fails the tick."""
+    try:
+        inventory = await database_sync_to_async_pool(count_inventory)(now)
+    except Exception as error:
+        LOGGER.warning("alerts_platform_inventory_failed", error=str(error))
+        return
+    safe_record(record_inventory, inventory)
 
 
 @activity.defn
