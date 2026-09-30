@@ -51,6 +51,7 @@ class VendrSource(ResumableSource[VendrSourceConfig, VendrResumeConfig]):
             "families, and categories. Access is partnership-gated - email "
             "[developers@vendr.com](mailto:developers@vendr.com) to request an API key.",
             iconPath="/static/services/vendr.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/vendr",
             fields=cast(
                 list[FieldType],
                 [

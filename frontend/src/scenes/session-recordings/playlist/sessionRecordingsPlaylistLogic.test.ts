@@ -179,6 +179,27 @@ describe('sessionRecordingsPlaylistLogic', () => {
         localStorage.clear()
     })
 
+    describe('watch next', () => {
+        it('selects the first unwatched recording when the URL asks for it', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings': () => [
+                        200,
+                        { has_next: false, results: [{ ...aRecording, viewed: true }, bRecording] },
+                    ],
+                },
+            })
+            router.actions.push('/replay', { watchNext: true })
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'watch-next', updateSearchParams: true })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadSessionRecordingsSuccess', 'setSelectedRecordingId'])
+                .toMatchValues({ selectedRecordingId: bRecording.id, watchNextRequested: false })
+            expect(router.values.searchParams).not.toHaveProperty('watchNext')
+        })
+    })
+
     describe('global logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({

@@ -130,3 +130,10 @@ export const EventMatchScopeWholeSession: Story = {
 export const EventMatchScopeOnlyDuringRecording: Story = {
     parameters: withEventMatchScope('recording'),
 }
+
+export const TemplatesTab: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_TEMPLATES_IN_FILTERS_PANEL_EXPERIMENT]: 'test' },
+        pageUrl: combineUrl(urls.replay(), { showFilters: true, filtersTab: 'templates' }).url,
+    },
+}

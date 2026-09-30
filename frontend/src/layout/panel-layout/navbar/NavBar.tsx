@@ -2,7 +2,7 @@ import './NavBar.scss'
 
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef } from 'react'
@@ -38,13 +38,14 @@ import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { FlatNavBrowse } from './tabs/flat-nav/FlatNavBrowse'
-import { NavTabApps } from './tabs/NavTabApps'
+import { navProductsTabLogic } from './tabs/navProductsTabLogic'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 import { NavTabFiles } from './tabs/NavTabFiles'
+import { NavTabProducts } from './tabs/NavTabProducts'
 const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
+    base: 'flex flex-col h-[calc(100dvh-var(--terminal-dock-height,0px))] min-h-0 bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -100,19 +101,19 @@ export function PanelIndicatorIcon(): JSX.Element | null {
     )
 }
 
-// The Apps tab keeps the persisted tab ID and analytics identifiers used by Browse.
 const SIMPLE_TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
     { id: 'home', label: 'Apps', icon: <IconApps /> },
     { id: 'files', label: 'Files', icon: <IconFolderOpen /> },
-    { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
+    { id: 'chat', label: 'Chat', icon: <IconChat /> },
 ]
 
 const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
     { id: 'home', label: 'Browse', icon: <IconApps /> },
-    { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
+    { id: 'chat', label: 'Chat', icon: <IconChat /> },
 ]
 
 export function NavBar(): JSX.Element {
+    useMountedLogic(navProductsTabLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
         toggleLayoutNavCollapsed,
@@ -233,7 +234,7 @@ export function NavBar(): JSX.Element {
                     )}
                 >
                     <div
-                        className={cn('flex gap-1 rounded-md w-full px-2 pt-2 pb-1', {
+                        className={cn('flex gap-1 rounded-md w-full px-1 pt-2 pb-1', {
                             'items-center': isSimpleSidepanelEnabled,
                             'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
                         })}
@@ -274,7 +275,7 @@ export function NavBar(): JSX.Element {
                                         >
                                             <IconChat
                                                 className={cn(
-                                                    'text-secondary group-hover:text-ai',
+                                                    'text-secondary group-hover:text-primary',
                                                     activePanelIdentifier === 'Chat' && 'text-primary'
                                                 )}
                                             />
@@ -327,7 +328,7 @@ export function NavBar(): JSX.Element {
                                         <ButtonPrimitive
                                             {...props}
                                             className={cn(
-                                                'group data-[composite-item-active]:bg-surface-tertiary justify-center',
+                                                'group gap-1 data-[composite-item-active]:bg-surface-tertiary justify-center',
                                                 isSimpleSidepanelEnabled ? 'flex-1 min-w-0' : 'w-1/2'
                                             )}
                                             iconOnly={isSimpleSidepanelEnabled && isLayoutNavCollapsed}
@@ -377,7 +378,7 @@ export function NavBar(): JSX.Element {
                     >
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             {isSimpleSidepanelEnabled ? (
-                                <NavTabApps />
+                                <NavTabProducts />
                             ) : isFlatNavEnabled ? (
                                 <FlatNavBrowse />
                             ) : (

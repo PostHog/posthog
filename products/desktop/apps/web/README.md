@@ -111,8 +111,8 @@ as database rows (Django admin → OAuth applications), and they must include:
   sign in to the region, check whether the registered localhost URI is portless
   or pinned to `:8237`.
 
-A CIMD client (the `raycast_metadata.py` / `wizard_metadata.py` pattern in
-`posthog/api/oauth/`) is NOT suitable: CIMD registrations are capped to
+A CIMD client (like the first-party documents under
+`https://posthog.com/.well-known/oauth/<app>/client-metadata.json`) is NOT suitable: CIMD registrations are capped to
 unprivileged scopes, and Code requires `scope=*` like the desktop app.
 
 ### S3 artifact-bucket CORS — required for attachment uploads

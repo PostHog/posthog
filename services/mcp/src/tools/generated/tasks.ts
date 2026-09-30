@@ -621,7 +621,7 @@ const TasksCreateSchema = () => {
         runtime: true,
     }).extend({
         description: TasksCreateBody.shape['description']
-            .unwrap()
+            .nonoptional()
             .describe(
                 'The task for the agent to carry out, written as a direct prompt (e.g. "Investigate the spike in $exception events on the checkout page and open a PR with a fix"). Passed verbatim to the agent as its instructions, so be specific.'
             ),
@@ -902,6 +902,12 @@ const tasksRunCreate = (): ToolBase<ReturnType<typeof TasksRunCreateSchema>, Sch
             'title',
             'description',
             'repository',
+            'run.id',
+            'run.stage',
+            'run.status',
+            'run.scheduled_at',
+            'run.model',
+            'run.reasoning_effort',
             'latest_run.id',
             'latest_run.stage',
             'latest_run.status',

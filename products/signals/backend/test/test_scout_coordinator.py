@@ -38,11 +38,14 @@ from products.signals.backend.scout_harness.limits import (
 # defined there are imported and patched there (see `_PAYLOAD_PATH` / `_IS_CLOUD_PATH`).
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import (
+    DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
     DEFAULT_ENROLLED_TEAM_IDS,
     SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
+    BackgroundEnrollment,
     Enrollment,
     _default_team_config,
     _enrolled_team_ids,
+    _parse_background,
     _parse_enrollment,
     _read_flag_payload,
     _resolve_dispatch_smear_seconds,
@@ -69,6 +72,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     StampDispatchedRunsInput,
     _allocate_tick_budget,
     _breaker_paused_configs_by_team,
+    _collect_planned_runs,
     _collect_probe_runs,
     _dispatch_batches,
     _dispatch_slot,
@@ -620,6 +624,126 @@ async def test_config_whose_skill_is_gone_is_skipped(ateam, live_name, ghost_nam
     planned = await _run_activity()
 
     assert [p.skill_name for p in planned] == [live_name]
+
+
+# ── Background enrollment: one scout on a pilot cohort, set up without a person asking ──────
+
+_GENERAL = "signals-scout-general"
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        (None, None),
+        ({}, None),
+        ({"background": "nope"}, None),
+        ({"background": {"enabled": True, "team_ids": "nope"}}, None),  # malformed list must not drain the pilot
+        ({"background": {"enabled": True, "team_ids": [1, True]}}, None),
+        ({"background": {"enabled": True, "skill_name": " ", "team_ids": [1]}}, None),
+        (
+            {"background": {"enabled": True, "team_ids": [1, 2]}},
+            BackgroundEnrollment(True, _GENERAL, frozenset({1, 2}), None, DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK),
+        ),
+        (
+            {
+                "background": {
+                    "enabled": "true",
+                    "skill_name": "signals-scout-errors",
+                    "team_ids": [],
+                    "interval_minutes": 0,
+                    "max_new_teams_per_tick": "5",
+                }
+            },
+            BackgroundEnrollment(
+                False, "signals-scout-errors", frozenset(), None, DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK
+            ),
+        ),
+        (
+            {"background": {"enabled": True, "team_ids": [3], "interval_minutes": 720, "max_new_teams_per_tick": 2}},
+            BackgroundEnrollment(True, _GENERAL, frozenset({3}), 720, 2),
+        ),
+    ],
+)
+def test_parse_background(payload, expected):
+    assert _parse_background(payload) == expected
+
+
+def _background(team_ids: set[int], *, enabled: bool = True, max_new: int = 5) -> BackgroundEnrollment:
+    return BackgroundEnrollment(enabled, _GENERAL, frozenset(team_ids), 720, max_new)
+
+
+_NO_ENROLLMENT = Enrollment(wildcard=False, explicit=set(), skip=set())
+
+
+@pytest.mark.django_db
+class TestBackgroundEnrollment:
+    def _team(self, *, approved: bool = True) -> Team:
+        org = Organization.objects.create(name="background-org", is_ai_data_processing_approved=approved)
+        return Team.objects.create(organization=org, name="background-team")
+
+    def test_creates_only_the_background_config_on_consented_teams(self):
+        approved, unapproved = self._team(), self._team(approved=False)
+
+        _collect_planned_runs(_NO_ENROLLMENT, background=_background({approved.id, unapproved.id}))
+
+        configs = list(SignalScoutConfig.all_teams.filter(team__in=[approved, unapproved]))
+        assert [(c.team_id, c.skill_name, c.managed_by, c.run_interval_minutes) for c in configs] == [
+            (approved.id, _GENERAL, SignalScoutConfig.ManagedBy.BACKGROUND, 720)
+        ]
+
+    def test_max_new_teams_per_tick_spreads_setup_over_ticks(self):
+        teams = [self._team(), self._team()]
+        background = _background({t.id for t in teams}, max_new=1)
+
+        _collect_planned_runs(_NO_ENROLLMENT, background=background)
+        assert SignalScoutConfig.all_teams.filter(team__in=teams).count() == 1
+
+        _collect_planned_runs(_NO_ENROLLMENT, background=background)
+        assert SignalScoutConfig.all_teams.filter(team__in=teams).count() == 2
+
+    @pytest.mark.parametrize(
+        "approved,block,expect_dispatch",
+        [
+            (True, "enabled", True),
+            (False, "enabled", False),  # consent withdrawn after setup
+            (True, "disabled", False),  # kill switch
+            (True, "absent", False),  # explicit enrollment alone never runs a background config
+        ],
+    )
+    def test_dispatch_is_gated_on_consent_and_the_block(self, approved, block, expect_dispatch):
+        team = self._team(approved=approved)
+        with team_scope(team.id, canonical=True):
+            _create_skill(team, _GENERAL)
+            _create_config(team, _GENERAL, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
+        background = None if block == "absent" else _background({team.id}, enabled=block == "enabled")
+        enrollment = Enrollment(wildcard=False, explicit={team.id}, skip=set())
+
+        with patch("products.signals.backend.temporal.agentic.scout_coordinator.register_missing_configs") as seed:
+            seed.return_value = {_GENERAL}
+            planned = _collect_planned_runs(enrollment, background=background)
+
+        expected = [PlannedRun(team_id=team.id, skill_name=_GENERAL)] if expect_dispatch else []
+        assert planned == expected
+
+    def test_departed_team_is_paused_and_resumes_when_listed_again(self):
+        team = self._team()
+        with team_scope(team.id, canonical=True):
+            background_config = _create_config(team, _GENERAL, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
+            user_config = _create_config(team, "signals-scout-errors")
+
+        _collect_planned_runs(_NO_ENROLLMENT, background=_background(set(), enabled=False))
+
+        background_config.refresh_from_db()
+        user_config.refresh_from_db()
+        assert background_config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert background_config.pause_reason == SignalScoutConfig.PauseReason.BACKGROUND_REMOVED
+        assert user_config.status == SignalScoutConfig.Status.ACTIVE
+
+        _collect_planned_runs(_NO_ENROLLMENT, background=_background({team.id}))
+
+        background_config.refresh_from_db()
+        assert background_config.status == SignalScoutConfig.Status.ACTIVE
+        assert background_config.enabled is True
 
 
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
@@ -1820,6 +1944,86 @@ def test_reconcile_leaves_a_failure_pause_alone():
         config = SignalScoutConfig.all_teams.get(team_id=team.id, skill_name=_OPERATIONAL_SCOUT)
         assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
         assert config.pause_reason == SignalScoutConfig.PauseReason.REPEATED_FAILURES
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
+async def test_wildcard_tick_resumes_an_operational_scout_seeded_disabled(ateam):
+    # The wildcard path skips the seed, and a team whose only scout sits disabled has no enabled
+    # config, so without the targeted reconcile this row stays off for good.
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+    await database_sync_to_async(_create_config)(ateam, _OPERATIONAL_SCOUT, enabled=False)
+
+    with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": ["*"]}):
+        planned = await _run_activity()
+
+    config = await database_sync_to_async(
+        lambda: SignalScoutConfig.all_teams.get(team_id=ateam.id, skill_name=_OPERATIONAL_SCOUT)
+    )()
+    assert config.status == SignalScoutConfig.Status.ACTIVE
+    assert config.auto_pause_exempt is True
+    assert any(p.team_id == ateam.id and p.skill_name == _OPERATIONAL_SCOUT for p in planned)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
+@pytest.mark.parametrize(
+    "config_kwargs,human_pause,withheld,expected_status",
+    [
+        ({"enabled": False}, True, False, SignalScoutConfig.Status.PAUSED_BY_USER),
+        (
+            {
+                "status": SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                "pause_reason": SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+            },
+            False,
+            False,
+            SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        ),
+        ({"enabled": False}, False, True, SignalScoutConfig.Status.PAUSED_BY_USER),
+    ],
+    ids=["human_pause", "breaker_pause", "withheld"],
+)
+async def test_wildcard_tick_leaves_pauses_it_does_not_own(
+    ateam, config_kwargs, human_pause, withheld, expected_status
+):
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+    config = await database_sync_to_async(_create_config)(ateam, _OPERATIONAL_SCOUT, **config_kwargs)
+    if human_pause:
+        await database_sync_to_async(SignalScoutConfig.all_teams.filter(pk=config.pk).update)(
+            status_changed_at=timezone.now()
+        )
+    payload: dict[str, Any] = {"guaranteed_team_ids": ["*"]}
+    if withheld:
+        payload["default_team_config"] = {"withheld_skills": [_OPERATIONAL_SCOUT]}
+
+    with patch(_PAYLOAD_PATH, return_value=payload):
+        await _run_activity()
+
+    await database_sync_to_async(config.refresh_from_db)()
+    assert config.status == expected_status
+    assert config.auto_pause_exempt is not withheld
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
+async def test_wildcard_tick_skips_the_reconcile_when_nothing_needs_it(ateam):
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+    await database_sync_to_async(_create_config)(
+        ateam, _OPERATIONAL_SCOUT, enabled=True, auto_pause_exempt=True, auto_pause_exempt_by_role=True
+    )
+
+    with (
+        patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": ["*"]}),
+        patch("products.signals.backend.temporal.agentic.scout_coordinator.reconcile_operational_configs") as reconcile,
+    ):
+        planned = await _run_activity()
+
+    assert all(call.args[0] != ateam.id for call in reconcile.call_args_list)
+    assert any(p.team_id == ateam.id and p.skill_name == _OPERATIONAL_SCOUT for p in planned)
 
 
 @pytest.mark.django_db

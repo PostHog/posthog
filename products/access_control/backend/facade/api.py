@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import cast
 from uuid import UUID
 
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 
 from posthog.hogql.property_access_types import RestrictedProperty
@@ -90,15 +91,17 @@ def _to_rule(rule: PropertyAccessControl) -> contracts.PropertyAccessControlRule
 
 
 def _get_property_definition(property_definition_id: str, team_id: int) -> PropertyDefinition:
+    # Callers often send the property name. The pk is a UUID, and Django raises its own
+    # ValidationError for any other string, which the API would turn into a 500.
+    try:
+        UUID(str(property_definition_id))
+    except ValueError as exc:
+        raise PropertyDefinitionNotFoundError(property_definition_id) from exc
     try:
         return get_object_or_404(PropertyDefinition, id=property_definition_id, team_id=team_id)
-    except Exception as exc:
+    except Http404 as exc:
         # Normalize 404 -> domain error so presentation can translate without leaking ORM concerns.
-        from django.http import Http404
-
-        if isinstance(exc, Http404):
-            raise PropertyDefinitionNotFoundError(property_definition_id) from exc
-        raise
+        raise PropertyDefinitionNotFoundError(property_definition_id) from exc
 
 
 # --- Read API ---

@@ -36,6 +36,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import (
@@ -759,6 +760,23 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data = response.json()
             self.assertEqual(data["code"], "person_deletion_failed")
             self.assertIn("delete_postgres", data["detail"])
+
+    @parameterized.expand(
+        [
+            ("publish_failed", PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, 1, status.HTTP_202_ACCEPTED),
+            ("tombstone_call_failed", PersonDeletionStep.TOMBSTONE_POSTGRES, 0, 503),
+        ]
+    )
+    def test_delete_person_fails_only_when_the_tombstone_did_not_land(self, _name, failed_step, deleted, expected):
+        person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
+        failures = [PersonDeletionFailure(step=failed_step, person_uuid=person.uuid, error="down")]
+        with mock.patch(
+            "posthog.api.person.delete_persons_profile",
+            return_value=PersonProfileDeletionResult(deleted_count=deleted, failures=failures),
+        ):
+            response = self.client.delete(f"/api/person/{person.uuid}/")
+
+        self.assertEqual(response.status_code, expected)
 
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_delete_person_and_events(self):
@@ -2160,8 +2178,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
         # saved-expressions fetch in the HogQL database build. +1 each for the shared-database
         # kill-switch and flag-cache TTL instance settings, cold-cache here but TTL-cached per
-        # worker in production.
-        with self.assertNumQueries(17):
+        # worker in production. +1 for the organization's flag_evaluations mode lookup in the HogQL
+        # database build.
+        with self.assertNumQueries(18):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -2173,8 +2192,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
         # 16 as above, plus the include_total counting queries (was 20); the count runs a second
-        # HogQL database build, which pays the saved-expressions fetch again.
-        with self.assertNumQueries(19):
+        # HogQL database build, which pays the saved-expressions fetch again. +2 because each of
+        # the two HogQL database builds looks up the organization's flag_evaluations mode.
+        with self.assertNumQueries(21):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 

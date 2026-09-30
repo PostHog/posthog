@@ -19,6 +19,8 @@ jobs:
     tag:
         # A manual run can start from any branch, so the ref check keeps a release tag on master.
         if: github.ref == 'refs/heads/master'
+        # The release App's key lives in this environment, which only master and a desktop-v* tag reach.
+        environment: desktop-tagging
         permissions:
             contents: write
         runs-on: depot-ubuntu-24.04
@@ -30,6 +32,25 @@ jobs:
               with:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
+
+            - name: Check the dispatcher is on team-posthog-desktop
+              if: github.event_name == 'workflow_dispatch'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  # A re-run keeps github.actor from the first attempt, so the check reads the
+                  # account that started this attempt.
+                  ACTOR: ${{ github.triggering_actor }}
+                  ORG: ${{ github.repository_owner }}
+                  TEAM_SLUG: team-posthog-desktop
+              run: |
+                  if ! MEMBERS=$(gh api "orgs/${ORG}/teams/${TEAM_SLUG}/members" --paginate --jq '.[].login'); then
+                    echo "::error::Could not read ${TEAM_SLUG} membership, so the release is held."
+                    exit 1
+                  fi
+                  if ! echo "$MEMBERS" | grep -qixF "$ACTOR"; then
+                    echo "::error::@${ACTOR} is not on ${TEAM_SLUG}, so a manual release is not allowed."
+                    exit 1
+                  fi
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -187,6 +187,14 @@ Use that ID to find the failed request in the query log.
 The error's query ID takes precedence over the current request ID; a previous successful response is not a source for the error ID.
 Errors outside the query path, such as configuration failures, may have no query ID.
 
+## Campaign breakdown columns
+
+Marketing analytics saves campaign column selection, sorting, and pinned columns in browser storage for each project.
+A fresh visit restores those preferences without saving query results or draft conversion goals.
+Explicit column options in a shared URL take precedence over saved preferences, including links to Ad performance.
+Changing tabs or dashboard filters preserves those column options in the URL.
+Reset to defaults clears the custom selection, sorting, and pins for later visits.
+
 ## Marketing metric chart
 
 The standalone metric chart receives prepared series, ISO date labels, a selected breakdown key, and callbacks.

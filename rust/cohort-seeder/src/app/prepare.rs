@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use cohort_core::bucket_tz::window_start_for_now;
-use cohort_core::filters::CohortId;
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, gauge};
 use sqlx::PgPool;
@@ -19,19 +18,20 @@ use tracing::{debug, info, warn};
 
 use crate::domain::{
     plan_days, ConditionAnalyses, ConditionClass, Lookback, PersonEmissionPolicy,
-    PersonRunValidation, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps, ProjectedKeys, RunId,
+    PersonRunValidation, PinnedError, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps,
+    ProjectedKeys, RunId,
 };
 use crate::observability::metrics::{
     team_label, BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_CLASSIFIED,
     CONDITIONS_DROPPED, CONDITIONS_UNANALYZABLE, LOOKBACK_TRUNCATED, RUNS_DISCOVERED,
-    RUNS_PLANNING_STAMPED, RUNS_PLANNING_WITHHELD, RUNS_WAITING_BOUNDARY, RUNS_WITHOUT_CHUNKS,
-    RUN_CHUNKS_REMAINING, RUN_VALIDATION_FAILURES, TZ_FALLBACK, WINDOW_DAYS_MISMATCH,
+    RUNS_PLANNING_STAMPED, RUNS_WAITING_BOUNDARY, RUNS_WITHOUT_CHUNKS, RUN_CHUNKS_REMAINING,
+    RUN_VALIDATION_FAILURES, TZ_FALLBACK, WINDOW_DAYS_MISMATCH,
 };
 use crate::store::chunks::{PgChunkStore, PlanOutcome};
 use crate::store::completion::{mark_chunks_planned, read_planning_stamp, PlanningStampOutcome};
 use crate::store::runs::{
     discover_runs, establish_boundary, fail_run, record_run_warning, BoundaryOutcome,
-    DiscoveredRun, RunError, RunKind, RunStatus, RunWarningNote, SeedableRun,
+    DiscoveredRun, RunError, RunKind, RunStatus, RunWarningNote, SeedPhase, SeedableRun,
 };
 use crate::store::RenderedError;
 
@@ -202,6 +202,7 @@ async fn prepare_behavioral(
     boundary: SeedableRun,
 ) -> PrepareOutcome {
     let run_id = boundary.run_id;
+    let phase = boundary.phase;
     let validated = match boundary.load_pinned(pool).await {
         Ok(validated) => validated,
         Err(error) => {
@@ -218,6 +219,11 @@ async fn prepare_behavioral(
             counter!(LOOKBACK_TRUNCATED).increment(1);
         }
     }
+    match phase {
+        SeedPhase::Seeding => {}
+        // Every day was planned while the run was seeding, and its readiness is already stamped.
+        SeedPhase::Trailing => return eligible_behavioral(validated.run, analyses),
+    }
     if validated
         .warnings
         .iter()
@@ -229,33 +235,30 @@ async fn prepare_behavioral(
         persist_run_warning(pool, run_id, RunWarningNote::LookbackTruncated).await;
     }
 
-    // Without the proof the run never dispatches, so an uncovered cohort can never stamp readiness
-    // on zero seeded history. Siblings still get planned and seeded.
-    let coverage_complete =
-        record_coverage(run_id, RunKind::Behavioral, &validated.uncovered_cohorts);
-
     let days = plan_days(
         &validated.run.conditions,
         validated.run.boundary,
         &plan_caps,
     );
     if days.is_empty() {
-        if coverage_complete {
-            // A legitimately zero-chunk run still needs the proof, or it stalls waiting for chunks
-            // that will never exist.
-            stamp_planning(pool, run_id, RunKind::Behavioral).await;
-        }
+        // A legitimately zero-chunk run still needs the proof, or it stalls waiting for chunks
+        // that will never exist.
+        stamp_planning(pool, run_id, RunKind::Behavioral).await;
         return PrepareOutcome::NoChunks;
     }
+    let planned = days.into_iter().map(|day| {
+        validated
+            .run
+            .boundary
+            .schedule(day, plan_caps.trailing_day_grace)
+    });
     match store
-        .plan_chunks(validated.run.run_id, days, plan_caps.bands_per_day)
+        .plan_chunks(validated.run.run_id, planned, plan_caps.bands_per_day)
         .await
     {
         Ok(PlanOutcome::Planned { inserted }) => {
             counter!(CHUNKS_PLANNED, "kind" => RunKind::Behavioral.as_str()).increment(inserted);
-            if coverage_complete {
-                stamp_planning(pool, run_id, RunKind::Behavioral).await;
-            }
+            stamp_planning(pool, run_id, RunKind::Behavioral).await;
         }
         Ok(PlanOutcome::RunNotSeeding) => return PrepareOutcome::Skipped,
         Ok(PlanOutcome::AlreadyPlanned) => {
@@ -272,14 +275,18 @@ async fn prepare_behavioral(
             return PrepareOutcome::Skipped;
         }
     }
+    eligible_behavioral(validated.run, analyses)
+}
+
+fn eligible_behavioral(run: PinnedRun, analyses: ConditionAnalyses) -> PrepareOutcome {
     PrepareOutcome::Eligible(PreparedRun::Behavioral(Arc::new(PreparedBehavioral {
-        run: validated.run,
+        run,
         analyses,
     })))
 }
 
-/// The person pipeline: validate the pinned payload (zero surviving hashes with an active
-/// participation fails the run inside `handle_run_error`; all-superseded retires as zero-work),
+/// The person pipeline: validate the pinned payload (an active participation with no surviving
+/// hash fails the run inside `handle_run_error`; all-superseded retires as zero-work),
 /// then classify by planning state — the stamp or existing chunks make the run claim-eligible;
 /// otherwise it needs its planning scan.
 async fn prepare_person(
@@ -316,12 +323,6 @@ async fn prepare_person(
     {
         persist_run_warning(pool, run_id, RunWarningNote::ConditionsDropped).await;
     }
-    let coverage_complete = record_coverage(
-        run_id,
-        RunKind::PersonProperty,
-        &validated.uncovered_cohorts,
-    );
-
     let stamped = match read_planning_stamp(pool, run_id, RunKind::PersonProperty).await {
         Ok(stamp) => stamp.is_some(),
         Err(error) => {
@@ -335,17 +336,11 @@ async fn prepare_person(
     }
     match store.chunk_progress(run_id).await {
         Ok(progress) if progress.total() > 0 => {
-            // Planned but not yet stamped — the planner left the stamp to this pass (its coverage
-            // snapshot could predate a supersession). Coverage here is fresh from the database.
-            if coverage_complete {
-                stamp_planning(pool, run_id, RunKind::PersonProperty).await;
-            }
+            // A prior attempt landed the chunks and left the stamp to this pass.
+            stamp_planning(pool, run_id, RunKind::PersonProperty).await;
             PrepareOutcome::Eligible(PreparedRun::Person(run))
         }
-        Ok(_) => PrepareOutcome::PlanningNeeded(PersonPlanRequest {
-            run,
-            coverage_complete,
-        }),
+        Ok(_) => PrepareOutcome::PlanningNeeded(PersonPlanRequest { run }),
         Err(error) => {
             warn!(?run_id, error = %error, "reading person chunk progress failed");
             PrepareOutcome::Skipped
@@ -406,19 +401,6 @@ pub(super) fn run_ids_of_kind(
         })
         .map(|(run_id, _)| *run_id)
         .collect()
-}
-
-fn record_coverage(run_id: RunId, kind: RunKind, uncovered_cohorts: &[CohortId]) -> bool {
-    let coverage_complete = uncovered_cohorts.is_empty();
-    if !coverage_complete {
-        counter!(RUNS_PLANNING_WITHHELD, "kind" => kind.as_str()).increment(1);
-        warn!(
-            run_id = ?run_id,
-            uncovered_cohorts = ?uncovered_cohorts,
-            "active participations have no surviving pinned condition; withholding the planning proof"
-        );
-    }
-    coverage_complete
 }
 
 /// Stamp the planning proof once planning has run. A failure is logged but never changes the prepare
@@ -560,6 +542,15 @@ enum RunErrorDisposition {
 fn run_error_disposition(run_id: Option<RunId>, error: &RunError) -> RunErrorDisposition {
     match error {
         RunError::Pg(_) => RunErrorDisposition::Retry,
+        // Never a retry: the run re-derives the same refusal on every poll tick.
+        RunError::Pinned(PinnedError::UncoveredParticipations(_)) => {
+            run_id.map_or(RunErrorDisposition::Retry, |run_id| {
+                RunErrorDisposition::Fail {
+                    run_id,
+                    reason: "uncovered_participation",
+                }
+            })
+        }
         RunError::Pinned(_) => run_id.map_or(RunErrorDisposition::Retry, |run_id| {
             RunErrorDisposition::Fail {
                 run_id,
@@ -586,5 +577,50 @@ fn run_error_disposition(run_id: Option<RunId>, error: &RunError) -> RunErrorDis
         | RunError::UnknownScope(_)
         | RunError::NotFound(_)
         | RunError::NotActive(_) => RunErrorDisposition::Retry,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cohort_core::filters::CohortId;
+    use cohort_core::leaf_state::select::UnsupportedVariant;
+    use uuid::Uuid;
+
+    use crate::domain::{
+        ConditionHash, PinnedDropReason, UncoveredCohort, UncoveredParticipations, UncoveredReason,
+    };
+
+    use super::*;
+
+    #[test]
+    fn an_uncovered_participation_fails_its_run_under_its_own_reason() {
+        let run_id = RunId(Uuid::nil());
+        let uncovered = RunError::Pinned(PinnedError::UncoveredParticipations(
+            UncoveredParticipations(vec![UncoveredCohort {
+                cohort_id: CohortId(574801),
+                reason: UncoveredReason::NoSurvivingCondition,
+                catalog_class: Some("excluded_has_dropped_leaf"),
+                dropped: vec![(
+                    ConditionHash::parse("c8236865303eb463").unwrap(),
+                    PinnedDropReason::UnsupportedStateVariant(UnsupportedVariant::MissingWindow),
+                )],
+            }]),
+        ));
+        assert_eq!(
+            run_error_disposition(Some(run_id), &uncovered),
+            RunErrorDisposition::Fail {
+                run_id,
+                reason: "uncovered_participation",
+            }
+        );
+
+        let malformed = RunError::Pinned(PinnedError::SchemaVersion(2));
+        assert_eq!(
+            run_error_disposition(Some(run_id), &malformed),
+            RunErrorDisposition::Fail {
+                run_id,
+                reason: "pinned_validation",
+            }
+        );
     }
 }

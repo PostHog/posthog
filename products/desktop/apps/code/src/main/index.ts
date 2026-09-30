@@ -84,7 +84,6 @@ import { setupExternalLinkPermissionHandlers } from "./external-links";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
 import { registerDiskCacheProtocol } from "./protocols/disk-cache";
 import { registerMcpSandboxProtocol } from "./protocols/mcp-sandbox";
-import { destroyQuickAskWindow, setupQuickAsk } from "./quick-ask";
 import type { AppLifecycleService } from "./services/app-lifecycle/service";
 import type { DevNetworkService } from "./services/dev-network/service";
 import { initDevToolbar } from "./services/dev-toolbar";
@@ -112,7 +111,7 @@ import {
 import { isMacosPackagedUnsafeBundleLocation } from "./utils/macos-packaged-install-guard";
 import { installMainFetchLogging } from "./utils/network-fetch-logger";
 import { installRendererNetworkLogging } from "./utils/network-webrequest-logger";
-import { createWindow, onMainWindowClosed } from "./window";
+import { createWindow } from "./window";
 import { installYoutubeEmbedReferrer } from "./youtube-embed-referrer";
 
 type FileWatcherEventsByKind = {
@@ -474,10 +473,6 @@ async function boot(): Promise<void> {
   container.bind(MAIN_FS_SERVICE).toConstantValue(fsCapability);
   container.bind(FS_SERVICE).toService(MAIN_FS_SERVICE);
   createWindow();
-  setupQuickAsk();
-  // The hidden quick-ask panel must not keep the app alive after the main
-  // window closes.
-  onMainWindowClosed(destroyQuickAskWindow);
   if (shutdownStarted) return;
   await initializeServices();
   initializeDeepLinks();

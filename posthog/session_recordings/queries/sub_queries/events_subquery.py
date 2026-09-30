@@ -34,7 +34,6 @@ from posthog.session_recordings.queries.sub_queries.base_query import SessionRec
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
-    NEGATIVE_OPERATORS,
     SessionRecordingQueryResult,
     _entity_to_expr,
     _node_from_entity,
@@ -42,6 +41,7 @@ from posthog.session_recordings.queries.utils import (
     is_cohort_property,
     is_event_property,
     is_group_property,
+    is_negative_prop,
     is_person_property,
 )
 from posthog.types import AnyPropertyFilter
@@ -101,18 +101,6 @@ def get_negative_entity_properties(
             if is_negative_prop(prop):
                 negative_props.append(prop)
     return negative_props
-
-
-def is_negative_prop(prop: AnyPropertyFilter) -> bool:
-    if not hasattr(prop, "operator"):
-        return False
-    if prop.operator in NEGATIVE_OPERATORS:
-        return True
-    # NOT_IN is intentionally omitted from NEGATIVE_OPERATORS for event/person filters
-    # (it has different semantics there), but for cohort filters it IS the negative form.
-    if is_cohort_property(prop) and prop.operator == PropertyOperator.NOT_IN:
-        return True
-    return False
 
 
 @frozen
@@ -550,8 +538,14 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         properties = self.event_properties + [p for entity in self.entities for p in entity.properties or []]
         return all(isinstance(prop, EventPropertyFilter) and not is_negative_prop(prop) for prop in properties)
 
+    def _emitted_event_properties(self) -> list[AnyPropertyFilter]:
+        # With operand AND, _negative_blocklist_query handles the negative event properties.
+        if self._query.operand == "AND":
+            return [p for p in self.event_properties if not is_negative_prop(p)]
+        return self.event_properties
+
     def _property_filter_count(self) -> int:
-        return len(self.event_properties) + sum(1 for entity in self.entities if entity.properties)
+        return len(self._emitted_event_properties()) + sum(1 for entity in self.entities if entity.properties)
 
     def _combined_filters_enabled(self) -> bool:
         return (
@@ -614,13 +608,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 else event_where_exprs
             )
 
-        # Skip event properties with negative operators since they're handled by _negative_guard_query
+        # With operand AND, _negative_blocklist_query handles negative group and person properties
         skip_negative_properties = self._query.operand == "AND"
 
-        for p in self.event_properties:
-            if skip_negative_properties and is_negative_prop(p):
-                continue
-
+        for p in self._emitted_event_properties():
             if self._allow_event_property_expansion:
                 events_seen_with_this_property, property_expr = self.with_team_events_added(p, self._team)
                 gathered_exprs.append(
