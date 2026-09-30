@@ -630,6 +630,7 @@ SPECTACULAR_SETTINGS = {
             # Every grantable scope object, from posthog/scopes.py. The frontend's APIScopeObject type
             # derives from this enum, so the object list is never copied by hand.
             "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
+            "AIEventPropertyEnum": "products.access_control.backend.facade.enums.AI_EVENT_PROPERTY_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             # signals maps a warehouse import's status down to these three. Same values as the
             # warehouse's own SyncStatus, but that class carries different labels, so the two are

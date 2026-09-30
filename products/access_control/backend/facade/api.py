@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import cast
 from uuid import UUID
 
+from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
@@ -41,6 +42,7 @@ from ..property_access_control import (
 )
 from . import contracts
 from .contracts import PropertyAccessLevel
+from .enums import AI_EVENT_PROPERTY_CHOICES
 from .user_access_control import (
     RESOURCE_INHERITANCE_MAP,
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
@@ -359,29 +361,43 @@ def upsert_property_access_control(
     input: contracts.UpsertPropertyAccessControlInput,
 ) -> contracts.PropertyAccessControlRule:
     """Create or update a single access control rule."""
-    prop_def = _get_property_definition(input.property_definition_id, team_id)
+    if input.ai_property is not None and input.ai_property not in AI_EVENT_PROPERTY_CHOICES:
+        raise InvalidPropertyAccessControlTargetError("Unknown AI event property.")
     _validate_target_org(
         team_id=team_id,
         organization_member_id=input.organization_member_id,
         role_id=input.role_id,
     )
 
-    # `created_by_id` must only be set on creation — using `defaults` would
-    # overwrite the original creator on every update. `create_defaults`
-    # (Django 4.2+) is applied only when a new row is inserted.
-    rule, _created = PropertyAccessControl.objects.update_or_create(
-        team_id=team_id,
-        property_definition=prop_def,
-        organization_member_id=input.organization_member_id,
-        role_id=input.role_id,
-        defaults={
-            "access_level": input.access_level.value,
-        },
-        create_defaults={
-            "access_level": input.access_level.value,
-            "created_by_id": created_by_id,
-        },
-    )
+    with transaction.atomic():
+        if input.ai_property is not None:
+            prop_def, _ = PropertyDefinition.objects.get_or_create(
+                team_id=team_id,
+                name=input.ai_property,
+                type=PropertyDefinition.Type.EVENT,
+                group_type_index=None,
+                defaults={"project_id": Team.objects.values_list("project_id", flat=True).get(id=team_id)},
+            )
+        else:
+            assert input.property_definition_id is not None
+            prop_def = _get_property_definition(input.property_definition_id, team_id)
+
+        # `created_by_id` must only be set on creation — using `defaults` would
+        # overwrite the original creator on every update. `create_defaults`
+        # (Django 4.2+) is applied only when a new row is inserted.
+        rule, _created = PropertyAccessControl.objects.update_or_create(
+            team_id=team_id,
+            property_definition=prop_def,
+            organization_member_id=input.organization_member_id,
+            role_id=input.role_id,
+            defaults={
+                "access_level": input.access_level.value,
+            },
+            create_defaults={
+                "access_level": input.access_level.value,
+                "created_by_id": created_by_id,
+            },
+        )
     return _to_rule(rule)
 
 
