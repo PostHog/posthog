@@ -313,6 +313,15 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertFalse(dispatch.called)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
+    def test_rejects_a_deployment_that_cannot_capture_the_completion_event(self) -> None:
+        payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
+        with self.settings(CLOUD_DEPLOYMENT="DEV"), self._request_patches() as (_, _, dispatch):
+            response = self._post(payload)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(dispatch.called)
+        self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
+
     def test_rejects_when_the_audit_skill_is_unavailable_without_admitting(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
         with self._request_patches() as (_, skill, dispatch):

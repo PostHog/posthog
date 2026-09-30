@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.utils import get_instance_region
 
 from products.growth.backend.audit_execution import create_audit_task
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
@@ -51,6 +52,9 @@ class AccountAuditService:
         credential = AccountAuditCredential.objects.select_related("owner").filter(public_key_id=public_key_id).first()
         if credential is None or not cls._credential_is_eligible(credential):
             return AccountAuditResult(status="unauthorized")
+        # The completion event can only be captured in US or EU, so an audit in any other deployment never finalizes.
+        if (get_instance_region() or "US") not in ("US", "EU"):
+            return AccountAuditResult(status="unavailable")
         if not cls._ai_processing_is_approved(payload.organization_id):
             return AccountAuditResult(status="forbidden")
         try:
