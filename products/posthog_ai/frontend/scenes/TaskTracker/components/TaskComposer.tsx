@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -38,9 +38,11 @@ import { RepositorySelector } from './RepositorySelector'
 export interface TaskComposerProps {
     /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
     variant?: 'page' | 'inline'
+    /** A host bumps this number to move focus to the input, for example when the user asks for a new session. */
+    focusRequest?: number
 }
 
-export function TaskComposer({ variant = 'page' }: TaskComposerProps): JSX.Element {
+export function TaskComposer({ variant = 'page', focusRequest = 0 }: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
@@ -79,6 +81,12 @@ export function TaskComposer({ variant = 'page' }: TaskComposerProps): JSX.Eleme
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
     const frameRef = useRef<HTMLLabelElement>(null)
+
+    useEffect(() => {
+        if (focusRequest > 0) {
+            textAreaRef.current?.focus()
+        }
+    }, [focusRequest])
 
     const handleSelectSuggestion = (item: SuggestionItem): void => {
         applySuggestion(item)
