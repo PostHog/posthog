@@ -1768,6 +1768,7 @@ class IntegrationKind(StrEnum):
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
+    TWITTER_ADS = "twitter-ads"
 
 
 class IntervalType(StrEnum):

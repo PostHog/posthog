@@ -24,6 +24,7 @@ import { urls } from 'scenes/urls'
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
 import {
+    integrationsCreate,
     integrationsGithubAvailableInstallationsRetrieve,
     integrationsGithubReposRetrieve,
     integrationsGithubLinkExistingCreate,
@@ -1194,16 +1195,17 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         lemonToast.info('X Ads connection cancelled.')
                     } else {
                         const parsedTeamId = Number(getCookie('ph_twitter_ads_team_id'))
-                        const integration = await api.integrations.create(
-                            {
-                                kind,
-                                config: {
-                                    oauth_token: searchParams.oauth_token,
-                                    oauth_verifier: searchParams.oauth_verifier,
-                                },
+                        const projectId =
+                            Number.isFinite(parsedTeamId) && parsedTeamId > 0
+                                ? String(parsedTeamId)
+                                : String(values.currentProjectId)
+                        const integration = await integrationsCreate(projectId, {
+                            kind,
+                            config: {
+                                oauth_token: searchParams.oauth_token,
+                                oauth_verifier: searchParams.oauth_verifier,
                             },
-                            Number.isFinite(parsedTeamId) && parsedTeamId > 0 ? parsedTeamId : undefined
-                        )
+                        })
                         const url = new URL(integration.config.next || replaceUrl, window.location.origin)
                         url.searchParams.set(OAUTH_INTEGRATION_ID_PARAM, String(integration.id))
                         replaceUrl = url.pathname + url.search + url.hash
