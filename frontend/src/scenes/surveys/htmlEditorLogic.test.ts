@@ -50,8 +50,9 @@ describe('htmlEditorLogic', () => {
     test.each<[string, string, SurveyQuestionDescriptionContentType, HTMLEditorTab, string | null]>([
         ['text to rich text converts to HTML', 'a < b\nline', 'text', 'rich', '<p>a &lt; b</p><p>line</p>'],
         ['rich text to text converts to plain text', '<p>a &lt; b</p><p>line</p>', 'html', 'text', 'a < b\nline'],
-        ['HTML to text keeps the value', '<div>Custom</div>', 'html', 'text', null],
-        ['text to HTML keeps the value', 'a < b', 'text', 'html', null],
+        ['HTML to text converts to plain text', '<div>Custom <b>HTML</b></div>', 'html', 'text', 'Custom HTML'],
+        ['text to HTML converts to HTML', 'a < b', 'text', 'html', 'a &lt; b'],
+        ['rich text to HTML keeps the value', '<strong>Bold</strong>', 'html', 'html', null],
     ])('%s', (_, value, activeTab, tab, expectedValue) => {
         mountEditor(value, activeTab)
         logic.actions.selectTab(tab)

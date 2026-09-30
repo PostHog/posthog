@@ -37,8 +37,8 @@ export interface htmlEditorLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     activeTab: SurveyQuestionDescriptionContentType
     htmlTab: 'html' | 'rich' | null
+    htmlTabValue: string
     pendingConversion: HTMLEditorConversion | null
-    richTabValue: string
     richTextCompatible: boolean
     richTextEnabled: boolean
     shownTab: HTMLEditorTab
@@ -71,15 +71,15 @@ export interface htmlEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         richTextEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        richTextCompatible: (value: any) => boolean
+        richTextCompatible: (value: string) => boolean
         shownTab: (
-            activeTab: any,
+            activeTab: SurveyQuestionDescriptionContentType,
             richTextEnabled: boolean,
             htmlTab: 'html' | 'rich' | null,
             richTextCompatible: boolean
         ) => HTMLEditorTab
-        textTabValue: (value: any, pendingConversion: HTMLEditorConversion | null) => string
-        richTabValue: (value: any, pendingConversion: HTMLEditorConversion | null) => string
+        textTabValue: (value: string, pendingConversion: HTMLEditorConversion | null) => string
+        htmlTabValue: (value: string, pendingConversion: HTMLEditorConversion | null) => string
     }
 }
 
@@ -171,13 +171,13 @@ export const htmlEditorLogic: LogicWrapper<htmlEditorLogicType> = kea<htmlEditor
             (value: string, pendingConversion: HTMLEditorConversion | null): string =>
                 pendingConversion === 'toText' ? htmlToPlainText(value ?? '') : (value ?? ''),
         ],
-        richTabValue: [
+        htmlTabValue: [
             (s) => [s.value, s.pendingConversion],
             (value: string, pendingConversion: HTMLEditorConversion | null): string =>
                 pendingConversion === 'toHtml' ? plainTextToHtml(value ?? '') : (value ?? ''),
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, props }) => ({
         selectTab: ({ tab }) => {
             if (tab !== 'text') {
                 actions.setHtmlTab(tab)
@@ -187,7 +187,7 @@ export const htmlEditorLogic: LogicWrapper<htmlEditorLogicType> = kea<htmlEditor
                 return
             }
             // The parent stores the new content type first. The value converts when the new props arrive, so the two updates do not race.
-            actions.setPendingConversion(tab === 'rich' ? 'toHtml' : values.shownTab === 'rich' ? 'toText' : null)
+            actions.setPendingConversion(tab === 'text' ? 'toText' : 'toHtml')
             props.onTabChange(nextContentType)
         },
     })),

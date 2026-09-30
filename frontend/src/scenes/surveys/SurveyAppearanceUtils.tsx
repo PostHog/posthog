@@ -171,7 +171,7 @@ export function HTMLEditor({
 }): JSX.Element {
     const editorKey = useId()
     const logic = htmlEditorLogic({ editorKey, value: value ?? '', activeTab, onChange, onTabChange })
-    const { richTextEnabled, richTextCompatible, shownTab, textTabValue, richTabValue } = useValues(logic)
+    const { richTextEnabled, richTextCompatible, shownTab, textTabValue, htmlTabValue } = useValues(logic)
     const { selectTab } = useActions(logic)
 
     return (
@@ -205,7 +205,7 @@ export function HTMLEditor({
                                               edit it here, that formatting is removed. Use the HTML tab to keep it.
                                           </LemonBanner>
                                       )}
-                                      <SurveyRichTextEditor value={richTabValue} onChange={onChange} />
+                                      <SurveyRichTextEditor value={htmlTabValue} onChange={onChange} />
                                       <div className="text-xs text-secondary">
                                           Formatting shows in web surveys. Some mobile SDKs don't show formatted
                                           descriptions.
@@ -218,7 +218,11 @@ export function HTMLEditor({
                         key: 'html',
                         label: <span className="text-sm">HTML</span>,
                         content: (
-                            <HighlightedTextArea value={value} onChange={onChange} placeholder={textPlaceholder} />
+                            <HighlightedTextArea
+                                value={htmlTabValue}
+                                onChange={onChange}
+                                placeholder={textPlaceholder}
+                            />
                         ),
                     },
                 ]}
