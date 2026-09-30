@@ -13,7 +13,6 @@ import {
     Button,
     Field,
     FieldError,
-    Heading,
     Input,
     Item,
     ItemActions,
@@ -85,10 +84,7 @@ export function SpaceSettings({ id }: { id: string }): JSX.Element {
     if (!space) {
         return (
             <div className="flex w-full max-w-200 flex-col gap-7 pt-4 pb-8" aria-busy="true">
-                <div className="flex flex-col gap-1.5 px-0.5">
-                    <Skeleton className="h-5 w-24" />
-                    <Skeleton className="h-4 w-80 max-w-full" />
-                </div>
+                <Skeleton className="mx-0.5 h-4 w-80 max-w-full" />
                 {[1, 2, 3].map((section) => (
                     <div key={section} className="flex flex-col gap-2">
                         <Skeleton className="h-4 w-28" />
@@ -101,14 +97,9 @@ export function SpaceSettings({ id }: { id: string }): JSX.Element {
 
     return (
         <div className="flex w-full max-w-200 flex-col gap-7 pt-4 pb-8">
-            <div className="flex flex-col gap-0.5 px-0.5">
-                <Heading size="base" render={<h2 />}>
-                    Settings
-                </Heading>
-                <Text size="xs" variant="muted">
-                    The name, repositories, and who can see this space. Changes save as you make them.
-                </Text>
-            </div>
+            <Text size="xs" variant="muted" className="px-0.5">
+                The name, repositories, and who can see this space. Changes save as you make them.
+            </Text>
 
             <SpaceSettingsSection label="General">
                 <ItemGroup combined>
