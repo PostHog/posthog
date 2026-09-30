@@ -210,7 +210,7 @@ def search_recent_runs(
     """
     clamped_limit = _clamp_limit(limit)
     qs = (
-        SignalScoutRun.objects.filter(team_id=team_id)
+        SignalScoutRun.objects.for_team(team_id)
         .exclude(metadata__has_key="scout_trial")
         .select_related("task_run")
         .order_by("-created_at")

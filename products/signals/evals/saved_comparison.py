@@ -74,6 +74,8 @@ def run_comparisons(
         POSTHOG_ANALYTICS_HOST="",
     )
     setup_django()
+    configure_logging()
+    logger.disabled = False
 
     from products.posthog_ai.eval_harness.engines.braintrust import (
         PrivateBraintrustEngine,  # noqa: PLC0415 — initialize Django first

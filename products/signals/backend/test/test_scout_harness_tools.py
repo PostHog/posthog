@@ -19,7 +19,8 @@ from parameterized import parameterized
 
 from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
-from posthog.models.scoping import team_scope
+from posthog.models import Team
+from posthog.models.scoping import get_current_team_id, team_scope, unscoped
 from posthog.settings.signals import _parse_team_ids
 from posthog.sync import database_sync_to_async
 
@@ -178,14 +179,16 @@ class TestSearchRecentRuns(BaseTest):
 
         assert [r.run_id for r in hits] == [str(old.id)]
 
-    def test_does_not_leak_runs_from_other_teams(self) -> None:
-        from posthog.models import Team
-
+    def test_does_not_leak_runs_from_other_teams_without_request_scope(self) -> None:
         other = Team.objects.create(organization=self.organization, name="other")
-        mine = _create_run(self.team)
-        _create_run(other)
+        with team_scope(self.team.id):
+            mine = _create_run(self.team)
+        with team_scope(other.id):
+            _create_run(other)
 
-        hits = search_recent_runs(team_id=self.team.id)
+        with unscoped():
+            assert get_current_team_id() is None
+            hits = search_recent_runs(team_id=self.team.id)
 
         assert [r.run_id for r in hits] == [str(mine.id)]
 
