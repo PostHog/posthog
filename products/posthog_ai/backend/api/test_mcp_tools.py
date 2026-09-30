@@ -3,7 +3,10 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.db import OperationalError
+
 from parameterized import parameterized
+from psycopg.errors import QueryCanceled
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
@@ -13,7 +16,9 @@ from posthog.event_usage import EventSource
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
 from posthog.models import Organization, Team
@@ -123,6 +128,28 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(run_kwargs["user"], self.user)
         self.assertEqual(run_kwargs["analytics_props"], {"source": EventSource.MCP})
 
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_read_taxonomy_timeout_preserves_recovery_advice(self, mock_runner_cls: Mock) -> None:
+        error = OperationalError("canceling statement due to statement timeout")
+        error.__cause__ = QueryCanceled()
+        mock_runner_cls.return_value.run.side_effect = error
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/read_taxonomy/",
+            {"args": {"query": {"kind": "events"}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "success": False,
+                "content": "Tool failed: MaxToolTransientError: Reading the taxonomy timed out. This can happen on large projects. You may retry this operation once without changes.",
+                "error_type": "timeout",
+            },
+        )
+
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_error_returns_error_response(self, mock_execute):
         mock_execute.side_effect = MaxToolRetryableError("Query validation failed: syntax error")
@@ -174,6 +201,16 @@ class TestMCPToolsAPI(APIBaseTest):
                 ClickHouseQueryMemoryLimitExceeded("Query memory limit exceeded"),
                 "memory_limit",
                 "Tool failed: MaxToolRetryableError: Query memory limit exceeded. You may retry with adjusted inputs.",
+            ),
+            (
+                ClickHouseEstimatedQueryExecutionTimeTooLong("Query estimate exceeded the time limit"),
+                "validation",
+                "Tool failed: MaxToolRetryableError: Query estimate exceeded the time limit. You may retry with adjusted inputs.",
+            ),
+            (
+                ClickHouseQuerySizeExceeded("Query size exceeded"),
+                "validation",
+                "Tool failed: MaxToolRetryableError: Query size exceeded. You may retry with adjusted inputs.",
             ),
             (APIException("Query service failed"), "api_5xx", "Tool failed: MaxToolFatalError: Query service failed."),
             (

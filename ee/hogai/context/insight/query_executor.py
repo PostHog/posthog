@@ -451,7 +451,8 @@ class AssistantQueryExecutor:
                 # Check for query execution errors before using results
                 if query_status.get("error"):
                     if error_message := query_status.get("error_message"):
-                        raise APIException(error_message)
+                        # Async status loses the exception type, so keep retry advice without guessing its category.
+                        raise MaxToolRetryableError(error_message, error_type="internal")
                     raise Exception("Query failed")
 
                 # Use the completed query results
@@ -490,9 +491,8 @@ class AssistantQueryExecutor:
             elif isinstance(err, ClickHouseQueryMemoryLimitExceeded):
                 error_type = "memory_limit"
             elif isinstance(err, APIException) and err.status_code >= 500:
-                error_type = "api_5xx"
                 if classify_query_error(err) != QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
-                    raise MaxToolFatalError(err_message, error_type=error_type) from err
+                    raise MaxToolFatalError(err_message, error_type="api_5xx") from err
             elif isinstance(err, APIException) and err.status_code == 429:
                 raise MaxToolTransientError(err_message, error_type="rate_limited") from err
             raise MaxToolRetryableError(err_message, error_type=error_type) from err
