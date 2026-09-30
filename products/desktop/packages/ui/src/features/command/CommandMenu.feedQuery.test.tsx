@@ -102,9 +102,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useCanvasQueryResults", () => ({
           },
         ]
       : [],
-    errorMessage: null,
     isLoading: false,
-    issues: [],
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
