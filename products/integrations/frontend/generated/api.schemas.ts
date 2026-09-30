@@ -187,6 +187,7 @@ export interface RoleLookupResponseApi {
  * * `postgresql` - Postgresql
  * * `posthog` - Posthog
  * * `reddit-ads` - Reddit Ads
+ * * `twitter-ads` - Twitter Ads
  * * `resend` - Resend
  * * `s3-compatible` - S3 Compatible
  * * `salesforce` - Salesforce
@@ -239,6 +240,7 @@ export const IntegrationKindEnumApi = {
     Postgresql: 'postgresql',
     Posthog: 'posthog',
     RedditAds: 'reddit-ads',
+    TwitterAds: 'twitter-ads',
     Resend: 'resend',
     S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
@@ -608,6 +610,7 @@ export interface IntegrationAccessRequestApi {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -772,6 +775,7 @@ export type IntegrationsListParams = {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -845,6 +849,7 @@ export const IntegrationsListKind = {
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
+    TwitterAds: 'twitter-ads',
     Vercel: 'vercel',
     YoutubeAnalytics: 'youtube-analytics',
 } as const

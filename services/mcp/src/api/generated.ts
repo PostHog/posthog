@@ -55427,6 +55427,7 @@ export namespace Schemas {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -55480,6 +55481,7 @@ export namespace Schemas {
       Postgresql: 'postgresql',
       Posthog: 'posthog',
       RedditAds: 'reddit-ads',
+      TwitterAds: 'twitter-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
@@ -55533,6 +55535,7 @@ export namespace Schemas {
        * * `postgresql` - Postgresql
        * * `posthog` - Posthog
        * * `reddit-ads` - Reddit Ads
+       * * `twitter-ads` - Twitter Ads
        * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
        * * `salesforce` - Salesforce
@@ -116100,6 +116103,7 @@ export namespace Schemas {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -116174,6 +116178,7 @@ export namespace Schemas {
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
+      TwitterAds: 'twitter-ads',
       Vercel: 'vercel',
       YoutubeAnalytics: 'youtube-analytics',
     } as const;
