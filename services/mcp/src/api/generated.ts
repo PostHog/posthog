@@ -277,6 +277,7 @@ export namespace Schemas {
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
+     * * `support_ticket` - support_ticket
      * * `survey` - survey
      * * `tagger` - tagger
      * * `ticket` - ticket
@@ -395,6 +396,7 @@ export namespace Schemas {
       Stamphog: 'stamphog',
       StreamlitApp: 'streamlit_app',
       Subscription: 'subscription',
+      SupportTicket: 'support_ticket',
       Survey: 'survey',
       Tagger: 'tagger',
       Ticket: 'ticket',
@@ -513,6 +515,7 @@ export namespace Schemas {
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
+       * * `support_ticket` - support_ticket
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket
@@ -735,6 +738,7 @@ export namespace Schemas {
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
+       * * `support_ticket` - support_ticket
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket
@@ -1136,6 +1140,7 @@ export namespace Schemas {
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
+       * * `support_ticket` - support_ticket
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket
@@ -62079,6 +62084,7 @@ export namespace Schemas {
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
+       * * `support_ticket` - support_ticket
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket

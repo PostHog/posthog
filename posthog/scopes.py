@@ -125,6 +125,7 @@ APIScopeObject = Literal[
     "stamphog",
     "streamlit_app",
     "subscription",
+    "support_ticket",
     "survey",
     "tagger",
     "ticket",
@@ -254,6 +255,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Lets a service create customer analytics accounts through the external account POST.
     # Updates on that route stay team-token only.
     ("account", "write"),
+    # Conversations external ticket API reads, mirroring the account scope above so
+    # service integrations don't need the team-wide secret_api_token (#63111).
+    ("support_ticket", "read"),
     # First write-capable PSAK scope: lets a service credential fire a loop via
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
     # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
