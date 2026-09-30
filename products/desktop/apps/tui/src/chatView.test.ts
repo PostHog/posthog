@@ -7,6 +7,14 @@ import type { TranscriptLine } from "./transcript";
 const plain = (lines: string[]): string[] =>
   lines.map((line) => stripTerminalSequences(line).trimEnd());
 
+const tool = (
+  id: string,
+  title: string,
+  status = "completed",
+  detail = "cmd",
+  output = "",
+): TranscriptLine => ({ kind: "tool", id, title, status, detail, output });
+
 const replies = (count: number): TranscriptLine[] =>
   Array.from({ length: count }, (_, index) => ({
     kind: "assistant" as const,
@@ -22,7 +30,7 @@ describe("ChatView", () => {
     chat.setTranscript([
       { kind: "user", id: "u1", text: "Rename the helper" },
       { kind: "assistant", id: "a1", text: "On **it**." },
-      { kind: "tool", id: "t1", title: "Edit src/a.ts", status: "completed" },
+      tool("t1", "edit"),
     ]);
     const lines = chat.render(40, 20);
 
@@ -30,7 +38,7 @@ describe("ChatView", () => {
     const text = plain(lines).join("\n");
     expect(text).toContain("Rename the helper");
     expect(text).toContain("On it.");
-    expect(text).toContain("Edit src/a.ts");
+    expect(text).toContain("Edited 1 file");
     expect(lines).toHaveLength(20);
   });
 
@@ -66,18 +74,17 @@ describe("ChatView", () => {
     const chat = new ChatView();
     chat.setTranscript([
       { kind: "user", id: "u1", text: "yo" },
-      { kind: "tool", id: "t1", title: "Read file", status: "completed" },
-      { kind: "tool", id: "t2", title: "Edit file", status: "completed" },
+      tool("t1", "read"),
+      tool("t2", "edit"),
       { kind: "assistant", id: "a1", text: "Done." },
       { kind: "user", id: "u2", text: "thanks!" },
     ]);
-    const lines = plain(chat.render(40, 8)).map((line) => line.trim());
+    const lines = plain(chat.render(40, 7)).map((line) => line.trim());
 
     expect(lines).toEqual([
       "yo",
       "",
-      "● Read file",
-      "● Edit file",
+      "▸ Read 1 file · edited 1 file",
       "",
       "Done.",
       "",
@@ -85,6 +92,30 @@ describe("ChatView", () => {
     ]);
     // Ink draws an empty string with no height, so a blank line must carry a space to take up a row.
     expect(chat.render(40, 8).every((line) => line.length > 0)).toBe(true);
+  });
+
+  it("opens a tool group on a click to show each call and its output", () => {
+    const chat = new ChatView();
+    chat.setTranscript([
+      { kind: "user", id: "u1", text: "yo" },
+      tool("t1", "bash", "failed", "ls src", "a.ts\nb.ts"),
+      tool("t2", "bash"),
+    ]);
+    const closed = plain(chat.render(40, 3)).map((line) => line.trim());
+    expect(closed[2]).toBe("▸ Ran 2 shell commands · 1 failed");
+
+    expect(chat.toggleAt(0)).toBe(false);
+    expect(chat.toggleAt(2)).toBe(true);
+    expect(plain(chat.render(40, 8)).map((line) => line.trim())).toEqual([
+      "yo",
+      "",
+      "▾ Ran 2 shell commands · 1 failed",
+      "● bash ls src",
+      "⎿ a.ts",
+      "b.ts",
+      "● bash cmd",
+      "",
+    ]);
   });
 
   it("shows the run's status right under the latest message", () => {

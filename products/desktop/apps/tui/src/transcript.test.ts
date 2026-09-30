@@ -1,6 +1,11 @@
 import type { StoredLogEntry } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { transcriptFrom, withPending } from "./transcript";
+import {
+  type ToolLine,
+  toolSummary,
+  transcriptFrom,
+  withPending,
+} from "./transcript";
 
 const at = (second: number): string =>
   new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
@@ -37,11 +42,16 @@ const PI_LOG: StoredLogEntry[] = [
       title: "Edit src/a.ts",
       kind: "edit",
       status: "pending",
+      rawInput: { path: "src/a.ts" },
     },
   }),
   piEvent(5, {
     type: "tool_call_updated",
-    toolCall: { id: "t1", status: "completed" },
+    toolCall: {
+      id: "t1",
+      status: "completed",
+      rawOutput: [{ type: "text", text: "Renamed 3 uses" }],
+    },
   }),
   piEvent(6, { type: "turn_completed", stopReason: "stop" }),
 ];
@@ -81,11 +91,15 @@ const ACP_LOG: StoredLogEntry[] = [
     title: "Edit src/a.ts",
     kind: "edit",
     status: "pending",
+    rawInput: { path: "src/a.ts" },
   }),
   update(5, {
     sessionUpdate: "tool_call_update",
     toolCallId: "t1",
     status: "completed",
+    content: [
+      { type: "content", content: { type: "text", text: "Renamed 3 uses" } },
+    ],
   }),
   acp(6, { id: 1, result: { stopReason: "end_turn" } }),
 ];
@@ -103,7 +117,13 @@ describe("transcriptFrom", () => {
       expect(lines).toEqual([
         { kind: "user", text: "Rename the helper" },
         { kind: "assistant", text: "On it. Renaming now." },
-        { kind: "tool", title: "Edit src/a.ts", status: "completed" },
+        {
+          kind: "tool",
+          title: "Edit src/a.ts",
+          status: "completed",
+          detail: "src/a.ts",
+          output: "Renamed 3 uses",
+        },
       ]);
     },
   );
@@ -224,5 +244,25 @@ describe("withPending", () => {
         "text" in line ? line.text : "",
       ),
     ).toEqual(expected);
+  });
+});
+
+describe("toolSummary", () => {
+  const call = (title: string): ToolLine => ({
+    kind: "tool",
+    id: title,
+    title,
+    status: "completed",
+    detail: "",
+    output: "",
+  });
+
+  it.each([
+    [["bash"], "Ran 1 shell command"],
+    [["bash", "read", "bash", "read"], "Ran 2 shell commands · read 2 files"],
+    [["edit", "write"], "Edited 2 files"],
+    [["posthog__exec", "posthog__exec"], "Called PostHog 2 times"],
+  ])("sums up %j as %s", (titles, expected) => {
+    expect(toolSummary(titles.map(call))).toBe(expected);
   });
 });

@@ -108,6 +108,7 @@ export function runNotice(
   lines: TranscriptLine[],
   turnOpen: boolean,
   lastTurn: Transcript["lastTurn"],
+  turnStartedAt: number | null = null,
 ): { text: string; tone: "working" | "error" | "done" } | null {
   if (view.status === "failed") {
     return { text: view.runError || "The run failed.", tone: "error" };
@@ -119,7 +120,15 @@ export function runNotice(
   }
   // A turn still going, or a message the agent has not picked up yet.
   if (running && (turnOpen || waiting)) {
-    return { text: "Thinking…", tone: "working" };
+    if (turnStartedAt === null || waiting)
+      return { text: "Thinking…", tone: "working" };
+    const since = lines.findLastIndex((line) => line.kind === "user");
+    const tools = lines
+      .slice(since + 1)
+      .filter((line) => line.kind === "tool").length;
+    const parts = ["Working", formatDuration(Date.now() - turnStartedAt)];
+    if (tools > 0) parts.push(`${tools} tool${tools === 1 ? "" : "s"}`);
+    return { text: parts.join(" · "), tone: "working" };
   }
   if (lastTurn && !waiting) {
     const done = new Date(lastTurn.endedAt).toLocaleTimeString("en-US", {

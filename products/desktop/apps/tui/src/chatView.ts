@@ -11,8 +11,9 @@ import {
   Spacer,
   stripTerminalSequences,
   Text,
+  truncateToWidth,
 } from "@earendil-works/pi-tui";
-import type { TranscriptLine } from "./transcript";
+import { type ToolLine, type TranscriptLine, toolSummary } from "./transcript";
 
 // Shell-integration prompt marks (OSC 133) that pi emits for its own screen.
 const PROMPT_MARKS = new RegExp(`${"\u001b"}\\]133;[A-Z]${"\u0007"}`, "g");
@@ -22,7 +23,10 @@ const TOOL_MARKS: Record<string, string> = {
   failed: "\u001b[31m●\u001b[39m",
   in_progress: "\u001b[33m●\u001b[39m",
 };
+const RED = (text: string): string => `\u001b[31m${text}\u001b[39m`;
 const OLDER_ROW = "older";
+// Output lines an expanded tool call shows before it cuts off.
+const OUTPUT_LINES = 5;
 const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 export interface ChatNotice {
@@ -76,11 +80,55 @@ class Trimmed implements Component {
   }
 }
 
+type Block = TranscriptLine | { kind: "tools"; id: string; tools: ToolLine[] };
+
+// Consecutive tool calls read as one row, which a click opens.
+function blocksOf(lines: TranscriptLine[]): Block[] {
+  const blocks: Block[] = [];
+  for (const line of lines) {
+    const last = blocks.at(-1);
+    if (line.kind === "tool" && last?.kind === "tools") last.tools.push(line);
+    else if (line.kind === "tool")
+      blocks.push({ kind: "tools", id: line.id, tools: [line] });
+    else blocks.push(line);
+  }
+  return blocks;
+}
+
+class ToolGroup implements Component {
+  constructor(
+    private readonly tools: ToolLine[],
+    private readonly isOpen: () => boolean,
+  ) {}
+
+  render(width: number): string[] {
+    const open = this.isOpen();
+    const failed = this.tools.filter((tool) => tool.status === "failed").length;
+    const summary = `${DIM(`${open ? "▾" : "▸"} ${toolSummary(this.tools)}`)}${failed ? ` ${DIM("·")} ${RED(`${failed} failed`)}` : ""}`;
+    const lines = [truncateToWidth(` ${summary}`, width)];
+    if (!open) return lines;
+    for (const tool of this.tools) {
+      const mark = TOOL_MARKS[tool.status] ?? DIM("●");
+      lines.push(
+        truncateToWidth(`   ${mark} ${tool.title} ${DIM(tool.detail)}`, width),
+      );
+      const output = tool.output.split("\n").filter((line) => line.trim());
+      output.slice(0, OUTPUT_LINES).forEach((line, index) => {
+        const prefix = index === 0 ? "⎿" : " ";
+        lines.push(truncateToWidth(DIM(`     ${prefix} ${line}`), width));
+      });
+      if (output.length > OUTPUT_LINES)
+        lines.push(DIM(`       … +${output.length - OUTPUT_LINES} lines`));
+    }
+    return lines;
+  }
+
+  invalidate(): void {}
+}
+
 // Each change between user, tool and agent blocks gets one blank line.
-const needsGap = (
-  previous: TranscriptLine | undefined,
-  line: TranscriptLine,
-): boolean => previous !== undefined && previous.kind !== line.kind;
+const needsGap = (previous: Block | undefined, line: Block): boolean =>
+  previous !== undefined && previous.kind !== line.kind;
 
 function componentFor(line: TranscriptLine): Component {
   const markdown = getMarkdownTheme();
@@ -93,14 +141,10 @@ function componentFor(line: TranscriptLine): Component {
         false,
         markdown,
       );
-    case "tool":
-      return new Text(
-        `${TOOL_MARKS[line.status] ?? DIM("●")} ${DIM(line.title)}`,
-        1,
-        0,
-      );
     case "notice":
       return new Text(DIM(line.text), 1, 0);
+    // Tool calls render as groups; offered actions show in the picker.
+    case "tool":
     case "actions":
       return new Text("", 0, 0);
   }
@@ -113,6 +157,10 @@ export class ChatView {
   // The message at the top of the screen, so new history above it does not move the reader.
   private anchor: { id: string; within: number } | null = null;
   private transcriptChanged = false;
+  // Tool groups the reader opened, and where each item sat in the last render, for clicks.
+  private readonly expanded = new Set<string>();
+  private groups = new Set<string>();
+  private rows: { id: string; start: number; end: number }[] = [];
 
   setTranscript(
     lines: TranscriptLine[],
@@ -122,11 +170,18 @@ export class ChatView {
     }: { hasOlder?: boolean; notice?: ChatNotice | null } = {},
   ): void {
     // Offered actions show in the pane's picker, not in the scrollback.
-    const shown = lines.filter((line) => line.kind !== "actions");
-    this.items = shown.flatMap((line, index) => {
-      const item = { id: line.id, component: new Trimmed(componentFor(line)) };
-      return needsGap(shown[index - 1], line)
-        ? [{ id: `${line.id}:gap`, component: new Spacer(1) }, item]
+    const shown = blocksOf(lines.filter((line) => line.kind !== "actions"));
+    this.groups = new Set(
+      shown.flatMap((block) => (block.kind === "tools" ? [block.id] : [])),
+    );
+    this.items = shown.flatMap((block, index) => {
+      const component =
+        block.kind === "tools"
+          ? new ToolGroup(block.tools, () => this.expanded.has(block.id))
+          : new Trimmed(componentFor(block));
+      const item = { id: block.id, component };
+      return needsGap(shown[index - 1], block)
+        ? [{ id: `${block.id}:gap`, component: new Spacer(1) }, item]
         : [item];
     });
     if (notice) {
@@ -148,9 +203,11 @@ export class ChatView {
     const contentWidth = this.scroll.getContentWidth(width);
     const starts = new Map<string, number>();
     const content: string[] = [];
+    this.rows = [];
     for (const { id, component } of this.items) {
       starts.set(id, content.length);
       content.push(...component.render(contentWidth));
+      this.rows.push({ id, start: starts.get(id) ?? 0, end: content.length });
     }
     this.scroll.updateLayout(content.length, height, () => {});
     const start = this.anchor ? starts.get(this.anchor.id) : undefined;
@@ -174,6 +231,15 @@ export class ChatView {
       // Ink gives an empty string no height, so blank lines carry a space.
       .map((line) => line.replace(PROMPT_MARKS, "") || " ");
     return [...visible, ...Array<string>(height - visible.length).fill(" ")];
+  }
+
+  // A click on a tool group, by row within the chat, opens or closes it; false when it hit something else.
+  toggleAt(row: number): boolean {
+    const at = this.scroll.scrollTop + row;
+    const hit = this.rows.find(({ start, end }) => at >= start && at < end);
+    if (!hit || !this.groups.has(hit.id)) return false;
+    if (!this.expanded.delete(hit.id)) this.expanded.add(hit.id);
+    return true;
   }
 
   isAtTop(): boolean {

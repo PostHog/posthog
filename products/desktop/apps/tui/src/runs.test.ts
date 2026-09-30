@@ -313,6 +313,33 @@ describe("runNotice after a finished turn", () => {
   });
 });
 
+describe("runNotice during a turn", () => {
+  it("says how long the agent has worked and how many tools it called", () => {
+    const lines = [
+      { kind: "user" as const, id: "u", text: "hi" },
+      ...["t1", "t2"].map((id) => ({
+        kind: "tool" as const,
+        id,
+        title: "bash",
+        status: "completed",
+        detail: "",
+        output: "",
+      })),
+    ];
+    const notice = runNotice(
+      { ...emptyRunView, loaded: true, status: "in_progress" },
+      lines,
+      true,
+      null,
+      Date.now() - 30_000,
+    );
+    expect(notice).toEqual({
+      text: "Working · 30s · 2 tools",
+      tone: "working",
+    });
+  });
+});
+
 describe("formatDuration", () => {
   it.each([
     [4_000, "4s"],
