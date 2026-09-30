@@ -113,7 +113,7 @@ export function PlatformAlerts(): JSX.Element {
                 rowExpandable: (configuration) => configuration.alerts.length > 0,
                 expandedRowRender: (configuration) => (
                     <LemonTable
-                        dataSource={configuration.alerts}
+                        dataSource={[...configuration.alerts]}
                         columns={GROUP_COLUMNS}
                         rowKey="id"
                         size="small"
