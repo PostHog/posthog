@@ -65,7 +65,8 @@ export function ScoutStructuredOutputSection({
     const text = draft ?? savedText
     const { schema, error } = parseScoutStructuredOutputSchema(text)
     const changed = JSON.stringify(schema) !== JSON.stringify(saved)
-    const unsaved = draft !== null && changed
+    // A draft that does not parse yet, or one whose save is still in flight, is still unsaved work.
+    const unsaved = draft !== null && (changed || error !== null || submitted !== null)
     useEffect(() => {
         onUnsavedChange?.(unsaved)
         return () => onUnsavedChange?.(false)

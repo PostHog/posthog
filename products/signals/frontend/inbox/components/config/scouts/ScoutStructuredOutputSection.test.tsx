@@ -148,6 +148,20 @@ describe('ScoutStructuredOutputSection', () => {
         open.mockRestore()
     })
 
+    it.each([
+        // Half-typed JSON parses to no schema, which must not read as matching "no schema saved".
+        ['a draft that does not parse yet', '{'],
+        ['a valid draft', JSON.stringify(SCHEMA)],
+    ])('reports %s as unsaved so the modal keeps it', (_name, text) => {
+        const onUnsavedChange = jest.fn()
+        render(<ScoutStructuredOutputSection config={CONFIG} onUpdate={jest.fn()} onUnsavedChange={onUnsavedChange} />)
+        fireEvent.click(screen.getByText('Structured output'))
+
+        fireEvent.change(screen.getByLabelText('signals-scout-hygiene record schema'), { target: { value: text } })
+
+        expect(onUnsavedChange).toHaveBeenLastCalledWith(true)
+    })
+
     it('refuses to save a schema the API would reject', () => {
         const onUpdate = openSection(CONFIG)
 
