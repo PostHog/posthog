@@ -27,6 +27,7 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.recalculation import (
     _derive_counters,
     get_run_results,
+    metrics_recalculation_workflow_id,
     request_recalculation,
     start_metrics_recalculation_workflow,
 )
@@ -106,7 +107,7 @@ def temporal_workflow_url(recalculation_id: str) -> str:
     so it resolves per region without hardcoding a slug."""
     return (
         f"https://cloud.temporal.io/namespaces/{settings.TEMPORAL_NAMESPACE}"
-        f"/workflows/experiment-metrics-recalculation-{recalculation_id}"
+        f"/workflows/{metrics_recalculation_workflow_id(recalculation_id)}"
     )
 
 
@@ -162,17 +163,12 @@ def start_recalculation_for_experiment(
 
     recalculation_id = str(result["id"])
     try:
-        start_metrics_recalculation_workflow(recalculation_id, str(experiment.team.organization_id))
+        start_metrics_recalculation_workflow(
+            recalculation_id,
+            team_id=experiment.team_id,
+            organization_id=str(experiment.team.organization_id),
+        )
     except Exception as e:
-        # start_workflow can raise after the server accepted the start, so only roll back a row that is
-        # still PENDING with no query_to; a run past mark_started proceeds untouched, and one caught in
-        # the discovery window is terminated cleanly by the mark_started/mark_completed guards
-        # (mirrors the API rollback).
-        ExperimentMetricsRecalculation.objects.for_team(experiment.team_id).filter(
-            id=recalculation_id,
-            status=ExperimentMetricsRecalculation.Status.PENDING,
-            query_to__isnull=True,
-        ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
         messages.error(request, f"Created the row but failed to start the workflow (marked failed): {e}")
         return HttpResponseRedirect(fallback_url)
 

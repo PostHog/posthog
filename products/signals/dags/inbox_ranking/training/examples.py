@@ -135,6 +135,43 @@ def assemble_snapshot(date: datetime.date, state: pd.DataFrame, labels: pd.DataF
     return Snapshot(date=date, state=state, labels=aligned)
 
 
+@frozen
+class ConsentExclusion:
+    """What `drop_without_training_consent` removed, as counts only."""
+
+    reports: int
+    teams: int
+
+
+def drop_without_training_consent(
+    snapshots: Mapping[datetime.date, Snapshot], team_ids: frozenset[int]
+) -> tuple[dict[datetime.date, Snapshot], ConsentExclusion]:
+    """`snapshots` without the reports of teams outside `team_ids`, read at training time.
+
+    The dataset dag stops collecting those reports, but the window reaches back over partitions
+    written before an organization opted out. Filtering here makes an opt-out reach the next
+    training run. A state row with no readable team fails closed. Label-only rows have no state and
+    are kept: `example_moments` never makes one a moment, and a report deleted before a later
+    snapshot needs its label row there.
+    """
+    kept: dict[datetime.date, Snapshot] = {}
+    reports: set[object] = set()
+    teams: set[int] = set()
+    for date, snapshot in snapshots.items():
+        state = snapshot.state
+        team = state["report_team_id"] if "report_team_id" in state else pd.Series(float("nan"), index=state.index)
+        excluded = state["signal_count"].notna() & ~team.isin(team_ids)
+        dropped = state.index[excluded.to_numpy()]
+        reports.update(dropped)
+        teams.update(int(team_id) for team_id in team[excluded].dropna())
+        kept[date] = Snapshot(
+            date=date,
+            state=state.drop(dropped),
+            labels=snapshot.labels.drop(snapshot.labels.index.intersection(dropped)),
+        )
+    return kept, ConsentExclusion(reports=len(reports), teams=len(teams))
+
+
 def birth_day_mask(state: pd.DataFrame, date: datetime.date) -> pd.Series:
     """True for rows of the reports created on snapshot day `date`.
 
