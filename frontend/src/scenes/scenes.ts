@@ -332,6 +332,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Homepage',
         layout: 'app-raw-no-header',
     },
+    [Scene.Library]: {
+        projectBased: true,
+        name: 'Library',
+    },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
@@ -825,6 +829,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
+    [urls.todayReport(':reportId')]: [Scene.ProjectHomepage, 'todayReport'],
+    [urls.library()]: [Scene.Library, 'library'],
+    [urls.library(':objectType')]: [Scene.Library, 'libraryObjectType'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],

@@ -15,6 +15,8 @@ import { Scene, SceneConfig } from 'scenes/sceneTypes'
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
+import { TodayShell } from '~/layout/today/TodayShell'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
@@ -48,10 +50,13 @@ export function Navigation({
     const { scenePanelIsPresent, scenePanelOpenManual, sceneTakeoverActive } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
+    const { leftNavWidth: todayLeftNavWidth } = useValues(todayShellLogic)
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+    // The rail layout has no overlay mode, so narrow windows keep the regular navigation.
+    const todayRail = useFeatureFlag('TODAY_RAIL_NAV') && !mobileLayout
     const inlinePanelRef = useRef<HTMLDivElement | null>(null)
     const inlinePanelCallbackRef = useCallback(
         (node: HTMLDivElement | null) => {
@@ -144,6 +149,7 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': mobileLayout,
+                    TodayAppLayout: todayRail,
                 })}
                 style={
                     {
@@ -163,14 +169,16 @@ export function Navigation({
                         // --project-navbar-width. Collapsed/mobile fall back to the base default.
                         '--project-navbar-width':
                             !mobileLayout && !isLayoutNavCollapsed ? `${navbarWidth}px` : undefined,
-                        '--left-nav-width': isLayoutNavCollapsed
-                            ? 'var(--project-navbar-width-collapsed)'
-                            : 'var(--project-navbar-width)',
+                        '--left-nav-width': todayRail
+                            ? `${todayLeftNavWidth}px`
+                            : isLayoutNavCollapsed
+                              ? 'var(--project-navbar-width-collapsed)'
+                              : 'var(--project-navbar-width)',
                     } as React.CSSProperties
                 }
             >
                 <ProjectDragAndDropProvider>
-                    <PanelLayout className="left-nav" />
+                    {todayRail ? <TodayShell className="left-nav" /> : <PanelLayout className="left-nav" />}
 
                     <div
                         className={cn(

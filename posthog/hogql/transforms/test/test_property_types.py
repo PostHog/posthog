@@ -34,6 +34,8 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -1656,6 +1658,129 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
             context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
         )
         assert inactive.results == [("[]", 1, 1)]
+
+    def test_moved_mutation_properties_read_the_same_on_both_schemas(self) -> None:
+        event_uuid = _create_event(
+            team=self.team,
+            distinct_id="moved-properties",
+            event="$identify",
+            properties={
+                "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
+                "$set_once": {"initial_referrer": "https://example.com", "is_beta": True},
+                "$unset": ["old_key"],
+                "$sdk_debug_replay_flushed_size": 42,
+                "$browser": "Firefox",
+            },
+        )
+        flush_persons_and_events()
+
+        query = (
+            "SELECT properties.$set.email, JSONExtractString(properties, '$set', 'email'), "
+            "JSONHas(properties, '$set'), JSONHas(properties, '$set', 'plan', 'tier'), "
+            "properties.$set_once.initial_referrer, properties.$set.plan.tier, JSONLength(properties, '$set'), "
+            "JSONType(properties, '$unset'), JSONExtractKeys(properties, '$set'), "
+            "JSONExtractArrayRaw(properties, '$unset'), toFloat(properties.$sdk_debug_replay_flushed_size), "
+            "properties.$sdk_debug_replay_flushed_size, properties.$browser, JSONExtractRaw(properties, '$set'), "
+            "properties.$unset, JSONExtractKeysAndValuesRaw(properties, '$set') "
+            f"FROM events WHERE uuid = '{event_uuid}' AND properties.$set.email = 'user@example.com'"
+        )
+        for use_new_events_schema in (False, True):
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+                context=HogQLContext(
+                    team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+                ),
+            )
+            assert response.results == [
+                (
+                    "user@example.com",
+                    "user@example.com",
+                    1,
+                    1,
+                    "https://example.com",
+                    "pro",
+                    2,
+                    "Array",
+                    ["email", "plan"],
+                    ['"old_key"'],
+                    42.0,
+                    "42",
+                    "Firefox",
+                    '{"email":"user@example.com","plan":{"tier":"pro"}}',
+                    '["old_key"]',
+                    [("email", '"user@example.com"'), ("plan", '{"tier":"pro"}')],
+                )
+            ], use_new_events_schema
+
+        # One call per registered JSON function, so a newly registered function fails here until native reads the
+        # moved key. isValidJSON and JSONArrayLength take no key path.
+        moved_key_calls = {
+            "JSONHas": "JSONHas(properties, '$set', 'email')",
+            "JSONLength": "JSONLength(properties, '$set')",
+            "JSONType": "JSONType(properties, '$set')",
+            "JSONExtract": "JSONExtract(properties, '$set', 'email', 'String')",
+            "JSONExtractUInt": "JSONExtractUInt(properties, '$sdk_debug_replay_flushed_size')",
+            "JSONExtractInt": "JSONExtractInt(properties, '$sdk_debug_replay_flushed_size')",
+            "JSONExtractFloat": "JSONExtractFloat(properties, '$sdk_debug_replay_flushed_size')",
+            "JSONExtractBool": "JSONExtractBool(properties, '$set_once', 'is_beta')",
+            "JSONExtractString": "JSONExtractString(properties, '$set', 'email')",
+            "JSONExtractKeys": "JSONExtractKeys(properties, '$set')",
+            "JSONExtractRaw": "JSONExtractRaw(properties, '$set', 'plan')",
+            "JSONExtractArrayRaw": "JSONExtractArrayRaw(properties, '$unset')",
+            "JSONExtractKeysAndValues": "JSONExtractKeysAndValues(properties, '$set_once', 'String')",
+            "JSONExtractKeysAndValuesRaw": "JSONExtractKeysAndValuesRaw(properties, '$set_once')",
+            "JSON_VALUE": "JSON_VALUE(properties, '$.\"$set\".email')",
+        }
+        assert set(moved_key_calls) | {"isValidJSON", "JSONArrayLength"} == set(JSON_FUNCTIONS)
+        legacy_row, native_row = (
+            execute_hogql_query(
+                f"SELECT {', '.join(moved_key_calls.values())} FROM events WHERE uuid = '{event_uuid}'",
+                team=self.team,
+                context=HogQLContext(
+                    team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+                ),
+            ).results[0]
+            for use_new_events_schema in (False, True)
+        )
+        assert all(legacy_row), legacy_row
+        assert native_row == legacy_row
+
+        with pytest.raises(QueryError, match="requires a constant first key"):
+            execute_hogql_query(
+                f"SELECT JSONLength(properties, concat('$', 'set')) FROM events WHERE uuid = '{event_uuid}'",
+                team=self.team,
+                context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
+            )
+
+        for restricted_name, restricted_query, expected in (
+            (
+                "$set",
+                "SELECT properties.$set.email, JSONExtractRaw(properties, '$set'), JSONHas(properties, '$set'), "
+                "JSONLength(properties, '$set'), JSONExtractKeys(properties, '$set'), "
+                "properties.$set_once.initial_referrer, JSON_VALUE(properties, '$.\"$set\".email')",
+                (None, "", 0, 0, [], "https://example.com", ""),
+            ),
+            (
+                "$set.plan",
+                "SELECT properties.$set.email, JSONExtractString(properties, '$set', 'email'), "
+                "JSONExtractRaw(properties, '$set'), JSONHas(properties, '$set', 'plan'), "
+                "JSONLength(properties, '$set'), properties.$set.plan.tier",
+                ("user@example.com", "user@example.com", '{"email":"user@example.com"}', 0, 1, None),
+            ),
+        ):
+            restricted_context = HogQLContext(
+                team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True
+            )
+            restricted_context.restricted_properties = {
+                RestrictedProperty(name=restricted_name, property_type=PropertyDefinition.Type.EVENT)
+            }
+            restricted = execute_hogql_query(
+                f"{restricted_query} FROM events WHERE uuid = '{event_uuid}'",
+                team=self.team,
+                context=restricted_context,
+            )
+            assert restricted.results == [expected], restricted_name
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────

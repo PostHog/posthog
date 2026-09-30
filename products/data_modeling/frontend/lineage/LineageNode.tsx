@@ -49,6 +49,7 @@ export interface LineageNodeState {
     isRunning?: boolean
     /** Ringed when a search or type filter highlights this node */
     isHighlighted?: boolean
+    isSelected?: boolean
 }
 
 export interface LineageNodeCallbacks {
@@ -231,10 +232,20 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
             <div
                 className={clsx(
                     'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
-                    state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
-                    !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
-                    !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
-                    node.lineage_issue && !state.isRunning && !state.isHighlighted && 'border-warning',
+                    state.isRunning && 'animate-pulse',
+                    state.isRunning && !state.isSelected && 'border-warning ring-2 ring-warning/30',
+                    state.isSelected && 'border-link ring-4 ring-link/40',
+                    !state.isRunning && !state.isSelected && state.isHighlighted && 'border-link ring-2 ring-link/30',
+                    !state.isRunning &&
+                        !state.isSelected &&
+                        !state.isHighlighted &&
+                        !state.isCurrent &&
+                        'border-border',
+                    node.lineage_issue &&
+                        !state.isRunning &&
+                        !state.isSelected &&
+                        !state.isHighlighted &&
+                        'border-warning',
                     state.isCurrent && 'border-2'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
