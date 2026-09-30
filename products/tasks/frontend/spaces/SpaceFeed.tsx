@@ -54,6 +54,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                             item={item}
                             pinned={pinnedIds.has(item.id)}
                             dataAttr="today-space-feed-session"
+                            surface="feed"
                         />
                     ))}
                 </Fragment>
