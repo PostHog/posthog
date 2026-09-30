@@ -371,6 +371,7 @@ def capture_evaluation_run_usage(
         "total_tokens": result.get("total_tokens", 0),
         **({"verdict": result["verdict"]} if "verdict" in result else {}),
         "result_type": result["result_type"],
+        "status": "skipped" if result.get("skipped") else "completed",
     }
     try:
         organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
@@ -441,8 +442,8 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             properties=properties,
             event_uuid=_evaluation_event_uuid(),
         )
-        # LLM judge runs emit telemetry in the workflow's separate activity.
-        if evaluation.get("evaluation_type", "llm_judge") != "llm_judge" and not result.get("skipped"):
+        # Completed LLM judge runs emit telemetry in the workflow's separate activity.
+        if evaluation.get("evaluation_type", "llm_judge") != "llm_judge" or result.get("skipped"):
             capture_evaluation_run_usage(evaluation, result, team_id=event_data["team_id"])
 
     try:

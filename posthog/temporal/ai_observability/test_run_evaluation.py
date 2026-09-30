@@ -91,14 +91,16 @@ from .run_evaluation import (
     run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
 )
+from .run_trace_evaluation import EmitTraceEvaluationEventInputs, emit_trace_evaluation_event_activity
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("skipped", [False, True])
 @pytest.mark.parametrize(
-    "evaluation_type,result",
+    "target,evaluation_type,result",
     [
-        (evaluation_type, result)
+        (target, evaluation_type, result)
+        for target in ["generation", "trace", "session"]
         for evaluation_type in ["hog", "llm_judge"]
         for result in [
             {"result_type": "boolean", "verdict": True, "input_tokens": 42},
@@ -106,10 +108,12 @@ from .run_evaluation import (
             {"result_type": "categorical", "categories": ["private_key"]},
         ]
     ]
-    + [("sentiment", {"result_type": "sentiment", "sentiment_score": 0.9, "sentiment_label": "positive"})],
+    + [
+        ("generation", "sentiment", {"result_type": "sentiment", "sentiment_score": 0.9, "sentiment_label": "positive"})
+    ],
 )
 async def test_execution_telemetry_covers_output_types(
-    evaluation_type: str, result: EvaluationActivityResult, skipped: bool
+    target: str, evaluation_type: str, result: EvaluationActivityResult, skipped: bool
 ) -> None:
     evaluation = {"id": "test-evaluation", "name": "Example evaluation", "evaluation_type": evaluation_type}
     result = {**result, "skipped": skipped, "reasoning": "Private content"}
@@ -119,42 +123,55 @@ async def test_execution_telemetry_covers_output_types(
         patch(f"{module}.Team.objects.filter") as teams,
         patch(f"{module}.ph_background_capture") as capture,
         patch(f"{module}.capture_ai_internal_for_team"),
+        patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_ai_internal_for_team"),
     ):
         teams.return_value.values_list.return_value.get.return_value = "test-org"
-        await emit_evaluation_event_activity(
-            EmitEvaluationEventInputs(
-                evaluation=evaluation,
-                event_data=create_mock_event_data(1),
-                result=result,
-                start_time=datetime(2026, 9, 1, tzinfo=UTC),
-            )
-        )
-        if evaluation_type == "llm_judge":
-            capture.assert_not_called()
-            if not skipped:
-                await emit_internal_telemetry_activity(
-                    EmitInternalTelemetryInputs(evaluation=evaluation, team_id=1, result=result)
+        if target == "generation":
+            await emit_evaluation_event_activity(
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=create_mock_event_data(1),
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
                 )
+            )
+        else:
+            await emit_trace_evaluation_event_activity(
+                EmitTraceEvaluationEventInputs(
+                    evaluation=evaluation,
+                    team_id=1,
+                    trace_id="example-trace",
+                    distinct_id="example-user",
+                    session_id=None,
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                    target=target,
+                    ai_session_id="example-session",
+                )
+            )
+        if not skipped and (target != "generation" or evaluation_type == "llm_judge"):
+            capture.assert_not_called()
+            await emit_internal_telemetry_activity(
+                EmitInternalTelemetryInputs(evaluation=evaluation, team_id=1, result=result)
+            )
 
-    if skipped:
-        capture.assert_not_called()
-    else:
-        capture.return_value.assert_called_once_with(
-            distinct_id="org-test-org",
-            event="llm analytics evaluation executed",
-            properties={
-                "evaluation_id": "test-evaluation",
-                "team_id": 1,
-                "model": run_evaluation_module.DEFAULT_JUDGE_MODEL,
-                "provider": "openai",
-                "input_tokens": result.get("input_tokens", 0),
-                "output_tokens": 0,
-                "total_tokens": 0,
-                **({"verdict": result["verdict"]} if "verdict" in result else {}),
-                "result_type": result["result_type"],
-            },
-            groups={"organization": "test-org", "instance": "https://example.com"},
-        )
+    capture.return_value.assert_called_once_with(
+        distinct_id="org-test-org",
+        event="llm analytics evaluation executed",
+        properties={
+            "evaluation_id": "test-evaluation",
+            "team_id": 1,
+            "model": run_evaluation_module.DEFAULT_JUDGE_MODEL,
+            "provider": "openai",
+            "input_tokens": result.get("input_tokens", 0),
+            "output_tokens": 0,
+            "total_tokens": 0,
+            **({"verdict": result["verdict"]} if "verdict" in result else {}),
+            "result_type": result["result_type"],
+            "status": "skipped" if skipped else "completed",
+        },
+        groups={"organization": "test-org", "instance": "https://example.com"},
+    )
 
 
 @pytest.mark.asyncio
