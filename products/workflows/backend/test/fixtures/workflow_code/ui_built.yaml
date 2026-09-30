@@ -1,4 +1,4 @@
-# This workflow has no key, so the file uses welcome-email, made from its name. Applying the file creates a workflow with this key, or updates the one that already has it. It never changes this workflow.
+# This workflow has no key, so the file uses welcome-email, made from its name. Applying the file creates a second workflow with this key, or updates the one that already has it, and this workflow keeps running. The file says status: draft, so the two never run side by side. To run the workflow from the file, archive this one in PostHog, then set status: active in the file.
 # The file writes "Email" as type: step with its whole config, because a step of type email cannot hold all of it.
 # The workflow sets conversion, which a file does not carry. Applying the file keeps the stored value.
 version: 1

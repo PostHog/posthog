@@ -1,6 +1,7 @@
 import re
 from collections.abc import Callable
 from typing import Any, Optional
+from urllib.parse import parse_qsl, urlsplit
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
@@ -30,6 +31,7 @@ from products.workflows.backend.services.workflow_code.document import (
     key_from_name,
 )
 from products.workflows.backend.services.workflow_code.yaml_dumper import dump_workflow_file
+from products.workflows.backend.services.workflow_code.yaml_loader import MAX_CONTENT_BYTES, MAX_DEPTH, MAX_VALUES
 
 _DERIVED_KEYS = frozenset({"bytecode", "bytecode_error", "bytecode_contract", "transpiled"})
 _INPUT_DERIVED_KEYS = _DERIVED_KEYS | {"order"}
@@ -38,6 +40,16 @@ _DEFAULT_FILTER_SOURCE = "events"
 _BRANCH_COUNT_KEYS = {"conditional_branch": "conditions", "random_cohort_branch": "cohorts"}
 _NOT_IN_THE_FILE = ("conversion", "trigger_masking", "email_sending_rate_limit", "abort_action")
 _LEADING_FIELDS = ("version", "key", "type", "id", "name")
+_TRAILING_FIELDS = ("output_variable",)
+_EDITOR_FIELDS = ("created_at", "updated_at")
+_NODE_FIELDS = frozenset({"id", "name", "description", "type", "config", *_EDITOR_FIELDS})
+_STEP_FIELDS = _NODE_FIELDS | {"output_variable"}
+# Header, input and query names that usually hold a credential the template does not mark as secret.
+_CREDENTIAL_NAME = re.compile(
+    r"^(?:proxy-)?authorization$|cookie|token|secret|passw|api[-_]?key|access[-_]?key|^x-auth", re.IGNORECASE
+)
+_MAX_STEP_ID_LENGTH = 200
+_SHRINK_IT = "An email design from the email editor is the usual cause. Make the workflow smaller in PostHog before you pull it again."
 _DOCUMENT_STATUSES = (HogFlow.State.DRAFT, HogFlow.State.ACTIVE)
 # Each nested branch adds about four levels to the file, and the loader refuses files deeper than 100.
 MAX_BRANCH_DEPTH = 15
@@ -104,11 +116,84 @@ def _file_config(value: Any) -> Any:
                 filter_key: _file_config(filter_value)
                 for filter_key, filter_value in item.items()
                 if filter_key not in _DERIVED_KEYS
-                and not (filter_key == "source" and filter_value == _DEFAULT_FILTER_SOURCE)
             }
         else:
             cleaned[key] = _file_config(item)
     return cleaned
+
+
+def _without_default_source(filters: Any) -> Any:
+    if not isinstance(filters, dict):
+        return filters
+    return {key: value for key, value in filters.items() if not (key == "source" and value == _DEFAULT_FILTER_SOURCE)}
+
+
+def _without_filled_in_sources(action_type: Any, config: dict[str, Any]) -> dict[str, Any]:
+    """The config without the default filter source in the filters that validation fills it back into."""
+    cleaned = dict(config)
+    if action_type == "trigger":
+        if cleaned.get("type") == "event" and "filters" in cleaned:
+            cleaned["filters"] = _without_default_source(cleaned["filters"])
+        return cleaned
+    if isinstance(cleaned.get("conditions"), list):
+        cleaned["conditions"] = [_with_filters_cleaned(condition) for condition in cleaned["conditions"]]
+    if isinstance(cleaned.get("condition"), dict):
+        cleaned["condition"] = _with_filters_cleaned(cleaned["condition"])
+    if action_type == "wait_until_condition" and isinstance(cleaned.get("events"), list):
+        cleaned["events"] = [_with_filters_cleaned(event) for event in cleaned["events"]]
+    return cleaned
+
+
+def _with_filters_cleaned(entry: Any) -> Any:
+    if not isinstance(entry, dict) or "filters" not in entry:
+        return entry
+    return {**entry, "filters": _without_default_source(entry["filters"])}
+
+
+def _credential_names(inputs: dict[str, Any]) -> list[str]:
+    """Where the inputs hold something named like a credential: an input, a header or a URL query key."""
+    found: list[str] = []
+    for key, raw in inputs.items():
+        value = raw.get("value") if isinstance(raw, dict) else raw
+        if _is_secret_marker(raw) or not _is_set(value):
+            continue
+        if _CREDENTIAL_NAME.search(key):
+            found.append(f"the input {key}")
+        if isinstance(value, dict):
+            found += [
+                f"{name} in the input {key}"
+                for name, item in value.items()
+                if isinstance(name, str) and _CREDENTIAL_NAME.search(name) and _is_set(item)
+            ]
+        elif isinstance(value, str) and "?" in value:
+            found += [
+                f"{name} in the query of the input {key}"
+                for name, _item in parse_qsl(urlsplit(value).query)
+                if _CREDENTIAL_NAME.search(name)
+            ]
+    return found
+
+
+@frozen
+class _Shape:
+    depth: int
+    values: int
+
+
+def _shape(value: Any) -> _Shape:
+    """How deep the data nests, and how many values it holds as the loader counts them, keys included."""
+    deepest, values = 0, 0
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        deepest = max(deepest, depth)
+        values += 1
+        if isinstance(item, dict):
+            values += len(item)
+            pending += [(child, depth + 1) for child in item.values()]
+        elif isinstance(item, list):
+            pending += [(child, depth + 1) for child in item]
+    return _Shape(depth=deepest, values=values)
 
 
 def _file_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
@@ -141,9 +226,7 @@ def _ordered(value: Any) -> Any:
     if isinstance(value, EmailRecipient) and not value.name:
         return value.email
     fields = type(value).model_fields
-    names = sorted(
-        fields, key=lambda name: _LEADING_FIELDS.index(name) if name in _LEADING_FIELDS else len(_LEADING_FIELDS)
-    )
+    names = sorted(fields, key=_field_rank)
     plain: dict[str, Any] = {}
     for name in names:
         field = fields[name]
@@ -152,6 +235,12 @@ def _ordered(value: Any) -> Any:
             continue
         plain[field.alias or name] = _ordered(field_value)
     return plain
+
+
+def _field_rank(name: str) -> int:
+    if name in _LEADING_FIELDS:
+        return _LEADING_FIELDS.index(name)
+    return len(_LEADING_FIELDS) + (1 if name in _TRAILING_FIELDS else 0)
 
 
 @frozen
@@ -165,6 +254,7 @@ class _Renderer:
         self.definition = definition
         self.warnings: list[RenderWarning] = []
         self.visited: set[str] = set()
+        self.replacement_ids: set[str] = set()
         self.actions: dict[str, dict[str, Any]] = {}
         for action in _list(definition.get("actions")):
             if isinstance(action, dict) and isinstance(action.get("id"), str):
@@ -201,11 +291,17 @@ class _Renderer:
     def render(self, key: str | None) -> RenderedWorkflow:
         definition = self.definition
         name = definition.get("name") or "Workflow"
+        if not definition.get("name"):
+            self.warn(
+                None, "The workflow has no name, so the file calls it Workflow. Applying the file names it Workflow."
+            )
+        status = self.render_status(definition.get("status"))
         if not key:
             key = key_from_name(name)
+            status = HogFlow.State.DRAFT
             self.warn(
                 None,
-                f"This workflow has no key, so the file uses {key}, made from its name. Applying the file creates a workflow with this key, or updates the one that already has it. It never changes this workflow.",
+                f"This workflow has no key, so the file uses {key}, made from its name. Applying the file creates a second workflow with this key, or updates the one that already has it, and this workflow keeps running. The file says status: draft, so the two never run side by side. To run the workflow from the file, archive this one in PostHog, then set status: active in the file.",
             )
         if definition.get("draft"):
             self.warn(
@@ -225,7 +321,8 @@ class _Renderer:
         steps = [step for placement in placements if (step := self.render_step(placement)) is not None]
         exit_action = _dict(self.actions.get(self.exit_id))
         if exit_action:
-            self.warn_action_fields(exit_action)
+            self.warn_action_fields(exit_action, _NODE_FIELDS)
+            self.warn_config_fields(exit_action, {"reason"})
         for field in _NOT_IN_THE_FILE:
             if _is_set(definition.get(field)):
                 self.warn(
@@ -238,19 +335,41 @@ class _Renderer:
                 "key": key,
                 "name": name,
                 "description": definition.get("description") or "",
-                "status": self.render_status(definition.get("status")),
+                "status": status,
                 "exit_condition": definition.get("exit_condition") or HogFlow.ExitCondition.ONLY_AT_END.value,
                 "variables": self.render_variables(),
                 "trigger": trigger,
                 "steps": steps,
                 "exit": {
+                    "name": exit_action.get("name") or "Exit",
                     "reason": _dict(exit_action.get("config")).get("reason") or "",
                     "description": exit_action.get("description") or "",
                 },
             }
         )
-        comments = [warning.message for warning in self.warnings]
-        return RenderedWorkflow(content=dump_workflow_file(_ordered(document), comments), warnings=tuple(self.warnings))
+        data = _ordered(document)
+        self.warn_past_the_loader_limits(_shape(data))
+        content = dump_workflow_file(data, [warning.message for warning in self.warnings])
+        size = len(content.encode("utf-8"))
+        if size > MAX_CONTENT_BYTES:
+            self.warn(
+                None,
+                f"The file is {size} bytes, and check and apply refuse a file over {MAX_CONTENT_BYTES} bytes. {_SHRINK_IT}",
+            )
+            content = dump_workflow_file(data, [warning.message for warning in self.warnings])
+        return RenderedWorkflow(content=content, warnings=tuple(self.warnings))
+
+    def warn_past_the_loader_limits(self, shape: _Shape) -> None:
+        if shape.depth > MAX_DEPTH:
+            self.warn(
+                None,
+                f"A value in this workflow nests more than {MAX_DEPTH} levels deep in the file, and check and apply refuse a file that deep. Make that value shallower in PostHog before you pull the workflow again.",
+            )
+        if shape.values > MAX_VALUES:
+            self.warn(
+                None,
+                f"The file holds more than {MAX_VALUES} values, and check and apply refuse a file with that many. {_SHRINK_IT}",
+            )
 
     def warn_renamed_node(self, stored_id: str, file_id: str, label: str) -> None:
         if stored_id in self.actions and stored_id != file_id:
@@ -273,10 +392,8 @@ class _Renderer:
         for variable in _list(self.definition.get("variables")):
             variable = _dict(variable)
             try:
-                variables.append(
-                    Variable.model_validate(
-                        {field: variable[field] for field in ("key", "type", "default") if field in variable}
-                    )
+                rendered = Variable.model_validate(
+                    {field: variable[field] for field in ("key", "type", "default") if field in variable}
                 )
             except ValidationError:
                 self.warn(
@@ -284,6 +401,13 @@ class _Renderer:
                     f"The variable {variable.get('key')} has a type or default a file cannot carry, so the file leaves it out.",
                 )
                 continue
+            variables.append(rendered)
+            unset = [field for field in ("type", "default") if field not in variable]
+            if unset:
+                self.warn(
+                    None,
+                    f"The variable {rendered.key} has no {' or '.join(unset)}. Applying the file stores it with type {rendered.type} and the default '{rendered.default}'.",
+                )
             extra = sorted(
                 field for field, value in variable.items() if field not in ("key", "type", "default") and _is_set(value)
             )
@@ -298,9 +422,10 @@ class _Renderer:
                 "The workflow has no trigger, so the file starts from a schedule trigger. Change it before you apply the file.",
             )
             return _trigger_adapter.validate_python({"type": "schedule"})
-        self.warn_action_fields(trigger)
+        self.warn_action_fields(trigger, _NODE_FIELDS)
         self.warn_secret_inputs(trigger)
-        config = _file_config(_dict(trigger.get("config")))
+        self.warn_credentials(trigger)
+        config = _without_filled_in_sources("trigger", _file_config(_dict(trigger.get("config"))))
         base = {"name": self.name_of(trigger), "description": trigger.get("description") or ""}
         kind = config.get("type")
         rest = {key: value for key, value in config.items() if key != "type"}
@@ -310,6 +435,7 @@ class _Renderer:
         if typed is not None:
             return typed
         if kind == "event":
+            self.warn_config_fields(trigger, {"type", "filters"})
             return _trigger_adapter.validate_python({**base, "type": "event", "filters": rest.get("filters") or {}})
         self.warn(
             trigger["id"],
@@ -373,13 +499,14 @@ class _Renderer:
 
     def render_step(self, placement: _Placement) -> DocumentStep | None:
         action = placement.action
-        self.warn_action_fields(action)
+        self.warn_action_fields(action, _STEP_FIELDS)
         self.warn_secret_inputs(action)
+        self.warn_credentials(action)
         arms = [
             [step for entry in arm if (step := self.render_step(entry)) is not None] for arm in placement.arms or ()
         ]
         base = self.step_base(action)
-        config = _file_config(_dict(action.get("config")))
+        config = _without_filled_in_sources(action.get("type"), _file_config(_dict(action.get("config"))))
         candidate = _step_candidate(action.get("type"), base, config, arms)
         typed = self.lossless(
             _step_adapter, candidate, {"type": action.get("type"), "config": config}, step_action_body
@@ -402,15 +529,26 @@ class _Renderer:
 
     def step_base(self, action: dict[str, Any]) -> dict[str, Any]:
         base: dict[str, Any] = {"name": self.name_of(action), "description": action.get("description") or ""}
+        if isinstance(action.get("output_variable"), dict | list):
+            base["output_variable"] = action["output_variable"]
         if slug(base["name"]) == action["id"]:
             return base
         if re.fullmatch(STEP_ID_PATTERN, action["id"]):
             return {**base, "id": action["id"]}
+        replacement = self.unused_id(slug(base["name"])[: _MAX_STEP_ID_LENGTH - 10] or "step")
         self.warn(
             action["id"],
-            f'The id of "{self.name_of(action)}" has characters a file cannot hold, so the file gives the step the id {slug(base["name"])}. Applying the file moves the people in it on as if the step were removed.',
+            f'The id of "{self.name_of(action)}" has characters a file cannot hold, so the file gives the step the id {replacement}. Applying the file moves the people in it on as if the step were removed.',
         )
-        return base
+        return {**base, "id": replacement}
+
+    def unused_id(self, wanted: str) -> str:
+        candidate, number = wanted, 1
+        while candidate in self.actions or candidate in self.replacement_ids:
+            number += 1
+            candidate = f"{wanted}_{number}"
+        self.replacement_ids.add(candidate)
+        return candidate
 
     def lossless(
         self,
@@ -428,13 +566,30 @@ class _Renderer:
             return None
         return model if _file_config(compile_back(model)) == stored else None
 
-    def warn_action_fields(self, action: dict[str, Any]) -> None:
-        for field in ("filters", "on_error"):
+    def warn_action_fields(self, action: dict[str, Any], carried: frozenset[str]) -> None:
+        for field in sorted(action.keys() - carried):
             if _is_set(action.get(field)):
                 self.warn(
                     action["id"],
                     f'"{self.name_of(action)}" sets {field}, which a file cannot carry. Applying the file removes it.',
                 )
+
+    def warn_config_fields(self, action: dict[str, Any], carried: set[str]) -> None:
+        config = _dict(action.get("config"))
+        dropped = sorted(field for field in config.keys() - carried if _is_set(config[field]))
+        if dropped:
+            self.warn(
+                action["id"],
+                f'The config of "{self.name_of(action)}" sets {", ".join(dropped)}, which a file cannot carry. Applying the file removes it.',
+            )
+
+    def warn_credentials(self, action: dict[str, Any]) -> None:
+        found = _credential_names(_dict(_dict(action.get("config")).get("inputs")))
+        if found:
+            self.warn(
+                action["id"],
+                f'"{self.name_of(action)}" holds {", ".join(found)}, which look like credentials. The template does not mark them secret, so the file carries their values as plain text. Take them out before you commit the file. Applying a file without them removes them from the workflow.',
+            )
 
     def warn_secret_inputs(self, action: dict[str, Any]) -> None:
         for key, value in _dict(_dict(action.get("config")).get("inputs")).items():

@@ -77,7 +77,7 @@ def compile_document(document: WorkflowDocument) -> CompiledWorkflow:
                 *compiler.actions,
                 {
                     "id": EXIT_NODE_ID,
-                    "name": "Exit",
+                    "name": document.exit.name,
                     "description": document.exit.description,
                     "type": "exit",
                     "config": {"reason": document.exit.reason},
@@ -326,6 +326,7 @@ class _Compiler:
                     "name": step.name,
                     "description": step.description,
                     **self._action_body(step, action_id, step_path),
+                    **({"output_variable": step.output_variable} if step.output_variable is not None else {}),
                 }
             )
             self.edges.append({"from": action_id, "to": following, "type": "continue"})

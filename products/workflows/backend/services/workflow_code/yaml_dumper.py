@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 import yaml
@@ -21,6 +22,8 @@ class _WorkflowDumper(yaml.SafeDumper):
 
 for _resolver in CORE_SCHEMA_RESOLVERS:
     _WorkflowDumper.add_implicit_resolver(_resolver.tag, _resolver.pattern, list(_resolver.first))
+# YAML 1.1 reads these as booleans too, but PyYAML's own 1.1 resolver leaves them out.
+_WorkflowDumper.add_implicit_resolver("tag:yaml.org,2002:bool", re.compile(r"^(?:y|Y|n|N)$"), list("yYnN"))
 
 
 def _represent_str(dumper: yaml.SafeDumper, value: str) -> yaml.ScalarNode:

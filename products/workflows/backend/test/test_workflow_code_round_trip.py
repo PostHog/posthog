@@ -168,7 +168,11 @@ class TestWorkflowCodeRoundTrip(SimpleTestCase):
         [
             ("action_field", lambda s: _action(s, "tell_the_crm").update(retries=3), "retries"),
             ("exit_config_field", lambda s: _action(s, "exit_node")["config"].update(notify=True), "notify"),
-            ("event_trigger_config_field", lambda s: _action(s, "trigger_node")["config"].update(masked=True), "masked"),
+            (
+                "event_trigger_config_field",
+                lambda s: _action(s, "trigger_node")["config"].update(masked=True),
+                "masked",
+            ),
             ("variable_without_type_or_default", lambda s: s.update(variables=[{"key": "plan"}]), "plan"),
             ("blank_name", lambda s: s.update(name=""), "no name"),
             (
@@ -195,6 +199,11 @@ class TestWorkflowCodeRoundTrip(SimpleTestCase):
                 lambda s: _action(s, "tell_the_crm")["config"]["inputs"]["body"].update(value={"blob": "x" * 1100000}),
                 "bytes",
             ),
+            (
+                "too_many_values",
+                lambda s: _action(s, "tell_the_crm")["config"]["inputs"]["body"].update(value=[{"a": 1}] * 60000),
+                "100000 values",
+            ),
         ]
     )
     def test_what_a_file_cannot_carry_as_stored_is_a_warning(
@@ -212,7 +221,7 @@ class TestWorkflowCodeRoundTrip(SimpleTestCase):
 
         rendered = render_workflow(stored, key=None)
 
-        assert load_content(rendered.content).data["status"] == "draft"
+        assert _load(rendered.content)[0]["status"] == "draft"
         [warning] = [warning.message for warning in rendered.warnings if "no key" in warning.message]
         assert "keeps running" in warning
 
