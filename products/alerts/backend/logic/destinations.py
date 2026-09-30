@@ -6,7 +6,6 @@ import re
 from collections.abc import Collection
 from datetime import datetime
 from typing import Any, NamedTuple, cast
-from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.db import transaction
@@ -29,7 +28,7 @@ from products.alerts.backend.facade.contracts import (
     AlertDestinationValidationError,
     OwnedAlertDestination,
 )
-from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID
+from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, url_hostname
 from products.cdp.backend.facade.api import create_hog_functions
 from products.cdp.backend.facade.models import HogFunction
 
@@ -351,11 +350,7 @@ _DESTINATION_NAME_SEPARATOR = " → "
 
 
 def _url_host(match: re.Match[str]) -> str:
-    # hostname, not the raw authority: it drops any user:password@ prefix.
-    try:
-        return urlsplit(match.group(0)).hostname or "destination"
-    except ValueError:
-        return "destination"
+    return url_hostname(match.group(0))
 
 
 def redact_urls_in_name(name: str) -> str:
