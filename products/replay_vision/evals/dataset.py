@@ -168,14 +168,17 @@ def upload_pinned_dataset(
 ) -> None:
     """Upload the manifest and every case's video and inputs under the dataset's object-storage key.
 
-    Writes everything it is given, so an upload replaces whatever the key held. The set is fixed by
-    convention: a person uploads a curated dataset once and CI reads it unchanged; growing it is a
-    deliberate re-upload, never an automatic step. The manifest lands last, so a reader never sees
-    a manifest naming cases whose bytes are absent.
+    Refuses a key that already holds a manifest, because a reader of the old manifest could get new
+    case files for the same case ids. To change the set, upload under a new key prefix (case files sit
+    beside the manifest) and point readers at it. The manifest lands last, so a reader never sees a manifest naming cases whose bytes are absent.
     """
     from posthog.storage import object_storage  # noqa: PLC0415 - keeps boto3/Django off the eval import path
 
     location = _bucket_and_key(bucket, key)
+    if object_storage.read_bytes(location.key, bucket=location.bucket, missing_ok=True) is not None:
+        raise RuntimeError(
+            f"s3://{location.bucket}/{location.key} already holds a pinned dataset; upload under a new key prefix"
+        )
     missing = [g.case_id for g in dataset.cases if not (g.video_path(root).exists() and g.inputs_path(root).exists())]
     if missing:
         raise RuntimeError(f"Dataset at {root} is missing files for cases {missing[:5]}; collect before uploading")

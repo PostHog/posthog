@@ -502,8 +502,12 @@ def _write_case(
     return case
 
 
-def _reusable_existing_cases(root: Path) -> dict[str, GoldenCase]:
-    """Previously collected cases whose files are still present and parseable, keyed by case id."""
+def _reusable_existing_cases(root: Path, team_id: int) -> dict[str, GoldenCase]:
+    """Previously collected cases whose files are still present and parseable, keyed by case id.
+
+    Only cases from `team_id` are reused, because the manifest records one organization and the eval
+    checks consent only for that organization.
+    """
     if not (root / MANIFEST_NAME).exists():
         return {}
     try:
@@ -513,6 +517,9 @@ def _reusable_existing_cases(root: Path) -> dict[str, GoldenCase]:
         return {}
     reusable: dict[str, GoldenCase] = {}
     for case in existing.cases:
+        if case.team_id != team_id:
+            logger.warning("collector.reused_case_other_team", case_id=case.case_id)
+            continue
         try:
             case.load_inputs(root)
         except Exception:
@@ -593,7 +600,7 @@ def collect(
 
     # Merge with previously collected cases so re-runs extend the dataset instead of orphaning the
     # case folders of earlier runs; this run's freshly collected version wins on overlap.
-    merged = _reusable_existing_cases(output)
+    merged = _reusable_existing_cases(output, team_id)
     merged.update({case.case_id: case for case in cases})
     dataset = GoldenDataset(
         created_at=dt.datetime.now(dt.UTC).isoformat(),

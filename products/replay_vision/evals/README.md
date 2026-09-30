@@ -92,21 +92,21 @@ A pinned dataset is the same directory, uploaded to object storage under one sta
 ```bash
 POSTHOG_API_KEY=... python -m products.replay_vision.evals.collect \
     --project-id 2 --per-type 25 --output ~/.posthog/replay-vision-golden-dataset \
-    --upload replay-vision/golden/main/manifest.json
+    --upload replay-vision/golden/v1/manifest.json
 ```
 
-The set is fixed by convention: `--upload` writes every case file and the manifest, replacing whatever the key held, so a re-upload is a deliberate act by whoever curates the set. To extend it, collect with `--from replay-vision/golden/main/manifest.json` (which downloads the pin into `--output` first) and upload again; nothing changes the pin automatically.
+A pinned key never changes: `--upload` refuses a key that already holds a manifest. To extend the set, collect with `--from <old key>` (which downloads the pin into `--output` first), upload under a new key prefix (for example `replay-vision/golden/v2/manifest.json`, because case files sit beside the manifest), and point `REPLAY_VISION_EVAL_PIN_KEY` at it. Nothing changes the pin automatically.
 
 Running the suite against the pin instead of a local directory:
 
 ```bash
 REPLAY_VISION_EVAL_DATASET=~/.posthog/replay-vision-golden-dataset \
 REPLAY_VISION_EVAL_DATASET_BUCKET=... \
-REPLAY_VISION_EVAL_DATASET_OBJECT_KEY=replay-vision/golden/main/manifest.json \
+REPLAY_VISION_EVAL_DATASET_OBJECT_KEY=replay-vision/golden/v1/manifest.json \
 POSTHOG_API_KEY=... GEMINI_API_KEY=... hogli evals eval_scanner_quality
 ```
 
-The suite downloads the pinned manifest and every case file, replacing local copies, then re-verifies the source org's consent before scanning. Recording bytes in an internal bucket needs the data-governance decision below before it becomes the CI default.
+The suite downloads the pinned manifest and every case file, replacing local copies, then re-verifies the source org's consent before scanning. Before the pin becomes the CI default, recording bytes in an internal bucket needs the data-governance decision below, and the CI eval step needs that bucket's endpoint and credentials.
 
 ## Data handling
 

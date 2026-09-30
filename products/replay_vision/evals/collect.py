@@ -37,8 +37,8 @@ def main() -> None:
     parser.add_argument(
         "--upload",
         metavar="OBJECT_KEY",
-        help="After collecting, upload the dataset into object storage under this key, "
-        "replacing whatever the key held.",
+        help="After collecting, upload the dataset into object storage under this key. "
+        "Refuses a key that already holds a dataset.",
     )
     parser.add_argument(
         "--from",

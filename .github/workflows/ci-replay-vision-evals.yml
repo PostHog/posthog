@@ -207,6 +207,9 @@ jobs:
                   REPLAY_VISION_EVAL_DATASET: ${{ env.DATASET_DIR }}
                   # The consent re-verification at eval start reads the source instance's API.
                   POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
+                  # The pin download uses the default object storage settings, which point at the
+                  # runner-local SeaweedFS. To read the internal bucket, this step also needs that
+                  # bucket's endpoint and credentials, which are not wired yet.
                   REPLAY_VISION_EVAL_DATASET_BUCKET: ${{ vars.REPLAY_VISION_EVAL_PIN_BUCKET }}
                   REPLAY_VISION_EVAL_DATASET_OBJECT_KEY: ${{ vars.REPLAY_VISION_EVAL_PIN_KEY }}
                   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

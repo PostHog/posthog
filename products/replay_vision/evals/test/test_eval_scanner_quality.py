@@ -39,6 +39,7 @@ from products.replay_vision.evals.dataset import (
     download_pinned_dataset,
     ensure_dataset_consent,
     parse_utc,
+    save_dataset,
     upload_pinned_dataset,
 )
 from products.replay_vision.evals.eval_scanner_quality import build_case
@@ -414,7 +415,6 @@ def test_ensure_dataset_consent_resolves_the_org_on_legacy_manifests() -> None:
 
 
 def _golden_case_on_disk(case_id: str, root: Path, *, write_files: bool = True) -> GoldenCase:
-    """`_golden` with the case's files on disk, so upload/download tests have real bytes to move."""
     case = _golden("monitor", None, _monitor_output("no"), case_id=case_id)
     if write_files:
         case.case_dir(root).mkdir(parents=True)
@@ -436,6 +436,7 @@ def test_upload_pinned_dataset_writes_every_case_and_the_manifest_last(tmp_path:
     )
     uploaded: list[str] = []
     with (
+        patch("posthog.storage.object_storage.read_bytes", return_value=None),
         patch(
             "posthog.storage.object_storage.write_from_file",
             side_effect=lambda key, path, bucket=None: uploaded.append(key),
@@ -462,8 +463,50 @@ def test_upload_pinned_dataset_refuses_a_dataset_with_missing_local_files(tmp_pa
         organization_id=1,
         cases=[_golden_case_on_disk("c1", tmp_path, write_files=False)],
     )
-    with pytest.raises(RuntimeError, match="missing files"):
+    with (
+        patch("posthog.storage.object_storage.read_bytes", return_value=None),
+        pytest.raises(RuntimeError, match="missing files"),
+    ):
         upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
+
+
+def test_upload_pinned_dataset_refuses_a_key_that_already_holds_a_manifest(tmp_path: Path) -> None:
+    dataset = GoldenDataset(
+        created_at=dt.datetime.now(dt.UTC).isoformat(),
+        host="https://us.posthog.com",
+        project_id=2,
+        organization_id=1,
+        cases=[_golden_case_on_disk("c1", tmp_path)],
+    )
+    with (
+        patch("posthog.storage.object_storage.read_bytes", return_value=b"{}"),
+        patch("posthog.storage.object_storage.write_from_file") as write_from_file,
+        patch("posthog.storage.object_storage.write") as write,
+        pytest.raises(RuntimeError, match="upload under a new key"),
+    ):
+        upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
+    write_from_file.assert_not_called()
+    write.assert_not_called()
+
+
+def test_collector_reuses_only_cases_from_the_collected_team(tmp_path: Path) -> None:
+    same_team = _golden_case_on_disk("c1", tmp_path)
+    other_team = _golden_case_on_disk("c2", tmp_path).model_copy(update={"team_id": 3})
+    inputs = build_llm_inputs(_FakeApi(), 2, "sess-1")  # type: ignore[arg-type]
+    assert inputs is not None
+    for case in (same_team, other_team):
+        case.inputs_path(tmp_path).write_text(inputs.model_dump_json())
+    save_dataset(
+        tmp_path,
+        GoldenDataset(
+            created_at=dt.datetime.now(dt.UTC).isoformat(),
+            host="https://us.posthog.com",
+            project_id=2,
+            organization_id=1,
+            cases=[same_team, other_team],
+        ),
+    )
+    assert list(collector._reusable_existing_cases(tmp_path, team_id=2)) == ["c1"]
 
 
 def test_download_pinned_dataset_replaces_existing_local_case_files(tmp_path: Path) -> None:
