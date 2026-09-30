@@ -13,9 +13,9 @@ const {
     docsLabelApplies,
     labelsForTitle,
     loadRules,
-    isLowHangingFruitCandidate,
-    isLowHangingFruit,
-    withoutGeneratedFiles,
+    isFlagsLowHangingFruitCandidate,
+    isFlagsLowHangingFruit,
+    flagsWithoutGeneratedFiles,
 } = require('./label-pr-from-title')
 
 // Mirrors the rule shape in .github/auto-assign-labels.json so the logic is
@@ -117,96 +117,6 @@ test('docsLabelApplies', async (t) => {
     }
 })
 
-const FLAGS_LABELS = ['feature/feature-flags', 'team/feature-flags']
-
-const LOW_HANGING_FRUIT_CANDIDATE_CASES = [
-    {
-        author: 'posthog[bot]',
-        labels: FLAGS_LABELS,
-        expected: true,
-        description: 'AI PR for the flags team is a candidate',
-    },
-    {
-        author: 'someuser',
-        labels: FLAGS_LABELS,
-        expected: false,
-        description: 'human PR for the flags team is not a candidate',
-    },
-    {
-        author: 'posthog[bot]',
-        labels: ['feature/desktop'],
-        expected: false,
-        description: 'AI PR for another team is not a candidate',
-    },
-]
-
-test('isLowHangingFruitCandidate', async (t) => {
-    for (const { author, labels, expected, description } of LOW_HANGING_FRUIT_CANDIDATE_CASES) {
-        await t.test(description, () => {
-            assert.equal(isLowHangingFruitCandidate(author, labels), expected)
-        })
-    }
-})
-
-const file = (filename, additions, deletions = 0) => ({ filename, additions, deletions })
-
-const LOW_HANGING_FRUIT_CASES = [
-    {
-        files: [file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 20, 5)],
-        expected: true,
-        description: 'small single-file change',
-    },
-    {
-        files: [file('a.tsx', 30, 5), file('a.test.tsx', 15)],
-        expected: true,
-        description: 'exactly at the line and file limits',
-    },
-    {
-        files: [file('a.tsx', 30, 5), file('a.test.tsx', 16)],
-        expected: false,
-        description: 'one line over the line limit, test lines included',
-    },
-    {
-        files: [file('a.tsx', 1), file('b.tsx', 1), file('c.tsx', 1)],
-        expected: false,
-        description: 'one file over the file limit',
-    },
-    {
-        files: [file('posthog/migrations/1234_add_column.py', 20)],
-        expected: false,
-        description: 'small Django migration',
-    },
-    {
-        files: [file('rust/feature-flags/migrations/0001_init.sql', 10)],
-        expected: false,
-        description: 'small Rust migration',
-    },
-    {
-        files: [file('.github/workflows/ci-rust.yml', 2, 2)],
-        expected: false,
-        description: 'small workflow change',
-    },
-]
-
-// Runs against the shipped .gitattributes, so it also fails if the generated
-// API types stop being marked as `linguist-generated`.
-test('withoutGeneratedFiles drops generated files and keeps hand-written ones', () => {
-    const files = [
-        file('frontend/src/generated/core/api.schemas.ts', 300),
-        file('products/feature_flags/frontend/generated/api.ts', 120),
-        file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 10),
-    ]
-    assert.deepEqual(withoutGeneratedFiles(files), [file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 10)])
-})
-
-test('isLowHangingFruit', async (t) => {
-    for (const { files, expected, description } of LOW_HANGING_FRUIT_CASES) {
-        await t.test(description, () => {
-            assert.equal(isLowHangingFruit(files), expected)
-        })
-    }
-})
-
 // Catches a malformed or empty .github/auto-assign-labels.json in this PR's
 // ci-scripts run, rather than letting it silently disable labeling on master.
 test('the shipped config loads into well-formed rules', () => {
@@ -248,3 +158,99 @@ for (const scope of ['desktop', 'tasks', 'agent-proxy', 'canvas']) {
         )
     })
 }
+
+// ---------------------------------------------------------------------------
+// Feature flags team only: the `review/low-hanging-fruit` label.
+// ---------------------------------------------------------------------------
+
+const FLAGS_LABELS = ['feature/feature-flags', 'team/feature-flags']
+
+const FLAGS_CANDIDATE_CASES = [
+    {
+        author: 'posthog[bot]',
+        labels: FLAGS_LABELS,
+        expected: true,
+        description: 'AI PR for the flags team is a candidate',
+    },
+    {
+        author: 'someuser',
+        labels: FLAGS_LABELS,
+        expected: false,
+        description: 'human PR for the flags team is not a candidate',
+    },
+    {
+        author: 'posthog[bot]',
+        labels: ['feature/desktop'],
+        expected: false,
+        description: 'AI PR for another team is not a candidate',
+    },
+]
+
+test('isFlagsLowHangingFruitCandidate', async (t) => {
+    for (const { author, labels, expected, description } of FLAGS_CANDIDATE_CASES) {
+        await t.test(description, () => {
+            assert.equal(isFlagsLowHangingFruitCandidate(author, labels), expected)
+        })
+    }
+})
+
+const file = (filename, additions, deletions = 0) => ({ filename, additions, deletions })
+
+const FLAGS_LOW_HANGING_FRUIT_CASES = [
+    {
+        files: [file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 20, 5)],
+        expected: true,
+        description: 'small single-file change',
+    },
+    {
+        files: [file('a.tsx', 30, 5), file('a.test.tsx', 15)],
+        expected: true,
+        description: 'exactly at the line and file limits',
+    },
+    {
+        files: [file('a.tsx', 30, 5), file('a.test.tsx', 16)],
+        expected: false,
+        description: 'one line over the line limit, test lines included',
+    },
+    {
+        files: [file('a.tsx', 1), file('b.tsx', 1), file('c.tsx', 1)],
+        expected: false,
+        description: 'one file over the file limit',
+    },
+    {
+        files: [file('posthog/migrations/1234_add_column.py', 20)],
+        expected: false,
+        description: 'small Django migration',
+    },
+    {
+        files: [file('rust/feature-flags/migrations/0001_init.sql', 10)],
+        expected: false,
+        description: 'small Rust migration',
+    },
+    {
+        files: [file('.github/workflows/ci-rust.yml', 2, 2)],
+        expected: false,
+        description: 'small workflow change',
+    },
+]
+
+test('isFlagsLowHangingFruit', async (t) => {
+    for (const { files, expected, description } of FLAGS_LOW_HANGING_FRUIT_CASES) {
+        await t.test(description, () => {
+            assert.equal(isFlagsLowHangingFruit(files), expected)
+        })
+    }
+})
+
+// Runs against the shipped .gitattributes, so it also fails if the generated
+// API types stop being marked as `linguist-generated`.
+test('flagsWithoutGeneratedFiles drops generated files and keeps hand-written ones', () => {
+    const files = [
+        file('frontend/src/generated/core/api.schemas.ts', 300),
+        file('products/feature_flags/frontend/generated/api.ts', 120),
+        file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 10),
+    ]
+    assert.deepEqual(flagsWithoutGeneratedFiles(files), [
+        file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 10),
+    ])
+})
