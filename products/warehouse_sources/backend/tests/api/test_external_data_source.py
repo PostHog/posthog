@@ -6577,6 +6577,63 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.kafka.source.KafkaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_kafka_host_change_requires_nested_password(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Kafka",
+            created_by=self.user,
+            prefix="test_kafka_nested_secret",
+            job_inputs={
+                "source_type": "Kafka",
+                "bootstrap_servers": "broker.example.com:9092",
+                "authentication": {
+                    "selection": "sasl_plain",
+                    "username": "api-key",
+                    "password": "stored-secret",
+                },
+                "encryption": "tls",
+                "value_format": "json",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"bootstrap_servers": "attacker.example.com:9092"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["bootstrap_servers"] == "broker.example.com:9092"
+        mock_validate_credentials.assert_not_called()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "bootstrap_servers": "new-broker.example.com:9092",
+                    "authentication": {
+                        "selection": "sasl_plain",
+                        "username": "api-key",
+                        "password": "new-secret",
+                    },
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["bootstrap_servers"] == "new-broker.example.com:9092"
+        assert source.job_inputs["authentication"]["password"] == "new-secret"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.billomat.source.BillomatSource.validate_credentials",
         return_value=(True, None),
     )
@@ -6811,6 +6868,37 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["subdomain"] == "newco"
         assert source.job_inputs["api_key"] == "new_key"
         mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.kafka.source.KafkaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_kafka_bootstrap_servers_without_nested_password_is_rejected(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Kafka",
+            created_by=self.user,
+            prefix="kafka_src",
+            job_inputs={
+                "bootstrap_servers": "broker.example.com:9092",
+                "authentication": {"selection": "sasl_plain", "username": "key", "password": "secret"},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"bootstrap_servers": "attacker.example.com:9092"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["bootstrap_servers"] == "broker.example.com:9092"
+        assert source.job_inputs["authentication"]["password"] == "secret"
+        mock_validate_credentials.assert_not_called()
 
     def _servicenow_source(self) -> ExternalDataSource:
         # ServiceNow's connection target is `instance_url` (not a top-level `host`) and its
