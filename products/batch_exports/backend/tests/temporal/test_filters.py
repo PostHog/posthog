@@ -151,6 +151,21 @@ async def test_filters_preserve_property_types(ateam, property_type, document, p
     assert result == [(1,)]
 
 
+@pytest.mark.parametrize(
+    "filters",
+    (
+        [
+            {"key": "event in (select * from events)", "type": "hogql", "value": None},
+        ],
+        [
+            {"key": "event =", "type": "hogql", "value": None},
+        ],
+    ),
+    ids=[
+        "hogql0",
+        "hogql1",
+    ],
+)
 def test_compose_filters_clause_raises(
     filters: list[dict[str, typing.Any]],
     ateam,
