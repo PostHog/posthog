@@ -152,7 +152,7 @@ class KernelBusyError(RuntimeError):
     pass
 
 
-@dataclass(frozen=False)
+@frozen(frozen=False)
 class _RedisLock:
     name: str
     timeout: float
