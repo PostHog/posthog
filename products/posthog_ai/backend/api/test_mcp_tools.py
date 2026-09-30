@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -185,7 +185,7 @@ class TestMCPToolsAPI(APIBaseTest):
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     def test_query_failures_preserve_recovery_advice(
-        self, error: Exception, error_type: str, content: str, mock_query
+        self, error: Exception, error_type: str, content: str, mock_query: Mock
     ) -> None:
         mock_query.side_effect = error
 

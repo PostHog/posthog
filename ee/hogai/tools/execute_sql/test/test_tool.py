@@ -1,5 +1,5 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
@@ -85,7 +85,9 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_query_failures_preserve_recovery_advice(self, error: Exception, expected: str, mock_query) -> None:
+    async def test_query_failures_preserve_recovery_advice(
+        self, error: Exception, expected: str, mock_query: Mock
+    ) -> None:
         mock_query.side_effect = error
         tool = await self._create_tool()
 

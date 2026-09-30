@@ -21,7 +21,7 @@ class MaxToolError(Exception):
 
     error_type: MaxToolErrorType = "internal"
 
-    def __init__(self, message: str, *, error_type: MaxToolErrorType | None = None):
+    def __init__(self, message: str, *, error_type: MaxToolErrorType | None = None) -> None:
         """
         Args:
             message: Detailed, actionable error message that helps the LLM understand what went wrong
