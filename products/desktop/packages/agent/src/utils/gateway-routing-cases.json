@@ -203,6 +203,20 @@
       "expected": false
     },
     {
+      "origin_product": "loop",
+      "ai_stage": null,
+      "internal": false,
+      "allowlist": "posthog_code",
+      "expected": true
+    },
+    {
+      "origin_product": "user_created",
+      "ai_stage": null,
+      "internal": false,
+      "allowlist": "signals_scout,posthog_code",
+      "expected": true
+    },
+    {
       "origin_product": "workflow",
       "ai_stage": null,
       "internal": false,
