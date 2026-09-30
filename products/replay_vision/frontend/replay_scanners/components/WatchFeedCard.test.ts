@@ -1,5 +1,5 @@
 import type { ReplayObservationApi, WatchFeedReasonApi } from '../../generated/api.schemas'
-import { watchCardHeadline, watchReasonCopy } from './WatchFeedCard'
+import { observationKeyMomentMs, watchCardHeadline, watchReasonCopy, watchStartSeconds } from './WatchFeedCard'
 
 describe('WatchFeedCard helpers', () => {
     describe('watchReasonCopy', () => {
@@ -132,6 +132,28 @@ describe('WatchFeedCard helpers', () => {
             scanner_snapshot: scannerType ? { scanner_type: scannerType } : undefined,
             scanner_result: { model_output: output },
         }) as unknown as ReplayObservationApi
+
+    describe('observationKeyMomentMs', () => {
+        it.each<{ name: string; output: Record<string, unknown>; expected: number | null }>([
+            { name: 'reads the key moment', output: { key_moment_ms: 42_000 }, expected: 42_000 },
+            { name: 'keeps a key moment at the very start', output: { key_moment_ms: 0 }, expected: 0 },
+            { name: 'is null on a scan from before key moments', output: {}, expected: null },
+            { name: 'is null when the scan skipped the pick', output: { key_moment_ms: null }, expected: null },
+            { name: 'ignores a value that is not a number', output: { key_moment_ms: '42' }, expected: null },
+        ])('$name', ({ output, expected }) => {
+            expect(observationKeyMomentMs(observation('monitor', output))).toBe(expected)
+        })
+    })
+
+    describe('watchStartSeconds', () => {
+        it.each<{ name: string; keyMomentMs: number | null; expected: number }>([
+            { name: 'starts from the beginning without a key moment', keyMomentMs: null, expected: 0 },
+            { name: 'starts a few seconds before the key moment', keyMomentMs: 42_900, expected: 39 },
+            { name: 'never starts before the recording', keyMomentMs: 1_000, expected: 0 },
+        ])('$name', ({ keyMomentMs, expected }) => {
+            expect(watchStartSeconds(keyMomentMs)).toBe(expected)
+        })
+    })
 
     describe('watchCardHeadline', () => {
         it.each<{
