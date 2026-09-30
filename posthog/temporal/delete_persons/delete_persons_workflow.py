@@ -33,9 +33,21 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
     DeletePersons (capped at 1000/call). DeletePersons cascades the per-person
     cohortpeople cleanup, so no separate cohort delete is needed here.
     """
+    from posthog.models.person.util import _paginated_get_distinct_ids_for_person
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
-    from posthog.personhog_client.proto import DeletePersonsMode, DeletePersonsRequest, GetPersonsRequest
+    from posthog.personhog_client.proto import (
+        CONSISTENCY_LEVEL_STRONG,
+        DeletePersonsMode,
+        DeletePersonsRequest,
+        GetPersonsRequest,
+        ReadOptions,
+    )
+
+    from products.customer_analytics.backend.facade.membership_deletion import (
+        delete_person_membership,
+        has_team_membership,
+    )
 
     client = get_personhog_client()
     if client is None:
@@ -43,9 +55,19 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
 
     with personhog_caller_tag("delete-persons/by-ids"):
         uuids: list[str] = []
+        needs_membership_delete = has_team_membership(team_id)
         for id_chunk in _chunked(person_ids, GET_PERSONS_MAX_IDS):
             persons_resp = client.get_persons(GetPersonsRequest(team_id=team_id, person_ids=id_chunk))
-            uuids.extend(person.uuid for person in persons_resp.persons)
+            for person in persons_resp.persons:
+                if needs_membership_delete:
+                    ids = _paginated_get_distinct_ids_for_person(
+                        team_id,
+                        person.id,
+                        page_size=5000,
+                        read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
+                    )
+                    delete_person_membership(team_id, [d.id for d in ids])
+                uuids.append(person.uuid)
 
         deleted = 0
         for uuid_chunk in _chunked(uuids, DELETE_PERSONS_MAX_UUIDS):
@@ -64,10 +86,19 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
 
 def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int) -> int:
     """Delete up to `batch_size` of a team's persons via personhog, returning the count."""
+    from posthog.clickhouse.cluster import get_cluster
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
 
+    from products.customer_analytics.backend.facade.membership_deletion import (
+        delete_team_membership,
+        has_team_membership,
+    )
+
+    # Every batch calls this. The probe keeps later batches from re-running the team-wide delete.
+    if has_team_membership(team_id):
+        delete_team_membership(get_cluster(), [team_id], include_config=False)
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
