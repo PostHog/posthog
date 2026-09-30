@@ -1047,16 +1047,11 @@ def _self_heal_stale_runs(team_id: int, skill_name: str, *, reaped_by: str = "di
     return reaped
 
 
-def reap_stale_runs(max_lanes: int = STALE_RUN_SWEEP_MAX_LANES) -> int:
+def reap_stale_runs() -> int:
     """Reap stale in-flight runs across the fleet; return the count reaped.
 
-    A worker that dies mid-run (for example in a deploy restart) never emits
-    `signals_scout_run_finished`. The dispatch-time self-heal closes such a run only at the next
-    dispatch of its lane, which is about a day later for a daily scout. The coordinator calls this
-    on each tick, so a stranded run closes within one tick after `STALE_RUN_CUTOFF_S`. It reuses
-    `_self_heal_stale_runs` per lane, so the compare-and-set claim still stops a concurrent
-    dispatch from reaping the same row twice. The oldest lanes go first, and `max_lanes` bounds
-    one tick, so a large backlog drains over a few ticks.
+    Reuses `_self_heal_stale_runs` per lane, so its compare-and-set claim still stops a concurrent
+    dispatch from reaping the same row twice. The oldest lanes go first.
     """
     cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
     lanes = list(
@@ -1067,7 +1062,7 @@ def reap_stale_runs(max_lanes: int = STALE_RUN_SWEEP_MAX_LANES) -> int:
         )
         .values("team_id", "skill_name")
         .annotate(oldest=Min("task_run__created_at"))
-        .order_by("oldest")[:max_lanes]
+        .order_by("oldest")[:STALE_RUN_SWEEP_MAX_LANES]
     )
     reaped = 0
     for lane in lanes:
