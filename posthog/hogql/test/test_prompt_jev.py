@@ -110,12 +110,13 @@ class TestPromptJev(SimpleTestCase):
             PromptJevRunner(team_id=1, distinct_id=None).evaluate(PromptJevCall.parse(node), [value])
         post.assert_not_called()
 
-    def test_gateway_failure_does_not_return_a_decision(self) -> None:
+    @parameterized.expand([(429, "could not evaluate"), (402, "used all its AI credits")])
+    def test_gateway_failure_does_not_return_a_decision(self, status: int, message: str) -> None:
         node = parse_expr("jev('refund', 'Refund?')")
         assert isinstance(node, ast.Call)
         with (
-            patch("httpx.AsyncClient.post", return_value=httpx.Response(429)),
-            self.assertRaisesRegex(QueryError, "could not evaluate"),
+            patch("httpx.AsyncClient.post", return_value=httpx.Response(status)),
+            self.assertRaisesRegex(QueryError, message),
         ):
             PromptJevRunner(team_id=1, distinct_id=None).evaluate(PromptJevCall.parse(node), ["refund"])
 
@@ -207,6 +208,26 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
         execute.assert_not_called()
         post.assert_not_called()
         self.assertEqual(self.feature_enabled.call_args.kwargs["groups"]["project"], str(self.team.pk))
+
+    def test_team_out_of_ai_credits_cannot_start_inference(self) -> None:
+        with (
+            patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=True) as limited,
+            patch("posthog.hogql.query.sync_execute") as execute,
+            patch("httpx.AsyncClient.post") as post,
+            self.assertRaisesRegex(QueryError, "used all its AI credits"),
+        ):
+            execute_hogql_query("SELECT jev('refund', 'Refund?') AS p", self.team, user=self.user)
+        execute.assert_not_called()
+        post.assert_not_called()
+        limited.assert_called_once_with(self.team.api_token)
+
+    def test_credit_lookup_failure_does_not_block_the_query(self) -> None:
+        with (
+            patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", side_effect=RuntimeError("redis down")),
+            patch("httpx.AsyncClient.post", side_effect=gateway_response),
+        ):
+            response = execute_hogql_query("SELECT jev('refund', 'Refund?') AS p", self.team, user=self.user)
+        self.assertEqual(response.results, [(0.9,)])
 
     @parameterized.expand([("global",), ("team",)])
     def test_http_route_is_rejected_before_query_or_inference(self, mode: str) -> None:
