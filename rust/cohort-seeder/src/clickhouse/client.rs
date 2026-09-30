@@ -4,6 +4,7 @@
 //! Depends on `config` for the raw env strings; every value that shapes a ClickHouse query option is
 //! parsed here so a misconfiguration fails startup instead of silently degrading query behavior.
 
+use std::num::NonZeroU64;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -340,8 +341,14 @@ pub fn build_client(config: &Config) -> Result<ClickHouseClient, ClickHouseClien
 
 fn optional_settings(config: &Config) -> Vec<(&'static str, u64)> {
     [
-        ("max_threads", config.seeder_ch_max_threads),
-        ("max_memory_usage", config.seeder_ch_max_memory_usage),
+        (
+            "max_threads",
+            config.seeder_ch_max_threads.map(NonZeroU64::get),
+        ),
+        (
+            "max_memory_usage",
+            config.seeder_ch_max_memory_usage.map(NonZeroU64::get),
+        ),
         (
             "distributed_replica_max_ignored_errors",
             config.seeder_ch_distributed_replica_max_ignored_errors,
@@ -478,6 +485,14 @@ LaIcbwSaQpbb1SSltcQ0krF2y351IH79a2fmV57qw3VZ5u17KbO4
                 ("distributed_replica_max_ignored_errors", 1000),
             ]
         );
+
+        for name in ["SEEDER_CH_MAX_THREADS", "SEEDER_CH_MAX_MEMORY_USAGE"] {
+            assert!(
+                Config::init_from_hashmap(&HashMap::from([(name.to_string(), "0".to_string())]))
+                    .is_err(),
+                "{name}=0 lifts the bound instead of failing startup"
+            );
+        }
     }
 
     #[test]

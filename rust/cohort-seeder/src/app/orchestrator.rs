@@ -27,7 +27,7 @@ use crate::store::chunks::{Claim, PgChunkStore};
 use crate::store::runs::{complete_trailing_runs, fail_run, RunError, RunKind};
 use crate::store::{Claimant, MaxAttempts, RenderedError};
 
-use super::breaker::{Admission, BreakerEvent, RunBreakers};
+use super::breaker::{BreakerEvent, RunBreakers};
 use super::completion::CompletionDriver;
 use super::execute::{execute_chunk, record_task_result, ChunkOutcome, ChunkTaskContext};
 use super::person_execute::{execute_person_chunk, PersonChunkTaskContext};
@@ -324,9 +324,8 @@ impl SeederOrchestrator {
             BreakerEvent::Exhausted { trips } => {
                 let error = RenderedError::from_message(format!(
                     "the ClickHouse resource breaker opened {trips} times with no confirmed chunk in \
-                     between; last error code {}. The run's scans do not fit the ClickHouse limits: \
-                     narrow the run (fewer cohorts or event names) or raise the limits, then create \
-                     a new run",
+                     between; last error: {}. The run's scans do not fit the ClickHouse limits: make \
+                     them smaller or raise the limits, then create a new run",
                     resource.as_str(),
                 ));
                 match fail_run(&self.pool, run_id, &error).await {
@@ -341,11 +340,14 @@ impl SeederOrchestrator {
                         );
                     }
                     Err(RunError::NotActive(_)) => {}
-                    Err(error) => warn!(
-                        ?run_id,
-                        error = %error,
-                        "failing the run at its breaker trip limit did not apply; its chunks stay unclaimed"
-                    ),
+                    Err(error) => {
+                        claims.breakers.retry_exhausted(run_id);
+                        warn!(
+                            ?run_id,
+                            error = %error,
+                            "failing the run at its breaker trip limit did not apply; its next probe retries it"
+                        );
+                    }
                 }
             }
         }
@@ -475,11 +477,9 @@ impl SeederOrchestrator {
                     PreparedRun::Person(_) => person_room,
                 };
                 let admitted = has_room
-                    && match claims.breakers.admission(*run_id, now) {
-                        Admission::Admit => true,
-                        Admission::Probe => !claims.inflight.has_run(*run_id),
-                        Admission::Refuse => false,
-                    };
+                    && claims
+                        .breakers
+                        .admits(*run_id, now, claims.inflight.has_run(*run_id));
                 if admitted {
                     run_ids.push(*run_id);
                 }

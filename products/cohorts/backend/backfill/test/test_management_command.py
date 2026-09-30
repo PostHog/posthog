@@ -275,7 +275,8 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
             call_command("create_cohort_backfill_run", team_id=self.team.id, trigger="team_enablement", **options)
             run = CohortBackfillRun.objects.for_team(self.team.id).get()
             self.assertEqual(
-                run.preconditions["behavioral_scan_max_events_per_day"], options["max_scan_events_per_day"]
+                run.preconditions.get("behavioral_scan_max_events_per_day"),
+                options["max_scan_events_per_day"] or None,
             )
 
     def test_behavioral_dry_run_names_every_refusal(self) -> None:

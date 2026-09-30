@@ -105,7 +105,8 @@ pub const CHUNKS_POISONED: &str = "seeder_chunks_poisoned_total";
 /// blocking every future run for that cohort. The paired `warn!` carries the chunk and its error,
 /// which is what an operator reads once this counter points them at a run.
 pub const RUNS_FAILED_EXHAUSTED_CHUNKS: &str = "seeder_runs_failed_exhausted_chunks_total";
-/// Failed chunks ClickHouse refused for lack of resources, by `kind` and `code` (counter).
+/// Failed chunks ClickHouse refused for lack of resources, by `kind` and `code` (counter). A
+/// response ClickHouse cut mid-stream carries no code and counts as `code="response_cut"`.
 pub const CLICKHOUSE_RESOURCE_ERRORS: &str = "seeder_clickhouse_resource_errors_total";
 /// Run breaker openings, by `kind` (counter).
 pub const RUN_BREAKER_TRIPS: &str = "seeder_run_breaker_trips_total";

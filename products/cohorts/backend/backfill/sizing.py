@@ -126,7 +126,8 @@ def estimate_person_seed_topic_bytes(
 
 @frozen
 class BehavioralScanEstimate:
-    """An upper bound: the seeder reads fewer rows where every condition on an event name has a row filter."""
+    """A recent sample, not a bound: an older day, or a day in the run's timezone, can hold more events. The
+    seeder reads fewer rows where every condition on an event name has a row filter."""
 
     days_sampled: int
     peak_day: date | None

@@ -1,7 +1,7 @@
 //! ClickHouse scan planning: the `Vacuous`-vs-`Scan` parse and the byte-frozen SQL renderer. Depends
 //! on `domain` (the proven range/band/event-name inputs) and `cohort-core`; never on `store`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;
 
 use cohort_core::filters::TeamId;
@@ -142,21 +142,36 @@ pub fn row_filter_sql(filter: &ScanRowFilter, columns: &MaterializedColumns) -> 
         .join(", ");
     let mut terms = vec![format!("e.event NOT IN ({filtered_events})")];
     for (event, conditions) in filter.events() {
-        let conditions = conditions
-            .iter()
-            .map(|conjuncts| {
-                join_terms(
+        // A one-conjunct condition is a disjunction of key tests, so together they are one test per
+        // key over the union of their values. This keeps many flag cohorts under the GET limit.
+        let mut single_conjunct: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        let mut rendered = BTreeSet::new();
+        for conjuncts in conditions {
+            if let [alternatives] = conjuncts.as_slice() {
+                for (key, values) in alternatives.iter() {
+                    single_conjunct
+                        .entry(key)
+                        .or_default()
+                        .extend(values.iter().map(String::as_str));
+                }
+            } else {
+                rendered.insert(join_terms(
                     conjuncts
                         .iter()
                         .map(|alternatives| alternatives_sql(alternatives, columns)),
                     "AND",
-                )
-            })
-            .collect::<BTreeSet<_>>();
+                ));
+            }
+        }
+        rendered.extend(
+            single_conjunct
+                .into_iter()
+                .map(|(key, values)| property_value_sql(key, values, columns)),
+        );
         terms.push(format!(
             "(e.event = {} AND {})",
             clickhouse_string_literal(event),
-            join_terms(conditions.into_iter(), "OR"),
+            join_terms(rendered.into_iter(), "OR"),
         ));
     }
     format!("({})", terms.join(" OR "))
@@ -164,28 +179,37 @@ pub fn row_filter_sql(filter: &ScanRowFilter, columns: &MaterializedColumns) -> 
 
 fn alternatives_sql(alternatives: &PropertyAlternatives, columns: &MaterializedColumns) -> String {
     join_terms(
-        alternatives
-            .iter()
-            .map(|(key, values)| property_value_sql(key, values, columns)),
+        alternatives.iter().map(|(key, values)| {
+            property_value_sql(key, values.iter().map(String::as_str), columns)
+        }),
         "OR",
     )
 }
 
-fn property_value_sql(
+fn property_value_sql<'a>(
     key: &str,
-    values: &BTreeSet<String>,
+    values: impl IntoIterator<Item = &'a str>,
     columns: &MaterializedColumns,
 ) -> String {
-    let value = match columns.column_for(key) {
-        Some(column) => format!("e.{}", clickhouse_identifier(column)),
-        None => format!(
-            "replaceRegexpAll(JSONExtractRaw(e.properties, {}), '^\"|\"$', '')",
-            clickhouse_string_literal(key)
+    // ClickHouse extracts '' for every key of a blob it cannot parse, such as one holding an integer
+    // past 64 bits, which `serde_json` reads. A materialized column stores that '', so admitting ''
+    // there keeps the test off the blob.
+    let (value, unparsed) = match columns.column_for(key) {
+        Some(column) => {
+            let value = format!("e.{}", clickhouse_identifier(column));
+            let unparsed = format!("{value} = ''");
+            (value, unparsed)
+        }
+        None => (
+            format!(
+                "replaceRegexpAll(JSONExtractRaw(e.properties, {}), '^\"|\"$', '')",
+                clickhouse_string_literal(key)
+            ),
+            "JSONType(e.properties) != 'Object'".to_owned(),
         ),
     };
     let literals = values
-        .iter()
-        .map(String::as_str)
+        .into_iter()
         .chain(["true", "false"])
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -193,7 +217,7 @@ fn property_value_sql(
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "({value} IN ({literals}) OR position({value}, '\\\\') > 0 OR startsWith({value}, '{{'))"
+        "({value} IN ({literals}) OR position({value}, '\\\\') > 0 OR startsWith({value}, '{{') OR {unparsed})"
     )
 }
 
@@ -536,6 +560,12 @@ mod tests {
                 body: event_and_property("$feature_flag_called", "$feature_flag", "a"),
             },
             Leaf {
+                cohort: 3,
+                key: "$feature_flag_called",
+                hash: "bbbbbbbbbbbbbbbb",
+                body: event_and_property("$feature_flag_called", "$feature_flag", "b"),
+            },
+            Leaf {
                 cohort: 2,
                 key: "$pageview",
                 hash: "cccccccccccccccc",
@@ -566,7 +596,7 @@ mod tests {
         let rendered = row_filter_sql(&row_filter, &columns);
         assert_eq!(
             rendered,
-            "(e.event NOT IN ('$feature_flag_called', '$pageview') OR (e.event = '$feature_flag_called' AND (e.`mat_$feature_flag` IN ('a', 'false', 'true') OR position(e.`mat_$feature_flag`, '\\\\') > 0 OR startsWith(e.`mat_$feature_flag`, '{'))) OR (e.event = '$pageview' AND (replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', '') IN ('false', 'https://example.com/', 'true') OR position(replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', ''), '\\\\') > 0 OR startsWith(replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', ''), '{'))))"
+            "(e.event NOT IN ('$feature_flag_called', '$pageview') OR (e.event = '$feature_flag_called' AND (e.`mat_$feature_flag` IN ('a', 'b', 'false', 'true') OR position(e.`mat_$feature_flag`, '\\\\') > 0 OR startsWith(e.`mat_$feature_flag`, '{') OR e.`mat_$feature_flag` = '')) OR (e.event = '$pageview' AND (replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', '') IN ('false', 'https://example.com/', 'true') OR position(replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', ''), '\\\\') > 0 OR startsWith(replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', ''), '{') OR JSONType(e.properties) != 'Object')))"
         );
 
         let banded = spec(event_names.into_vec(), BandSpec::new(1, 2).unwrap());

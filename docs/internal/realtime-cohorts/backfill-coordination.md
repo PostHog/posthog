@@ -158,7 +158,7 @@ Missing one of them fails quietly, so they are worth knowing.
 | `COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST` | Teams whose saves create runs automatically. Unset or empty means **no** teams                                                                                                                                                                                                                                                                                                                              |
 | Operator attestations                    | Settings an operator sets to declare that prerequisites hold. They are declarations, not live checks. Behavioral runs need `BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED` and `BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED`. Person runs also need the person TTL and sizing attestations and a positive seed-bytes budget                                                                                           |
 | Person sizing budget                     | A cohort-scoped person run is refused when the team's active person-run estimates plus its own would exceed the budget. The check reads the active estimates before the run exists and reserves nothing, so two cohorts sized at the same time can together exceed the budget. A team run checks only its own estimate. Hitting the size estimate's scan cap, or the cap on pinned conditions, also refuses |
-| Behavioral scan limit                    | `create_cohort_backfill_run` refuses a behavioral team run when its pinned event names had more events than `BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY` on the busiest of the last 7 complete UTC days. `--max-scan-events-per-day` overrides it for one invocation, and 0 disables it. The save path does not check it                                                                                   |
+| Behavioral scan limit                    | `create_cohort_backfill_run` refuses a behavioral team run when its pinned event names had more events than `BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY` on the busiest of the last 7 complete UTC days. `--max-scan-events-per-day` overrides it for one invocation, and 0 skips the count and the check. The save path does not check it                                                                                   |
 
 The Rust services have their own switches, and Django cannot see them.
 Two of them gate person runs, and they must open in order.
@@ -184,7 +184,8 @@ Two management commands cover operator work.
   It refuses when an attestation is missing or when a target cohort already has an open participation, and it supports a dry run.
   For a behavioral run it first counts the team's events on the pinned event names over the last 7 complete UTC days, through the `events` primary key on the offline cluster.
   It prints the busiest day and its largest events, refuses above the behavioral scan limit, and records the count in the run's `preconditions`.
-  The count is an upper bound: the seeder reads fewer rows when every condition on an event name filters on event property values.
+  The count is a recent sample, not a bound: an older day, or a day in the run's timezone, can hold more events.
+  The seeder reads fewer rows when every condition on an event name filters on event property values.
   The person size estimate also runs on the offline cluster, and aggregates in primary-key order so its memory does not grow with the team.
 - `manage_cohort_backfill_runs inventory` lists and classifies active runs.
   `manage_cohort_backfill_runs terminalize` cancels chosen runs.

@@ -186,17 +186,20 @@ So a run whose scans do not fit ClickHouse would refill every freed slot with a 
 
 The seeder classifies each chunk failure by the ClickHouse error behind it.
 Codes 241 (memory limit), 159 (timeout), 160 (too slow) and 202 (too many simultaneous queries) are resource errors.
+So is a response that ClickHouse cuts after it has started it, labelled `response_cut`.
+The client reads no error code then, and a scan that the memory or time limit stops mid-stream fails this way.
 Per run:
 
 1. After `SEEDER_CH_BREAKER_THRESHOLD` resource failures in a row (default 3), the seeder stops claiming the run's chunks for a cooldown (`SEEDER_CH_BREAKER_COOLDOWN_BASE_SECS`, default 300 s).
-   Chunks already running finish, and their failures do not count again.
-2. After the cooldown, the seeder scans one chunk of the run.
+   Chunks already running finish, and their results do not count, whether they fail or confirm.
+2. After the cooldown, once none of the run's chunks is still running, the seeder scans one chunk of the run.
    A confirmed chunk closes the breaker and resets its count.
    A resource failure opens it again for twice as long, up to `SEEDER_CH_BREAKER_COOLDOWN_CAP_SECS` (default 1800 s).
-3. The opening that reaches `SEEDER_CH_BREAKER_MAX_TRIPS` (default 4) without a confirmed chunk in between fails the run, with the last error code in its `error`.
+3. The opening that reaches `SEEDER_CH_BREAKER_MAX_TRIPS` (default 4) without a confirmed chunk in between fails the run, with the last error in its `error`.
+   If that write does not apply, the next probe decides again.
 
 Any other failure leaves the breaker as it is.
-The breaker lives in the seeder process, so a restart closes every breaker.
+The breaker lives in the seeder process, so each replica keeps its own and a restart closes them.
 `seeder_clickhouse_resource_errors_total`, `seeder_run_breaker_trips_total`, `seeder_runs_failed_breaker_total` and `seeder_run_breakers_open` report it.
 
 ## Person-property runs
@@ -354,17 +357,20 @@ The accumulator evaluates a row only against the active conditions of the row's 
    One condition without a filter keeps every row of the event.
 3. **Rendering it.**
    The filter is one more `WHERE` conjunct: every unfiltered event passes, and a row of a filtered event passes when some condition's property test holds.
+   Conditions that each test one key render as one test per key over the union of their values, which keeps many flag cohorts under the length limit below.
 
 HogVM equality coerces across types, so the property test is a superset of it.
 The test reads `replaceRegexpAll(JSONExtractRaw(properties, key), '^"|"$', '')`, the value's raw JSON text without its outer quotes.
 It admits the value itself, `true` and `false` (the VM equates a JSON boolean with a string), text holding a backslash (an escaped string), and text starting with `{` (the VM compares a temporal object by epoch).
 A value that parses as a number is never filtered on, because the VM also equates it with a JSON number.
+The test also admits a blob that ClickHouse cannot parse, such as one holding an integer past 64 bits: ClickHouse then extracts '' for every key, while `serde_json` reads the blob.
 Ingestion writes event properties with `JSON.stringify` of a parsed object, so a key appears once and the first-value and last-value readings of ClickHouse and `serde_json` agree.
 `tests/ch_event_row_filter.rs` checks all of this against a live ClickHouse, with the VM as the oracle.
 
 Where possible, the test reads a materialized column instead of the blob.
 Before each filtered chunk, the seeder looks in `system.columns` for a `String` column of `sharded_events` whose default expression is exactly that extraction for the key, and that also exists on `events`.
 Only such a column is used, because a column with another expression, such as a typed `JSONExtract`, reads different values for the same row.
+The column holds '' for a blob ClickHouse cannot parse, so the test admits '' there instead of reading the blob.
 Without one, the test extracts from the blob: ClickHouse still decompresses the blob for the event's rows, but only the matching rows are transferred and evaluated.
 The filter is dropped when the query would grow past the 8192 bytes the client sends by GET, since the `cohort_seeder` profile refuses the POST form.
 `seeder_scan_row_filter_total{outcome}` reports per chunk whether the filter read materialized columns, read the blob, did not apply, or was dropped for length.

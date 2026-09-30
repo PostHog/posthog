@@ -27,6 +27,7 @@ use serde_json::{json, Value};
 const HASH: &str = "aaaaaaaaaaaaaaaa";
 const EVENT: &str = "$feature_flag_called";
 const KEY: &str = "$feature_flag";
+const MATERIALIZED: &str = "mat_$feature_flag";
 
 const VALUES: &[&str] = &[
     "my-flag",
@@ -68,6 +69,10 @@ const FIXED_BLOBS: &[&str] = &[
     r#"null"#,
     r#""#,
     r#"{not json"#,
+    // ClickHouse cannot parse an integer past 64 bits, which `serde_json` reads as a float.
+    r#"{"$feature_flag":"my-flag","n":18446744073709551616}"#,
+    r#"{"n":18446744073709552000,"$feature_flag":"my-flag"}"#,
+    r#"{"$feature_flag":"my-flag","n":-9223372036854775809}"#,
 ];
 
 #[derive(Row, Deserialize)]
@@ -79,17 +84,20 @@ struct Admitted {
 #[tokio::test]
 async fn the_row_filter_admits_every_row_the_program_matches() {
     let client = connect(None);
+    let materialized = MaterializedColumns::from_iter([(KEY.to_owned(), MATERIALIZED.to_owned())]);
     for value in VALUES {
         let (filters, program) = condition(value);
-        let predicate = rendered_predicate(&filters, &MaterializedColumns::default());
         let blobs = blobs_for(value);
-        let admitted = admit_all(&client, &predicate, &blobs).await;
-        for (blob, admitted) in blobs.iter().zip(admitted) {
-            if program_matches(&program, blob) {
-                assert!(
-                    admitted,
-                    "value {value:?}: the program matches {blob:?} but the filter dropped it\n{predicate}"
-                );
+        for columns in [&MaterializedColumns::default(), &materialized] {
+            let predicate = rendered_predicate(&filters, columns);
+            let admitted = admit_all(&client, &predicate, &blobs).await;
+            for (blob, admitted) in blobs.iter().zip(admitted) {
+                if program_matches(&program, blob) {
+                    assert!(
+                        admitted,
+                        "value {value:?}: the program matches {blob:?} but the filter dropped it\n{predicate}"
+                    );
+                }
             }
         }
     }
@@ -223,8 +231,17 @@ fn rendered_predicate(filters: &TeamFilters, columns: &MaterializedColumns) -> S
         "the condition carries no row filter"
     );
     let predicate = row_filter_sql(&row_filter, columns);
-    assert_eq!(predicate.matches("e.properties").count(), 3, "{predicate}");
+    assert_eq!(
+        predicate.contains("e.properties"),
+        columns.column_for(KEY).is_none(),
+        "a materialized column must keep the filter off the blob: {predicate}"
+    );
+    // The materializer's default expression, so the column holds what it holds in `events`.
     predicate
+        .replace(
+            &format!("e.`{MATERIALIZED}`"),
+            &format!("replaceRegexpAll(JSONExtractRaw(blob, '{KEY}'), '^\"|\"$', '')"),
+        )
         .replace("e.properties", "blob")
         .replace("e.event", "'$feature_flag_called'")
 }

@@ -3,7 +3,7 @@
 //! never away.
 
 use std::fmt;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -329,11 +329,11 @@ pub struct Config {
 
     /// This and the next two settings are sent only when set. The `cohort_seeder` profile constrains
     /// them, and ClickHouse rejects a query that sends a value above a constraint, so a default could
-    /// fail every scan.
-    pub seeder_ch_max_threads: Option<u64>,
+    /// fail every scan. Not 0, which ClickHouse reads as one thread per core.
+    pub seeder_ch_max_threads: Option<NonZeroU64>,
 
-    /// Never 0, which ClickHouse reads as unlimited.
-    pub seeder_ch_max_memory_usage: Option<u64>,
+    /// Not 0, which ClickHouse reads as unlimited.
+    pub seeder_ch_max_memory_usage: Option<NonZeroU64>,
 
     /// ClickHouse ranks replicas by recent errors before `<priority>`, so a high value keeps legs on
     /// the offline replicas when they fail.

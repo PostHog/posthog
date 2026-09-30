@@ -46,8 +46,9 @@ BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_BYTES: int = get_from_env(
 BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS: int = get_from_env(
     "BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS", 30, type_cast=int
 )
-# Bounds the largest seeder chunk scan of a behavioral team run, which reads one day of the pinned
-# event names. `--max-scan-events-per-day` overrides it per invocation; 0 disables it.
+# Refuses a behavioral team run whose pinned event names had more events than this on the busiest
+# of the last 7 complete UTC days, as a proxy for one seeder chunk's scan. Older days can hold more.
+# `--max-scan-events-per-day` overrides it per invocation; 0 skips the count and the check.
 BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY: int = get_from_env(
     "BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY", 50_000_000, type_cast=int
 )

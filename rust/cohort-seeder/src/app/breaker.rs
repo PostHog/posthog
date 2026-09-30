@@ -89,7 +89,8 @@ enum State {
     HalfOpen {
         trips: u32,
     },
-    /// Keeps refusing claims in case failing the run in Postgres did not apply.
+    /// The caller fails the run. [`RunBreakers::retry_exhausted`] admits one more probe when that
+    /// write does not apply.
     Exhausted,
 }
 
@@ -97,14 +98,6 @@ enum State {
 struct Entry {
     state: State,
     touched: Instant,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Admission {
-    Admit,
-    /// Admit only while none of the run's chunks is in flight.
-    Probe,
-    Refuse,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,29 +127,45 @@ impl RunBreakers {
         }
     }
 
-    pub fn admission(&mut self, run_id: RunId, now: Instant) -> Admission {
+    /// The breaker turns half-open only once none of the run's chunks is in flight, so the one
+    /// probe it then admits is the only chunk whose result the half-open state counts.
+    pub fn admits(&mut self, run_id: RunId, now: Instant, run_in_flight: bool) -> bool {
         let Some(entry) = self.entries.get_mut(&run_id) else {
-            return Admission::Admit;
+            return true;
         };
         match entry.state {
-            State::Closed { .. } => Admission::Admit,
-            State::Open { until, trips } if now >= until => {
+            State::Closed { .. } => true,
+            State::Open { until, trips } if now >= until && !run_in_flight => {
                 entry.state = State::HalfOpen { trips };
-                Admission::Probe
+                true
             }
-            State::Open { .. } | State::Exhausted => Admission::Refuse,
-            State::HalfOpen { .. } => Admission::Probe,
+            State::Open { .. } | State::Exhausted => false,
+            State::HalfOpen { .. } => !run_in_flight,
         }
     }
 
-    /// An exhausted run stays refused, because a chunk claimed before it failed can still confirm.
+    /// While open or exhausted, every chunk in flight was claimed before the breaker opened, so its
+    /// confirmation says nothing about whether ClickHouse has recovered.
     pub fn record_success(&mut self, run_id: RunId) {
-        if self
-            .entries
-            .get(&run_id)
-            .is_some_and(|entry| entry.state != State::Exhausted)
-        {
+        if self.entries.get(&run_id).is_some_and(|entry| {
+            matches!(entry.state, State::Closed { .. } | State::HalfOpen { .. })
+        }) {
             self.entries.remove(&run_id);
+        }
+    }
+
+    /// Failing the run did not apply. The next probe's resource failure exhausts the breaker again,
+    /// so the caller retries the write, and a confirmed probe closes it.
+    pub fn retry_exhausted(&mut self, run_id: RunId) {
+        let retry = State::HalfOpen {
+            trips: self.policy.max_trips.get() - 1,
+        };
+        if let Some(entry) = self
+            .entries
+            .get_mut(&run_id)
+            .filter(|entry| entry.state == State::Exhausted)
+        {
+            entry.state = retry;
         }
     }
 
@@ -238,7 +247,7 @@ mod tests {
             breakers.record_resource_failure(run(), start),
             BreakerEvent::Unchanged
         );
-        assert_eq!(breakers.admission(run(), start), Admission::Admit);
+        assert!(breakers.admits(run(), start, true));
         assert_eq!(
             breakers.record_resource_failure(run(), start),
             BreakerEvent::Tripped {
@@ -251,12 +260,13 @@ mod tests {
             BreakerEvent::Unchanged,
             "a straggler claimed before the trip counted as new evidence"
         );
-        assert_eq!(
-            breakers.admission(run(), start + BASE / 2),
-            Admission::Refuse
-        );
+        assert!(!breakers.admits(run(), start + BASE / 2, false));
 
-        assert_eq!(breakers.admission(run(), start + BASE), Admission::Probe);
+        assert!(breakers.admits(run(), start + BASE, false));
+        assert!(
+            !breakers.admits(run(), start + BASE, true),
+            "a second probe was admitted beside the first"
+        );
         assert_eq!(
             breakers.record_resource_failure(run(), start + BASE),
             BreakerEvent::Tripped {
@@ -265,23 +275,54 @@ mod tests {
             },
             "a failed probe waited for the threshold again"
         );
-        assert_eq!(
-            breakers.admission(run(), start + BASE * 2),
-            Admission::Refuse
-        );
+        assert!(!breakers.admits(run(), start + BASE * 2, false));
 
-        assert_eq!(
-            breakers.admission(run(), start + BASE * 3),
-            Admission::Probe
-        );
+        assert!(breakers.admits(run(), start + BASE * 3, false));
         assert_eq!(
             breakers.record_resource_failure(run(), start + BASE * 3),
             BreakerEvent::Exhausted { trips: 3 }
         );
-        assert_eq!(
-            breakers.admission(run(), start + BASE * 100),
-            Admission::Refuse,
+        assert!(
+            !breakers.admits(run(), start + BASE * 100, false),
             "an exhausted run went back to full concurrency"
+        );
+
+        breakers.retry_exhausted(run());
+        assert!(
+            breakers.admits(run(), start + BASE * 100, false),
+            "a run whose failure did not apply stayed refused for good"
+        );
+        assert_eq!(
+            breakers.record_resource_failure(run(), start + BASE * 100),
+            BreakerEvent::Exhausted { trips: 3 }
+        );
+    }
+
+    #[test]
+    fn chunks_claimed_before_the_trip_neither_count_nor_close_it() {
+        let mut breakers = breakers(1, 2);
+        let start = Instant::now();
+        breakers.record_resource_failure(run(), start);
+
+        assert!(
+            !breakers.admits(run(), start + BASE, true),
+            "a probe was admitted beside a chunk claimed before the trip"
+        );
+        assert_eq!(
+            breakers.record_resource_failure(run(), start + BASE),
+            BreakerEvent::Unchanged,
+            "a chunk claimed before the trip counted as a failed probe"
+        );
+        breakers.record_success(run());
+        assert!(
+            breakers.is_open(run()),
+            "a chunk claimed before the trip closed the breaker"
+        );
+
+        assert!(breakers.admits(run(), start + BASE, false));
+        assert_eq!(
+            breakers.record_resource_failure(run(), start + BASE),
+            BreakerEvent::Exhausted { trips: 2 }
         );
     }
 
@@ -293,11 +334,11 @@ mod tests {
             breakers.record_resource_failure(run(), start),
             BreakerEvent::Tripped { trips: 1, .. }
         ));
-        assert_eq!(breakers.admission(run(), start + BASE), Admission::Probe);
+        assert!(breakers.admits(run(), start + BASE, false));
 
         breakers.record_success(run());
 
-        assert_eq!(breakers.admission(run(), start + BASE), Admission::Admit);
+        assert!(breakers.admits(run(), start + BASE, true));
         assert!(matches!(
             breakers.record_resource_failure(run(), start + BASE),
             BreakerEvent::Tripped { trips: 1, .. }
