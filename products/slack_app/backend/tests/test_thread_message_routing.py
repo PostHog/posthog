@@ -596,6 +596,45 @@ class TestRouteThreadMessage(TestCase):
                 ("ignored:edit", expected_ignore_cause)
             ]
 
+    # --- Reply to a bare mention -------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("same_person", "U_BOB", 30, "and how many signups last week", True),
+            ("no_bare_mention_in_the_thread", None, 30, "and how many signups last week", False),
+            ("another_person", "U_ALICE", 30, "and how many signups last week", False),
+            ("tagged_copy", "U_BOB", 30, "<@U0BOT> how many signups last week", False),
+            ("thread_older_than_a_claim_can_live", "U_BOB", 2 * 60 * 60, "and how many signups last week", False),
+        ]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_untagged_reply_runs_only_when_the_thread_awaits_its_author(
+        self, _name, awaited_from, thread_age_seconds, text, expect_workflow
+    ):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+        from products.slack_app.backend.services.bare_mention import await_request
+
+        now = time.time()
+        thread_ts = f"{now - thread_age_seconds:.6f}"
+        if awaited_from is not None:
+            await_request("T_SLACK", "C001", thread_ts, slack_user_id=awaited_from)
+        event = self._make_event(user="U_BOB", thread_ts=thread_ts, ts=f"{now:.6f}", text=text)
+
+        with (
+            patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False),
+            patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="U0BOT"),
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as mock_start,
+        ):
+            result = self._route(event)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_start.called is expect_workflow
+        if expect_workflow:
+            assert mock_start.call_args.kwargs["untagged_followup"] is False
+            assert mock_start.call_args.kwargs["awaited_request_reply"] is True
+
 
 class TestMirrorSlackMessageEventTask(SimpleTestCase):
     """The queued mirror task owns the claims probe, so the webhook-side tests above cannot

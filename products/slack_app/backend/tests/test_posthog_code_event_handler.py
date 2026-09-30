@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
@@ -220,7 +221,13 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # without calling the Slack API. New tests that exercise the unauthorised
         # paths override this row (or delete it) deliberately.
         self._seed_slack_user_cache("U123", "dev@example.com")
-        self.event = {"type": "app_mention", "channel": "C001", "user": "U123", "ts": "1234.5678"}
+        self.event = {
+            "type": "app_mention",
+            "channel": "C001",
+            "user": "U123",
+            "ts": "1234.5678",
+            "text": "<@U0BOT> how many signups last week",
+        }
 
     def _seed_slack_user_cache(self, slack_user_id: str, email: str | None) -> SlackUserProfileCache:
         from django.utils import timezone
@@ -505,6 +512,76 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert capture_kwargs["properties"]["replied"] is False
         for key, value in expected_extra_properties.items():
             assert capture_kwargs["properties"][key] == value
+
+    @parameterized.expand(
+        [
+            ("bare_top_level_mention", {"text": "<@U0BOT>"}, False),
+            ("bare_mention_inside_a_thread", {"text": "<@U0BOT>", "thread_ts": "1000.0000"}, True),
+            ("mention_with_a_request", {"text": "<@U0BOT> how many signups last week"}, True),
+        ]
+    )
+    @patch("products.slack_app.backend.api.posthoganalytics.capture")
+    @patch("products.slack_app.backend.api._post_slack_user_feedback", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_bare_mention_is_answered_without_a_run(
+        self,
+        _name,
+        overrides,
+        expect_workflow,
+        mock_sync_connect,
+        mock_asyncio_run,
+        mock_post_feedback,
+        mock_capture,
+    ):
+        from products.slack_app.backend.api import (
+            SLACK_MENTION_DROPPED_EVENT,
+            route_posthog_code_event_to_relevant_region,
+        )
+        from products.slack_app.backend.services.bare_mention import BARE_MENTION_REPLY, awaited_request_from
+
+        message_ts = f"{time.time() - 5:.6f}"
+        event = {**self.event, "ts": message_ts, **overrides}
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert mock_sync_connect.called is expect_workflow
+        awaited_from = awaited_request_from("T12345", "C001", message_ts, now=time.time())
+        if expect_workflow:
+            mock_post_feedback.assert_not_called()
+            assert awaited_from is None
+        else:
+            assert mock_post_feedback.call_args.args[4] == BARE_MENTION_REPLY
+            assert awaited_from == "U123"
+            captured = {call.kwargs["event"]: call.kwargs["properties"] for call in mock_capture.call_args_list}
+            assert captured[SLACK_MENTION_DROPPED_EVENT]["drop_reason"] == "bare_mention"
+            assert captured[SLACK_MENTION_DROPPED_EVENT]["replied"] is True
+
+    @patch("products.slack_app.backend.api._post_slack_user_feedback", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_edit_that_adds_the_request_to_a_bare_mention_starts_a_run(
+        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback
+    ):
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        now = time.time()
+        bare = {**self.event, "ts": f"{now - 20:.6f}", "text": "<@U0BOT>"}
+        edited = {
+            **bare,
+            "text": "<@U0BOT> how many signups last week",
+            "edited": {"user": "U123", "ts": f"{now:.6f}"},
+        }
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        route_posthog_code_event_to_relevant_region(request, bare, "T12345")
+        mock_sync_connect.assert_not_called()
+        route_posthog_code_event_to_relevant_region(request, edited, "T12345")
+
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
 
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
@@ -1228,6 +1305,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             "user": "U123",
             "ts": "1234.5678",
             "thread_ts": "1234.5678",
+            "text": "<@U0BOT> how many signups last week",
         }
 
         result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
@@ -1274,6 +1352,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             "user": "U123",
             "ts": "1234.5678",
             "thread_ts": "1234.5678",
+            "text": "<@U0BOT> how many signups last week",
         }
 
         result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
@@ -1333,6 +1412,7 @@ class TestChannelApprovalGate(TestCase):
             "channel": "C_EXT",
             "user": "U123",
             "ts": "1234.5678",
+            "text": "<@U0BOT> how many signups last week",
         }
 
     @patch("products.slack_app.backend.api._post_channel_approval_prompt")
@@ -1624,7 +1704,13 @@ class TestQueueWorkflowDispatch(TestCase):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
         mock_slack.return_value.missing_scopes.return_value = set()
-        event = {"type": "app_mention", "channel": "C001", "user": "U123", "ts": "1234.5678"}
+        event = {
+            "type": "app_mention",
+            "channel": "C001",
+            "user": "U123",
+            "ts": "1234.5678",
+            "text": "<@U0BOT> how many signups last week",
+        }
         if thread_ts:
             event["thread_ts"] = thread_ts
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")

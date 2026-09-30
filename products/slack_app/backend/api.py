@@ -66,6 +66,7 @@ from products.slack_app.backend.feature_flags import (
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackChannel, SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode
 from products.slack_app.backend.services import (
+    bare_mention,
     inbox_interactivity,
     project_picker,
     slack_welcome_messages,
@@ -1395,6 +1396,59 @@ def _edited_mention_ignore_cause(event: dict[str, Any], slack_team_id: str) -> s
     return None
 
 
+def _awaits_request_from_author(event: dict[str, Any], slack_team_id: str, probe: Integration) -> bool:
+    """Whether this threaded message is the request a bare mention in its thread asked for."""
+    channel = event.get("channel")
+    thread_ts = event.get("thread_ts")
+    awaited_from = bare_mention.awaited_request_from(
+        slack_team_id,
+        channel if isinstance(channel, str) else None,
+        thread_ts if isinstance(thread_ts, str) else None,
+        now=time.time(),
+    )
+    if awaited_from is None:
+        return False
+    if awaited_from != event.get("user"):
+        if event.get("type") == "message":
+            _report_slack_mention_dropped(
+                event, slack_team_id, reason="awaited_reply_other_user", replied=False, integration=probe
+            )
+        return False
+    return True
+
+
+def _answer_bare_mention(
+    event: dict[str, Any], integration: Integration, slack_team_id: str, *, posthog_user: User
+) -> str:
+    channel = event.get("channel")
+    message_ts = event.get("ts")
+    slack_user_id = event.get("user")
+    replied = False
+    if isinstance(channel, str) and isinstance(message_ts, str) and isinstance(slack_user_id, str):
+        if bare_mention.await_request(slack_team_id, channel, message_ts, slack_user_id=slack_user_id):
+            replied = _post_slack_user_feedback(
+                SlackIntegration(integration),
+                channel,
+                slack_user_id,
+                message_ts,
+                bare_mention.BARE_MENTION_REPLY,
+                prefer_thread_message=True,
+            )
+        # No run started, so an edit that adds the request must be free to start one.
+        handled_key = _message_handled_cache_key(slack_team_id, event)
+        if handled_key is not None:
+            cache.delete(handled_key)
+    _report_slack_mention_dropped(
+        event,
+        slack_team_id,
+        reason="bare_mention",
+        replied=replied,
+        integration=integration,
+        posthog_user=posthog_user,
+    )
+    return ROUTE_HANDLED_LOCALLY
+
+
 def _thread_message_event_has_files(event: dict[str, Any]) -> bool:
     files = event.get("files")
     return isinstance(files, list) and len(files) > 0
@@ -2370,6 +2424,7 @@ def _dispatch_mention_to_target(
     posthog_user: User,
     untagged_followup_mapping: SlackThreadTaskMapping | None,
     is_ext_shared_channel: bool,
+    awaited_request_reply: bool = False,
 ) -> str:
     """Run the gates that need a resolved project, then start the mention workflow."""
     slack = SlackIntegration(mention_target)
@@ -2430,6 +2485,14 @@ def _dispatch_mention_to_target(
     if untagged_followup_mapping is not None:
         _mark_message_handled(slack_team_id, event, "untagged_followup")
 
+    channel = event.get("channel")
+    thread_ts = event.get("thread_ts") or event.get("ts")
+    if awaited_request_reply and isinstance(channel, str) and isinstance(thread_ts, str):
+        bare_mention.clear_awaited_request(slack_team_id, channel, thread_ts)
+        _mark_message_handled(slack_team_id, event, "mention")
+    elif event.get("type") == "app_mention" and bare_mention.is_bare_mention(event):
+        return _answer_bare_mention(event, mention_target, slack_team_id, posthog_user=posthog_user)
+
     return _start_mention_workflow(
         event,
         mention_target,
@@ -2438,6 +2501,7 @@ def _dispatch_mention_to_target(
         posthog_user=posthog_user,
         untagged_followup=untagged_followup_mapping is not None,
         is_ext_shared_channel=is_ext_shared_channel,
+        awaited_request_reply=awaited_request_reply,
     )
 
 
@@ -2664,18 +2728,29 @@ def route_posthog_code_event_to_relevant_region(
         # Threads we don't own are dropped here so the rest of the pipeline
         # only runs for actionable messages.
         untagged_followup_mapping: SlackThreadTaskMapping | None = None
+        awaited_request_reply = mention_is_threaded and _awaits_request_from_author(
+            event, slack_team_id, workspace_result.candidates[0]
+        )
         if event_type == "message":
+            awaited_request_reply = False
             untagged_followup_mapping = _resolve_untagged_followup_mapping(
                 candidates=workspace_result.candidates,
                 channel=channel_str,
                 thread_ts=thread_ts_str,
             )
             if untagged_followup_mapping is None:
-                return ROUTE_HANDLED_LOCALLY
+                if not _awaits_request_from_author(event, slack_team_id, workspace_result.candidates[0]):
+                    return ROUTE_HANDLED_LOCALLY
+                awaited_request_reply = True
             # A tagged reply also arrives as its own ``app_mention`` event, which owns
             # it. Letting this copy through would run the untagged-followup classifier
             # (and the ``ask`` prompt) on a message that explicitly addressed the app.
-            if _message_tags_bot(event, untagged_followup_mapping.integration):
+            if _message_tags_bot(
+                event,
+                untagged_followup_mapping.integration
+                if untagged_followup_mapping is not None
+                else workspace_result.candidates[0],
+            ):
                 logger.info(
                     "slack_app_thread_message_ignored",
                     reason="tagged_reply",
@@ -2830,6 +2905,7 @@ def route_posthog_code_event_to_relevant_region(
             posthog_user=posthog_user,
             untagged_followup_mapping=untagged_followup_mapping,
             is_ext_shared_channel=is_ext_shared_channel,
+            awaited_request_reply=awaited_request_reply,
         )
 
     if event_type == "member_joined_channel":
@@ -3712,6 +3788,7 @@ def _report_slack_mention_received(
     slack_team_id: str,
     *,
     posthog_user: User | None = None,
+    awaited_request_reply: bool = False,
 ) -> User | None:
     """Capture a product-analytics event each time the @PostHog bot is mentioned.
 
@@ -3769,6 +3846,7 @@ def _report_slack_mention_received(
             # add up to a funnel.
             "slack_event_type": event.get("type"),
             "slack_message_edited": bool(event.get("edited")),
+            "awaited_request_reply": awaited_request_reply,
             # "im" marks an assistant DM; channel mentions carry "channel"/"group" or no type at all.
             "slack_channel_type": event.get("channel_type"),
             "posthog_user_identified": identified_distinct_id is not None,
@@ -3867,6 +3945,7 @@ def _start_mention_workflow(
     untagged_followup: bool = False,
     untagged_followup_confirmed: bool = False,
     is_ext_shared_channel: bool = False,
+    awaited_request_reply: bool = False,
     fork_source_channel: str | None = None,
     fork_source_thread_ts: str | None = None,
     fork_source_message_ts: str | None = None,
@@ -3890,7 +3969,13 @@ def _start_mention_workflow(
     """
     is_fork = bool(fork_source_channel and fork_source_thread_ts)
     if not untagged_followup and not is_fork:
-        _report_slack_mention_received(event, integration, slack_team_id, posthog_user=posthog_user)
+        _report_slack_mention_received(
+            event,
+            integration,
+            slack_team_id,
+            posthog_user=posthog_user,
+            awaited_request_reply=awaited_request_reply,
+        )
         if _resolve_pending_repo_picker_from_followup(event, integration):
             return ROUTE_HANDLED_LOCALLY
     workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(
