@@ -22,6 +22,7 @@ export function TodayToolsSidebar(): JSX.Element {
             <div className="TodayPane__filters">
                 <LemonInput
                     type="search"
+                    size="small"
                     placeholder="Search tools"
                     value={search}
                     onChange={setSearch}
