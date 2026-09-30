@@ -3476,7 +3476,7 @@ Diffed against: <https://developer.fullstory.com/server/sessions/introduction/>
 - [ ] `v2 datasets (list datasets)` — lookup describing the exportable datasets available to the account (medium)
 - [ ] `v1 exports/get-user-events` — per-user event history, an alternative to the segment export for smaller pulls (medium)
 
-Note: The source hard-codes ENDPOINTS = ("users",) in fullstory/fullstory.py with a comment that session/event data only exists behind Fullstory's async Data Export jobs — that is accurate for bulk pulls. Note the v2 /sessions list endpoint is per-user (requires uid, email or session_uid) and is not paginated, so it would have to be driven off the synced users table rather than listed directly. Bulk session and event data comes from the v1 segment-export / operations workflow, which is async but resumable.
+Note: `events` uses the v1 segment-export / operations workflow, which is async but resumable. The v2 /sessions list endpoint is per-user (requires uid, email or session_uid) and is not paginated, so `sessions` is driven off the identified users listing rather than listed directly.
 
 ## FusionAuth — gaps
 

@@ -7,10 +7,12 @@ import dataclasses
 from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -48,6 +50,7 @@ class FullStoryResumeConfig:
     # Listings paginate with an opaque next-page token.
     next_page_token: Optional[str] = None
     # Events: the export window in progress, its export operation, and how many of its rows are written.
+    # A crash after a write but before its checkpoint commits replays those rows; export rows have no key to dedupe on.
     export_window_start: Optional[str] = None
     export_window_end: Optional[str] = None
     export_operation_id: Optional[str] = None
@@ -264,6 +267,8 @@ def _iter_export_rows(session: requests.Session, export_id: str) -> Iterator[dic
     )
     response.raise_for_status()
     location = response.json()["location"]
+    if urlsplit(location).scheme.lower() != "https":
+        raise FullStoryExportError("Fullstory export download location is not HTTPS")
 
     # The location is a pre-signed URL on a storage host, so it must not carry the API key.
     download_session = make_tracked_session(redact_values=(location,))
@@ -283,11 +288,17 @@ def _iter_export_rows(session: requests.Session, export_id: str) -> Iterator[dic
                 yield json.loads(line)
 
 
-def _export_windows(start: datetime, end: datetime) -> Iterator[tuple[datetime, datetime]]:
+@frozen
+class _ExportWindow:
+    start: datetime
+    end: datetime
+
+
+def _export_windows(start: datetime, end: datetime) -> Iterator[_ExportWindow]:
     window_start = start
     while window_start < end:
         window_end = min(window_start + EVENTS_EXPORT_WINDOW, end)
-        yield window_start, window_end
+        yield _ExportWindow(start=window_start, end=window_end)
         window_start = window_end
 
 
@@ -334,10 +345,12 @@ def get_events(
 
     pending_operation_id: Optional[str] = None
     pending_rows_done = 0
-    windows: Iterator[tuple[datetime, datetime]]
+    windows: Iterator[_ExportWindow]
     if resume is not None and resumed_start is not None and resumed_end is not None:
         # Finish the interrupted window exactly as it was exported before moving on.
-        windows = itertools.chain([(resumed_start, resumed_end)], _export_windows(resumed_end, end))
+        windows = itertools.chain(
+            [_ExportWindow(start=resumed_start, end=resumed_end)], _export_windows(resumed_end, end)
+        )
         pending_operation_id = resume.export_operation_id
         pending_rows_done = resume.export_rows_done
     else:
@@ -347,7 +360,8 @@ def get_events(
         windows = _export_windows(start, end)
 
     yielded_any = False
-    for window_start, window_end in windows:
+    for window in windows:
+        window_start, window_end = window.start, window.end
         operation_id, rows_done = pending_operation_id, pending_rows_done
         pending_operation_id, pending_rows_done = None, 0
 
