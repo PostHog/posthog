@@ -117,6 +117,12 @@ class PromptJevTable:
         )
 
 
+OUT_OF_AI_CREDITS_MESSAGE = (
+    "jev can't run because your organization has used all its AI credits. "
+    "Add credits in billing settings, then try again."
+)
+
+
 @frozen
 class _DecisionKey:
     question: str
@@ -163,6 +169,8 @@ class PromptJevRunner:
                 status_code=error.status_code,
                 reason=type(error).__name__,
             )
+            if error.status_code == 402:
+                raise QueryError(OUT_OF_AI_CREDITS_MESSAGE) from error
             raise QueryError("Jev could not evaluate this query. Try again or select fewer rows.") from error
         decisions: dict[str, object] = {}
         for key, text in state.items():
@@ -485,3 +493,19 @@ def validate_prompt_jev_access(team: "Team") -> None:
         send_feature_flag_events=False,
     ):
         raise QueryError("jev is not enabled for this project. Contact support to request access.")
+    if _is_over_ai_credit_budget(team):
+        raise QueryError(OUT_OF_AI_CREDITS_MESSAGE)
+
+
+def _is_over_ai_credit_budget(team: "Team") -> bool:
+    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the HogQL import path
+        is_team_over_ai_credit_budget,
+    )
+
+    try:
+        return is_team_over_ai_credit_budget(team.api_token)
+    except Exception:
+        # The quota cache reads Redis. An outage must not stop a team that has credits, and a team
+        # that is really out of them still gets the same message from the gateway's 402.
+        logger.warning("prompt_jev_ai_credit_lookup_failed", team_id=team.pk, exc_info=True)
+        return False
