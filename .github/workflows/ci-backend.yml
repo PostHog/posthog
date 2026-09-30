@@ -190,6 +190,7 @@ jobs:
                   sparse-checkout: |
                       .github/actions/paths-filter
                       .github/scripts/ci_backend_route.py
+                      .github/scripts/ci_backend_relay.py
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
@@ -216,10 +217,12 @@ jobs:
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
                   HEAD_REF: ${{ github.head_ref }}
                   # The script reads this commit's earlier hand-off check, the durable record
-                  # of the engine that already ran its tests and side effects.
+                  # of the engine that already ran its tests and side effects, and the check of
+                  # the Depot wait job that names this event.
                   GH_TOKEN: ${{ github.token }}
                   REPO: ${{ github.repository }}
                   SHA: ${{ github.event.pull_request.head.sha }}
+                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
               run: python3 .github/scripts/ci_backend_route.py
             - uses: ./.github/actions/paths-filter
               # Skipped on master push and on the hourly schedule: every output then

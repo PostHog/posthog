@@ -1,3 +1,4 @@
+import sys
 import json
 import urllib.error
 import importlib.util
@@ -13,6 +14,10 @@ assert SPEC is not None
 assert SPEC.loader is not None
 route = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(route)
+relay = sys.modules["ci_backend_relay"]
+
+EVENT_AT = "2026-09-30T05:44:10Z"
+EVENT_EPOCH = 1790747050.0
 
 
 def pr(
@@ -166,11 +171,32 @@ def test_main_writes_outputs(labels: str, tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setenv("PR_NUMBER", "7")
     monkeypatch.setenv("LABELS", labels)
     monkeypatch.setattr(route, "fetch_handoff_checks", lambda repo, sha, token: [])
+    monkeypatch.setattr(route, "depot_started", lambda reader, pr_number, event_at: True)
     monkeypatch.setenv("REPO", "PostHog/posthog")
     monkeypatch.setenv("SHA", "abc")
     monkeypatch.setenv("GH_TOKEN", "t")
     assert route.main() == 0
     assert output.read_text() == "engine=depot\nreason=bucket 30 < 50%\n"
+
+
+@pytest.mark.parametrize("labels", ["[]", json.dumps(["ci-backend-depot"])])
+def test_main_keeps_an_event_without_a_depot_run_on_github(
+    labels: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("EVENT", "pull_request")
+    monkeypatch.setenv("PERCENT", "50")
+    monkeypatch.setenv("PR_NUMBER", "7")
+    monkeypatch.setenv("LABELS", labels)
+    monkeypatch.setenv("REPO", "PostHog/posthog")
+    monkeypatch.setenv("SHA", "abc")
+    monkeypatch.setenv("GH_TOKEN", "t")
+    monkeypatch.setenv("EVENT_AT", EVENT_AT)
+    monkeypatch.setattr(route, "fetch_handoff_checks", lambda repo, sha, token: [])
+    monkeypatch.setattr(route, "depot_started", lambda reader, pr_number, event_at: event_at != EVENT_AT)
+    assert route.main() == 0
+    assert output.read_text() == "engine=github\nreason=Depot CI started no run for this event\n"
 
 
 @pytest.mark.parametrize("percent", ["", "0", "5"])
@@ -190,6 +216,7 @@ def test_main_keeps_a_handed_off_commit_on_depot_after_rollback(
     monkeypatch.setenv("SHA", "abc")
     monkeypatch.setenv("GH_TOKEN", "t")
     monkeypatch.setattr(route, "fetch_handoff_checks", fetch)
+    monkeypatch.setattr(route, "depot_started", lambda reader, pr_number, event_at: False)
     assert route.main() == 0
     assert output.read_text().startswith("engine=depot\n")
 
@@ -224,3 +251,41 @@ def test_main_never_switches_engines_on_an_unreadable_handoff(
     monkeypatch.setattr(route.time, "sleep", lambda seconds: None)
     assert route.main() == 1
     assert not output.exists()
+
+
+class FakeReader:
+    def __init__(self, polls: list[Any]) -> None:
+        self.polls = polls
+
+    def read(self, name: str) -> list[Any]:
+        assert name == f"Backend CI on Depot / Depot run started (PR 7, event {EVENT_AT})"
+        answer = self.polls.pop(0) if len(self.polls) > 1 else self.polls[0]
+        if isinstance(answer, Exception):
+            raise answer
+        return [relay.CheckRun(id=n, state="success", details_url="") for n in answer]
+
+
+@pytest.mark.parametrize(
+    "polls,started",
+    [
+        ([[1]], True),
+        ([[], [], [1]], True),
+        ([route.ReadFailedError("boom"), [1]], True),
+        ([[]], False),
+        ([route.ReadRefusedError("refused")], False),
+    ],
+)
+def test_depot_started_waits_for_the_started_check_of_the_event(polls: list[Any], started: bool) -> None:
+    now = [EVENT_EPOCH + 15]
+
+    def sleep(seconds: float) -> None:
+        now[0] += seconds
+
+    assert route.depot_started(FakeReader(polls), 7, EVENT_AT, clock=lambda: now[0], sleep=sleep) is started
+    assert now[0] <= EVENT_EPOCH + route.DEPOT_START_SECONDS + route.DEPOT_POLL_SECONDS
+
+
+def test_depot_started_reads_once_when_the_event_is_already_past_the_window() -> None:
+    sleeps: list[float] = []
+    assert not route.depot_started(FakeReader([[]]), 7, EVENT_AT, clock=lambda: EVENT_EPOCH + 400, sleep=sleeps.append)
+    assert sleeps == []

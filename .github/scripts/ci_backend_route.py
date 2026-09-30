@@ -7,6 +7,13 @@ routes on its own and the tests never run on both engines. Once that job has con
 for a commit, every later run of the same commit repeats its answer, whatever the
 percent or the labels say by then, even after the rollout variable is deleted. A read of
 that record that keeps failing stops routing, so a commit cannot run on both engines.
+
+Any other event goes to Depot only after Depot started a run for it. Depot compiles its run
+from the pull request's merge ref as soon as the event arrives, while GitHub Actions waits
+until GitHub has updated that ref. When the ref is missing, Depot ends the run with no
+workflows; when it stays stale, Depot fails to compile. Depot also cancels some runs under
+its concurrency policy before they start. Each case leaves the event with no Depot run, so
+it stays here.
 """
 
 import os
@@ -17,8 +24,21 @@ import hashlib
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
+
+from ci_backend_relay import (
+    DEPOT_WORKFLOW,
+    EVENT_SUFFIX,
+    EVENT_TIME,
+    MIRROR_APP_ID,
+    CheckReader,
+    CheckRunReader,
+    ReadFailedError,
+    ReadRefusedError,
+)
 
 LABEL_FORCE_GITHUB = "ci-backend-github"
 LABEL_FORCE_DEPOT = "ci-backend-depot"
@@ -31,6 +51,11 @@ ENGINE_BY_HANDOFF_CONCLUSION = {"success": "depot", "skipped": "github"}
 API_ROOT = "https://api.github.com"
 API_ATTEMPTS = 3
 API_BACKOFF_SECONDS = 5
+# Posted by the first step of Depot's wait job in .depot/workflows/ci-backend.yml; change both.
+STARTED_CHECK = f"{DEPOT_WORKFLOW} / Depot run started"
+# How long after the event Depot's wait job may take to start before the event stays on GitHub Actions.
+DEPOT_START_SECONDS = 180
+DEPOT_POLL_SECONDS = 10
 
 
 class HandoffReadError(RuntimeError):
@@ -153,6 +178,36 @@ def fetch_handoff_checks(repo: str, sha: str, token: str, *, opener: Any = None)
     raise HandoffReadError(f"GET {url} exhausted {API_ATTEMPTS} attempts")
 
 
+def depot_started(
+    reader: CheckReader,
+    pr_number: int,
+    event_at: str,
+    *,
+    clock: Callable[[], float] = time.time,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    """Whether Depot started a run for this event, waiting up to DEPOT_START_SECONDS after it.
+
+    The started check names the event, so it identifies this event's run and no other.
+    """
+    try:
+        deadline = datetime.strptime(event_at, EVENT_TIME).replace(tzinfo=UTC).timestamp() + DEPOT_START_SECONDS
+    except ValueError:
+        return False
+    name = STARTED_CHECK + EVENT_SUFFIX.format(pr=pr_number, event_at=event_at)
+    while True:
+        try:
+            if reader.read(name):
+                return True
+        except ReadFailedError:
+            pass
+        except ReadRefusedError:
+            return False
+        if clock() >= deadline:
+            return False
+        sleep(DEPOT_POLL_SECONDS)
+
+
 def main() -> int:
     env = os.environ
     event = env.get("EVENT", "")
@@ -185,6 +240,17 @@ def main() -> int:
         else:
             sys.stdout.write(f"::notice::Earlier hand-off on this commit: {prior_handoff or 'none'}\n")
     decision = route_with(prior_handoff)
+    if (
+        decision.engine == "depot"
+        and prior_handoff not in ENGINE_BY_HANDOFF_CONCLUSION
+        and pr_number is not None
+        and not depot_started(
+            CheckRunReader(env["REPO"], env["SHA"], env["GH_TOKEN"], pr_number=pr_number, app_ids=(MIRROR_APP_ID,)),
+            pr_number,
+            env.get("EVENT_AT", ""),
+        )
+    ):
+        decision = Decision("github", "Depot CI started no run for this event")
     sys.stdout.write(f"::notice::Backend CI engine: {decision.engine} ({decision.reason})\n")
     output_path = env.get("GITHUB_OUTPUT")
     if output_path:
