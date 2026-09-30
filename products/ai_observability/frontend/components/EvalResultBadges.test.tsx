@@ -77,14 +77,20 @@ describe('EvalResultBadges', () => {
     })
 
     it.each([
-        [9.999, 'danger'],
-        [10.001, 'success'],
-    ])('uses the exact score %s for passing rules when the label is rounded', (score, type) => {
+        [4.899999, 'gte', 4.9, '4.899999', 'danger'],
+        [4.9, 'gte', 4.9, '4.9', 'success'],
+        [4.900001, 'lte', 4.9, '4.900001', 'danger'],
+        [4.9, 'lte', 4.9, '4.9', 'success'],
+        [4.900001, 'gte', 4.900001, '4.900001', 'success'],
+        [4.899999, 'lte', 4.899999, '4.899999', 'success'],
+        [10.001, 'gte', 10, '10', 'success'],
+        [9.999, 'lte', 10, '10', 'success'],
+    ] as const)('keeps the label for score %s consistent with %s %s', (score, operator, threshold, label, type) => {
         expect(
             getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score }), {
-                passingRule: { operator: 'gte', threshold: 10 },
+                passingRule: { operator, threshold },
             })
-        ).toMatchObject({ label: '10', type })
+        ).toMatchObject({ label, type })
     })
 
     it.each([
