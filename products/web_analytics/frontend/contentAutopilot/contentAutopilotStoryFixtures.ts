@@ -80,6 +80,23 @@ export const EXAMPLE_PROPOSAL: ContentAutopilotProposalApi = {
     },
     original_markdown: '# Web analytics',
     proposed_markdown: '# Web analytics',
+    brief: {
+        intent: 'Decide whether a privacy-friendly web analytics tool covers their needs.',
+        audience: 'Marketers and founders comparing analytics tools',
+        recommended_type: 'page_improvement',
+        working_title: 'Web analytics',
+        outline: ['What web analytics tracks', 'How it handles privacy', 'Frequently asked questions'],
+        questions_to_answer: ['Does it work without cookies?'],
+        competitor_coverage: ['Cookieless tracking setup'],
+        engine_answer_summary: 'Assistants recommend other tools and do not mention cookieless mode.',
+    },
+    source_ledger: [
+        {
+            claim: 'Web analytics works without cookies.',
+            source_url: 'https://docs.example.com/docs/web-analytics/cookieless',
+            quote: 'You can run web analytics without cookies.',
+        },
+    ],
     created_at: '2026-08-26T12:08:00Z',
     updated_at: '2026-08-26T12:08:00Z',
 }

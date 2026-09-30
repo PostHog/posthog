@@ -24,6 +24,7 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import has_authority_bypass_chars
 
 from products.web_analytics.backend.facade.content_autopilot import (
+    MAX_DRAFTS_PER_RUN,
     MAX_PROPOSAL_MARKDOWN_CHARS,
     MAX_REFRESHED_OPPORTUNITIES,
     ContentAutopilotExportError,
@@ -33,6 +34,7 @@ from products.web_analytics.backend.facade.content_autopilot import (
     delete_profile,
     discover_site,
     dismiss_opportunity,
+    draft_opportunities,
     edit_proposal,
     export_proposal,
     has_same_public_origin,
@@ -172,6 +174,50 @@ class ContentAutopilotPackageSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Portable source notes included with the export.",
     )
+    json_ld = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="JSON-LD structured data to embed in the page, such as an FAQPage document.",
+    )
+    llms_txt_line = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Suggested llms.txt entry for the page.",
+    )
+
+
+class ContentAutopilotBriefSerializer(serializers.Serializer):
+    intent = serializers.CharField(required=False, help_text="What the person asking wants to know or decide.")
+    audience = serializers.CharField(required=False, help_text="Who the content is for.")
+    recommended_type = serializers.CharField(
+        required=False, help_text="Whether the brief recommends new_content or page_improvement."
+    )
+    working_title = serializers.CharField(required=False, help_text="Working title for the page.")
+    outline = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Planned sections, in order."
+    )
+    questions_to_answer = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Questions the page must answer."
+    )
+    competitor_coverage = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Topics the cited competitor pages cover that the site's pages don't.",
+    )
+    engine_answer_summary = serializers.CharField(
+        required=False, help_text="What AI answer engines currently say, including what they get wrong."
+    )
+    disambiguation = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="What the question means, when AI answer engines misread which product or company it asks about.",
+    )
+
+
+class ContentAutopilotSourceLedgerEntrySerializer(serializers.Serializer):
+    claim = serializers.CharField(help_text="Factual claim the draft makes.")
+    source_url = serializers.CharField(help_text="Site page that supports the claim.")
+    quote = serializers.CharField(help_text="Short quote from the source page.")
 
 
 class ContentAutopilotEngineAnswerSerializer(serializers.Serializer):
@@ -358,6 +404,10 @@ class ContentAutopilotProposalSerializer(ContentAutopilotProposalBaseSerializer)
     content_package = ContentAutopilotPackageSerializer(
         help_text="Structured package that accompanies the exported Markdown."
     )
+    brief = ContentAutopilotBriefSerializer(help_text="Content brief the draft was written from.")
+    source_ledger = ContentAutopilotSourceLedgerEntrySerializer(
+        many=True, help_text="Factual claims in the draft and the site pages that support them."
+    )
 
     class Meta:
         model = ContentAutopilotProposal
@@ -374,6 +424,8 @@ class ContentAutopilotProposalSerializer(ContentAutopilotProposalBaseSerializer)
             "content_package",
             "original_markdown",
             "proposed_markdown",
+            "brief",
+            "source_ledger",
             "created_at",
             "updated_at",
         ]
@@ -485,6 +537,16 @@ class ContentAutopilotOpportunityListQuerySerializer(serializers.Serializer):
 
 class ContentAutopilotOpportunityRefreshRequestSerializer(serializers.Serializer):
     profile_id = serializers.UUIDField(help_text="Site profile to refresh opportunities for.")
+
+
+class ContentAutopilotOpportunityDraftRequestSerializer(serializers.Serializer):
+    profile_id = serializers.UUIDField(help_text="Site profile the opportunities belong to.")
+    opportunity_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_DRAFTS_PER_RUN,
+        help_text=f"Opportunities to draft, up to {MAX_DRAFTS_PER_RUN} at a time.",
+    )
 
 
 class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.ModelViewSet):
@@ -690,3 +752,22 @@ class ContentAutopilotOpportunityViewSet(ContentAutopilotViewSetMixin, viewsets.
         dismiss_opportunity(team=self.team, opportunity_id=str(opportunity.id))
         opportunity.refresh_from_db()
         return Response(self.get_serializer(opportunity).data)
+
+    @validated_request(
+        request_serializer=ContentAutopilotOpportunityDraftRequestSerializer,
+        operation_id="web_analytics_content_autopilot_opportunities_draft",
+        summary="Draft content for opportunities",
+        description="Starts a run that researches and drafts content for the selected opportunities.",
+        responses={202: OpenApiResponse(response=ContentAutopilotRunSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"], required_scopes=["web_analytics:write"])
+    def draft(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        run_id = draft_opportunities(
+            team=self.team,
+            profile_id=str(request.validated_data["profile_id"]),
+            opportunity_ids=[str(opportunity_id) for opportunity_id in request.validated_data["opportunity_ids"]],
+            triggered_by_id=getattr(request.user, "id", None),
+        )
+        run = ContentAutopilotRun.objects.for_team(self.team_id).get(id=run_id)
+        return Response(ContentAutopilotRunSerializer(run).data, status=status.HTTP_202_ACCEPTED)
