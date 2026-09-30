@@ -8,11 +8,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import BILLING_LIMIT_EXPIRED_REASON
-from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (
-    clear_slot_loss_markers,
-    mark_cdc_broken,
-    slot_loss_markers,
-)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import clear_slot_loss_markers, mark_cdc_broken
 
 pytestmark = pytest.mark.django_db
 
@@ -172,27 +168,10 @@ def test_a_recreated_slot_lifts_only_the_markers_of_a_lost_slot(team, reason, cl
     schema = _cdc_schema(team, source)
     with _mocked_boundaries():
         mark_cdc_broken(source, reason, "msg")
-    schema.refresh_from_db()
 
-    assert clear_slot_loss_markers(source, slot_loss_markers([schema])) == (1 if cleared else 0)
+    assert clear_slot_loss_markers(source) == (1 if cleared else 0)
 
     schema.refresh_from_db()
     source.refresh_from_db()
     assert ("cdc_broken" in schema.sync_type_config) is not cleared
     assert source.status == (ExternalDataSource.Status.RUNNING if cleared else ExternalDataSource.Status.ERROR)
-
-
-def test_a_marker_written_after_the_load_stays(team):
-    source = _source(team)
-    schema = _cdc_schema(team, source)
-    with _mocked_boundaries():
-        mark_cdc_broken(source, "auto_dropped_critical_lag", "msg")
-    schema.refresh_from_db()
-    loaded = slot_loss_markers([schema])
-
-    with _mocked_boundaries():
-        mark_cdc_broken(source, "auto_dropped_critical_lag", "msg")
-
-    assert clear_slot_loss_markers(source, loaded) == 0
-    schema.refresh_from_db()
-    assert schema.sync_type_config["cdc_broken"]["reason"] == "auto_dropped_critical_lag"

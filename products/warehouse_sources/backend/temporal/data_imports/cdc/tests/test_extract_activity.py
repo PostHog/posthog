@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Literal
 
 import pytest
-from unittest.mock import ANY, DEFAULT, MagicMock, call, patch
+from unittest.mock import ANY, DEFAULT, MagicMock, patch
 
 from django.db.utils import InterfaceError, OperationalError
 
@@ -1028,7 +1028,7 @@ class TestSlotInvalidationRecovery:
         capture.adapter.recreate_slot.assert_called_once_with(source, tables=["public.users"])
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
         source.save.assert_called()
-        capture.clear_markers.assert_called_once_with(source, ANY)
+        capture.clear_markers.assert_called_once_with(source)
 
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
         assert schema.sync_type_config["reset_pipeline"] is True
@@ -1096,30 +1096,6 @@ class TestSlotInvalidationRecovery:
 
         unpause.assert_not_called()
         assert schema.sync_type_config["cdc_reset_pending"]["awaiting_slot"] is awaits_slot
-
-    @parameterized.expand(
-        [
-            ("lost_slot", {"reason": "auto_dropped_critical_lag", "at": "2026-08-09T16:01:27+00:00"}, True),
-            ("billing", {"reason": "billing_limit_expired", "at": "2026-08-09T16:01:27+00:00"}, False),
-            ("no_marker", None, False),
-        ]
-    )
-    def test_a_successful_read_clears_the_markers_of_a_lost_slot(self, _name, marker, cleared):
-        # Recovery may fail after the new slot exists. No later run recovers again, so the read has
-        # to clear the markers it proves stale.
-        source = _make_source()
-        schema = _make_schema("users", cdc_mode="streaming", source=source)
-        if marker is not None:
-            schema.sync_type_config["cdc_broken"] = marker
-
-        with (
-            _capture_harness(source, [schema]) as capture,
-            patch(f"{_ACTIVITIES}.clear_slot_loss_markers") as clear_markers,
-        ):
-            capture.extract()
-
-        expected = [call(source, frozenset({("auto_dropped_critical_lag", "2026-08-09T16:01:27+00:00")}))]
-        assert clear_markers.call_args_list == (expected if cleared else [])
 
     def test_non_invalidation_errors_do_not_trigger_recovery(self):
         source = _make_source()

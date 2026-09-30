@@ -136,20 +136,13 @@ def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
     return clear_broken_markers(source, reason=SELF_MANAGED_LAG_REASON)
 
 
-def slot_loss_markers(schemas: typing.Iterable[ExternalDataSchema]) -> frozenset[tuple[str, str | None]]:
-    """The reason and time of each lost-slot marker these schemas hold."""
-    markers = ((schema.sync_type_config or {}).get("cdc_broken") or {} for schema in schemas)
-    return frozenset((m["reason"], m.get("at")) for m in markers if m.get("reason") in _SLOT_LOSS_REASONS)
-
-
-def clear_slot_loss_markers(source: ExternalDataSource, markers: typing.Iterable[tuple[str, str | None]]) -> int:
-    """Lift these lost-slot markers once capture has the slot back. Returns how many schemas were cleared.
+def clear_slot_loss_markers(source: ExternalDataSource) -> int:
+    """Lift the markers of a lost slot once capture has recreated it. Returns how many schemas were cleared.
 
     Left in place, a marker keeps each table's status on the old error, and every check that reads
-    ``cdc_halted`` treats the table as halted although it streams again. Each marker is matched on its
-    reason and time, so a new one that a sweep writes after dropping the slot again stays.
+    ``cdc_halted`` treats the table as halted although it streams again.
     """
-    return sum(clear_broken_markers(source, reason=reason, at=at) for reason, at in markers)
+    return sum(clear_broken_markers(source, reason=reason) for reason in _SLOT_LOSS_REASONS)
 
 
 def clear_broken_markers(source: ExternalDataSource, **marker_fields: typing.Any) -> int:
