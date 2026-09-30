@@ -15,6 +15,10 @@
   },
   "linter": {
     "enabled": true,
+    // Keep parity with the desktop workspace, which never enabled Biome's test domain.
+    "domains": {
+      "test": "none"
+    },
     "rules": {
       "recommended": true,
       "suspicious": {
