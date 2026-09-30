@@ -1,6 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -61,6 +64,30 @@ describe('searchLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.restoreAllMocks()
+    })
+
+    it.each([false, true])('gates the command-menu terminal toggle when enabled=%s', (enabled) => {
+        logic.unmount()
+        logic = searchLogic({ logicKey: 'command' })
+        logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: enabled })
+
+        const toggle = logic.values.miscItems.find((item) => item.id === 'misc-toggle-terminal')
+        expect(!!toggle).toBe(enabled)
+        expect(terminalDockLogic.values.dockOpen).toBe(false)
+        if (toggle) {
+            toggle.onSelect?.()
+            expect(terminalDockLogic.values.dockOpen).toBe(true)
+            toggle.onSelect?.()
+            expect(terminalDockLogic.values.dockOpen).toBe(false)
+            toggle.onSelect?.()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            expect(terminalDockLogic.values.dockOpen).toBe(false)
+            expect(logic.values.miscItems.some((item) => item.id === 'misc-toggle-terminal')).toBe(false)
+        }
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        terminalDockLogic.actions.toggleTerminal()
+        expect(terminalDockLogic.values.dockOpen).toBe(false)
     })
 
     it('aborts and cancels the in-flight person search when the term is cleared', async () => {

@@ -1,4 +1,6 @@
 import json
+from copy import deepcopy
+from typing import NotRequired, TypedDict
 
 from django.test import SimpleTestCase
 
@@ -7,9 +9,11 @@ from pydantic import BaseModel, ValidationError
 
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
+    MAX_RANKING_MODEL_RESULTS,
     ArtefactContentValidationError,
     CodeReference,
     Commit,
+    ImpactMeasurementPlan,
     NoteArtefact,
     RelevantCommit,
     SuggestedReviewerEntry,
@@ -19,10 +23,116 @@ from products.signals.backend.artefact_schemas import (
     artefact_type_for,
     parse_artefact_content,
 )
+from products.signals.backend.impact_measurement_plans import validate_authored_measurement_plan
 from products.signals.backend.models import SignalReportArtefact
 
 
+class _FilterFixture(TypedDict):
+    type: str
+    key: str
+    value: str
+
+
+class _SeriesFixture(TypedDict):
+    kind: str
+    event: str
+    math: str
+    properties: NotRequired[list[_FilterFixture]]
+    fixedProperties: NotRequired[list[_FilterFixture]]
+
+
+class _SourceFixture(TypedDict):
+    kind: str
+    dateRange: dict[str, str]
+    series: list[_SeriesFixture]
+    trendsFilter: dict[str, str]
+    properties: NotRequired[list[_FilterFixture]]
+
+
+class _QueryFixture(TypedDict):
+    kind: str
+    source: _SourceFixture
+
+
+class _ImpactPlanFixture(TypedDict):
+    metric_id: str
+    title: str
+    kind: str
+    value_format: str
+    query: _QueryFixture
+    goal_value: int
+    goal_direction: str
+    decision_window_days: int
+    minimum_data_points: NotRequired[int]
+    eligibility_query: NotRequired[_QueryFixture]
+
+
+def _impact_plan() -> _ImpactPlanFixture:
+    return {
+        "metric_id": "errors",
+        "title": "Errors",
+        "kind": "occurrences",
+        "value_format": "count",
+        "query": {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "dateRange": {"date_from": "-7d"},
+                "series": [{"kind": "EventsNode", "event": "$exception", "math": "total"}],
+                "trendsFilter": {"display": "ActionsBar"},
+            },
+        },
+        "goal_value": 0,
+        "goal_direction": "at_most",
+        "decision_window_days": 7,
+    }
+
+
 class TestArtefactSchemas(SimpleTestCase):
+    def test_impact_plan_rejects_boolean_decision_rules(self) -> None:
+        plan = _impact_plan()
+        ImpactMeasurementPlan.model_validate(plan)
+        for field in ("goal_value", "decision_window_days", "minimum_data_points"):
+            for boolean in (True, False):
+                with self.assertRaises(ValidationError) as caught:
+                    ImpactMeasurementPlan.model_validate({**plan, field: boolean})
+                self.assertIn(field, str(caught.exception))
+
+    def test_impact_plan_authoring_rejects_unreadable_query_filters(self) -> None:
+        for location, field in (("series", "properties"), ("series", "fixedProperties"), ("source", "properties")):
+            with self.subTest(location=location, field=field):
+                plan = _impact_plan()
+                unreadable_filter: _FilterFixture = {
+                    "type": "hogql",
+                    "key": "properties.secret",
+                    "value": "secret",
+                }
+                if location == "source":
+                    plan["query"]["source"]["properties"] = [unreadable_filter]
+                elif field == "fixedProperties":
+                    plan["query"]["source"]["series"][0]["fixedProperties"] = [unreadable_filter]
+                else:
+                    plan["query"]["source"]["series"][0]["properties"] = [unreadable_filter]
+
+                existing_plan = ImpactMeasurementPlan.model_validate(plan)
+                with self.assertRaisesRegex(ValueError, "HogQL filters are unsupported"):
+                    validate_authored_measurement_plan(existing_plan)
+
+        supported = _impact_plan()
+        supported["query"]["source"]["series"][0]["properties"] = [
+            {"type": "event", "key": "$current_url", "value": "https://example.com/errors"}
+        ]
+        validate_authored_measurement_plan(ImpactMeasurementPlan.model_validate(supported))
+
+        eligibility = _impact_plan()
+        eligibility["minimum_data_points"] = 10
+        eligibility["eligibility_query"] = deepcopy(eligibility["query"])
+        eligibility["eligibility_query"]["source"]["series"][0]["properties"] = [
+            {"type": "hogql", "key": "properties.secret", "value": "secret"}
+        ]
+        with self.assertRaisesRegex(ValueError, "eligibility query filters cannot be checked"):
+            validate_authored_measurement_plan(ImpactMeasurementPlan.model_validate(eligibility))
+
     def test_reviewer_reasons_are_bounded_on_write(self):
         with self.assertRaises(ValidationError):
             SuggestedReviewerEntry(github_login="reviewer", reason="x" * 501)
@@ -113,6 +223,46 @@ class TestArtefactSchemas(SimpleTestCase):
             SummaryChange(old_summary="old", new_summary="   ")
 
 
+def _ranking_model_result(**overrides):
+    result = {
+        "model_name": "tabular",
+        "model_version": "2026-01-01",
+        "model_kind": "xgboost",
+        "roles": ["served"],
+        "feature_schema_version": 1,
+        "status": "scored",
+        "scores": {"open": 0.42, "pr_merged": 0.03},
+        "metadata": {"feature_set": "tabular"},
+    }
+    result.update(overrides)
+    return result
+
+
+def _skipped_challenger(**overrides):
+    return _ranking_model_result(
+        **{
+            "model_name": "report_embeddings",
+            "roles": ["challenger"],
+            "status": "skipped",
+            "skip_reason": "no report vector for this report yet",
+            "scores": {},
+            "metadata": {},
+            **overrides,
+        }
+    )
+
+
+def _ranking_score(**overrides):
+    content = {
+        "scored_at": "2026-01-02T03:04:05Z",
+        "manifest_version": "2026-01-02",
+        "served_key": "tabular@2026-01-01",
+        "results": {"tabular@2026-01-01": _ranking_model_result()},
+    }
+    content.update(overrides)
+    return content
+
+
 class TestValidateArtefactContent(SimpleTestCase):
     @parameterized.expand(
         [
@@ -153,6 +303,15 @@ class TestValidateArtefactContent(SimpleTestCase):
                     "reason": "the fix lands second",
                 },
             ),
+            (
+                "ranking_score",
+                _ranking_score(
+                    results={
+                        "tabular@2026-01-01": _ranking_model_result(),
+                        "report_embeddings@2026-01-01": _skipped_challenger(),
+                    },
+                ),
+            ),
         ]
     )
     def test_accepts_valid_content_for_type(self, artefact_type, content):
@@ -175,6 +334,7 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("task_run", {"task_id": "t1", "product": "Not Safe!", "type": "research"}),
             ("report_link", {"kind": "blocks", "report_id": "00000000-0000-0000-0000-000000000002"}),
             ("report_link", {"kind": "depends_on", "report_id": "report-2"}),
+            ("ranking_score", _ranking_score(served_key="tabular@2025-12-31")),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):
@@ -204,3 +364,65 @@ class TestValidateArtefactContent(SimpleTestCase):
 
         with self.assertRaises(ArtefactContentValidationError):
             artefact_type_for(NotAnArtefact())
+
+
+class TestRankingScore(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("served_key_not_in_results", {"served_key": "tabular@2025-12-31"}),
+            (
+                "served_model_did_not_score",
+                {"results": {"tabular@2026-01-01": _ranking_model_result(status="skipped", scores={})}},
+            ),
+            ("key_names_another_model", {"results": {"tabular@2025-12-31": _ranking_model_result()}}),
+            (
+                "no_served_role",
+                {"results": {"tabular@2026-01-01": _ranking_model_result(roles=["challenger"])}},
+            ),
+            (
+                "two_served_roles",
+                {
+                    "results": {
+                        "tabular@2026-01-01": _ranking_model_result(),
+                        "report_embeddings@2026-01-01": _ranking_model_result(model_name="report_embeddings"),
+                    }
+                },
+            ),
+            (
+                "score_above_one",
+                {"results": {"tabular@2026-01-01": _ranking_model_result(scores={"open": 1.4})}},
+            ),
+            (
+                "score_below_zero",
+                {"results": {"tabular@2026-01-01": _ranking_model_result(scores={"open": -0.1})}},
+            ),
+            (
+                "scored_model_carries_no_scores",
+                {"results": {"tabular@2026-01-01": _ranking_model_result(scores={})}},
+            ),
+            (
+                "skipped_model_carries_scores",
+                {
+                    "results": {
+                        "tabular@2026-01-01": _ranking_model_result(),
+                        "report_embeddings@2026-01-01": _skipped_challenger(scores={"open": 0.1}),
+                    }
+                },
+            ),
+            (
+                "more_models_than_the_cap",
+                {
+                    "results": {"tabular@2026-01-01": _ranking_model_result()}
+                    | {
+                        f"tabular@2026-02-{day:02d}": _ranking_model_result(
+                            model_version=f"2026-02-{day:02d}", roles=["challenger"]
+                        )
+                        for day in range(1, MAX_RANKING_MODEL_RESULTS + 1)
+                    }
+                },
+            ),
+        ]
+    )
+    def test_rejects_a_pass_whose_served_score_cannot_be_read(self, _name, overrides):
+        with self.assertRaises(ArtefactContentValidationError):
+            parse_artefact_content("ranking_score", _ranking_score(**overrides))

@@ -839,6 +839,17 @@ def classify_bigquery_validation_error(e: Exception) -> str:
         return BIGQUERY_INVALID_KEY_FILE_ERROR
     if "invalid_grant" in message:
         return BIGQUERY_CREDENTIALS_REJECTED_ERROR
+    if "iam.serviceAccounts.getAccessToken" in message and "denied" in message:
+        # Raised as a `RefreshError` when Google rejects the impersonated-credentials token
+        # refresh: the ownership check only needs `iam.serviceAccounts.get`, so this can fail
+        # even though that check passed. Same remediation (grant Token Creator) as
+        # `BIGQUERY_IMPERSONATION_PERMISSION_ERROR`, so reuse its wording. Doesn't match the
+        # generic "Access Denied"/"PermissionDenied"/"permission denied" wording below (this
+        # message reads "Permission '...' denied on resource"), so it would otherwise fall
+        # through to the generic message and get captured as unexpected noise. Requiring
+        # "denied" alongside the permission name keeps this from matching an opaque
+        # `RefreshError` that merely mentions the permission without actually denying it.
+        return BIGQUERY_IMPERSONATION_PERMISSION_ERROR
     if (
         "Invalid project ID" in message
         or "Invalid dataset ID" in message
@@ -1665,6 +1676,16 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 # authenticates with the same credentials, so genuinely dead credentials need to keep
                 # propagating to the sync-path classifier rather than being silently swallowed here.
                 if "invalid_grant" in str(e):
+                    raise
+                inputs.logger.warning(f"Skipping cleanup of bigquery destination table {destination_table}: {e}")
+            except Forbidden as e:
+                # BigQuery rejects the delete with a 403 reading "Project #<id> has been deleted."
+                # when the customer's whole GCP project was removed after the sync started. Unlike
+                # the genuine permission denial the comment above guards against, there's no
+                # readable copy left to protect here — the project, dataset, and table are all
+                # already gone — so retrying only repeats the identical failure forever. Matched on
+                # the stable wording, not the volatile project number.
+                if "has been deleted" not in str(e):
                     raise
                 inputs.logger.warning(f"Skipping cleanup of bigquery destination table {destination_table}: {e}")
 

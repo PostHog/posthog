@@ -5,6 +5,10 @@
             "description": "Optional id of a data warehouse connection (e.g. Postgres, MySQL, Snowflake, Redshift). When set, the query runs live against that source instead of the ClickHouse catalog, and may only reference that source's tables. Discover connection ids with external-data-sources-connections-list, then list a connection's tables by running `SELECT table_name FROM system.information_schema.tables` with that connectionId set.",
             "type": "string"
         },
+        "context": {
+            "description": "Why this query runs, and the governed-catalog outcome behind it: state \"governed catalog consulted: no match\" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
+            "type": "string"
+        },
         "query": {
             "description": "The final SQL query to be executed.",
             "minLength": 1,

@@ -16,7 +16,6 @@ from posthog.utils import (
     get_instance_region,
     get_machine_id,
     initialize_self_capture_api_token,
-    str_to_bool,
 )
 
 logger = structlog.get_logger(__name__)
@@ -89,10 +88,8 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
-        if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
-            posthoganalytics.capture_exception_code_variables = False
-        else:
-            posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
+        # Frame locals can hold credentials that the SDK masking does not reliably redact, so never send them.
+        posthoganalytics.capture_exception_code_variables = False
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"  # ty: ignore[invalid-assignment]
@@ -142,11 +139,13 @@ class PostHogConfig(AppConfig):
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
 
-        from posthog.async_migrations.setup import setup_async_migrations
-
         if settings.SKIP_ASYNC_MIGRATIONS_SETUP:
             logger.warning("Skipping async migrations setup. This is unsafe in production!")
         else:
+            from posthog.async_migrations.setup import (
+                setup_async_migrations,  # noqa: PLC0415 — keeps the heavy dep off the import path
+            )
+
             setup_async_migrations()
 
         from posthog.api.file_system import registrations as file_system_registrations

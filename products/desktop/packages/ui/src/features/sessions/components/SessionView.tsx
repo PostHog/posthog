@@ -1,5 +1,6 @@
 import { Pause, Warning } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
+import { getCloudRuntimeOptions } from "@posthog/core/sessions/cloudRunOptions";
 import { hasSessionPromptEvent } from "@posthog/core/sessions/sessionEvents";
 import {
   createLatestPlanTracker,
@@ -11,7 +12,11 @@ import {
   FAST_MODE_OPTION_CATEGORY,
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
-import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
+import {
+  type AcpMessage,
+  FAST_MODE_FLAG,
+  isTerminalStatus,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
@@ -61,7 +66,6 @@ import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
 import { useToggleMessagingMode } from "@posthog/ui/features/sessions/hooks/useToggleMessagingMode";
 import {
-  useAdapterForTask,
   useConfigOptionForTask,
   useModeConfigOptionForTask,
   useModelConfigOptionForTask,
@@ -177,7 +181,26 @@ export function SessionView({
     CONTEXT_WINDOW_OPTION_CATEGORY,
   );
   const sessionModelOption = useModelConfigOptionForTask(taskId);
-  const adapter = useAdapterForTask(taskId);
+  const adapter = useSessionSelector(taskId, (session) =>
+    session ? (getCloudRuntimeOptions(session).adapter ?? "claude") : "claude",
+  );
+  const isCloudRunTerminal = useSessionSelector(
+    taskId,
+    (session) => !!session?.isCloud && isTerminalStatus(session.cloudStatus),
+  );
+  const processedLineCount = useSessionSelector(taskId, (session) =>
+    isCloudRunTerminal ? session?.processedLineCount : undefined,
+  );
+  const claudeModelAccess = useSessionSelector(
+    taskId,
+    (session) => session?.claudeModelAccess,
+  );
+  // Log hydration can replace the model list after the run ends.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload after the final transcript arrives
+  useEffect(() => {
+    if (taskId && isCloudRunTerminal)
+      void sessionService.prepareCloudResume(taskId);
+  }, [taskId, isCloudRunTerminal, processedLineCount, sessionService]);
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
   const liveFastModeOption = useConfigOptionForTask(
     taskId,
@@ -818,11 +841,15 @@ export function SessionView({
                               thoughtOption={thoughtOption}
                               modelOption={sessionModelOption}
                               adapter={adapter}
+                              modelAccess={claudeModelAccess}
                               contextWindowOption={contextWindowOption}
                               fastModeOption={fastModeOption}
                               onChange={handleThoughtChange}
                               onConfigOptionChange={handleConfigOptionChange}
-                              disabled={!isRunning}
+                              disabled={
+                                !isRunning ||
+                                (isCloudRunTerminal && !!isPromptPending)
+                              }
                             />
                           ) : null
                         }

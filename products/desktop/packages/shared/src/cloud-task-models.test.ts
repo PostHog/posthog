@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   adapterForModelId,
+  applyAllowedModels,
   buildCloudTaskConfigOptions,
   buildProviderModelGroups,
   compareModelsForPicker,
@@ -10,7 +11,6 @@ import {
   getCloudTaskGatewayUrl,
   isAnthropicModel,
   isBasetenModel,
-  isBlockedModelId,
   isCloudflareModel,
   isDeepseekModelId,
   isModalModel,
@@ -71,25 +71,6 @@ describe("normalizeGatewayModelsResponse", () => {
     ]);
 
     expect(models[0]?.context_window).toBe(256000);
-  });
-});
-
-describe("isBlockedModelId", () => {
-  it.each([
-    "claude-opus-4-5",
-    "claude-opus-4-6",
-    "claude-opus-4-7",
-    "claude-sonnet-4-5",
-    "claude-sonnet-4-6",
-    "ANTHROPIC/CLAUDE-HAIKU-4-5",
-    "gpt-5.2",
-    "gpt-5.3",
-    "gpt-5.3-codex",
-    "OPENAI/GPT-5.3-CODEX",
-    "gpt-5.4",
-    "@cf/zai-org/glm-5.2",
-  ])("blocks %s", (modelId) => {
-    expect(isBlockedModelId(modelId)).toBe(true);
   });
 });
 
@@ -436,5 +417,84 @@ describe("getCloudTaskGatewayUrl with a custom cloud", () => {
     expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
       "https://gateway.us.posthog.com/posthog_code",
     );
+  });
+});
+
+describe("applyAllowedModels", () => {
+  const goBody = {
+    object: "list",
+    data: [
+      { id: "claude-opus-5", owned_by: "anthropic" },
+      { id: "gpt-6-sol", owned_by: "openai" },
+      { id: "internal-only", owned_by: "anthropic" },
+      { id: "glm", aliases: ["@cf/zai-org/glm-5.2"], owned_by: "cloudflare" },
+    ],
+  };
+
+  it("keeps product models and marks the ones outside the pin", () => {
+    const result = applyAllowedModels(goBody, {
+      productModels: ["claude-opus-5", "gpt-6-sol", "@cf/zai-org/glm-5.2"],
+      allowedModels: ["@cf/zai-org/glm-5.2"],
+    }) as { object: string; data: Array<Record<string, unknown>> };
+
+    expect(result.object).toBe("list");
+    expect(
+      result.data.map((m) => [m.id, m.allowed, m.restriction_reason]),
+    ).toEqual([
+      ["claude-opus-5", false, "paid_plan_required"],
+      ["gpt-6-sol", false, "paid_plan_required"],
+      ["glm", true, null],
+    ]);
+  });
+
+  it("marks every kept entry allowed only when the pin is null", () => {
+    const result = applyAllowedModels(goBody, {
+      productModels: [],
+      allowedModels: null,
+    }) as { data: Array<Record<string, unknown>> };
+    expect(result.data).toHaveLength(4);
+    expect(result.data.every((m) => m.allowed === true)).toBe(true);
+  });
+
+  it("marks no entry allowed when the pin is empty", () => {
+    const result = applyAllowedModels(goBody, {
+      productModels: [],
+      allowedModels: [],
+    }) as { data: Array<Record<string, unknown>> };
+    expect(result.data).toHaveLength(4);
+    expect(result.data.every((m) => m.allowed === false)).toBe(true);
+  });
+
+  it("feeds normalizeGatewayModelsResponse the marks it reads", () => {
+    const models = normalizeGatewayModelsResponse(
+      applyAllowedModels(goBody, {
+        productModels: ["claude-opus-5"],
+        allowedModels: ["gpt-6-sol"],
+      }),
+    );
+    expect(models).toEqual([
+      expect.objectContaining({
+        id: "claude-opus-5",
+        allowed: false,
+        restriction_reason: "paid_plan_required",
+      }),
+    ]);
+  });
+
+  it("handles bare arrays and leaves unknown shapes alone", () => {
+    expect(
+      applyAllowedModels([{ id: "a" }, { id: "b" }, "junk"], {
+        productModels: ["a"],
+        allowedModels: ["a"],
+      }),
+    ).toEqual([{ id: "a", allowed: true, restriction_reason: null }]);
+    expect(
+      applyAllowedModels(
+        { error: "x" },
+        { productModels: [], allowedModels: [] },
+      ),
+    ).toEqual({
+      error: "x",
+    });
   });
 });

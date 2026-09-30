@@ -13,6 +13,8 @@ describe('report pull request consumers', () => {
         url,
         state,
         merged: state === 'merged',
+        review_decision: null,
+        merged_at: state === 'merged' ? '2026-06-11T10:00:00Z' : null,
         claim_id: null,
         attached_at: null,
         attached_by: null,

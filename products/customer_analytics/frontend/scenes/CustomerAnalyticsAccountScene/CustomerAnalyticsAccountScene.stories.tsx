@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { CustomPropertyValueWriteApi, AccountRelationshipWriteApi } from '../../generated/api.schemas'
+import { createAccountViewContent } from './accountViewDocument'
 
 const ACCOUNT_ID = '11111111-2222-4333-8444-555555555555'
 const EXTERNAL_ACCOUNT_ID = 'spaces %2F slash / ? # + Unicode 漢字'
@@ -18,8 +19,29 @@ const ACCOUNT_ICON_ENDPOINT = 'api/projects/:team_id/accounts/icon/'
 const VALUES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/custom_property_values/'
 const ASSIGNMENTS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
 const ACCOUNT_SIDEBAR_CONFIG_ENDPOINT = 'api/projects/:team_id/user_customer_analytics_config/@me/'
+const ACCOUNT_VIEWS_ENDPOINT = 'api/projects/:team_id/account_views/'
+const ACCOUNT_VIEW_ID = '77777777-8888-4999-8aaa-bbbbbbbbbbbb'
 const CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/custom_property_definitions/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
+
+const accountView = {
+    id: ACCOUNT_VIEW_ID,
+    name: 'Account workspace',
+    visibility: 'private',
+    content: createAccountViewContent([
+        { nodeId: 'notes', kind: 'notes', span: 7 },
+        { nodeId: 'relationships', kind: 'relationships', span: 5 },
+    ]),
+    text_content: 'Notes\nRelationships',
+    version: 1,
+    created_by: 1,
+    last_modified_by: 1,
+    created_at: '2026-05-10T10:00:00Z',
+    updated_at: '2026-05-20T14:30:00Z',
+    can_edit: true,
+    can_delete: true,
+    can_change_visibility: true,
+}
 
 const account = {
     id: ACCOUNT_ID,
@@ -77,8 +99,9 @@ const meta: Meta = {
             FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS,
         ],
-        pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID),
+        pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID, `view:${ACCOUNT_VIEW_ID}`),
         testOptions: {
             waitForSelector: [
                 '[data-attr="customer-analytics-account-scene"]',
@@ -102,7 +125,16 @@ const meta: Meta = {
                         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#8f68d4"/></svg>',
                         { headers: { 'Content-Type': 'image/svg+xml' } }
                     ),
-                [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: { pinned_properties: [] },
+                [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: {
+                    pinned_properties: [],
+                    task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
+                    account_detail_tabs: {
+                        ordered_tab_ids: [`view:${ACCOUNT_VIEW_ID}`, 'system:notes', 'system:relationships'],
+                        hidden_tab_ids: [],
+                        default_tab_id: `view:${ACCOUNT_VIEW_ID}`,
+                    },
+                },
+                [ACCOUNT_VIEWS_ENDPOINT]: [accountView],
                 [VALUES_ENDPOINT]: [],
                 [ASSIGNMENTS_ENDPOINT]: [],
                 [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: {

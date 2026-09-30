@@ -84,6 +84,9 @@ async def test_iter_records(clickhouse_client, use_native_schema, interval_minut
     ]
 
     assert_records_match_events(records, events)
+    assert {record["uuid"]: record["person_id"] for record in records} == {
+        event["uuid"]: event["person_id"] for event in events
+    }
 
 
 async def test_iter_records_handles_duplicates(clickhouse_client):

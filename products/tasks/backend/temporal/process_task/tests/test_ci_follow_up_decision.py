@@ -39,12 +39,9 @@ class TestShouldRunCIFollowUpDecision:
             ("failing", False, CIFollowUpDecision.FIRE, "fp-1"),
             ("passing", True, CIFollowUpDecision.FIRE, "fp-1"),
             # Non-actionable changes persist the fingerprint but stay quiet.
-            # Pending needs no deferral: the settled state hashes differently
-            # (CI status and head SHA are both in the fingerprint), so it still
-            # registers as a change on a later tick.
             ("passing", False, CIFollowUpDecision.SKIP, "fp-1"),
             ("none", False, CIFollowUpDecision.SKIP, "fp-1"),
-            ("pending", False, CIFollowUpDecision.SKIP, "fp-1"),
+            ("pending", False, CIFollowUpDecision.WAIT, "fp-1"),
         ],
     )
     async def test_fingerprint_change_fires_only_when_actionable(
@@ -291,12 +288,29 @@ class TestBabysitFollowUpDecision:
             (_babysit_snapshot(pr_state="merged"), CIFollowUpDecision.TERMINAL),
             (_babysit_snapshot(pr_state="closed"), CIFollowUpDecision.TERMINAL),
             (_babysit_snapshot(), CIFollowUpDecision.SKIP),
+            (_babysit_snapshot(ci_status="pending"), CIFollowUpDecision.WAIT),
             (_babysit_snapshot(failing_checks=[BABYSIT_CHECK]), CIFollowUpDecision.FIRE),
         ],
     )
     async def test_snapshot_drives_the_decision(self, monkeypatch, snapshot, expected_decision):
         wf = _babysit_workflow()
         _patch_snapshot(monkeypatch, snapshot)
+
+        assert await wf._should_run_ci_follow_up() is expected_decision
+
+    @pytest.mark.parametrize(
+        "patch_recorded,expected_decision",
+        [
+            (True, CIFollowUpDecision.WAIT),
+            (False, CIFollowUpDecision.FIRE),
+        ],
+    )
+    async def test_merge_queue_skip_follows_the_patch_marker(self, monkeypatch, patch_recorded, expected_decision):
+        wf = _babysit_workflow()
+        _patch_snapshot(
+            monkeypatch, _babysit_snapshot(failing_checks=[BABYSIT_CHECK], merge_queue_push_would_eject=True)
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: patch_recorded)
 
         assert await wf._should_run_ci_follow_up() is expected_decision
 

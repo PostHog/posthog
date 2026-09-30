@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -26,6 +27,7 @@ import type {
 } from '../generated/api.schemas'
 import { jobCacheKey } from '../lib/jobs'
 import { type CostSummary, type HealthSummary, computeHealthSummary, workflowHealthSummary } from '../lib/runHealth'
+import { withScope } from '../lib/scope'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { RunScopeParams } from './engineeringAnalyticsFiltersLogic'
 
@@ -226,7 +228,13 @@ export interface workflowRunsLogicMeta {
         queueP50Seconds: (jobAggregates: WorkflowJobAggregateApi[]) => number | null
         runsTruncated: (runRows: WorkflowRunRow[]) => boolean
         costSummary: (runnerCosts: WorkflowRunnerCostApi[]) => CostSummary | null
-        breadcrumbs: (repoOwner: string, repoName: string, workflowName: string) => Breadcrumb[]
+        breadcrumbs: (
+            repoOwner: string,
+            repoName: string,
+            workflowName: string,
+            sourceId: string | null,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
     }
 }
 
@@ -531,18 +539,24 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             },
         ],
         breadcrumbs: [
-            (_, p) => [p.repoOwner, p.repoName, p.workflowName],
-            (repoOwner: string, repoName: string, workflowName: string): Breadcrumb[] => [
+            (s, p) => [p.repoOwner, p.repoName, p.workflowName, s.sourceId, router.selectors.searchParams],
+            (
+                repoOwner: string,
+                repoName: string,
+                workflowName: string,
+                sourceId: string | null,
+                searchParams: Record<string, string | undefined>
+            ): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
                     name: 'Engineering analytics',
-                    path: urls.engineeringAnalytics(),
+                    path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {
                     key: 'EngineeringAnalyticsWorkflows',
                     name: 'Workflows',
-                    path: urls.engineeringAnalyticsWorkflows(),
+                    path: withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {

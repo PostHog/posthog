@@ -53,7 +53,7 @@ An HMAC over raw bytes proves only the signature, so its `facts` are empty and `
 
 `verify/schemes.py` holds `HmacSignature` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
 Each class docstring carries its own reasoning.
-`HmacSha256` is `HmacSignature` with the default digest, and it is the name to reach for. Only a provider that signs with something else sets `digest`, and everything else about the scheme, `rejects_headers` included, behaves the same whichever digest it carries.
+`HmacSha256` is `HmacSignature` with the default digest, and it is the name to reach for. Only a provider that signs with something else sets `digest`, which today is Vercel with SHA-1, and everything else about the scheme, `rejects_headers` included, behaves the same whichever digest it carries.
 
 A scheme also answers `rejects_headers(headers)`, the part of the check that needs no body: `HmacSha256` refuses a missing or malformed signature header and a missing, malformed or stale timestamp header there, and `BearerJwt` refuses a request that carries no bearer token. The answer is the same INVALID the full check would reach, with the same status, log line and metric outcome, so an unauthenticated caller cannot make an endpoint read a body of up to the request limit for it. A scheme that cannot decide from headers alone answers `False`, which is what `SnsSignature` does, and so does an HMAC scheme whose secret is unset, so an unconfigured endpoint still answers NOT_CONFIGURED.
 
@@ -79,10 +79,12 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 | `mailgun`    | `/api/conversations/v1/email/capture`                   | `capture`                  | `conversations_email_capture`                                                                                                                                                                                | `products/conversations/backend/webhook_consumers.py`                                             |
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                                                                                       | `products/workflows/backend/webhook_consumers.py`                                                 |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                                                                                             | `products/messaging/backend/api/customerio_webhook.py`                                            |
+| `vercel`     | `/webhooks/vercel`                                      | `marketplace`              | `vercel_marketplace`                                                                                                                                                                                         | `ee/api/vercel/webhook_consumers.py`                                                              |
 
 The owner of the third-party App registration owns the route.
 The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
 Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
+The Vercel Marketplace App is registered by `ee/`, which is not a product, so its route is declared in `ee/urls.py` and its consumer module is named in `posthog/ingress/dispatch/loading.py` rather than discovered.
 
 The Vapi endpoint is the only one that caps request volume: its provider sets `throttle_class` to a per-IP throttle, because the endpoint is public and Vapi's egress is shared across tenants.
 
@@ -187,8 +189,8 @@ Ingress carries both as general controls, so the next endpoint gets them without
 ## Regional forwarding
 
 A third party holds one callback URL, which points at one region, so a delivery about a resource the other region owns still arrives there first.
-For every App registered today that URL is the primary region (EU) and the forward runs to the secondary one (US).
-A provider whose App was registered against the secondary region instead overrides `receiving_region_domain()`, and the forward runs the other way.
+For almost every App that URL is the primary region (EU) and the forward runs to the secondary one (US).
+A provider whose App was registered against the secondary region instead overrides `receiving_region_domain()`, and the forward runs the other way; Vercel is the only one today.
 Ingress owns the forward, because what is replayed is the signed body — a consumer only ever sees the parsed mapping.
 
 A consumer whose resources are split by region declares `ownership`, a callable that takes the delivery and answers a `DeliveryOwnership`:
@@ -230,6 +232,12 @@ The same attribute answers a delivery whose consumers did not accept it, under o
 
 ## Adding a provider
 
+A provider package holds only what is specific to its third party: header names, how it names event types and delivery ids, how its body parses, and the status codes its protocol fixes.
+A need that a second provider could share becomes shared code: a lane in `views.py`, part of `dispatch/`, a scheme or scheme option in `verify/`, or an attribute on `WebhookProvider`.
+`throttle_class`, `retry_status` and the HMAC digest option each started as one provider's need and became shared that way.
+A true one-off stays in the provider, marked with a `# One-off:` comment that says why no other provider needs it.
+Tracing and metrics in a provider package fail CI unless marked, see "Shared mechanisms" in [the egress README](../egress/README.md#shared-mechanisms).
+
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
 
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
@@ -241,13 +249,15 @@ Add a `<provider>/` subpackage with a `provider.py` holding three things (see `g
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
 
 Then mount the URL where the App registration lives.
-A product that registered the App declares the path in its own `products/<product>/backend/routes.py`, under a `webhooks/<product>/` prefix:
+A product that registered the App declares the path in its own `products/<product>/backend/routes.py`, in a `webhook_urlpatterns` list that core mounts at `webhooks/<product>/`:
 
 ```python
-urlpatterns: list[URLPattern] = [
-    opt_slash_path("webhooks/stamphog/github", build_webhook_view(build_github_provider("stamphog"))),
+webhook_urlpatterns: list[URLPattern] = [
+    opt_slash_path("github", build_webhook_view(build_github_provider("stamphog"))),
 ]
 ```
+
+The route is relative to the mount, so this one serves `/webhooks/stamphog/github`.
 
 An App several products consume has no single owner, so it stays in `posthog/urls.py`.
 The customer-facing GitHub App is the only one today.

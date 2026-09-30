@@ -13,6 +13,7 @@ from django.utils import timezone
 
 import requests
 from celery import shared_task
+from clickhouse_driver.errors import UnknownPacketFromServerError
 from django_redis.exceptions import ConnectionInterrupted
 from prometheus_client import Counter, Gauge
 from redis import Redis
@@ -54,6 +55,17 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
     "ClickHouse chunk queries that failed during feature flag last_called_at sync",
 )
 
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER = Counter(
+    "posthog_feature_flag_last_called_at_sync_retry_recoveries_total",
+    "Feature flag last_called_at sync runs that completed on a Celery retry after an earlier attempt failed",
+)
+
+# CH_TRANSIENT_ERRORS plus the desynced pooled socket, which the sync opts into here rather than in
+# the shared tuple: the driver can read that unexpected packet after ClickHouse already ran the
+# query, so a write caller retrying it would land the write twice. This task only reads from
+# ClickHouse - it writes to Postgres from the merged results - so repeating the query is safe.
+FEATURE_FLAG_SYNC_TRANSIENT_ERRORS = (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError)
+
 # The Redis transport failures the last_called_at sync can hit on its lock and checkpoint calls.
 # django-redis wraps the underlying error in ConnectionInterrupted, and the raw redis errors cover
 # the paths that use the redis client directly.
@@ -62,14 +74,6 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS = (
     RedisError,
     ConnectionError,
     TimeoutError,
-)
-
-# Redis errors are not ClickHouse errors, so without them a Redis blip ends the run with the
-# checkpoint unmoved and no Celery retry; FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS then
-# drops the last_called_at updates for any outage longer than that cap.
-FEATURE_FLAG_LAST_CALLED_AT_SYNC_TRANSIENT_ERRORS = (
-    *CH_TRANSIENT_ERRORS,
-    *FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS,
 )
 
 
@@ -853,8 +857,7 @@ def capture_task_run_state_metrics() -> None:
                 labelnames=["status", "origin_product", "run_environment"],
             )
 
-            # Terminal runs are approximated by updated_at since completed_at can be null for
-            # FAILED/CANCELLED paths that didn't take the happy-path write.
+            # Terminal runs count by completed_at, falling back to updated_at where FAILED/CANCELLED paths leave it null.
             metrics = tasks_facade.collect_task_run_state_metrics(
                 open_statuses=_TASKS_RUN_OPEN_STATUSES,
                 age_statuses=_TASKS_RUN_AGE_STATUSES,
@@ -1264,7 +1267,7 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
     # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
-    autoretry_for=FEATURE_FLAG_LAST_CALLED_AT_SYNC_TRANSIENT_ERRORS,
+    autoretry_for=(*FEATURE_FLAG_SYNC_TRANSIENT_ERRORS, *FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS),
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
@@ -1337,6 +1340,8 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         "Seconds between checkpoint timestamp and current time",
         registry=self.metrics_registry,
     )
+
+    run_failed = False
 
     try:
         redis_client = get_client()
@@ -1461,7 +1466,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 # response is to abandon the run and let Celery retry it with backoff rather
                 # than keep querying. Swallowing one here would report a successful sync and
                 # skip the retry that recovers these runs today.
-                if isinstance(e, CH_TRANSIENT_ERRORS):
+                if isinstance(e, FEATURE_FLAG_SYNC_TRANSIENT_ERRORS):
                     raise
 
                 chunk_failures += 1
@@ -1636,13 +1641,20 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
 
     except Exception as e:
+        run_failed = True
         duration = (timezone.now() - start_time).total_seconds()
         logger.exception("Feature flag sync failed", error=e, duration_seconds=duration)
-        capture_exception(
-            e, additional_properties={"feature": "feature_flags", "task": "sync_feature_flag_last_called"}
-        )
+        properties = {"feature": "feature_flags", "task": "sync_feature_flag_last_called"}
+        if isinstance(e, UnknownPacketFromServerError):
+            # The driver puts the unexpected packet number and the host in the message, so every
+            # occurrence fingerprints as a new error tracking issue. Group them under one issue.
+            properties["$exception_fingerprint"] = "sync_feature_flag_last_called.UnknownPacketFromServerError"
+        capture_exception(e, additional_properties=properties)
         raise
     finally:
+        if not run_failed and (self.request.retries or 0) > 0:
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER.inc()
+
         # Always release the lock. A failing delete must not replace the error that is already on
         # its way out, and the lock expires on its own after LOCK_TIMEOUT.
         try:

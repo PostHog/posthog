@@ -88,6 +88,7 @@ import {
     MODE_DEFINITIONS,
     TOOL_DEFINITIONS,
     ToolRegistration,
+    getToolDefinition,
     getModeDisplayName,
     messageLength,
 } from './max-constants'
@@ -314,14 +315,12 @@ export interface maxThreadLogicActions {
     } // posthogAiContextLogic
     bootstrapSandboxRun: (payload: {
         justCreatedRun?: boolean
-        reconcileHistory?: boolean
         retainedMessage?: string
         runId: string
         taskId: string
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
-        reconcileHistory?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
@@ -355,8 +354,16 @@ export interface maxThreadLogicActions {
         errorMessage: string
         variant: 'crash' | 'error'
     } // runStreamLogic
-    pushSandboxHumanMessage: (content: string) => {
+    pushSandboxHumanMessage: (
+        content: string,
+        stagedAttachments?:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
+    ) => {
         content: string
+        stagedAttachments:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
     } // runStreamLogic
     resetSandboxStream: () => {
         value: true
@@ -3295,6 +3302,12 @@ export async function onEventImplementation(
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             if (parsedResponse.ui_payload != null) {
                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                    const alreadyProcessed = parsedResponse.id
+                        ? cache.processedToolResultIds?.has(parsedResponse.id)
+                        : false
+                    if (!alreadyProcessed) {
+                        getToolDefinition(toolName)?.onResult?.(toolResult)
+                    }
                     if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                         continue // Static tools (mode-level) don't operate via ui_payload
                     }
@@ -3304,6 +3317,10 @@ export async function onEventImplementation(
                         actions.setPendingApproval(proposalId)
                     }
                     await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
+                }
+                if (parsedResponse.id) {
+                    cache.processedToolResultIds ??= new Set()
+                    cache.processedToolResultIds.add(parsedResponse.id)
                 }
             }
             actions.addMessage({

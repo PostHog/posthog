@@ -124,8 +124,10 @@ class Run(ProductTeamModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
 
-    status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
-    run_type = models.CharField(max_length=64, default=RunType.OTHER)
+    status = models.CharField(
+        max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING.value
+    )
+    run_type = models.CharField(max_length=64, default=RunType.OTHER.value)
 
     # Git context
     commit_sha = models.CharField(max_length=40)
@@ -134,10 +136,10 @@ class Run(ProductTeamModel):
 
     # Purpose and review
     purpose = models.CharField(
-        max_length=20, choices=[(p.value, p.value) for p in RunPurpose], default=RunPurpose.REVIEW
+        max_length=20, choices=[(p.value, p.value) for p in RunPurpose], default=RunPurpose.REVIEW.value
     )
     review_decision = models.CharField(
-        max_length=20, choices=[(d.value, d.value) for d in ReviewDecision], default=ReviewDecision.PENDING
+        max_length=20, choices=[(d.value, d.value) for d in ReviewDecision], default=ReviewDecision.PENDING.value
     )
     # Legacy — derived from review_decision, kept for backward compat during migration
     approved = models.BooleanField(default=False)
@@ -198,7 +200,8 @@ class RunSnapshot(ProductTeamModel):
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots")
+    # No index of its own: every index on this table that starts with the run serves those lookups.
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots", db_index=False)
 
     identifier = models.CharField(max_length=512)
 
@@ -226,7 +229,7 @@ class RunSnapshot(ProductTeamModel):
     )
 
     result = models.CharField(
-        max_length=20, choices=[(r.value, r.value) for r in SnapshotResult], default=SnapshotResult.UNCHANGED
+        max_length=20, choices=[(r.value, r.value) for r in SnapshotResult], default=SnapshotResult.UNCHANGED.value
     )
     # Why this snapshot was classified as UNCHANGED (empty for CHANGED/NEW/REMOVED)
     classification_reason = models.CharField(
@@ -293,18 +296,18 @@ class RunSnapshot(ProductTeamModel):
         ]
         indexes = [
             # Covering, so the flakiness reads (a run's rows by result, filtered on reason, team and
-            # identifier) are index-only scans instead of reads of the whole table.
+            # identifier) are index-only scans instead of reads of the whole table. The reason is in
+            # the key so the absorbed-row read skips the exact matches, which are most of a run.
             models.Index(
-                fields=["run", "result"],
+                fields=["run", "result", "classification_reason"],
                 include=[
-                    "classification_reason",
                     "review_state",
                     "identifier",
                     "diff_percentage",
                     "tolerated_hash_match",
                     "team_id",
                 ],
-                name="snapshot_run_result_covering",
+                name="snapshot_run_result_reason",
             ),
             models.Index(fields=["run", "review_state"], name="snapshot_run_review_state"),
             models.Index(fields=["identifier"], name="snapshot_identifier"),
@@ -392,7 +395,7 @@ class QuarantinedIdentifier(ProductTeamModel):
     source = models.CharField(
         max_length=10,
         choices=[(a.value, a.value) for a in ActorType],
-        default=ActorType.HUMAN,
+        default=ActorType.HUMAN.value,
     )
 
     expires_at = models.DateTimeField(null=True, blank=True)

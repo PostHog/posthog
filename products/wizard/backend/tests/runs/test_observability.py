@@ -480,3 +480,48 @@ def test_stage_event_has_deterministic_identity_and_run_properties(
         **({"task_run_id": str(run.id)} if environment == WizardRunEnvironment.CLOUD else {}),
         "stage": "provisioning",
     }
+
+
+def test_run_lifecycle_and_artifact_events_use_the_public_contract() -> None:
+    run = _cloud_run()
+    finished = replace(
+        run,
+        status=WizardRunStatus.COMPLETED,
+        stage=None,
+        started_at=run.created_at,
+        finished_at=run.created_at + timedelta(minutes=1),
+    )
+    artifact = WizardRunGitDiffArtifactDTO(
+        id=uuid4(),
+        team_id=run.team_id,
+        run_id=run.id,
+        artifact_type=WizardRunArtifactType.GIT_DIFF,
+        size_bytes=10,
+        content_hash="hash",
+        additions=1,
+        removals=0,
+        created_at=run.created_at,
+    )
+
+    with (
+        patch.object(events, "ph_background_capture") as background_capture,
+        patch.object(events.User.objects, "filter"),
+    ):
+        events.enqueue_run_created(run)
+        events.enqueue_run_finished(finished, WizardRunStage.EXECUTING_WIZARD)
+        events.enqueue_artifact_created(run, artifact)
+
+    calls = background_capture.return_value.call_args_list
+    assert [call.kwargs["event"] for call in calls] == [
+        "wizard run started",
+        "wizard run finished",
+        "wizard run artifact created",
+    ]
+    assert calls[0].kwargs["properties"]["location"] == "wizard_library"
+    assert calls[1].kwargs["properties"]["status"] == "completed"
+    assert calls[1].kwargs["properties"]["duration_seconds"] == 60
+    assert {key: calls[2].kwargs["properties"][key] for key in ("type", "url", "name")} == {
+        "type": "diff",
+        "url": None,
+        "name": "Git diff",
+    }

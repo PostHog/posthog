@@ -532,9 +532,32 @@ class TestCloseOutTaskSummary(SimpleTestCase):
 
         close_out_step = next(line for line in prompt.splitlines() if "**Close out.**" in line)
         writing_summary = prompt.split("# Writing the summary")[1].split("\n# ")[0]
+        how_to_call_tools = prompt.split("# How to call tools")[1].split("\n# ")[0]
 
         assert "task_summary_update" in close_out_step
         assert "task_summary_update" in writing_summary
+        # The close-out tool is a harness tool, not a PostHog MCP tool. Without the qualified name
+        # in both sections, the "every tool goes through mcp__posthog__exec" rule sends the scout
+        # to search a catalog the tool was never in, and the run row stays blank.
+        assert scout_prompt._TASK_SUMMARY_TOOL_ID in writing_summary
+        assert scout_prompt._TASK_SUMMARY_TOOL_ID in how_to_call_tools
+
+
+class TestCloseOutSummaryToolContract(SimpleTestCase):
+    _HARNESS_ROOT = Path(__file__).parents[3] / "desktop/packages/harness/src/extensions"
+
+    def test_prompt_names_the_tool_the_harness_registers(self) -> None:
+        # The prompt hardcodes the qualified tool id the scout calls. The harness owns both halves
+        # of that id, so a rename there leaves scouts calling a tool that no longer exists, with
+        # nothing in Python to catch it.
+        registry = (self._HARNESS_ROOT / "local-tools/registry.ts").read_text()
+        task_summary = (self._HARNESS_ROOT / "task-system-prompt/task-summary.ts").read_text()
+        server_name = re.search(r'LOCAL_TOOLS_MCP_NAME = "([^"]+)"', registry)
+        tool_name = re.search(r'TASK_SUMMARY_TOOL_NAME = "([^"]+)"', task_summary)
+        assert server_name and tool_name, "the harness constants moved — update this contract"
+
+        assert scout_prompt._TASK_SUMMARY_TOOL == tool_name.group(1)
+        assert scout_prompt._TASK_SUMMARY_TOOL_ID == f"mcp__{server_name.group(1)}__{tool_name.group(1)}"
 
 
 class TestPromptCrossReferences(SimpleTestCase):
@@ -2830,6 +2853,7 @@ async def test_activity_skips_run_attributed_to_the_limit_that_fired(
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.capture_signal_report_quota_paused"
         ) as capture_quota,
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.notify_scout_quota_paused") as notify_quota,
         patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
     ):
         env = ActivityEnvironment()
@@ -2856,6 +2880,12 @@ async def test_activity_skips_run_attributed_to_the_limit_that_fired(
         assert capture_daily.call_args.kwargs["stage"] == "scout_run"
     else:
         capture_daily.assert_not_called()
+    # The user-facing pause notification only fires when the quota actually blocks: a
+    # dark-launch pause still runs, and the daily limit surfaces in the usage widget.
+    if expected_skip_reason == "quota_limited":
+        notify_quota.assert_called_once_with(ateam)
+    else:
+        notify_quota.assert_not_called()
 
 
 @pytest.mark.asyncio

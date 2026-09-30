@@ -383,6 +383,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
                     ("event", "STRING"),
                     ("properties", "VARIANT"),
                     ("distinct_id", "STRING"),
+                    ("person_id", "STRING"),
                     ("team_id", "BIGINT"),
                     ("timestamp", "TIMESTAMP"),
                     ("created_at", "TIMESTAMP"),

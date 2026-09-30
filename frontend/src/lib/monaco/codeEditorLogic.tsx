@@ -26,6 +26,7 @@ import {
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { FeatureFlagsSet } from '../logic/featureFlagLogic'
+import { characterOffsetToUtf16 } from './offsets'
 import { getContextSourceQuery } from './sourceQueryUtils'
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
@@ -212,8 +213,14 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     const markerOffset = props.metadataQueryOffset ?? 0
 
                     function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): ModelMarker {
-                        const start = model!.getPositionAt((error.start ?? 0) + markerOffset)
-                        const end = model!.getPositionAt((error.end ?? query.length) + markerOffset)
+                        // Notice offsets count characters, so they need converting to the UTF-16
+                        // units Monaco addresses before they can locate anything in the model.
+                        const start = model!.getPositionAt(
+                            characterOffsetToUtf16(query, error.start ?? 0) + markerOffset
+                        )
+                        const end = model!.getPositionAt(
+                            characterOffsetToUtf16(query, error.end ?? query.length) + markerOffset
+                        )
                         return {
                             start: error.start ?? 0,
                             startLineNumber: start.lineNumber,

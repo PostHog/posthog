@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
@@ -2165,6 +2166,28 @@ describe('dashboardLogic', () => {
         })
     })
 
+    it('captures a dashboard view after the logic unmounts during the debounce', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.useFakeTimers()
+        try {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            logic.actions.reportDashboardViewedEvent(dashboards[5], null)
+            expect(capture.mock.calls.filter(([event]) => event === 'viewed dashboard')).toHaveLength(0)
+            logic.unmount()
+            expect(logic.isMounted()).toBe(false)
+            await jest.advanceTimersByTimeAsync(499)
+            expect(capture.mock.calls.filter(([event]) => event === 'viewed dashboard')).toHaveLength(0)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(capture.mock.calls.filter(([event]) => event === 'viewed dashboard')).toEqual([
+                ['viewed dashboard', expect.objectContaining({ dashboard_id: 5, source: 'web' })],
+            ])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
+    })
+
     describe('moving between dashboards', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 9 })
@@ -2642,6 +2665,7 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
                 expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
+                expect(logic.values.blockRefresh).toBe(false)
             })
 
             it('persisting the last refresh keeps refreshed results instead of an earlier snapshot', async () => {
@@ -2671,6 +2695,40 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
+            it('allows another manual dashboard refresh after five minutes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                for (const tile of logic.values.dashboard!.tiles) {
+                    const insight = tile.insight
+                    if (!insight) {
+                        continue
+                    }
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            { ...insight, last_refresh: now().toISOString(), query: insight.query ?? null },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                }
+
+                jest.useFakeTimers()
+                try {
+                    const recentRefresh = now().subtract(4, 'minutes')
+                    logic.actions.updateDashboardLastRefresh(recentRefresh)
+                    expect(logic.values.blockRefresh).toBe(true)
+
+                    await jest.advanceTimersByTimeAsync(60_100)
+                    expect(logic.values.blockRefresh).toBe(false)
+
+                    const lastRefresh = now().subtract(6, 'minutes')
+                    logic.actions.updateDashboardLastRefresh(lastRefresh)
+                    expect(logic.values.nextAllowedDashboardRefresh?.isSame(lastRefresh.add(5, 'minutes'))).toBe(true)
+                    expect(logic.values.blockRefresh).toBe(false)
+                } finally {
+                    jest.useRealTimers()
+                }
+            })
+
             it('manual refresh reloads all insights', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
@@ -3057,11 +3115,11 @@ describe('dashboardLogic', () => {
         describe('page visibility', () => {
             it('pauses auto-refresh when page is hidden and resumes when visible', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setAutoRefresh(true, 1800)
+                    logic.actions.setAutoRefresh(true, 900)
                 })
                     .toDispatchActions(['setAutoRefresh', 'resetInterval'])
                     .toMatchValues({
-                        autoRefresh: { enabled: true, interval: 1800 },
+                        autoRefresh: { enabled: true, interval: 900 },
                     })
 
                 await expectLogic(logic, () => {
@@ -3427,29 +3485,40 @@ describe('dashboardLogic', () => {
             autoPreviewLimit.restore()
         })
 
-        it('uses visible SQL variable values when refreshing one tile before Preview', async () => {
-            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
-            await mountDashboardWithVariable({})
-            const getInsightWithRetrySpy = jest
-                .spyOn(dashboardUtils, 'getInsightWithRetry')
-                .mockImplementation(async (_teamId, insight) => insight)
+        it.each(['manual', 'saved insight'])(
+            'uses dashboard context for a %s tile refresh before Preview',
+            async (trigger) => {
+                const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
+                await mountDashboardWithVariable({})
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => insight)
 
-            try {
-                await expectLogic(logic, () => {
-                    logic.actions.overrideVariableValue(variableId, 'draft value', false)
-                }).toFinishAllListeners()
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.overrideVariableValue(variableId, 'draft value', false)
+                    }).toFinishAllListeners()
 
-                await expectLogic(logic, () => {
-                    logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] })
-                }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        if (trigger === 'saved insight') {
+                            insightsModel.actions.insightSaved(logic.values.insightTiles[0].insight!.short_id)
+                        } else {
+                            logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] })
+                        }
+                    }).toFinishAllListeners()
 
-                expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
-                expect(getInsightWithRetrySpy.mock.calls[0][7]).toEqual({})
-            } finally {
-                getInsightWithRetrySpy.mockRestore()
-                autoPreviewLimit.restore()
+                    expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
+                    expect(getInsightWithRetrySpy.mock.calls[0][6]).toEqual(logic.values.effectiveRefreshFilters)
+                    expect(getInsightWithRetrySpy.mock.calls[0][7]).toEqual({})
+                    expect(getInsightWithRetrySpy.mock.calls[0][8]).toEqual(
+                        logic.values.insightTiles[0].filters_overrides
+                    )
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                    autoPreviewLimit.restore()
+                }
             }
-        })
+        )
 
         it('makes Preview available when a SQL variable changes during an older preview', async () => {
             const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
@@ -3999,6 +4068,20 @@ describe('dashboardLogic', () => {
     describe('widget orchestration', () => {
         let fetchRunWidgetsMock: jest.SpiedFunction<typeof widgetFetchUtils.fetchRunWidgets>
 
+        async function makeInsightTilesFresh(): Promise<void> {
+            for (const tile of logic.values.insightTiles) {
+                if (tile.insight) {
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            { ...tile.insight!, last_refresh: now().toISOString(), query: tile.insight!.query ?? null },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                }
+            }
+        }
+
         beforeEach(() => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
@@ -4025,6 +4108,28 @@ describe('dashboardLogic', () => {
 
         afterEach(() => {
             fetchRunWidgetsMock.mockRestore()
+        })
+
+        it('a stale widget releases the shared refresh block', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            await makeInsightTilesFresh()
+
+            const currentTime = Date.now()
+            jest.useFakeTimers()
+            try {
+                jest.setSystemTime(currentTime - 4 * 60_000)
+                logic.actions.setWidgetRefreshStatuses([WIDGET_TILE.id], false)
+                await jest.advanceTimersByTimeAsync(4 * 60_000)
+                logic.actions.updateDashboardLastRefresh(dayjs())
+                expect(logic.values.blockRefresh).toBe(true)
+
+                await jest.advanceTimersByTimeAsync(60_100)
+                expect(logic.values.blockRefresh).toBe(false)
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('refreshDashboardWidgets fetches run_widgets for widget tiles', async () => {
@@ -4088,7 +4193,11 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+            await makeInsightTilesFresh()
 
+            const previousFetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
+            logic.actions.updateDashboardLastRefresh(dayjs())
+            expect(logic.values.blockRefresh).toBe(true)
             fetchRunWidgetsMock.mockRejectedValueOnce(new Error('Network error'))
 
             await expectLogic(logic, () => {
@@ -4096,6 +4205,8 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+            expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt).toBe(previousFetchedAt)
+            expect(logic.values.blockRefresh).toBe(true)
         })
 
         it('refreshDashboardWidgets sets friendly error when run_widgets returns per-tile error', async () => {
@@ -4103,6 +4214,7 @@ describe('dashboardLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
+            const previousFetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
             fetchRunWidgetsMock.mockResolvedValueOnce([
                 {
                     tile_id: WIDGET_TILE.id,
@@ -4118,6 +4230,7 @@ describe('dashboardLogic', () => {
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
             expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.error).toBe('Query timeout')
+            expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt).toBe(previousFetchedAt)
         })
 
         it('refreshDashboardWidgets only marks failed tiles when a chunk has mixed results', async () => {

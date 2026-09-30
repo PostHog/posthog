@@ -143,3 +143,14 @@ rules:
       owners: team-devex
     - match: '/tools/query-performance-ai/'
       owners: team-analytics-platform
+    # A new product, provider, domain, or top-level package shapes the monorepo layout.
+    # The rule names who owns that decision and claims none of the files inside.
+    - match:
+          - '/products/*'
+          - '/posthog/ingress/*'
+          - '/posthog/egress/*'
+          - '/tools/*'
+          - '/services/*'
+          - '/packages/*'
+          - '/cli/*'
+      additions: team-devex

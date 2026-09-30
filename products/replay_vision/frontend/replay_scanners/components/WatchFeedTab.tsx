@@ -12,6 +12,7 @@ import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { SCANNER_TYPE_OPTIONS, ScannerType } from '../types'
 import { watchFeedLogic } from '../watchFeedLogic'
 import { FILLER_REASON_KINDS, WatchFeedCard } from './WatchFeedCard'
+import { WatchFeedEmptyState } from './WatchFeedEmptyState'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
@@ -43,6 +44,7 @@ export function WatchFeedTab(): JSX.Element {
         tagOptions,
         search,
         hasFeedFilters,
+        emptyReason,
     } = useValues(watchFeedLogic)
     const {
         setDateRange,
@@ -163,23 +165,14 @@ export function WatchFeedTab(): JSX.Element {
                         items.map((item, index) => (
                             <WatchFeedCard key={item.observation.id} item={item} position={index} />
                         ))
-                    ) : !feedFailed ? (
-                        <div className="flex flex-col items-center gap-2 text-sm text-secondary border border-dashed rounded p-6 text-center">
-                            {hasFeedFilters ? (
-                                <>
-                                    <span>No clips match these filters in this window.</span>
-                                    <LemonButton type="secondary" size="small" onClick={() => clearFeedFilters()}>
-                                        Clear filters
-                                    </LemonButton>
-                                </>
-                            ) : (
-                                <span>
-                                    Nothing worth watching in this window yet. Observations appear here as your scanners
-                                    run.
-                                </span>
-                            )}
-                        </div>
-                    ) : null}
+                    ) : feedFailed ? null : emptyReason ? (
+                        <WatchFeedEmptyState reason={emptyReason} />
+                    ) : (
+                        // Still resolving why the feed is empty. The scanner list defaults to empty while
+                        // it loads, so naming a reason now would show the no-scanners screen to a reader
+                        // who has scanners.
+                        <LemonSkeleton className="h-32 rounded" />
+                    )}
                 </div>
             )}
         </div>
