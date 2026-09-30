@@ -14,7 +14,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from products.metrics.backend.facade.api import list_metric_event_samples
 from products.metrics.backend.facade.contracts import MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricType
-from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
+from products.metrics.backend.metric_event_samples_query_runner import METRICS4_CUTOVER, MetricEventSamplesQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric_event, truncate_metrics_tables
 
 # Trace context is stored base64-encoded (as capture-logs writes it) but crosses the
@@ -261,6 +261,82 @@ class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(samples[0].count, 1)  # column default
         self.assertEqual(samples[0].metric_type, "")  # column default
         self.assertEqual(samples[0].attributes, {})
+
+    def test_post_cutover_query_reads_metrics4_samples_directly(self):
+        # A window that starts at/after the cut-over reads `metrics4_samples`
+        # directly (bypassing the temporary view / metrics2). Post-cut-over data
+        # must still surface through the fast path.
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric_event(
+            team_id=self.team.id,
+            metric_name="checkout.failed",
+            points=[(anchor, 1.0)],
+            trace_id=TRACE_A_B64,
+            attributes={"region": "us"},
+        )
+
+        runner = MetricEventSamplesQueryRunner(
+            team=self.team,
+            metric_name="checkout.failed",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor + dt.timedelta(hours=1),
+        )
+        self.assertTrue(runner._uses_direct_metrics4())
+
+        samples = runner.run()
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["value"], 1.0)
+        self.assertEqual(samples[0]["trace_id"], TRACE_A_HEX)
+        self.assertEqual(samples[0]["attributes"], {"region": "us"})
+
+    def test_pre_cutover_query_reads_the_view(self):
+        # A window entirely before the cut-over needs `metrics2` rows, which
+        # only the view (posthog.metrics) serves. The gate must keep the view
+        # path for that window instead of reading metrics4_samples directly.
+        pre_cutover = METRICS4_CUTOVER - dt.timedelta(days=1)
+        runner = MetricEventSamplesQueryRunner(
+            team=self.team,
+            metric_name="m",
+            date_from=pre_cutover,
+            date_to=pre_cutover + dt.timedelta(hours=1),
+        )
+        self.assertFalse(runner._uses_direct_metrics4())
+
+    def test_direct_and_view_paths_agree_for_post_cutover_data(self):
+        # The direct metrics4_samples read and the metrics4 view must return the
+        # same samples for the same post-cut-over data, so a future switch of the
+        # whole product onto metrics4_samples cannot change results.
+        anchor = timezone.now().replace(microsecond=0)
+        for i, value in enumerate([1.0, 2.0]):
+            seed_metric_event(
+                team_id=self.team.id,
+                metric_name="latency",
+                points=[(anchor - dt.timedelta(minutes=5 * i), value)],
+                trace_id=TRACE_A_B64 if i == 0 else "",
+                attributes={"route": f"/x{i}"},
+            )
+
+        frm, to = anchor - dt.timedelta(hours=1), anchor + dt.timedelta(hours=1)
+        runner = MetricEventSamplesQueryRunner(
+            team=self.team, metric_name="latency", date_from=frm, date_to=to
+        )
+        self.assertTrue(runner._uses_direct_metrics4())
+
+        direct = runner.run()
+        # Exercise the fallback view query over the same dataset to prove parity.
+        view = runner._run_query(runner._view_query())
+
+        # The two paths render the timestamp differently at the column level
+        # (metrics2 stores DateTime, metrics4 stores DateTime64 arrays), so the
+        # ISO strings can differ by a trailing offset; the point-in-time is the
+        # same. Compare on the data fields instead of the raw string.
+        def _normalise(samples):
+            return [
+                {**sample, "timestamp": None if not sample["timestamp"] else sample["timestamp"].split("+")[0]}
+                for sample in samples
+            ]
+
+        self.assertEqual(_normalise(direct), _normalise(view))
 
     def test_samples_api_requires_authentication(self):
         self.client.logout()

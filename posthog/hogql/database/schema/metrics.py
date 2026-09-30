@@ -1,11 +1,16 @@
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
+    DateDatabaseField,
+    DateTimeArrayDatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
+    FloatArrayDatabaseField,
     FloatDatabaseField,
+    IntegerArrayDatabaseField,
     IntegerDatabaseField,
     MapStringDatabaseField,
+    StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -15,6 +20,61 @@ from posthog.clickhouse.workload import Workload
 
 # 50GB - limit for user-provided HogQL queries on metrics tables to prevent expensive full scans
 HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES = 50_000_000_000
+
+
+class Metrics4SamplesTable(Table):
+    """The metrics4_samples point store, one row per series-hour with the data
+    points stored in parallel arrays.
+
+    After the metrics4 cut-over, `metrics` reads this table's rows (see
+    `METRICS4_VIEW_SQL`). Callers that need the pre-cut-over `metrics2` range
+    read `posthog.metrics`; callers whose whole window is at/after the cut-over
+    can read this table directly and `ARRAY JOIN` the `*_arr` point columns to
+    fan out to one row per point.
+    """
+
+    description: str = "OpenTelemetry metric data points after the metrics4 cut-over, one series-hour per row with the points stored in parallel `*_arr` arrays. `ARRAY JOIN` the arrays to reach individual points."
+    workload: Workload | None = Workload.LOGS
+
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "metric_name": StringDatabaseField(name="metric_name", nullable=False),
+        "time_bucket": DateTimeDatabaseField(
+            name="time_bucket", nullable=False, description="UTC hour bucket used for partitioning and filtering."
+        ),
+        "series_fingerprint": IntegerDatabaseField(
+            name="series_fingerprint", nullable=False, description="Hash of the series' label set."
+        ),
+        "original_expiry_date": DateDatabaseField(name="original_expiry_date", nullable=False),
+        "resource_fingerprint": IntegerDatabaseField(name="resource_fingerprint", nullable=False),
+        "service_name": StringDatabaseField(name="service_name", nullable=False),
+        "metric_type": StringDatabaseField(name="metric_type", nullable=False),
+        "unit": StringDatabaseField(name="unit", nullable=False),
+        "aggregation_temporality": StringDatabaseField(name="aggregation_temporality", nullable=False),
+        "is_monotonic": BooleanDatabaseField(name="is_monotonic", nullable=False),
+        "has_labels": BooleanDatabaseField(name="has_labels", nullable=False),
+        "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
+        "histogram_bounds": FloatArrayDatabaseField(
+            name="histogram_bounds", nullable=False, description="Histogram bucket boundaries (per series)."
+        ),
+        "_topic": StringDatabaseField(name="_topic", nullable=False),
+        "timestamp_arr": DateTimeArrayDatabaseField(
+            name="timestamp_arr", nullable=False, description="Data point timestamps."
+        ),
+        "observed_timestamp_arr": DateTimeArrayDatabaseField(name="observed_timestamp_arr", nullable=False),
+        "value_arr": FloatArrayDatabaseField(name="value_arr", nullable=False, description="Data point values."),
+        "count_arr": IntegerArrayDatabaseField(name="count_arr", nullable=False),
+        "histogram_counts_arr": IntegerArrayDatabaseField(name="histogram_counts_arr", nullable=False),
+        "trace_id_arr": StringArrayDatabaseField(name="trace_id_arr", nullable=False),
+        "span_id_arr": StringArrayDatabaseField(name="span_id_arr", nullable=False),
+        "trace_flags_arr": IntegerArrayDatabaseField(name="trace_flags_arr", nullable=False),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "metrics4_samples"
+
+    def to_printed_hogql(self):
+        return "metrics4_samples"
 
 
 class MetricsTable(Table):

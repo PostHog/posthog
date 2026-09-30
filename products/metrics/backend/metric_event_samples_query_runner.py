@@ -17,11 +17,17 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.metrics import METRICS4_VIEW_CUTOVER
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter
 from products.metrics.backend.facade.enums import MetricType
 from products.metrics.backend.metric_query_runner import series_scope_expr, time_range_expr, type_filter_expr
+
+# The metrics4 view serves `metrics2` rows only for `time_bucket` before the
+# cut-over. A query whose whole window starts at/after the cut-over never needs
+# those rows, so it can read `metrics4_samples` directly and skip the view.
+METRICS4_CUTOVER = dt.datetime.fromisoformat(METRICS4_VIEW_CUTOVER).replace(tzinfo=dt.UTC)
 
 # This query uses the shared ClickHouse cluster. Limit reads and fail on overflow.
 _QUERY_SETTINGS = HogQLGlobalSettings(
@@ -81,7 +87,56 @@ class MetricEventSamplesQueryRunner:
         self.metric_type = metric_type
         self.limit = limit
 
+    def _uses_direct_metrics4(self) -> bool:
+        # `metrics2` holds no rows for `time_bucket >= cutover`, so a window
+        # that starts at/after the cut-over reads metrics4_samples directly.
+        return self.date_from >= METRICS4_CUTOVER
+
     def run(self) -> list[dict[str, Any]]:
+        if self._uses_direct_metrics4():
+            return self._run_query(self._direct_query())
+        return self._run_query(self._view_query())
+
+    def _run_query(self, query: ast.SelectQuery) -> list[dict[str, Any]]:
+        response = execute_hogql_query(
+            query_type="MetricEventSamplesQuery",
+            query=query,
+            team=self.team,
+            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            settings=_QUERY_SETTINGS,
+        )
+
+        return [
+            {
+                "timestamp": row[0].isoformat() if hasattr(row[0], "isoformat") else str(row[0]),
+                "metric_name": row[1],
+                "metric_type": row[2],
+                "value": row[3],
+                "count": int(row[4]),
+                "unit": row[5],
+                "aggregation_temporality": row[6],
+                "is_monotonic": bool(row[7]),
+                "service_name": row[8],
+                "trace_id": row[9],
+                "span_id": row[10],
+                "attributes": dict(row[11]) if row[11] else {},
+                "resource_attributes": dict(row[12]) if row[12] else {},
+            }
+            for row in response.results
+        ]
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        return {
+            "metric_name": ast.Constant(value=self.metric_name),
+            "time_range": time_range_expr(self.date_from, self.date_to),
+            "trace_id": ast.Constant(value=self.trace_id),
+            "span_id": ast.Constant(value=self.span_id),
+            "type_filter": type_filter_expr(self.metric_type.value if self.metric_type else None),
+            "series_scope": series_scope_expr(self.metric_name, self.filters, self.date_from),
+            "limit": ast.Constant(value=self.limit),
+        }
+
+    def _view_query(self) -> ast.SelectQuery:
         # An empty `trace_id` matches every row, so the query needs no optional clause.
         # Filter and limit samples in the CTE. Join labels after that selection.
         # Apply label filters before LIMIT. Otherwise, filtered results can look empty.
@@ -146,41 +201,86 @@ class MetricEventSamplesQueryRunner:
                     AND s.series_fingerprint = ser.series_fingerprint
                 ORDER BY s.timestamp DESC
             """,
-            placeholders={
-                "metric_name": ast.Constant(value=self.metric_name),
-                "time_range": time_range_expr(self.date_from, self.date_to),
-                "trace_id": ast.Constant(value=self.trace_id),
-                "span_id": ast.Constant(value=self.span_id),
-                "type_filter": type_filter_expr(self.metric_type.value if self.metric_type else None),
-                "series_scope": series_scope_expr(self.metric_name, self.filters, self.date_from),
-                "limit": ast.Constant(value=self.limit),
-            },
+            placeholders=self._placeholders(),
         )
         assert isinstance(query, ast.SelectQuery)
+        return query
 
-        response = execute_hogql_query(
-            query_type="MetricEventSamplesQuery",
-            query=query,
-            team=self.team,
-            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
-            settings=_QUERY_SETTINGS,
+    def _direct_query(self) -> ast.SelectQuery:
+        # Same shape as `_view_query`, but reads `metrics4_samples` directly.
+        # The points live in parallel arrays, so ARRAY JOIN fans them out to one
+        # row per sample. `time_bucket`, series, labels and the JOIN to
+        # `metric_series` behave exactly as in the view path.
+        query = parse_select(
+            """
+                WITH matched_samples AS (
+                    SELECT
+                        team_id,
+                        metric_name,
+                        series_fingerprint,
+                        point_timestamp AS timestamp,
+                        point_value AS value,
+                        point_count AS count,
+                        point_trace_id AS trace_id,
+                        point_span_id AS span_id,
+                        metric_type,
+                        unit,
+                        aggregation_temporality,
+                        is_monotonic,
+                        service_name
+                    FROM posthog.metrics4_samples
+                    ARRAY JOIN
+                        timestamp_arr AS point_timestamp,
+                        observed_timestamp_arr AS point_observed_timestamp,
+                        value_arr AS point_value,
+                        count_arr AS point_count,
+                        histogram_counts_arr AS point_histogram_counts,
+                        trace_id_arr AS point_trace_id,
+                        span_id_arr AS point_span_id,
+                        trace_flags_arr AS point_trace_flags
+                    WHERE ({metric_name} = '' OR metric_name = {metric_name})
+                      AND {time_range}
+                      AND ({trace_id} = '' OR trace_id = {trace_id})
+                      AND ({span_id} = '' OR span_id = {span_id})
+                      AND {type_filter}
+                      AND {series_scope}
+                    ORDER BY timestamp DESC
+                    LIMIT {limit}
+                )
+                SELECT
+                    s.timestamp,
+                    s.metric_name,
+                    s.metric_type,
+                    s.value,
+                    s.count,
+                    s.unit,
+                    s.aggregation_temporality,
+                    s.is_monotonic,
+                    s.service_name,
+                    hex(tryBase64Decode(s.trace_id)) AS trace_id,
+                    hex(tryBase64Decode(s.span_id)) AS span_id,
+                    ser.attributes,
+                    ser.resource_attributes
+                FROM matched_samples AS s
+                LEFT JOIN (
+                    SELECT
+                        team_id,
+                        metric_name,
+                        series_fingerprint,
+                        any(attributes) AS attributes,
+                        any(resource_attributes) AS resource_attributes
+                    FROM posthog.metric_series
+                    WHERE (metric_name, series_fingerprint) IN (
+                        SELECT metric_name, series_fingerprint FROM matched_samples
+                    )
+                    GROUP BY team_id, metric_name, series_fingerprint
+                ) AS ser
+                    ON s.team_id = ser.team_id
+                    AND s.metric_name = ser.metric_name
+                    AND s.series_fingerprint = ser.series_fingerprint
+                ORDER BY s.timestamp DESC
+            """,
+            placeholders=self._placeholders(),
         )
-
-        return [
-            {
-                "timestamp": row[0].isoformat() if hasattr(row[0], "isoformat") else str(row[0]),
-                "metric_name": row[1],
-                "metric_type": row[2],
-                "value": row[3],
-                "count": int(row[4]),
-                "unit": row[5],
-                "aggregation_temporality": row[6],
-                "is_monotonic": bool(row[7]),
-                "service_name": row[8],
-                "trace_id": row[9],
-                "span_id": row[10],
-                "attributes": dict(row[11]) if row[11] else {},
-                "resource_attributes": dict(row[12]) if row[12] else {},
-            }
-            for row in response.results
-        ]
+        assert isinstance(query, ast.SelectQuery)
+        return query
