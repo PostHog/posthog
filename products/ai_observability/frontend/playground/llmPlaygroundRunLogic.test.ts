@@ -17,6 +17,7 @@ import {
     llmPlaygroundRunLogic,
     mergeUsage,
 } from './llmPlaygroundRunLogic'
+import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 
 function setPlaygroundAccessLevel(level: AccessControlLevel): void {
     window.POSTHOG_APP_CONTEXT = {
@@ -103,6 +104,37 @@ describe('llmPlaygroundRunLogic', () => {
             temperature: 0.4,
             top_p: 0.9,
         })
+
+        logic.unmount()
+        streamSpy.mockRestore()
+    })
+
+    it('sends variable-substituted content while the editor keeps the raw template', async () => {
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setSystemPrompt('You answer questions about {{topic}}.')
+        llmPlaygroundPromptsLogic.actions.setMessages([
+            { role: 'user', content: 'Tell me about {{topic}} and {{missing}}' },
+        ])
+        llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).toHaveBeenCalledTimes(1)
+        // Filled variables resolve, unfilled ones stay in place (same as SDK compile)
+        expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
+            system: 'You answer questions about penguins.',
+            messages: [{ role: 'user', content: 'Tell me about penguins and {{missing}}' }],
+        })
+        // Substitution must not write back into the editor state
+        expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You answer questions about {{topic}}.')
+        expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Tell me about {{topic}} and {{missing}}')
 
         logic.unmount()
         streamSpy.mockRestore()

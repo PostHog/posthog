@@ -27,6 +27,8 @@ export interface KnowledgeDocumentWindowApi {
     readonly source_name: string
     /** Title of the document this chunk belongs to. */
     readonly document_title: string
+    /** Fetched page URL. Empty for text and file sources. */
+    readonly url: string
 }
 
 /**
@@ -56,6 +58,8 @@ export interface KnowledgeSearchResultApi {
     readonly content: string
     /** True when this chunk comes from a generated source learned from a past support ticket. */
     readonly is_generated: boolean
+    /** Fetched page URL. Empty for text and file sources. */
+    readonly url: string
 }
 
 export interface KnowledgeGapSuggestionApi {

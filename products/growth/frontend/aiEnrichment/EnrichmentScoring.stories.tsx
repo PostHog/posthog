@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/react'
+import { waitFor, within } from '@testing-library/react'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -76,10 +76,20 @@ type Story = StoryObj<typeof meta>
 export const Editor: Story = {}
 
 export const TenCompanies: Story = {
-    play: async ({ canvasElement }) => {
+    play: async ({ canvasElement }): Promise<void> => {
         const canvas = within(canvasElement)
-        const previewButton = await canvas.findByText('Test 10 companies')
+        const previewButton = await canvas.findByRole('button', { name: 'Test 10 companies' })
+        await waitFor(() => {
+            if (canvasElement.querySelector('.CodeEditor')?.getAttribute('data-editor-ready') !== 'true') {
+                throw new Error('Scoring editor is not ready')
+            }
+        })
         enrichmentScoringLogic.actions.setSource(CONFIG.source.replace("'b2b', 10", "'b2b', 15"))
+        await waitFor(() => {
+            if (!/'b2b',\s*15,\s*0/.test(canvasElement.querySelector('.view-lines')?.textContent ?? '')) {
+                throw new Error('Edited scoring formula is not visible')
+            }
+        })
         previewButton.click()
         await canvas.findByText('Example company 10')
     },

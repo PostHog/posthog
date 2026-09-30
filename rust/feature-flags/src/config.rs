@@ -426,7 +426,8 @@ pub struct Config {
 
     // Upper bound on a single realtime cohort membership lookup (pool acquire + query).
     // Keeps an unreachable behavioral cohorts DB from stalling flag requests for the
-    // pool's full 2s acquire timeout; on timeout the lookup degrades to non-membership.
+    // pool's full acquire timeout plus statement timeout. On timeout the lookup degrades to
+    // non-membership.
     // The default matches the pool's 1s statement timeout: a tighter client-side bound
     // would discard answers the DB would still deliver, flipping flags for the person,
     // so this bound only adds cover where statement_timeout cannot reach (pool acquire
@@ -519,10 +520,13 @@ pub struct Config {
     #[envconfig(default = "4500")]
     pub request_timeout_ms: u64,
 
-    // How long to wait for a connection from the pool before timing out.
-    // Must be well under request_timeout_ms so there's still time for query + response.
-    // With Envoy at 5s and request_timeout at 4.5s, 2s leaves room for a query + serialization.
-    #[envconfig(default = "2")]
+    // How long to wait for a connection from the pool before timing out (whole seconds, minimum 1).
+    // The wait covers queueing for a free connection, the test_before_acquire ping, and opening a
+    // new connection.
+    // This plus each pool's statement timeout must stay well under request_timeout_ms. Then
+    // Postgres cancels a slow query before the request times out, and the connection goes back
+    // to the pool. When the request times out first, sqlx closes the connection instead.
+    #[envconfig(default = "1")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
@@ -548,19 +552,23 @@ pub struct Config {
 
     // PostgreSQL statement_timeout for persons reader queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Person and cohort queries should complete well under 3s (P99 hold time is 25ms)
-    // - Default: 3000ms (3 seconds)
+    // - Person and cohort queries should complete well under 1s (P99 hold time is 25ms)
+    // - Default: 1000ms (1 second)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "3000")]
+    #[envconfig(default = "1000")]
     pub persons_reader_statement_timeout_ms: u64,
 
     // PostgreSQL statement_timeout for writer database queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Hash key override writes have retry logic (2 attempts, 100ms backoff)
-    // - 3s per attempt with retries gives 6s total before failure
-    // - Default: 3000ms (3 seconds)
+    // - Hash key override writes retry a transient error and a foreign key violation, which
+    //   occurs when a person is deleted during the write. A statement that hits this timeout is
+    //   not retried.
+    // - Hash key override inserts have a longer latency tail than person reads. A timed-out insert
+    //   returns an error for every experience continuity flag in the response, so this timeout is
+    //   longer than the persons reader timeout.
+    // - Default: 2000ms (2 seconds)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "3000")]
+    #[envconfig(default = "2000")]
     pub writer_statement_timeout_ms: u64,
 
     // How often to report database pool metrics (seconds)
@@ -843,6 +851,12 @@ pub struct Config {
     #[envconfig(from = "BATCH_FLAG_EVAL_TIMEOUT_MS", default = "120000")]
     pub batch_flag_eval_timeout_ms: u64,
 
+    // Statement timeout for the batch evaluation person scan (milliseconds). It replaces the
+    // persons reader pool's timeout, which is sized for /flags. It also bounds how long one
+    // scan holds a persons reader connection that /flags traffic needs.
+    #[envconfig(from = "BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS", default = "10000")]
+    pub batch_flag_eval_scan_statement_timeout_ms: u64,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -895,15 +909,6 @@ pub struct Config {
 
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
-
-    // In-memory memo of whether a team's flag definitions, keyed by ETag, hold a
-    // billable flag, so a /flags/definitions 304 is billed without a payload read.
-    // The TTL bounds how long a wrong answer can last, so it is tunable without a deploy.
-    #[envconfig(from = "DEFINITIONS_BILLABLE_CACHE_CAPACITY", default = "100000")]
-    pub definitions_billable_cache_capacity: u64,
-
-    #[envconfig(from = "DEFINITIONS_BILLABLE_CACHE_TTL_SECONDS", default = "3600")]
-    pub definitions_billable_cache_ttl_seconds: u64,
 
     // Write an S3 hit back into Redis so the next reader for that key is served by Redis
     // instead of paying another S3 read. Applies to the team metadata and remote config
@@ -966,12 +971,6 @@ pub struct Config {
     pub usage_ingestion_teams: TeamIdCollection,
     #[envconfig(from = "USAGE_INGESTION_TIMEOUT_MS", default = "5000")]
     pub usage_ingestion_timeout_ms: u64,
-
-    // Teams whose /flags/definitions 304 responses are billed. Empty disables it, so
-    // 304 billing rolls out per team once customers have been told, and rolls back
-    // with a config change instead of a revert.
-    #[envconfig(from = "FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_TEAMS", default = "")]
-    pub flag_definitions_not_modified_billing_teams: TeamIdCollection,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -1202,8 +1201,6 @@ impl Config {
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 30,
-            definitions_billable_cache_capacity: 100_000,
-            definitions_billable_cache_ttl_seconds: 3_600,
             hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
@@ -1211,6 +1208,7 @@ impl Config {
             internal_request_token: None,
             batch_flag_eval_max_limit: 10_000,
             batch_flag_eval_timeout_ms: 120_000,
+            batch_flag_eval_scan_statement_timeout_ms: 10_000,
             billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
@@ -1219,7 +1217,6 @@ impl Config {
             usage_ingestion_tls: false,
             usage_ingestion_teams: TeamIdCollection::None,
             usage_ingestion_timeout_ms: 5_000,
-            flag_definitions_not_modified_billing_teams: TeamIdCollection::All,
         }
     }
 

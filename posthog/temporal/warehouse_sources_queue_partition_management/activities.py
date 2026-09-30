@@ -16,7 +16,7 @@ from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
 
-PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus"]
+PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus", "queuejob", "queuejobstatus"]
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
 DEFAULT_PARTITION_DELETE_BATCH_SIZE = 10_000

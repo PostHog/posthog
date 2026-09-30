@@ -111,6 +111,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         distinct_id: str = "anon_seed",
         session_start: datetime | None = None,
         session_end: datetime | None = None,
+        is_error: bool = False,
     ) -> None:
         """Seed one $mcp_tool_call event per element of ``tool_sequence``.
 
@@ -133,8 +134,58 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
                     "$session_id": session_id,
                     "$mcp_tool_name": tool,
                     "$mcp_client_name": client_name,
+                    "$mcp_is_error": is_error,
                 },
             )
+
+    @parameterized.expand(
+        [
+            (
+                "all_sessions",
+                None,
+                None,
+                {"clean": (2, 0), "partial": (2, 1), "all_fail": (1, 1), "docs_fail": (2, 1)},
+            ),
+            ("with_errors", True, None, {"partial": (2, 1), "all_fail": (1, 1), "docs_fail": (2, 1)}),
+            ("without_errors", False, None, {"clean": (2, 0)}),
+            (
+                "with_errors_among_filtered_calls",
+                True,
+                _tool_name_filter("query_run"),
+                {"partial": (2, 1), "all_fail": (1, 1)},
+            ),
+            (
+                "without_errors_among_filtered_calls",
+                False,
+                _tool_name_filter("query_run"),
+                {"clean": (2, 0), "docs_fail": (1, 0)},
+            ),
+        ]
+    )
+    def test_has_errors_filters_by_session_outcome(
+        self,
+        _name: str,
+        has_errors: bool | None,
+        properties: list[AnyPropertyFilterDiscriminated] | None,
+        expected: dict[str, tuple[int, int]],
+    ) -> None:
+        by_name = {name: str(uuid7()) for name in ("clean", "partial", "all_fail", "docs_fail")}
+        self._seed_session(by_name["clean"], ["query_run", "query_run"])
+        self._seed_session(by_name["partial"], ["query_run"])
+        self._seed_session(by_name["partial"], ["query_run"], is_error=True)
+        self._seed_session(by_name["all_fail"], ["query_run"], is_error=True)
+        self._seed_session(by_name["docs_fail"], ["query_run"])
+        self._seed_session(by_name["docs_fail"], ["docs_search"], is_error=True)
+        flush_persons_and_events()
+
+        page = api.list_mcp_sessions(self.team, limit=50, offset=0, has_errors=has_errors, properties=properties)
+
+        assert {
+            name: (s.tool_calls, s.error_calls)
+            for name, sid in by_name.items()
+            for s in page.results
+            if s.session_id == sid
+        } == expected
 
     @parameterized.expand(
         [

@@ -388,6 +388,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             self._team,
             experiment_id=self._query.experiment_exposure.experiment_id,
             variant=self._query.experiment_exposure.variant,
+            variants=self._query.experiment_exposure.variants,
             in_session=bool(self._query.experiment_exposure.in_session),
         )
         if self._experiment_exposure_linkage.population_filters_test_accounts:
@@ -757,7 +758,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     )
                 )
 
+            # DISTINCT: this IN is promoted to GLOBAL IN, which ships the subquery's rows to every shard as
+            # a temporary table; without it each matching log line adds a duplicate session id.
             console_logs_subquery = ast.SelectQuery(
+                distinct=True,
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
                 where=ast.And(exprs=console_logs_where_exprs),

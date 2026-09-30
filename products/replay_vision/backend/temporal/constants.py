@@ -5,6 +5,7 @@ from temporalio.common import Priority, RetryPolicy
 
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
+BUILD_BENCHMARK_WORKFLOW_NAME = "replay-vision-build-benchmark"
 
 # How long a cached admission budget admits without re-running the spend aggregates. Spend the
 # cache misses (settling receipts, evaluation reservations, failed-observation refunds) stays wrong
@@ -260,11 +261,6 @@ EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-sugges
 def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
     """Deterministic id: one evaluation per suggestion (WorkflowAlreadyStartedError on a duplicate trigger)."""
     return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
-
-
-def replay_vision_distinct_id(team_id: int) -> str:
-    """`posthog_distinct_id` for analytics events emitted by Replay Vision when no human user is attributable."""
-    return f"replay-vision:{team_id}"
 
 
 # Search suggestion refresher: hourly, bounded per run and per day so cost tracks scanners people look at.
