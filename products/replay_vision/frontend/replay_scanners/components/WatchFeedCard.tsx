@@ -6,6 +6,7 @@ import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
@@ -137,6 +138,20 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     }
 }
 
+/** Seconds of lead-in before the key moment, so the viewer sees what led up to it. */
+const KEY_MOMENT_LEAD_IN_S = 3
+
+/** The session offset of the moment the scan's answer rests on most, or null on scans that did not pick one. */
+export function observationKeyMomentMs(observation: ReplayObservationApi): number | null {
+    const keyMomentMs = readResult(observation)?.key_moment_ms
+    return typeof keyMomentMs === 'number' && Number.isFinite(keyMomentMs) && keyMomentMs >= 0 ? keyMomentMs : null
+}
+
+/** Where the player starts: a short lead-in before the key moment, or the recording's start without one. */
+export function watchStartSeconds(keyMomentMs: number | null): number {
+    return keyMomentMs === null ? 0 : Math.max(0, Math.floor(keyMomentMs / 1000) - KEY_MOMENT_LEAD_IN_S)
+}
+
 /**
  * The card's bold headline, plus the prose that follows it. A summarizer authored a title, so its
  * summary rides along whole (with citation chips). Otherwise the first sentence of the prose the
@@ -199,10 +214,12 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
     const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
     const person = observation.recording_subject_email || observation.distinct_id
     const headline = watchCardHeadline(observation)
-    // t=0 so the observation page opens with the player expanded. `from` marks the feed as the origin,
-    // so the observation's back button returns here rather than the scanner.
+    const keyMomentMs = observationKeyMomentMs(observation)
+    const startSeconds = watchStartSeconds(keyMomentMs)
+    // t is always set, so the observation page opens with the player expanded. `from` marks the feed as the
+    // origin, so the observation's back button returns here rather than the scanner.
     const observationUrl = combineUrl(urls.replayVisionObservation(observation.id), {
-        t: 0,
+        t: startSeconds,
         [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
     }).url
     const capture = (target: 'clip_modal' | 'observation'): void => {
@@ -212,15 +229,22 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
             observation_id: observation.id,
             position,
             reason_kind: reason.kind,
+            has_key_moment: keyMomentMs !== null,
             target,
         })
     }
     const watchClipInModal = (): void => {
         capture('clip_modal')
-        // The player reads `?t=<seconds>` as an offset on first load and the modal preserves existing
-        // search params, so clear any stale `t` to start the clip from the beginning.
+        // The modal's own `initialTimestamp` is an absolute unix-ms time, but the key moment is an offset
+        // into the recording. The player reads `?t=<seconds>` as an offset on first load and the modal
+        // preserves existing search params, so set `t` before opening. Without a key moment, clear any stale
+        // `t` so the clip starts from the beginning.
         const { location, searchParams, hashParams } = router.values
-        router.actions.replace(location.pathname, { ...searchParams, t: undefined }, hashParams)
+        router.actions.replace(
+            location.pathname,
+            { ...searchParams, t: keyMomentMs === null ? undefined : startSeconds },
+            hashParams
+        )
         openSessionPlayer({ id: observation.session_id })
     }
 
@@ -231,7 +255,7 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
         >
             {!observation.viewed && <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-accent" aria-hidden />}
             {/* The thumbnail is the watch affordance, so the whole poster opens the clip modal.
-                The New tag sits outside the poster, which clips its own overflow. */}
+                The New tag and the key moment sit outside the poster, which clips its own overflow. */}
             <div className="relative hidden @md:block w-64 shrink-0 self-start">
                 <button
                     type="button"
@@ -246,6 +270,13 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                             Watch clip
                         </span>
                     </ObservationThumbnail>
+                    {keyMomentMs !== null && (
+                        <Tooltip title="Key moment: where the scan's answer rests most. The clip starts just before it.">
+                            <span className="absolute bottom-1 right-1 text-xs tabular-nums bg-bg-light border rounded px-1">
+                                {colonDelimitedDuration(Math.floor(keyMomentMs / 1000), null)}
+                            </span>
+                        </Tooltip>
+                    )}
                 </button>
                 {/* Sits above the button, so it lets clicks through to open the clip. */}
                 {!observation.viewed && (

@@ -327,7 +327,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 ...(items.length === 0 ? { empty_reason: values.emptyReason ?? 'unresolved' } : {}),
             })
         },
-        // The player reads `?t=<seconds>` as its start offset; clear it on close so a
+        // A card writes `?t=<seconds>` so the player opens at the key moment; clear it on close so a
         // link copied afterwards doesn't seek a recording the user is no longer looking at.
         [sessionPlayerModalLogic.actionTypes.closeSessionPlayer]: () => {
             const { location, searchParams, hashParams } = router.values
