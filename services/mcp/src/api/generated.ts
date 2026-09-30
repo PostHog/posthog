@@ -14510,10 +14510,10 @@ export namespace Schemas {
      * * `NoOp` - Noop
      * * `FileDownload` - File Download
      */
-    export type DestinationTypeEnum = typeof DestinationTypeEnum[keyof typeof DestinationTypeEnum];
+    export type BatchExportDestinationTypeEnum = typeof BatchExportDestinationTypeEnum[keyof typeof BatchExportDestinationTypeEnum];
 
 
-    export const DestinationTypeEnum = {
+    export const BatchExportDestinationTypeEnum = {
       AwsS3: 'AwsS3',
       S3Compatible: 'S3Compatible',
       Snowflake: 'Snowflake',
@@ -14806,7 +14806,7 @@ export namespace Schemas {
        * * `HTTP` - Http
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
-      type: DestinationTypeEnum;
+      type: BatchExportDestinationTypeEnum;
       /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**

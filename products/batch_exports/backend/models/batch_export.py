@@ -72,7 +72,7 @@ class BatchExportDestination(UUIDTModel):
     class Meta:
         db_table = "posthog_batchexportdestination"
 
-    Destination = enums.DestinationType
+    Destination = enums.BatchExportDestinationType
 
     # S3-family exports read their credentials from an Integration, but rows migrated off inline
     # credentials still hold them in `config`. These entries keep those stale values out of API
@@ -93,7 +93,7 @@ class BatchExportDestination(UUIDTModel):
     }
 
     type = models.CharField(
-        choices=enums.DESTINATION_TYPE_CHOICES,
+        choices=Destination.choices,
         max_length=64,
         help_text="A choice of supported BatchExportDestination types.",
     )
@@ -197,9 +197,7 @@ class BatchExportRun(UUIDTModel):
         null=True,
         help_text="The `BatchExportOnDemand` this run belongs to.",
     )
-    status = models.CharField(
-        choices=enums.BATCH_EXPORT_RUN_STATUS_CHOICES, max_length=64, help_text="The status of this run."
-    )
+    status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this run.")
     records_completed = models.IntegerField(null=True, help_text="The number of records that have been exported.")
     records_failed = models.IntegerField(
         null=True,
@@ -272,6 +270,8 @@ class BatchExportRun(UUIDTModel):
         raise ValueError("One of batch export or batch export on demand must always be defined")
 
 
+BATCH_EXPORT_INTERVALS = enums.BatchExportInterval.choices
+
 BATCH_EXPORT_INTERVAL_TO_START_JITTER = {
     "hour": timedelta(minutes=15),
     "day": timedelta(minutes=20),
@@ -317,7 +317,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
     interval = models.CharField(
         max_length=64,
         null=False,
-        choices=enums.BATCH_EXPORT_INTERVALS,
+        choices=BATCH_EXPORT_INTERVALS,
         default="hour",
         help_text="The interval at which to export data.",
     )
@@ -367,7 +367,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         max_length=64,
         null=True,
         blank=True,
-        choices=enums.BATCH_EXPORT_MODEL_CHOICES,
+        choices=Model.choices,
         default=Model.EVENTS.value,
         help_text="Which model this BatchExport is exporting.",
     )
@@ -520,9 +520,7 @@ class BatchExportBackfill(UUIDTModel):
     )
     start_at = models.DateTimeField(help_text="The start of the data interval.", null=True)
     end_at = models.DateTimeField(help_text="The end of the data interval.", null=True)
-    status = models.CharField(
-        choices=enums.BATCH_EXPORT_BACKFILL_STATUS_CHOICES, max_length=64, help_text="The status of this backfill."
-    )
+    status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this backfill.")
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="The timestamp at which this BatchExportBackfill was created.",
@@ -709,7 +707,7 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         max_length=64,
         null=True,
         blank=True,
-        choices=enums.BATCH_EXPORT_MODEL_CHOICES,
+        choices=Model.choices,
         default=Model.EVENTS.value,
         help_text="Which model this batch export is exporting.",
     )

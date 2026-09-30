@@ -80,7 +80,7 @@ from posthog.slack.channels import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
-from products.batch_exports.backend.facade.enums import DestinationType
+from products.batch_exports.backend.facade.enums import BatchExportDestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
@@ -6880,7 +6880,7 @@ class TestIntegrationDeletionHogFunctionGuard:
         batch_exports_testing.create_batch_export(
             self.team.id,
             name="Test batch export",
-            destination_type=DestinationType.AWS_S3,
+            destination_type=BatchExportDestinationType.AWS_S3,
             destination_config={},
             integration_id=self.integration.id,
         )

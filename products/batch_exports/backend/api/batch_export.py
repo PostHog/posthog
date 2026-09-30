@@ -58,11 +58,6 @@ from products.batch_exports.backend.api.utils import (
     HogQLModifiersField,
     check_hogql_batch_exports_enabled,
 )
-from products.batch_exports.backend.facade.enums import (
-    BATCH_EXPORT_INTERVALS,
-    BATCH_EXPORT_MODEL_CHOICES,
-    BATCH_EXPORT_RUN_STATUS_CHOICES,
-)
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_START_PLACEHOLDER,
     UnsupportedHogQLQueryError,
@@ -73,6 +68,7 @@ from products.batch_exports.backend.hogql_source import (
     validate_hogql_query_for_batch_export,
 )
 from products.batch_exports.backend.models.batch_export import (
+    BATCH_EXPORT_INTERVALS,
     OBJECT_STORAGE_DESTINATIONS,
     S3_FAMILY_TYPES,
     TIMEZONES,
@@ -200,7 +196,7 @@ class BatchExportRunListQuerySerializer(serializers.Serializer):
 
     status = serializers.ListField(
         required=False,
-        child=serializers.ChoiceField(choices=BATCH_EXPORT_RUN_STATUS_CHOICES),
+        child=serializers.ChoiceField(choices=BatchExportRun.Status.choices),
         help_text="Only return runs in these statuses. Repeat the parameter to pass more than one status.",
     )
     after = serializers.CharField(
@@ -854,7 +850,7 @@ class BatchExportRequestSerializer(serializers.Serializer):
 
     name = serializers.CharField(help_text="Human-readable name for the batch export.")
     model = serializers.ChoiceField(
-        choices=BATCH_EXPORT_MODEL_CHOICES,
+        choices=BatchExport.Model.choices,
         required=False,
         help_text=(
             "Which data model to export: events, persons, sessions, or hogql. "

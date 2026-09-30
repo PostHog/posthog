@@ -1,25 +1,15 @@
 """Enumerations the batch_exports models use.
 
 A consumer that writes one of these values reads the enum from here and does not need the
-model class. This is a contract file, so it has no Django imports. Each enum has a
-``(value, label)`` choices list next to it, which the model fields, the serializer
-``ChoiceField``s and the OpenAPI enum names use.
-
-The models keep each enum as a class attribute (``BatchExportRun.Status``) so existing call
-sites are unchanged. In an annotation the class attribute is not a valid type, so annotate
-with the enum from this module directly.
+model class. The models keep each enum as a class attribute (``BatchExportRun.Status``) so
+existing call sites are unchanged. In an annotation the class attribute is not a valid type, so
+annotate with the enum from this module directly.
 """
 
-from enum import StrEnum
+from posthog.enums import LabeledStrEnum
 
 
-def _label(member: StrEnum) -> str:
-    # Django derives the same label for a TextChoices member without an explicit one. A
-    # different label changes the field choices, and makemigrations then writes an AlterField.
-    return member.name.replace("_", " ").title()
-
-
-class DestinationType(StrEnum):
+class BatchExportDestinationType(LabeledStrEnum):
     """Enumeration of supported destinations for PostHog BatchExports."""
 
     AWS_S3 = "AwsS3"
@@ -36,10 +26,7 @@ class DestinationType(StrEnum):
     FILE_DOWNLOAD = "FileDownload"
 
 
-DESTINATION_TYPE_CHOICES = [(member.value, _label(member)) for member in DestinationType]
-
-
-class BatchExportModel(StrEnum):
+class BatchExportModel(LabeledStrEnum):
     """The data model an export reads, for scheduled and on-demand exports alike."""
 
     EVENTS = "events"
@@ -48,10 +35,7 @@ class BatchExportModel(StrEnum):
     HOGQL = "hogql"
 
 
-BATCH_EXPORT_MODEL_CHOICES = [(member.value, _label(member)) for member in BatchExportModel]
-
-
-class BatchExportRunStatus(StrEnum):
+class BatchExportRunStatus(LabeledStrEnum):
     """Possible states of the BatchExportRun."""
 
     CANCELLED = "Cancelled"
@@ -66,10 +50,7 @@ class BatchExportRunStatus(StrEnum):
     STARTING = "Starting"
 
 
-BATCH_EXPORT_RUN_STATUS_CHOICES = [(member.value, _label(member)) for member in BatchExportRunStatus]
-
-
-class BatchExportBackfillStatus(StrEnum):
+class BatchExportBackfillStatus(LabeledStrEnum):
     """Possible states of the BatchExportBackfill."""
 
     CANCELLED = "Cancelled"
@@ -83,16 +64,9 @@ class BatchExportBackfillStatus(StrEnum):
     STARTING = "Starting"
 
 
-BATCH_EXPORT_BACKFILL_STATUS_CHOICES = [(member.value, _label(member)) for member in BatchExportBackfillStatus]
-
-
-class BatchExportInterval(StrEnum):
-    HOUR = "hour"
-    DAY = "day"
-    WEEK = "week"
-    EVERY_5_MINUTES = "every 5 minutes"
-    EVERY_15_MINUTES = "every 15 minutes"
-
-
-# The interval labels are the values, not the labels that _label derives.
-BATCH_EXPORT_INTERVALS = [(interval.value, interval.value) for interval in BatchExportInterval]
+class BatchExportInterval(LabeledStrEnum):
+    HOUR = "hour", "hour"
+    DAY = "day", "day"
+    WEEK = "week", "week"
+    EVERY_5_MINUTES = "every 5 minutes", "every 5 minutes"
+    EVERY_15_MINUTES = "every 15 minutes", "every 15 minutes"

@@ -42,9 +42,10 @@ export const BlankEnumApi = {
  * * `NoOp` - Noop
  * * `FileDownload` - File Download
  */
-export type DestinationTypeEnumApi = (typeof DestinationTypeEnumApi)[keyof typeof DestinationTypeEnumApi]
+export type BatchExportDestinationTypeEnumApi =
+    (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
 
-export const DestinationTypeEnumApi = {
+export const BatchExportDestinationTypeEnumApi = {
     AwsS3: 'AwsS3',
     S3Compatible: 'S3Compatible',
     Snowflake: 'Snowflake',
@@ -470,7 +471,7 @@ export interface BatchExportDestinationApi {
      * * `HTTP` - Http
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
-    type: DestinationTypeEnumApi
+    type: BatchExportDestinationTypeEnumApi
     /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
