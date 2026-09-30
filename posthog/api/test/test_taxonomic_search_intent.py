@@ -10,11 +10,9 @@ from rest_framework import status
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import ChoiceAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
 from posthog.taxonomic_search_intent.contracts import EventMatch
-from posthog.taxonomic_search_intent.prompt import BUNDLED_SEARCH_INTENT_PROMPT
 
 ALL_TABS = ("suggested_filters", "events", "event_properties", "person_properties", "pageview_urls", "email_addresses")
 BUILD_CLIENT = "posthog.taxonomic_search_intent.classify.build_system_one_client"
-CURRENT_PROMPT = "posthog.taxonomic_search_intent.classify.fetch_search_intent_prompt"
 FLAG_CHECK = "posthog.taxonomic_search_intent.classify.posthoganalytics.feature_enabled"
 
 
@@ -31,8 +29,6 @@ class TestSearchIntentEndpoint(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
-        patch(CURRENT_PROMPT, return_value=BUNDLED_SEARCH_INTENT_PROMPT).start()
-        self.addCleanup(patch.stopall)
 
     def _post(self, body: dict | None = None):
         return self.client.post(
@@ -55,7 +51,6 @@ class TestSearchIntentEndpoint(APIBaseTest):
             "is_confident": True,
             "suggests_switch": True,
             "method": "model",
-            "prompt_version": None,
             "model_query": "email",
         }
         assert build.call_args.kwargs["distinct_id"] == team_distinct_id(self.team.id)

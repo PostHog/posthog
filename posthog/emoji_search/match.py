@@ -10,11 +10,9 @@ from django.core.cache import cache
 import structlog
 
 from posthog.llm.gateway_client import team_distinct_id
-from posthog.llm.managed_decision_model import ManagedDecisionModel
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, SystemOneRequestFailed
-from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
+from posthog.llm.system_one_client import DECISION_MODEL, GATEWAY_MAX_QUESTIONS, build_system_one_client
 
-EMOJI_MODEL = ManagedDecisionModel("emoji-search-suggestions")
 CACHE_SECONDS = 30 * 24 * 60 * 60
 OPTIONS_PER_QUESTION = 15
 logger = structlog.get_logger(__name__)
@@ -135,8 +133,7 @@ def suggest_emojis(query: str, *, team_id: int) -> EmojiSearchResult:
         return EmojiSearchResult([])
 
     catalog = load_catalog()
-    model = EMOJI_MODEL.fetch()
-    digest = hashlib.sha256(f"{model}\n{query}".encode()).hexdigest()
+    digest = hashlib.sha256(f"{DECISION_MODEL}\n{query}".encode()).hexdigest()
     cache_key = f"emoji_search:v4:{catalog.fingerprint}:{team_id}:{digest}"
     try:
         cached = cache.get(cache_key)
@@ -152,7 +149,7 @@ def suggest_emojis(query: str, *, team_id: int) -> EmojiSearchResult:
             pass
 
     client = build_system_one_client(
-        model=model, ai_product="emoji_search", distinct_id=team_distinct_id(team_id), timeout=1.2
+        model=DECISION_MODEL, ai_product="emoji_search", distinct_id=team_distinct_id(team_id), timeout=1.2
     )
     state = {"emoji_search": query}
     subgroup_result = client.decide(state=state, questions=build_subgroup_questions(catalog))

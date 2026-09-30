@@ -20,10 +20,10 @@ from pydantic import TypeAdapter, ValidationError
 
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
-from posthog.llm.system_one_client import build_system_one_client
+from posthog.llm.system_one_client import DECISION_MODEL, build_system_one_client
 
 from .contracts import SearchIntent, SearchIntentRequest, SearchIntentSource
-from .prompt import SearchIntentPrompt, fetch_search_intent_prompt
+from .prompt import SEARCH_INTENT_PROMPT, SearchIntentPrompt
 
 logger = structlog.get_logger(__name__)
 
@@ -187,7 +187,7 @@ def search_intent_state(query: str, active_group_type: str, scene: str | None) -
 def _cache_key(
     team_id: int, model: str, state: str, instructions: str, options: dict[str, str], threshold: float
 ) -> str:
-    # The prompt text is in the key, not its version, so a new managed version and the bundled copy never share answers.
+    # The prompt text is in the key, so a new wording never reuses the answers to the old one.
     parts = [model, state, instructions, str(threshold), *(f"{k}={v}" for k, v in sorted(options.items()))]
     digest = hashlib.sha256("\n".join(parts).encode()).hexdigest()
     return f"{CACHE_KEY_PREFIX}:{team_id}:{digest}"
@@ -209,10 +209,9 @@ def with_switch_suggestion(intent: SearchIntent, active_group_type: str) -> Sear
 
 
 def classify_search_intent(
-    request: SearchIntentRequest, *, use_cache: bool = True, prompt: SearchIntentPrompt | None = None
+    request: SearchIntentRequest, *, use_cache: bool = True, prompt: SearchIntentPrompt = SEARCH_INTENT_PROMPT
 ) -> SearchIntent:
     """Raises the System One errors; the caller decides whether a failed answer matters."""
-    prompt = prompt or fetch_search_intent_prompt()
     return with_switch_suggestion(_classify(request, prompt, use_cache=use_cache), request.active_group_type)
 
 
@@ -236,7 +235,7 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
         return _skipped()
 
     state = search_intent_state(model_query, request.active_group_type, request.scene)
-    key = _cache_key(request.team_id, prompt.model, state, prompt.instructions, options, prompt.confident_threshold)
+    key = _cache_key(request.team_id, DECISION_MODEL, state, prompt.instructions, options, prompt.confident_threshold)
     if use_cache:
         cached = _cached_intent(key)
         if cached is not None:
@@ -244,7 +243,7 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
 
     # No TypeSafe fallback: a search is customer text, and TypeSafe is a third party.
     client = build_system_one_client(
-        model=prompt.model,
+        model=DECISION_MODEL,
         ai_product="taxonomic_filter",
         distinct_id=team_distinct_id(request.team_id),
         timeout=SEARCH_INTENT_TIMEOUT_SECONDS,
@@ -261,7 +260,6 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
         confidence=answer.confidence,
         is_confident=answer.confidence >= prompt.confident_threshold,
         source=SearchIntentSource.MODEL,
-        prompt_version=prompt.version,
         model_query=model_query,
     )
     if use_cache:

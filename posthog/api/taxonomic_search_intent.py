@@ -72,13 +72,6 @@ class SearchIntentResponseSerializer(serializers.Serializer):
         choices=SearchIntentSource.choices,
         help_text="How the answer was found: a value pattern, the decision model, or not at all.",
     )
-    prompt_version = serializers.IntegerField(
-        allow_null=True,
-        help_text=(
-            "The version of the managed search intent prompt the model read. Null for a value pattern, "
-            "a skipped search, or the bundled fallback prompt."
-        ),
-    )
     model_query = serializers.CharField(
         allow_null=True,
         help_text=(
@@ -183,7 +176,6 @@ class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "is_confident": intent.is_confident,
                     "suggests_switch": intent.suggests_switch,
                     "method": intent.source,
-                    "prompt_version": intent.prompt_version,
                     "model_query": intent.model_query,
                 }
             ).data

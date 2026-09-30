@@ -6,17 +6,11 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from posthoganalytics.ai.prompts import PromptResult
 
 from posthog.llm.system_one import ChoiceAnswer, SystemOneResult
 from posthog.taxonomic_search_intent.classify import classify_search_intent
 from posthog.taxonomic_search_intent.contracts import SearchIntent, SearchIntentRequest, SearchIntentSource
-from posthog.taxonomic_search_intent.prompt import (
-    BUNDLED_SEARCH_INTENT_PROMPT,
-    SearchIntentPrompt,
-    fetch_search_intent_prompt,
-    parse_search_intent_prompt,
-)
+from posthog.taxonomic_search_intent.prompt import SEARCH_INTENT_PROMPT, SearchIntentPrompt
 
 ALL_TABS = ("suggested_filters", "events", "event_properties", "person_properties", "pageview_urls", "email_addresses")
 
@@ -30,7 +24,6 @@ def _search(
 
 
 BUILD_CLIENT = "posthog.taxonomic_search_intent.classify.build_system_one_client"
-CURRENT_PROMPT = "posthog.taxonomic_search_intent.classify.fetch_search_intent_prompt"
 
 
 def _answer(choice: str, confidence: float) -> SystemOneResult:
@@ -45,7 +38,6 @@ class TestClassifySearchIntent(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
         build = patch(BUILD_CLIENT).start()
-        patch(CURRENT_PROMPT, return_value=BUNDLED_SEARCH_INTENT_PROMPT).start()
         self.addCleanup(patch.stopall)
         self.build = build
         self.decide = build.return_value.decide
@@ -164,37 +156,36 @@ class TestClassifySearchIntent(SimpleTestCase):
 
         assert classify_search_intent(_search("paying users")).source == SearchIntentSource.SKIPPED
 
-    def test_asks_with_the_managed_prompt(self) -> None:
+    def test_asks_with_the_given_prompt(self) -> None:
         self.decide.return_value = _answer("person_properties", 0.9)
         prompt = SearchIntentPrompt(
             instructions="Which tab?",
             options={"events": "An event.", "person_properties": "A person property."},
             confident_threshold=0.95,
-            version=7,
         )
 
         intent = classify_search_intent(_search("email"), prompt=prompt)
 
-        assert (intent.is_confident, intent.prompt_version) == (False, 7)
+        assert intent.is_confident is False
         question = self.decide.call_args.kwargs["questions"]["tab"]
         assert (question.instructions, question.criteria) == ("Which tab?", prompt.options)
 
-    def test_managed_model_is_sent_to_the_gateway_and_separates_cached_answers(self) -> None:
+    def test_model_change_recomputes_cached_answers(self) -> None:
         self.decide.return_value = _answer("events", 0.9)
-        managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, model="posthog/hogference/jeeves-0.1")
+        models = ["posthog/hogference/jevk5-fp8-0.2", "posthog/hogference/jeeves-0.1"]
 
-        classify_search_intent(_search("checkout"), prompt=BUNDLED_SEARCH_INTENT_PROMPT)
-        classify_search_intent(_search("checkout"), prompt=managed)
+        for model in models:
+            with patch("posthog.taxonomic_search_intent.classify.DECISION_MODEL", model):
+                classify_search_intent(_search("checkout"))
 
-        assert self.decide.call_count == 2
-        assert self.build.call_args.kwargs["model"] == managed.model
+        assert [call.kwargs["model"] for call in self.build.call_args_list] == models
 
     @parameterized.expand(
         [
-            ("same_team_and_prompt", 7, BUNDLED_SEARCH_INTENT_PROMPT, 1),
-            ("other_team", 8, BUNDLED_SEARCH_INTENT_PROMPT, 2),
-            ("new_wording", 7, dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, instructions="Which tab?"), 2),
-            ("new_threshold", 7, dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, confident_threshold=0.9), 2),
+            ("same_team_and_prompt", 7, SEARCH_INTENT_PROMPT, 1),
+            ("other_team", 8, SEARCH_INTENT_PROMPT, 2),
+            ("new_wording", 7, dataclasses.replace(SEARCH_INTENT_PROMPT, instructions="Which tab?"), 2),
+            ("new_threshold", 7, dataclasses.replace(SEARCH_INTENT_PROMPT, confident_threshold=0.9), 2),
         ]
     )
     def test_the_same_search_is_answered_once_per_team_and_prompt(
@@ -202,90 +193,7 @@ class TestClassifySearchIntent(SimpleTestCase):
     ) -> None:
         self.decide.return_value = _answer("event_properties", 0.8)
 
-        classify_search_intent(_search("current url"), prompt=BUNDLED_SEARCH_INTENT_PROMPT)
+        classify_search_intent(_search("current url"), prompt=SEARCH_INTENT_PROMPT)
         classify_search_intent(_search("  current   url ", team_id=second_team), prompt=second_prompt)
 
         assert self.decide.call_count == expected_calls
-
-
-MANAGED_OPTIONS = {"events": "An event.", "person_properties": "A person property."}
-
-
-class TestSearchIntentPrompt(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "valid",
-                {"options": MANAGED_OPTIONS, "confident_threshold": 0.7},
-                MANAGED_OPTIONS,
-                0.7,
-            ),
-            (
-                "options_not_a_dict",
-                {"options": ["events"], "confident_threshold": 0.7},
-                BUNDLED_SEARCH_INTENT_PROMPT.options,
-                0.7,
-            ),
-            (
-                "blank_meaning",
-                {"options": {"events": " "}, "confident_threshold": 0.7},
-                BUNDLED_SEARCH_INTENT_PROMPT.options,
-                0.7,
-            ),
-            (
-                "threshold_out_of_range",
-                {"options": MANAGED_OPTIONS, "confident_threshold": 60},
-                MANAGED_OPTIONS,
-                BUNDLED_SEARCH_INTENT_PROMPT.confident_threshold,
-            ),
-            (
-                "more_options_than_the_gateway_takes",
-                {"options": {f"tab_{i}": "A tab." for i in range(17)}, "confident_threshold": 0.7},
-                BUNDLED_SEARCH_INTENT_PROMPT.options,
-                0.7,
-            ),
-            ("no_config", None, BUNDLED_SEARCH_INTENT_PROMPT.options, BUNDLED_SEARCH_INTENT_PROMPT.confident_threshold),
-        ]
-    )
-    def test_a_malformed_config_part_falls_back_to_the_bundled_part(
-        self, _name: str, config: dict | None, options: dict[str, str], threshold: float
-    ) -> None:
-        prompt = parse_search_intent_prompt(
-            PromptResult(source="api", prompt="Which tab?", name="n", version=4, config=config)
-        )
-
-        assert prompt == SearchIntentPrompt(
-            instructions="Which tab?", options=options, confident_threshold=threshold, version=4
-        )
-
-    def test_the_code_fallback_is_the_bundled_prompt(self) -> None:
-        result = PromptResult(source="code_fallback", prompt=BUNDLED_SEARCH_INTENT_PROMPT.instructions)
-
-        assert parse_search_intent_prompt(result) is BUNDLED_SEARCH_INTENT_PROMPT
-
-    def test_model_config_uses_the_managed_model(self) -> None:
-        model = "posthog/hogference/jeeves-0.1"
-        result = PromptResult(source="api", prompt="Which tab?", name="n", version=4, config={"model": model})
-
-        assert parse_search_intent_prompt(result).model == model
-
-    @patch("posthog.taxonomic_search_intent.prompt.get_app_prompt")
-    def test_fetch_reads_the_managed_prompt(self, read_prompt) -> None:
-        read_prompt.return_value = PromptResult(
-            source="api",
-            prompt="Which tab?",
-            name="taxonomic-filter-search-intent",
-            version=3,
-            config={"model": "posthog/hogference/jeeves-0.1"},
-        )
-
-        prompt = fetch_search_intent_prompt()
-        assert prompt.version == 3
-        assert prompt.model == "posthog/hogference/jeeves-0.1"
-        read_prompt.assert_called_with("taxonomic-filter-search-intent", version=None)
-
-        fetch_search_intent_prompt(version=4)
-        read_prompt.assert_called_with("taxonomic-filter-search-intent", version=4)
-
-        read_prompt.return_value = None
-        assert fetch_search_intent_prompt() is BUNDLED_SEARCH_INTENT_PROMPT

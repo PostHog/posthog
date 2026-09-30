@@ -14,9 +14,8 @@ The cases come from the shapes the picker's own telemetry shows, not from any pe
 
 `SwitchWhenNeeded` and `NoWrongSwitch` read as the recall and the precision of the banner variant.
 Precision is the number to protect: a wrong suggestion is worse than none. The question, the tab
-meanings and `confident_threshold` live in the managed `taxonomic-filter-search-intent` prompt
-(see `posthog/taxonomic_search_intent/prompt.py`). Score a new version here before the `production`
-label moves to it, and expect the baseline to step when the prompt or the model change.
+meanings and `confident_threshold` live in `posthog/taxonomic_search_intent/prompt.py`. Score a change
+here before it ships, and expect the baseline to step when the prompt or the model change.
 
 Public rather than private: the value is the comparison across runs, and every case is synthetic.
 
@@ -24,23 +23,17 @@ No CI job runs this suite. Run it by hand, with AI_GATEWAY_URL and AI_GATEWAY_AP
 decision model, and with the harness's own BRAINTRUST_API_KEY and LLM_GATEWAY_ANTHROPIC_API_KEY:
     hogli evals eval_search_intent
     hogli evals eval_search_intent --eval email_in_events_tab
-
-It scores the `production` version of the managed prompt. Set SEARCH_INTENT_PROMPT_VERSION to score
-another version. Only US cloud has the prompt rows; outside US cloud the production run scores the
-bundled copy, and a pinned version fails instead of silently scoring that same fallback.
 """
 
 from __future__ import annotations
 
-import os
 import time
 import asyncio
 import dataclasses
 
-from posthog.llm.system_one_client import system_one_configured
+from posthog.llm.system_one_client import DECISION_MODEL, system_one_configured
 from posthog.taxonomic_search_intent.classify import classify_search_intent
 from posthog.taxonomic_search_intent.contracts import SearchIntentRequest
-from posthog.taxonomic_search_intent.prompt import fetch_search_intent_prompt
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -322,15 +315,6 @@ async def eval_search_intent(ctx: EvalContext) -> None:
         raise RuntimeError(
             "eval_search_intent needs AI_GATEWAY_URL (https) and AI_GATEWAY_API_KEY to reach the decision model"
         )
-    version = os.environ.get("SEARCH_INTENT_PROMPT_VERSION")
-    requested_version = int(version) if version else None
-    prompt = await asyncio.to_thread(fetch_search_intent_prompt, version=requested_version)
-    # A pinned version that fell back to the bundled prompt must not read as a model regression.
-    if requested_version is not None and prompt.version is None:
-        raise RuntimeError(
-            f"SEARCH_INTENT_PROMPT_VERSION={requested_version} but the managed prompt is unreachable here "
-            "and the eval fell back to the bundled prompt"
-        )
 
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         if task_ctx.demo_data is None:
@@ -345,18 +329,16 @@ async def eval_search_intent(ctx: EvalContext) -> None:
         started = time.monotonic()
         try:
             # Sync and blocking on the gateway, so keep it off the event loop. No cache: every run asks the model.
-            intent = await asyncio.to_thread(classify_search_intent, request, use_cache=False, prompt=prompt)
+            intent = await asyncio.to_thread(classify_search_intent, request, use_cache=False)
         except Exception as error:
             return {
-                "model": prompt.model,
-                "prompt_version": prompt.version,
+                "model": DECISION_MODEL,
                 "intent": None,
                 "error": f"{type(error).__name__}: {error}",
             }
         answer = dataclasses.asdict(intent)
         return {
-            "model": prompt.model,
-            "prompt_version": prompt.version,
+            "model": DECISION_MODEL,
             "intent": answer,
             "latency_ms": round((time.monotonic() - started) * 1000),
             "last_message": f"{case.prompt!r} in {request.active_group_type}: {answer}",
