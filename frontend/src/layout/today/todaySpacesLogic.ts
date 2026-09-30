@@ -15,6 +15,8 @@ import { TodayWorkGroup, TodayWorkItem, buildRecentItems, groupByDay, sessionIte
 const PINNED_SESSION_LIMIT = 20
 const RECENT_SESSION_LIMIT = 30
 const RECENT_ITEM_LIMIT = 30
+/** How many recent sessions and chats the Today home shows. */
+export const HOME_RECENT_ITEM_LIMIT = 4
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
 
@@ -46,6 +48,7 @@ export interface todaySpacesLogicValues {
     user: UserType | null // userLogic
     browsingSpaces: boolean
     collapsedSections: TodayWorkSectionId[]
+    homeRecentItems: TodayWorkItem[]
     pinnedItems: TodayWorkItem[]
     pinnedTasks: TaskListItemApi[]
     pinnedTasksLoading: boolean
@@ -128,6 +131,7 @@ export interface todaySpacesLogicMeta {
             conversationHistory: ConversationDetail[],
             pinnedTasks: TaskListItemApi[]
         ) => TodayWorkItem[]
+        homeRecentItems: (recentTasks: TaskListItemApi[], conversationHistory: ConversationDetail[]) => TodayWorkItem[]
         recentGroups: (recentItems: TodayWorkItem[]) => TodayWorkGroup[]
         recentLoading: (recentTasksLoading: boolean, conversationHistoryLoading: boolean) => boolean
     }
@@ -248,6 +252,12 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     pinnedTasks.map((task) => task.id),
                     RECENT_ITEM_LIMIT
                 ),
+        ],
+        // The home keeps pinned sessions in, because it has no pinned section of its own.
+        homeRecentItems: [
+            (s) => [s.recentTasks, s.conversationHistory],
+            (recentTasks: TaskListItemApi[], conversationHistory: ConversationDetail[]): TodayWorkItem[] =>
+                buildRecentItems(recentTasks, conversationHistory, [], HOME_RECENT_ITEM_LIMIT),
         ],
         recentGroups: [
             (s) => [s.recentItems],

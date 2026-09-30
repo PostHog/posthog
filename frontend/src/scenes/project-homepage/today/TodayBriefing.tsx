@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { TodayAskBox } from './TodayAskBox'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
+import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
 import { TodayBriefingSegment, reportIcon, reportSource } from './todaySignalReports'
 
@@ -159,6 +160,7 @@ export function TodayBriefing(): JSX.Element {
                     <TodayBriefingReports />
                 )}
             </section>
+            <TodayRecents />
             <TodayAskBox />
         </div>
     )

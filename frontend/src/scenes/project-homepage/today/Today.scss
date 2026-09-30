@@ -498,6 +498,40 @@
     }
 }
 
+// Recent work on the home
+
+.TodayHome__recents {
+    max-width: 680px;
+    margin-top: 56px;
+    font-size: 16px;
+    line-height: 1.7;
+    color: var(--today-muted);
+    letter-spacing: -0.005em;
+
+    p {
+        margin: 0;
+    }
+
+    p + p {
+        margin-top: 7px;
+    }
+
+    button {
+        color: var(--today-ink);
+        text-decoration: underline;
+        text-decoration-color: color-mix(in sRGB, var(--today-ink) 20%, transparent);
+        text-underline-offset: 5px;
+
+        &:hover {
+            color: #ff5c1c;
+        }
+    }
+}
+
+.TodayHome__recentsLabel {
+    margin-bottom: 10px;
+}
+
 // Ask box
 
 .TodayAsk {
