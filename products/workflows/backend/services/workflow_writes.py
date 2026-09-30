@@ -237,7 +237,7 @@ class WorkflowWriter:
             else:
                 self.write_live(locked, before, validated, **_CLEARED_DRAFT)
                 if before.draft is not None:
-                    unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.id)
+                    unstage_workflow_proposals(hog_flow_id=locked.id)
 
         if not as_draft:
             self.after_live_write(before, locked)
