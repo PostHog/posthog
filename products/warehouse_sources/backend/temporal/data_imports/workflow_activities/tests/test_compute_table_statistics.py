@@ -207,7 +207,8 @@ class TestComputeTableStatisticsSync:
         delta_table.version.return_value = version
         delta_table.get_add_actions.return_value = add_actions
         delta_table.table_uri = "s3://bucket/data/stripe_charge/"
-        fields = [{"name": name, "type": kind} for name, kind in (delta_types or {"amount": "long"}).items()]
+        types = {"amount": "long"} if delta_types is None else delta_types
+        fields = [{"name": name, "type": kind} for name, kind in types.items()]
         delta_table.schema.return_value.to_json.return_value = json.dumps({"type": "struct", "fields": fields})
         helper = MagicMock()
         helper.get_delta_table = AsyncMock(return_value=delta_table)
