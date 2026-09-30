@@ -39,8 +39,9 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from pathlib import Path
 from typing import Any, Protocol
+
+from ci_backend_depot_failures import explain
 
 DEPOT_APP_ID = 219785
 DEPOT_ORG = "ntsdt08fpt"
@@ -142,7 +143,6 @@ class Progress:
     details_url: str = ""
     root_failure: str = ""
     root_check_id: int = 0
-    check_id: int = 0
 
 
 def wait_check_name(pr_number: int, event_at: str) -> str:
@@ -186,8 +186,8 @@ def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
     if check is None or check.state in PENDING_STATES:
         return Progress(Phase.RUNNING, check.state if check else "", wait.details_url)
     if check.state == "cancelled":
-        return Progress(Phase.CANCELLED, check.state, check.details_url, check_id=check.id)
-    return Progress(Phase.FINISHED, check.state, check.details_url, check_id=check.id)
+        return Progress(Phase.CANCELLED, check.state, check.details_url)
+    return Progress(Phase.FINISHED, check.state, check.details_url)
 
 
 class CheckReader(Protocol):
@@ -332,7 +332,7 @@ def prerequisite_failure(reader: CheckReader, wait: CheckRun, current: Progress)
     for name in PREREQUISITES:
         latest = current_check(reader.read(f"{DEPOT_WORKFLOW} / {name}"), wait.depot_workflow)
         if latest and latest.state == "failure":
-            return Progress(Phase.FINISHED, "failure", current.details_url, name, latest.id, current.check_id)
+            return Progress(Phase.FINISHED, "failure", current.details_url, name, latest.id)
     return current
 
 
@@ -392,7 +392,6 @@ def retry_instructions(event: Event, details_url: str, run_id: str) -> list[str]
     lines = [
         f"Backend tests for {event.sha} ran on Depot CI, not GitHub Actions. Re-running this job alone reads the same result.",
         f"Depot run: {details_url or 'not found'}",
-        "Detailed failure evidence, when available, appears in the Backend Depot diagnostics check.",
         "",
     ]
     match = DEPOT_RUN_URL.match(details_url)
@@ -408,7 +407,6 @@ def retry_instructions(event: Event, details_url: str, run_id: str) -> list[str]
         ]
     return [
         *lines,
-        "Retryability: unknown without step or retry evidence. Inspect the failure before retrying.",
         "Retry without Depot access: a new commit starts a fresh run.",
         "  git commit --allow-empty -m 'chore: retry backend ci' && git push",
         "",
@@ -457,27 +455,9 @@ def main(argv: Sequence[str]) -> int:
         sys.stdout.write(f"::error::{error}\n")
         return 1
     code, lines = relay_gate(result, event, env.get("GITHUB_RUN_ID", ""))
+    if code and result.phase == Phase.FINISHED and (match := DEPOT_RUN_URL.match(result.details_url)):
+        lines += explain(*match.groups())
     sys.stdout.writelines(f"{line}\n" for line in lines)
-    if code:
-        if summary := env.get("GITHUB_STEP_SUMMARY"):
-            with Path(summary).open("a") as stream:
-                stream.write("\n".join(line.removeprefix("::error::") for line in lines) + "\n")
-        if request := env.get("DEPOT_DIAGNOSTICS_REQUEST"):
-            Path(request).write_text(
-                json.dumps(
-                    {
-                        "repo": event.repo,
-                        "sha": event.sha,
-                        "pr": event.pr_number,
-                        "event_at": event.event_at,
-                        "github_run": int(env["GITHUB_RUN_ID"]),
-                        "github_attempt": int(env["GITHUB_RUN_ATTEMPT"]),
-                        "workflow": CheckRun(0, "", result.details_url).depot_workflow,
-                        "root_check_id": result.root_check_id,
-                        "check_id": result.check_id,
-                    }
-                )
-            )
     return code
 
 
