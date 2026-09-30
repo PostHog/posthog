@@ -154,6 +154,9 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
             '/api/projects/:team/signals/scout/configs/:config/trial_result/': ({ request }) => {
                 const launchId = new URL(request.url).searchParams.get('launch_id')!
                 const submission = submissions.get(launchId)
+                if (!submission) {
+                    return [404, { detail: 'Run not found.' }]
+                }
                 const comparison = [...comparisons.values()].find(({ variants }) =>
                     variants.some(({ launch_ids }) => launch_ids.includes(launchId))
                 )
@@ -278,6 +281,9 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
             '/api/projects/:team/signals/scout/configs/:config/trial_result/': ({ request }) => {
                 const launchId = new URL(request.url).searchParams.get('launch_id')!
                 const submission = submissions.get(launchId)
+                if (!submission) {
+                    return [404, { detail: 'Run not found.' }]
+                }
                 return [
                     200,
                     {
