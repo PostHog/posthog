@@ -4473,10 +4473,14 @@ def describe_version_changes(previous: dict, current: dict, proposed: Mapping) -
     return changes
 
 
-def target_metric_of(proposal: WorkflowProposal) -> str:
+def target_metric_in(evidence: Any) -> str:
     """The metric the suggestion aimed at. Anything the surfaces cannot read is measured on opens."""
-    named = (proposal.evidence or {}).get("metric") if isinstance(proposal.evidence, dict) else None
+    named = evidence.get("metric") if isinstance(evidence, dict) else None
     return named if named in TARGET_METRICS else TARGET_OPEN_METRIC
+
+
+def target_metric_of(proposal: WorkflowProposal) -> str:
+    return target_metric_in(proposal.evidence)
 
 
 def _outcome_from_totals(totals: Mapping[str, float], version: int, target: str = TARGET_OPEN_METRIC) -> dict:
@@ -6484,7 +6488,7 @@ class HogFlowViewSet(
         try:
             after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
             tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
-            reading = self._version_outcome(hog_flow, [base_version], after_date, step_id)
+            reading = self._version_outcome(hog_flow, [base_version], after_date, step_id, target_metric_in(evidence))
         except Exception:
             logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
             return None
@@ -6493,7 +6497,12 @@ class HogFlowViewSet(
         return {**reading, "window": window}
 
     def _version_outcome(
-        self, hog_flow: HogFlow, versions: Sequence[Optional[int]], after: Any, step_id: Optional[str] = None
+        self,
+        hog_flow: HogFlow,
+        versions: Sequence[Optional[int]],
+        after: Any,
+        step_id: Optional[str] = None,
+        target: str = TARGET_OPEN_METRIC,
     ) -> Optional[dict]:
         read = [version for version in versions if version is not None]
         if not read:
@@ -6518,7 +6527,7 @@ class HogFlowViewSet(
             ).totals
             for name, count in version_totals.items():
                 totals[name] = totals.get(name, 0) + count
-        return {**_outcome_from_totals(totals, read[0]), "versions": read}
+        return {**_outcome_from_totals(totals, read[0], target), "versions": read}
 
     @extend_schema(
         parameters=[

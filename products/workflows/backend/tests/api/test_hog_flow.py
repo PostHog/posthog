@@ -5375,8 +5375,16 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert version_two.json()["totals"] == {"success": 5}
         assert whole.json()["totals"] == {"success": 7}
 
+    @parameterized.expand(
+        [
+            ("opens", "email_opened", "email open rate", 0.1),
+            ("clicks", "email_link_clicked", "click rate", 0.25),
+        ]
+    )
     @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
-    def test_a_suggestion_carries_what_posthog_measured_next_to_what_it_claimed(self, _mock_flag):
+    def test_a_suggestion_carries_what_posthog_measured_next_to_what_it_claimed(
+        self, _name, named_metric, expected_label, expected_value, _mock_flag
+    ):
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
         )
@@ -5384,7 +5392,12 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/optimization", {"enabled": True}, format="json"
         )
         assert opted_in.status_code == 200, opted_in.json()
-        for name, count in (("email_sent", 100), ("email_opened", 10), ("email_bounced", 2)):
+        for name, count in (
+            ("email_sent", 100),
+            ("email_opened", 10),
+            ("email_link_clicked", 25),
+            ("email_bounced", 2),
+        ):
             create_app_metric2(
                 team_id=self.team.id,
                 app_source="hog_flow_version",
@@ -5410,7 +5423,7 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
                 "content": {"exit_condition": "exit_only_at_end"},
                 "step_id": "email_1",
                 "base_version": 1,
-                "evidence": {"metric": "email_opened", "current_value": 0.5, "unit": "rate", "n": 9, "guardrails": []},
+                "evidence": {"metric": named_metric, "current_value": 0.5, "unit": "rate", "n": 9, "guardrails": []},
             },
             format="json",
             headers={"authorization": f"Bearer {producer_key}"},
@@ -5422,8 +5435,8 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         measured = evidence["measured"]
         assert measured["version"] == 1
         assert measured["target"] == {
-            "metric": "email open rate",
-            "value": 0.1,
+            "metric": expected_label,
+            "value": expected_value,
             "n": 100,
             "below_minimum_sample": False,
         }
