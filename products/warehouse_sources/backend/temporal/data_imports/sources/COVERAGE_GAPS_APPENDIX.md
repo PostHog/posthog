@@ -3465,14 +3465,14 @@ Note: Fulcrum's REST reference nav lists 182 pages. PostHog covers nearly every 
 
 ## FullStory — **thin**
 
-Today (1): `users`
+Today (4): `events`, `segments`, `sessions`, `users`
 
 Diffed against: <https://developer.fullstory.com/server/sessions/introduction/>
 
-- [ ] `v1 segments/{id}/export + operations (session and event export)` — the entire session and event stream — Fullstory's headline data and the reason to sync it at all; requires the async export job pattern (high)
-- [ ] `v2 sessions/{uid} (list sessions per user)` — session replay URLs and session metadata joined to the users already synced; drivable by iterating the users table (high)
-- [ ] `v1 segments (list segments)` — lookup naming each segment, and the handle needed to scope any export (high)
-- [ ] `v2 sessions/{id}/events (get session events)` — per-session event detail for funnel and rage-click analysis (medium)
+- [x] `v1 segments/{id}/export + operations (session and event export)` — the entire session and event stream — Fullstory's headline data and the reason to sync it at all; requires the async export job pattern (high). Added as `events`: an append-only event export of the built-in `everyone` segment, one export job per day window, incremental on `EventStart`.
+- [x] `v2 sessions/{uid} (list sessions per user)` — session replay URLs and session metadata joined to the users already synced; drivable by iterating the users table (high). Added as `sessions` (fan-out over identified `users`). The endpoint is unpaginated and returns each user's most recent sessions only.
+- [x] `v1 segments (list segments)` — lookup naming each segment, and the handle needed to scope any export (high). Added as `segments`.
+- [ ] `v2 sessions/{id}/events (get session events)` — per-session event detail for funnel and rage-click analysis (medium). Skipped: Fullstory documents the real-time Sessions API as not intended for data export, it would need a second fan-out level (one request per session), and `events` already carries the same events in bulk.
 - [ ] `v2 datasets (list datasets)` — lookup describing the exportable datasets available to the account (medium)
 - [ ] `v1 exports/get-user-events` — per-user event history, an alternative to the segment export for smaller pulls (medium)
 
