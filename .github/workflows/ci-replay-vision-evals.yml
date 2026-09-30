@@ -46,10 +46,12 @@ on:
             # scan path imports a new one.
             - 'products/replay_vision/backend/temporal/scanners/**'
             - 'products/replay_vision/backend/temporal/activities/call_scanner_provider.py'
+            - 'products/replay_vision/backend/temporal/activities/fetch_session_events.py'
             - 'products/replay_vision/backend/temporal/conversation.py'
             - 'products/replay_vision/backend/temporal/events_tool.py'
             - 'products/replay_vision/backend/temporal/network_tool.py'
             - 'products/replay_vision/backend/temporal/network_capture.py'
+            - 'products/replay_vision/backend/temporal/tool_args.py'
             - 'products/replay_vision/backend/temporal/video_clock.py'
             - 'products/replay_vision/backend/temporal/team_context.py'
             - 'products/replay_vision/backend/temporal/types.py'
