@@ -1285,7 +1285,9 @@ describe('PersonHogClient HTTP/2 windows', () => {
     ): Promise<{ stream: number; connection: number }> {
         const server = http2.createServer()
         const sessions: http2.ServerHttp2Session[] = []
+        let deadlineTimer: ReturnType<typeof setTimeout> | undefined
         const observed = new Promise<{ stream: number; connection: number }>((resolve, reject) => {
+            deadlineTimer = setTimeout(() => reject(new Error('no stream reached the server')), 4_000)
             server.on('session', (session) => {
                 sessions.push(session)
                 session.on('stream', (stream) => {
@@ -1322,6 +1324,7 @@ describe('PersonHogClient HTTP/2 windows', () => {
                 .catch(() => undefined)
             return await observed
         } finally {
+            clearTimeout(deadlineTimer)
             stateMonitor.close()
             for (const session of sessions) {
                 session.destroy()
