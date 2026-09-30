@@ -36,7 +36,6 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(eventIngestionRestrictionLogic)
     useMountedLogic(breadcrumbsLogic)
     useMountedLogic(globalSetupLogic)
-    // Registers PostHog as a WebMCP tool for browser agents, where the browser supports it.
     useMountedLogic(webmcpLogic)
     useSetupHighlight()
 

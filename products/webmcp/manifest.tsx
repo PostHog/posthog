@@ -1,22 +1,11 @@
-/**
- * Product manifest for webmcp.
- *
- * Defines scenes, routes, URLs, and navigation for this product.
- */
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Webmcp',
-    scenes: {
-        // Define scenes here
-    },
-    routes: {
-        // Define routes here
-    },
+    scenes: {},
+    routes: {},
     redirects: {},
-    urls: {
-        // Define URL helpers here
-    },
+    urls: {},
     fileSystemTypes: {},
     treeItemsNew: [],
     treeItemsProducts: [],
