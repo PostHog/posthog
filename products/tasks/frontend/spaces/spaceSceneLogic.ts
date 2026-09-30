@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { toast } from '@posthog/quill'
 
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -15,12 +15,14 @@ import { Breadcrumb } from '~/types'
 
 import {
     taskChannelsDestroy,
+    taskChannelsMembersRetrieve,
+    taskChannelsMembersUpdate,
     taskChannelsPartialUpdate,
     taskChannelsRetrieve,
     taskChannelsStarCreate,
     tasksList,
 } from '../generated/api'
-import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi } from '../generated/api.schemas'
+import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
 
 const SPACE_FEED_LIMIT = 50
 
@@ -36,6 +38,8 @@ export interface spaceSceneLogicValues {
     activeTab: SpaceTab
     breadcrumbs: Breadcrumb[]
     feedGroups: TodayWorkGroup[]
+    members: TaskUserBasicInfoApi[]
+    membersLoading: boolean
     savingSpace: boolean
     sessions: TaskListItemApi[]
     sessionsLoading: boolean
@@ -54,6 +58,21 @@ export interface spaceSceneLogicActions {
     loadSpaces: () => any // todaySpacesLogic
     deleteSpace: () => {
         value: true
+    }
+    loadMembers: () => any
+    loadMembersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMembersSuccess: (
+        members: TaskUserBasicInfoApi[],
+        payload?: any
+    ) => {
+        members: TaskUserBasicInfoApi[]
+        payload?: any
     }
     loadSessions: () => any
     loadSessionsFailure: (
@@ -87,6 +106,21 @@ export interface spaceSceneLogicActions {
     }
     savingFinished: () => {
         value: true
+    }
+    setMemberIds: (userIds: number[]) => number[]
+    setMemberIdsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setMemberIdsSuccess: (
+        members: TaskUserBasicInfoApi[],
+        payload?: number[]
+    ) => {
+        members: TaskUserBasicInfoApi[]
+        payload?: number[]
     }
     setStarred: (starred: boolean) => {
         starred: boolean
@@ -137,6 +171,14 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
             {
                 loadSpace: async () =>
                     values.currentTeamId ? await taskChannelsRetrieve(String(values.currentTeamId), props.id) : null,
+            },
+        ],
+        members: [
+            [] as TaskUserBasicInfoApi[],
+            {
+                loadMembers: async () => await taskChannelsMembersRetrieve(String(values.currentTeamId), props.id),
+                setMemberIds: async (userIds: number[]) =>
+                    await taskChannelsMembersUpdate(String(values.currentTeamId), props.id, { user_ids: userIds }),
             },
         ],
         sessions: [
@@ -209,12 +251,28 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         sessionUpdated: () => {
             actions.loadSessions()
         },
+        loadSpaceSuccess: ({ space }) => {
+            if (space?.channel_type === 'private') {
+                actions.loadMembers()
+            }
+        },
+        spaceSaved: ({ space }) => {
+            if (space.channel_type === 'private') {
+                actions.loadMembers()
+            }
+        },
+        setMemberIdsFailure: ({ errorObject }) => {
+            toast.error({
+                title: (errorObject as { detail?: string })?.detail ?? 'Couldn’t update the members. Try again.',
+            })
+            actions.loadMembers()
+        },
         updateSpace: async ({ patch }) => {
             try {
                 actions.spaceSaved(await taskChannelsPartialUpdate(String(values.currentTeamId), props.id, patch))
                 actions.loadSpaces()
             } catch (error) {
-                lemonToast.error((error as { detail?: string }).detail ?? 'Couldn’t save this change. Try again.')
+                toast.error({ title: (error as { detail?: string }).detail ?? 'Couldn’t save this change. Try again.' })
                 actions.savingFinished()
             }
         },
@@ -224,7 +282,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 actions.savingFinished()
                 actions.loadSpaces()
             } catch {
-                lemonToast.error(`Couldn’t ${starred ? 'star' : 'unstar'} this space. Try again.`)
+                toast.error({ title: `Couldn’t ${starred ? 'star' : 'unstar'} this space. Try again.` })
                 actions.loadSpace()
                 actions.savingFinished()
             }
@@ -232,11 +290,13 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         deleteSpace: async () => {
             try {
                 await taskChannelsDestroy(String(values.currentTeamId), props.id)
-                lemonToast.success('Space deleted')
+                toast.success({ title: 'Space deleted' })
                 actions.loadSpaces()
                 router.actions.push(urls.projectHomepage())
             } catch (error) {
-                lemonToast.error((error as { detail?: string }).detail ?? 'Couldn’t delete this space. Try again.')
+                toast.error({
+                    title: (error as { detail?: string }).detail ?? 'Couldn’t delete this space. Try again.',
+                })
                 actions.savingFinished()
             }
         },
