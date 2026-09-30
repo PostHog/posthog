@@ -90,6 +90,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         *,
         models: ImportJobModels,
         source_cursor_manager: SourceCursorManager[Any] | None = None,
+        attempt: int | None = None,
+        workflow_id: str | None = None,
+        workflow_run_id: str | None = None,
+        always_final_marker: bool = False,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
@@ -104,6 +108,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             resumable_source_manager,
             models=models,
             source_cursor_manager=source_cursor_manager,
+            attempt=attempt,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            always_final_marker=always_final_marker,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.
