@@ -624,6 +624,8 @@ SPECTACULAR_SETTINGS = {
             "RoleEnum": ["primary", "supporting"],
             # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
             "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
+            # The API-only pin kind uses StrEnum; name its component without a Django Choices class.
+            "AccountPropertyPinKindEnum": "products.customer_analytics.backend.facade.enums.ACCOUNT_PROPERTY_PIN_KIND_CHOICES",
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             # The subset a client may write. Shared by the single-issue and bulk write serializers,

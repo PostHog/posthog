@@ -82,6 +82,7 @@ async def _run_post_load(
     run_scheduled = AsyncMock()
     with (
         patch(f"{_LOAD_MODULE}.prepare_s3_files_for_querying", prepare_s3),
+        patch(f"{_LOAD_MODULE}.own_linked_table", lambda schema, _pipeline: schema.table),
         patch(f"{_LOAD_MODULE}.is_schema_flag_enabled", MagicMock(return_value=double_buffer_enabled)),
         patch(f"{_LOAD_MODULE}._stored_sync_type_config", MagicMock(return_value=stored_sync_type_config)),
         patch(f"{_LOAD_MODULE}.notify_revenue_analytics_that_sync_has_completed", AsyncMock()),
@@ -113,18 +114,22 @@ class TestRunPostLoadDeltaMaintenance:
     """Post-load routes every schema kind through threshold maintenance; the threshold/watermark
     mechanics themselves are covered in core/delta/test/test_maintenance.py."""
 
-    @parameterized.expand([("cdc", True, "incremental"), ("non_cdc", False, None)])
+    @parameterized.expand([("cdc", True, "incremental", False), ("non_cdc", False, None, True)])
     @pytest.mark.asyncio
     async def test_uses_threshold_maintenance_not_unconditional_compact(
-        self, _name: str, is_cdc: bool, cdc_write_mode: str | None
+        self, _name: str, is_cdc: bool, cdc_write_mode: str | None, compact_small_files: bool
     ) -> None:
         # CDC finals land every tick, and a non-CDC final batch usually leaves nothing to compact,
         # so an unconditional compact+vacuum here paid a full file listing and rewrite plan per sync.
+        # A non-CDC table still needs its small merge files compacted: without that they pile up in
+        # the newest partition, reads slow down, and the inflated partition trips a false repartition.
         schema = _make_schema(is_cdc=is_cdc, sync_type_config={"last_vacuum_version": 41})
 
         run_scheduled, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode=cdc_write_mode)
 
-        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, partition_count_fallback=None)
+        run_scheduled.assert_awaited_once_with(
+            schema, is_cdc_companion=False, partition_count_fallback=None, compact_small_files=compact_small_files
+        )
 
     @pytest.mark.asyncio
     async def test_forwards_resource_partition_count_as_fallback(self) -> None:
@@ -135,7 +140,9 @@ class TestRunPostLoadDeltaMaintenance:
 
         run_scheduled, _ = await _run_post_load(schema, _make_helper(), resource=resource)
 
-        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, partition_count_fallback=12)
+        run_scheduled.assert_awaited_once_with(
+            schema, is_cdc_companion=False, partition_count_fallback=12, compact_small_files=True
+        )
 
     @pytest.mark.asyncio
     async def test_cdc_companion_write_runs_companion_maintenance(self):
@@ -146,7 +153,9 @@ class TestRunPostLoadDeltaMaintenance:
 
         run_scheduled, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode="scd2_append")
 
-        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=True, partition_count_fallback=None)
+        run_scheduled.assert_awaited_once_with(
+            schema, is_cdc_companion=True, partition_count_fallback=None, compact_small_files=False
+        )
 
     @parameterized.expand([("non_cdc", False), ("cdc", True)])
     @pytest.mark.asyncio
