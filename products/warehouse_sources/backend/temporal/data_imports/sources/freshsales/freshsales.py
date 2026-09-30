@@ -13,6 +13,8 @@ from requests.exceptions import (
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -46,6 +48,13 @@ class FreshsalesResumeConfig:
     view_id: Optional[int] = None
     # Parent being paged when the stream is a paginated fan-out (e.g. the list for list_contacts).
     parent_id: Optional[int] = None
+
+
+@frozen
+class FreshsalesPage:
+    number: int
+    items: list[dict]
+    has_more: bool
 
 
 def _normalize_alias(domain: str) -> str:
@@ -129,8 +138,7 @@ def _extract_items(data: dict, object_key: str, allow_fallback: bool = False) ->
 
 def _iter_pages(
     session: Any, path: str, object_key: str, logger: FilteringBoundLogger, start_page: int = 1
-) -> Iterator[tuple[int, list[dict], bool]]:
-    """Yield ``(page, items, has_more)`` for a page/per_page listing API."""
+) -> Iterator[FreshsalesPage]:
     page = start_page
     while page <= MAX_PAGES:
         data = _fetch_page(session, f"{path}?{urlencode({'page': page, 'per_page': DEFAULT_PAGE_SIZE})}", logger)
@@ -140,7 +148,7 @@ def _iter_pages(
 
         total_pages = (data.get("meta") or {}).get("total_pages")
         has_more = not ((total_pages is not None and page >= total_pages) or len(items) < DEFAULT_PAGE_SIZE)
-        yield page, items, has_more
+        yield FreshsalesPage(number=page, items=items, has_more=has_more)
         if not has_more:
             return
         page += 1
@@ -161,8 +169,8 @@ def _get_paginated_fanout_rows(
 
     parent_ids = [
         parent["id"]
-        for _, parents, _ in _iter_pages(session, f"{root}/{fanout.parent_resource}", fanout.parent_object_key, logger)
-        for parent in parents
+        for page in _iter_pages(session, f"{root}/{fanout.parent_resource}", fanout.parent_object_key, logger)
+        for parent in page.items
         if parent.get("id") is not None
     ]
 
@@ -173,12 +181,15 @@ def _get_paginated_fanout_rows(
 
     for parent_id in parent_ids[start_index:]:
         child_url = f"{root}/{fanout.child_path.format(parent_id=parent_id)}"
-        for page, items, has_more in _iter_pages(session, child_url, config.object_key, logger, start_page):
+        for page in _iter_pages(session, child_url, config.object_key, logger, start_page):
+            items = page.items
             if fanout.parent_id_column:
                 items = [{**item, fanout.parent_id_column: parent_id} for item in items]
             yield items
-            if has_more:
-                resumable_source_manager.save_state(FreshsalesResumeConfig(next_page=page + 1, parent_id=parent_id))
+            if page.has_more:
+                resumable_source_manager.save_state(
+                    FreshsalesResumeConfig(next_page=page.number + 1, parent_id=parent_id)
+                )
         start_page = 1
 
 
