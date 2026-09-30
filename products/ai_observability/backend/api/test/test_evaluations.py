@@ -1466,6 +1466,26 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertIn("Condition set 2", str(response.data))
         self.assertFalse(Evaluation.objects.filter(team=self.team, name="Broken filter").exists())
 
+    def test_patch_that_adds_a_condition_that_fails_to_compile_is_rejected(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Working filter",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {"conditions": [{"id": "cond-1", "properties": [{"type": "hogql", "key": "(select 1)"}]}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.conditions[0]["properties"], [])
+
     def test_unknown_condition_keys_are_dropped_and_rollout_percentage_defaults_to_100(self):
         # Regression: callers (notably MCP) previously sent `sampling_rate` instead of
         # `rollout_percentage` and the unstructured JSONField silently persisted it. The

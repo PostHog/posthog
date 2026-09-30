@@ -39,7 +39,21 @@ class TestEvaluationModel(BaseTest):
         self.assertIsNotNone(evaluation.conditions[0]["bytecode"])
         self.assertIsInstance(evaluation.conditions[0]["bytecode"], list)
 
-    def test_status_only_save_succeeds_when_condition_no_longer_compiles(self):
+    @parameterized.expand(
+        [
+            (
+                "set_status",
+                lambda e: e.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR),
+                "status",
+                EvaluationStatus.ERROR,
+            ),
+            ("pause", lambda e: (setattr(e, "enabled", False), e.save()), "enabled", False),
+            ("delete", lambda e: (setattr(e, "deleted", True), e.save()), "deleted", True),
+        ]
+    )
+    def test_save_without_filter_change_succeeds_when_condition_no_longer_compiles(
+        self, _name, apply_change, field, expected
+    ):
         evaluation = Evaluation.objects.create(
             team=self.team,
             name="Test Evaluation",
@@ -52,10 +66,11 @@ class TestEvaluationModel(BaseTest):
 
         with patch("posthog.cdp.filters.compile_filters_bytecode") as mock_compile:
             mock_compile.return_value = {"bytecode": None, "bytecode_error": "Invalid property filter"}
-            evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR)
+            apply_change(evaluation)
+            mock_compile.assert_called_once()
 
         evaluation.refresh_from_db()
-        self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
+        self.assertEqual(getattr(evaluation, field), expected)
 
     def test_handles_empty_properties_list(self):
         """
