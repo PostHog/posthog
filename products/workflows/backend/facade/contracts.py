@@ -180,3 +180,19 @@ class TwilioAccount(TypedDict, total=False):
     """Empty when the Twilio request fails."""
 
     sid: str
+
+
+@frozen
+class WorkflowUpdate:
+    """How an update to a workflow lands.
+
+    ``stage_as_draft`` routes content to the staged draft instead of the live config. The two
+    timestamps are the client's optimistic-concurrency fences, as sent: the stamp it last loaded,
+    and the live stamp it loaded alongside a staged draft. ``replaces_staged_draft`` says the payload
+    carries the staged draft merged in, so saving it live may clear the draft.
+    """
+
+    stage_as_draft: bool
+    base_updated_at: str | None = None
+    base_live_updated_at: str | None = None
+    replaces_staged_draft: bool = False

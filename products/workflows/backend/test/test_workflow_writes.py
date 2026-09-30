@@ -6,12 +6,14 @@ from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.scoping import team_scope
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.workflows.backend.facade.api import workflow_writer
+from products.workflows.backend.facade.contracts import WorkflowUpdate
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
-from products.workflows.backend.services.workflow_writes import WorkflowUpdate, WorkflowWriter
 
 
 def _trigger_action() -> dict:
@@ -43,13 +45,15 @@ class TestWorkflowWriter(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         sync_template_to_db(MOCK_NODE_TEMPLATES[0])
-        self.writer = WorkflowWriter(team=self.team, user=self.user, was_impersonated=False)
+        self.enterContext(team_scope(self.team.id))
+        self.writer = workflow_writer(
+            team=self.team, user=self.user, was_impersonated=False, report_usage=lambda *_args: None
+        )
 
     def _validated(self, data: dict[str, Any], instance: HogFlow | None = None) -> HogFlowSerializer:
         serializer = HogFlowSerializer(
             instance,
             data=data,
-            partial=instance is not None,
             context={"team_id": self.team.id, "get_team": lambda: self.team},
         )
         serializer.is_valid(raise_exception=True)
@@ -80,7 +84,9 @@ class TestWorkflowWriter(BaseTest):
 
         previous = self.writer.update(
             workflow,
-            self._validated({"actions": [_trigger_action(), _webhook_action("action_1", url)]}, workflow),
+            self._validated(
+                {"name": "Nudge", "actions": [_trigger_action(), _webhook_action("action_1", url)]}, workflow
+            ),
             WorkflowUpdate(stage_as_draft=False),
         )
 
@@ -102,6 +108,7 @@ class TestWorkflowWriter(BaseTest):
             workflow,
             self._validated(
                 {
+                    "name": "Nudge",
                     "actions": [_trigger_action(), _webhook_action("action_2")],
                     "edges": [_continue("trigger_node", "action_2")],
                 },
@@ -110,7 +117,7 @@ class TestWorkflowWriter(BaseTest):
         )
 
         published = self.writer.publish_draft(
-            workflow, lambda locked: self._validated(dict(locked.draft or {}), locked)
+            workflow, lambda locked: self._validated({"name": locked.name, **(locked.draft or {})}, locked)
         )
 
         stored = HogFlow.objects.get(pk=published.pk)

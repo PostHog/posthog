@@ -162,7 +162,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         return hog_flow, action
 
-    @patch("products.workflows.backend.presentation.views.hog_flow.publish_resource_edited")
+    @patch("products.workflows.backend.services.workflow_writes.publish_resource_edited")
     def test_emits_resource_edited_on_create_and_update(self, mock_emit):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
@@ -2452,7 +2452,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert actions["trigger_node"]["type"] == "trigger"
         assert "exit_1" in actions
 
-    @patch("products.workflows.backend.presentation.views.hog_flow.publish_resource_edited")
+    @patch("products.workflows.backend.services.workflow_writes.publish_resource_edited")
     def test_graph_update_emits_resource_edited(self, mock_emit):
         # The surgical /graph path is the primary MCP edit route, so it must emit the same
         # "edited elsewhere" signal as the full update path — otherwise an open builder never

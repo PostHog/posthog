@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db.models import F
@@ -39,6 +39,12 @@ from products.workflows.backend.utils.email_sending_tiers import (
     max_email_sending_tier,
 )
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+    from posthog.models.user import User
+
+    from products.workflows.backend.services.workflow_writes import WorkflowUsageReporter, WorkflowWriter
 
 __all__ = [
     "MIN_EMAIL_SENDING_TIER",
@@ -208,6 +214,22 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: UUID, enabl
             hog_flow.status = target
             hog_flow.save(update_fields=["status", "updated_at"])
     return str(hog_flow.status)
+
+
+def workflow_writer(
+    *, team: "Team", user: "User | None", was_impersonated: bool, report_usage: "WorkflowUsageReporter"
+) -> "WorkflowWriter":
+    """The save path for workflows, acting as ``user`` in ``team``.
+
+    Creating, updating and publishing a workflow all go through it, so every caller gets the same
+    revisions, action redirects, activity log and edit broadcast. ``report_usage`` receives the usage
+    events a write triggers on its own, with the caller's request attribution.
+    """
+    from products.workflows.backend.services.workflow_writes import (  # noqa: PLC0415 - heavy DRF import: the service reads the viewset module's content helpers
+        WorkflowWriter,
+    )
+
+    return WorkflowWriter(team=team, user=user, was_impersonated=was_impersonated, report_usage=report_usage)
 
 
 def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str, str]:
