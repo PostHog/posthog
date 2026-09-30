@@ -3,8 +3,6 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.hogql.property_access_types import RestrictedProperty
-
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition
 
@@ -430,7 +428,7 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
         ]
     )
     def test_role_override_removes_from_restricted(
-        self, _name: str, role_based_access: bool, expected_restricted: set[RestrictedProperty]
+        self, _name: str, role_based_access: bool, expected_restricted: set[tuple[str, int]]
     ) -> None:
         _enable_property_access_control(self.organization, role_based_access=role_based_access)
         role = Role.objects.create(name="Analyst", organization=self.organization)
