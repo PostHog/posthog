@@ -473,6 +473,13 @@ describe('the authorized urls list logic', () => {
             { url: 'https://app.example.com', pattern: 'https://*.example.com', error: undefined },
             { url: ' https://app.example.com/some/path ', pattern: 'https://*.example.com', error: undefined },
             { url: 'http://localhost:3000', pattern: 'http://localhost:*', error: undefined },
+            { url: 'https://app.example.com/', pattern: 'https://*.example.com/', error: undefined },
+            { url: 'https://app.example.com/app', pattern: 'https://*.example.com/app', error: undefined },
+            {
+                url: 'https://app.example.com.evil.com/',
+                pattern: 'https://*.example.com/',
+                error: 'URL does not match https://*.example.com/',
+            },
             { url: '', pattern: 'https://*.example.com', error: 'Enter a URL' },
             {
                 url: 'https://*.example.com',

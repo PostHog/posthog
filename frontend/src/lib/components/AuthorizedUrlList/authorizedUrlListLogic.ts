@@ -266,7 +266,10 @@ export const validateWildcardLaunchUrl = (url: string, wildcardPattern: string):
     if (trimmed.includes('*')) {
         return 'Replace the * with a real value'
     }
-    if (!checkUrlIsSafeToFrame(trimmed, [wildcardPattern])) {
+    // `checkUrlIsAuthorized` matches a wildcard pattern against the URL origin only, so a stored
+    // trailing slash or path (e.g. `https://*.example.com/app`) would make every URL fail.
+    const patternOrigin = wildcardPattern.match(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i)?.[0] ?? wildcardPattern
+    if (!checkUrlIsSafeToFrame(trimmed, [patternOrigin])) {
         return `URL does not match ${wildcardPattern}`
     }
     return undefined
