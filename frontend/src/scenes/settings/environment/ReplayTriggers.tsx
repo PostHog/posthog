@@ -496,23 +496,35 @@ function LegacyRecordingConditions(): JSX.Element {
                     ]}
                 />
             </div>
-
-            <div>
-                <h3 className="text-base font-semibold mb-2">
-                    Recording exclusions <Since web={{ version: '1.171.0' }} />
-                </h3>
-                <LemonCollapse
-                    multiple
-                    panels={[
-                        {
-                            key: 'blocklist',
-                            header: <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />,
-                            content: <UrlBlocklistOptions />,
-                        },
-                    ]}
-                />
-            </div>
         </>
+    )
+}
+
+function RecordingExclusions(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const statuses = useHeaderStatuses(currentTeam)
+
+    return (
+        <div>
+            <h3 className="text-base font-semibold mb-2">
+                Recording exclusions <Since web={{ version: '1.171.0' }} />
+            </h3>
+            <LemonBanner type="info" className="mb-2">
+                The URL blocklist is global. It applies to trigger groups and to the legacy recording conditions. It
+                also takes priority over both, so a blocked URL pauses recording even when a trigger has already
+                activated. You cannot limit a blocklist pattern to a single trigger group.
+            </LemonBanner>
+            <LemonCollapse
+                multiple
+                panels={[
+                    {
+                        key: 'blocklist',
+                        header: <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />,
+                        content: <UrlBlocklistOptions />,
+                    },
+                ]}
+            />
+        </div>
     )
 }
 
@@ -610,6 +622,8 @@ export function ReplayTriggers(): JSX.Element {
                             <TriggerGroupsEditor />
                         </>
                     )}
+
+                    <RecordingExclusions />
 
                     {isV2TriggersEnabled && (
                         <div className="mt-2">
