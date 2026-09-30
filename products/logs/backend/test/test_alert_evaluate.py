@@ -13,7 +13,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.models.scoping import team_scope
 
 from products.alerts.backend.facade.contracts import AlertEventKind, GroupTransition, SourceBatchEvaluation, SourceKind
-from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes
+from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes, slot_of
 from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
@@ -68,11 +68,11 @@ class TestLogsAlertEvaluation(APIBaseTest):
                 query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
                     per_alert=breaching, query_duration_ms=1
                 )
-            slot = (configurations[0].next_check_at or now).replace(second=0, microsecond=0).isoformat()
+            slot = slot_of(configurations[0].next_check_at, now)
             return evaluate_logs_batch(self.team.id, slot, now), query
 
     def _slot(self) -> str:
-        return (self.cutoff - timedelta(minutes=1)).isoformat()
+        return slot_of(self.cutoff - timedelta(minutes=1), self.cutoff)
 
     def _record(self, evaluation: SourceBatchEvaluation) -> None:
         """The write the platform's own activity runs after the evaluation returns.
@@ -156,7 +156,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
                     per_alert={str(configuration.id): [BucketedCount(timestamp=self.cutoff, count=500)]},
                     query_duration_ms=1,
                 )
-                slot = next_check_at.replace(second=0, microsecond=0).isoformat()
+                slot = slot_of(next_check_at, self.cutoff)
                 evaluation = evaluate_logs_batch(self.team.id, slot, self.cutoff)
             return evaluation.outcomes[0].evaluation_key
 
@@ -186,8 +186,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert configuration.next_check_at is not None
         assert self.cutoff < configuration.next_check_at < datetime(2026, 9, 16, 11, tzinfo=UTC)
 
-        # A firing alert does not fire again on its own, so an alert reaching the first check
-        # after the window without its held firing stays FIRING and silent.
+        # The first check after the window announces the fire the mute held. Without the held
+        # firing reaching it, a FIRING alert does not fire again on its own and stays silent.
         unmuted, _ = self._run(configuration, now=datetime(2026, 9, 16, 12, 30, tzinfo=UTC))
 
         assert [t.kind for preview in unmuted.previews for t in preview.transitions] == [AlertEventKind.FIRING]

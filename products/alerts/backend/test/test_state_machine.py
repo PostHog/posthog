@@ -12,7 +12,6 @@ from products.alerts.backend.facade.lifecycle import (
     CheckInput,
     FiringEpisode,
     NotificationAction,
-    _firing_is_unannounced,
     decide_firing_episode,
     evaluate_alert_check,
 )
@@ -318,6 +317,39 @@ class TestPolicyDecisionTable:
                 NotificationAction.NONE,
             ),
             (
+                "a_firing_announced_at_its_start_does_not_refire",
+                snapshot(state=AlertState.FIRING, firing_started_at=NOW, last_notified_at=NOW),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
+                # No start to compare, so the firing reads as announced. The other reading re-fires
+                # it on every later check.
+                "a_firing_with_no_recorded_start_does_not_refire",
+                snapshot(state=AlertState.FIRING, firing_started_at=None, last_notified_at=NOW - timedelta(hours=1)),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
+                # A cooldown leaves the same pair of timestamps a mute does, so the fire it
+                # suppressed is owed an announcement once the cooldown is over.
+                "a_cooldown_suppressed_fire_is_still_owed",
+                snapshot(
+                    state=AlertState.FIRING,
+                    firing_started_at=NOW,
+                    last_notified_at=NOW - timedelta(minutes=20),
+                    cooldown=timedelta(0),
+                ),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+                NotificationAction.NONE,
+            ),
+            (
                 "an_unmuted_check_still_announces",
                 snapshot(),
                 BREACH,
@@ -342,29 +374,6 @@ class TestPolicyDecisionTable:
         assert outcome.muted_notification == expected_muted
         if expected_muted is not NotificationAction.NONE:
             assert outcome.update_last_notified_at is False
-
-    @parameterized.expand(
-        [
-            # The strict comparison: a fire announced at its own start has both timestamps equal,
-            # because `record_outcomes` writes them from one cutoff.
-            ("announced_at_the_start", NOW, NOW, False),
-            ("a_mute_held_the_first_fire_ever", NOW, None, True),
-            # A firing that began after the last notification was never announced, whatever
-            # suppressed it: a mute is one gate, a cooldown inside its window is another.
-            ("a_gate_suppressed_the_fire", NOW, NOW - timedelta(minutes=20), True),
-            # No start to compare. Reading this as unannounced re-fires it on every later check.
-            ("a_firing_older_than_recorded_starts", None, NOW - timedelta(hours=1), False),
-        ]
-    )
-    def test_when_a_firing_is_still_owed_an_announcement(
-        self,
-        _name: str,
-        firing_started_at: datetime | None,
-        last_notified_at: datetime | None,
-        expected: bool,
-    ) -> None:
-        snap = snapshot(firing_started_at=firing_started_at, last_notified_at=last_notified_at)
-        assert _firing_is_unannounced(snap) is expected
 
     def test_inconclusive_preserves_failure_counter(self) -> None:
         outcome = evaluate_alert_check(

@@ -335,12 +335,9 @@ def evaluate_alert_check(
         effective_state = AlertState.NOT_FIRING
     elif policy.mute_gates_notification_only and not muted and _firing_is_unannounced(snapshot):
         # Re-evaluating from scratch is what makes a condition that survived the mute announce
-        # itself, and is what the SNOOZED arm does for an expired snooze.
-        #
-        # Last, so a state that already names its own re-entry keeps it. Under
-        # `clear_check_ends_snooze` a breach parks the alert in SNOOZED with the firing running
-        # underneath, which reads as unannounced; that alert has to re-enter as FIRING to resolve,
-        # which is what the SNOOZED arm gives it.
+        # itself, and is what the SNOOZED arm does for an expired snooze. Last in the chain, so a
+        # state that names its own re-entry keeps it: under `clear_check_ends_snooze` a parked
+        # breach reads as unannounced and still has to re-enter as FIRING to resolve.
         effective_state = AlertState.NOT_FIRING
     else:
         effective_state = snapshot.state

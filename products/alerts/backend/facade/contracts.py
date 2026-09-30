@@ -241,7 +241,12 @@ class GroupTransition:
 
 @frozen
 class AlertDeliveryPreview:
-    """What delivery would send. The PoC records it instead of contacting a destination."""
+    """What delivery would send. The PoC records it instead of contacting a destination.
+
+    `alert_id` is the configuration's id, which a history row carries as `configuration_id`, not
+    as its own `alert_id` column. A delivery addresses its rows by that column, the transition's
+    `grouping_key` and `evaluation_key` together; joining on the row's `alert_id` finds nothing.
+    """
 
     source: SourceKind
     alert_id: str

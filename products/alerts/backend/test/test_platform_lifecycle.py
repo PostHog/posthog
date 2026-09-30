@@ -40,11 +40,11 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         at = at or self.cutoff
         fields = {
             "configuration_id": self.configuration.id,
+            "evaluation_key": f"window:{at.isoformat()}",
             "kind": AlertEventKind.FIRING,
             "new_state": "firing",
             "notified": True,
             "consecutive_failures": 0,
-            "evaluation_key": f"window:{at.isoformat()}",
         }
         fields.update(overrides)
         # History rides `transaction.on_commit`, which a `TestCase` transaction never reaches.
