@@ -1265,6 +1265,37 @@ export namespace Schemas {
       readonly last_modified_by: UserBasic;
     }
 
+    /**
+     * Selected visible current person properties.
+     */
+    export type AccountPersonProperties = {[key: string]: string | number | boolean | { [key: string]: unknown } | unknown[] | null};
+
+    export interface AccountPerson {
+      /** Current person UUID. */
+      id: string;
+      /** Display name from visible current person properties, falling back to the UUID. */
+      name: string;
+      /** Current distinct IDs associated with this account, for person navigation. */
+      distinct_ids: string[];
+      /** Selected visible current person properties. */
+      properties: AccountPersonProperties;
+      /** Earliest account activity across this person's current membership distinct IDs, in UTC. */
+      account_first_seen: string;
+      /** Latest account activity across this person's current membership distinct IDs, in UTC. */
+      account_last_seen: string;
+    }
+
+    export interface AccountPersonsResponse {
+      /** Current persons associated with this account. */
+      results: AccountPerson[];
+      /** Requested page size. */
+      limit: number;
+      /** Requested page offset. */
+      offset: number;
+      /** Whether another page exists. */
+      has_more: boolean;
+    }
+
     export interface AccountPresenceViewer {
       /** PostHog user ID of the teammate viewing this account. */
       readonly user_id: number;
@@ -109024,6 +109055,44 @@ export namespace Schemas {
      * Filter meetings by title or attendee email/name.
      */
     search?: string;
+    };
+
+    export type AccountsPersonsListParams = {
+    /**
+     * Page size, from 1 to 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of persons to skip.
+     * @minimum 0
+     * @maximum 100000
+     */
+    offset?: number;
+    /**
+     * account_last_seen, account_first_seen, or a selected property key. Prefix with - for descending order.
+     * @minLength 1
+     * @maxLength 201
+     */
+    order_by?: string;
+    /**
+     * JSON array of person property filters.
+     * @minLength 1
+     * @maxLength 50000
+     */
+    properties?: string;
+    /**
+     * Search visible name and email, person ID, and distinct IDs.
+     * @maxLength 200
+     */
+    search?: string;
+    /**
+     * JSON array of up to 50 person property keys to return.
+     * @minLength 1
+     * @maxLength 15000
+     */
+    select?: string;
     };
 
     export type AccountsSummariesListParams = {
