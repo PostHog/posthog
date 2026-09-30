@@ -450,6 +450,19 @@ class TestContentAutopilotGeneration(BaseTest):
         assert proposal.proposed_markdown == markdown
         assert self.model.draft_calls == draft_calls_before
 
+    def test_a_proposal_with_unreadable_stored_research_is_marked_failed(self) -> None:
+        run = self._run(self._opportunity())
+        proposal = ContentAutopilotProposal.objects.for_team(self.team.id).get(run=run)
+        regenerate_proposal(team=self.team, proposal_id=str(proposal.id))
+        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
+            research={"documents": [{"title": "missing url and text"}]}
+        )
+
+        process_proposal(self.team.id, str(proposal.id), "regenerate", client=object())  # type: ignore[arg-type]
+
+        proposal.refresh_from_db()
+        assert proposal.lifecycle_status == ContentAutopilotProposal.LifecycleStatus.FAILED
+
     def test_a_proposal_that_fails_before_checking_is_marked_failed(self) -> None:
         run = self._run(self._opportunity())
         proposal = ContentAutopilotProposal.objects.for_team(self.team.id).get(run=run)

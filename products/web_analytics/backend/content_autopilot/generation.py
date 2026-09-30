@@ -949,16 +949,16 @@ def process_proposal(team_id: int, proposal_id: str, mode: ProposalMode, *, clie
     proposal = ContentAutopilotProposal.objects.for_team(team_id).select_related("run__profile").get(id=proposal_id)
     if proposal.lifecycle_status != ContentAutopilotProposal.LifecycleStatus.GENERATING:
         return
-    research = ResearchBundle.from_dict(proposal.research if isinstance(proposal.research, dict) else {})
-    opportunity = (
-        ContentAutopilotOpportunity.objects.for_team(team_id).filter(proposal=proposal).first()
-        if mode == "regenerate" and not research.site_documents
-        else None
-    )
-    if not research.site_documents and opportunity is None:
-        _fail_proposal(proposal, "This proposal has no stored research. Draft the opportunity again.")
-        return
     try:
+        research = ResearchBundle.from_dict(proposal.research if isinstance(proposal.research, dict) else {})
+        opportunity = (
+            ContentAutopilotOpportunity.objects.for_team(team_id).filter(proposal=proposal).first()
+            if mode == "regenerate" and not research.site_documents
+            else None
+        )
+        if not research.site_documents and opportunity is None:
+            _fail_proposal(proposal, "This proposal has no stored research. Draft the opportunity again.")
+            return
         site = site_context(proposal.run.profile, proposal.run.input_snapshot)
         resolved_client = client or build_client(
             team_id=team_id, properties={"content_autopilot_proposal_id": proposal_id}
