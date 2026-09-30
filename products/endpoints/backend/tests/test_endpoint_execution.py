@@ -16,7 +16,7 @@ from posthog.schema import EventsNode, TrendsQuery
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import CHQueryErrorNoCommonType
-from posthog.exceptions import APIQueriesBudgetExceeded
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService, _emit_endpoint_failure_signal
@@ -225,6 +225,37 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         mock_counter.labels.assert_not_called()
         mock_signal.assert_not_called()
         mock_capture.assert_not_called()
+
+    def test_capacity_error_preserves_retry_after(self):
+        endpoint = create_endpoint_with_version(
+            name="at_capacity",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        error = ClickHouseAtCapacity()
+        error.wait = 37
+
+        with mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "server_error",
+                "code": "query_capacity",
+                "detail": (
+                    "Queries are momentarily at capacity — please retry shortly. For consistently heavy "
+                    "endpoints, materialize to run on dedicated endpoint compute that isn't affected by shared query load."
+                ),
+                "attr": None,
+            },
+        )
+        self.assertEqual(response.get("Retry-After"), "37")
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(

@@ -927,9 +927,12 @@ class SessionRecordingViewSet(
                     )
 
                     return response
-        except ClickHouseAtCapacity:
+        except ClickHouseAtCapacity as e:
             _count_session_recording_throttled(location="clickhouse_at_capacity", auth_type=auth_type)
-            raise Throttled(detail="ClickHouse is at capacity. Try again later.")
+            error = Throttled(detail="ClickHouse is at capacity. Try again later.")
+            # Passing wait to Throttled's constructor also changes the response body.
+            error.wait = e.wait
+            raise error from e
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             # A bad filter or query (e.g. a property referencing a field that doesn't exist on the
             # event) is the caller's problem, not a server error. Surface the actual reason as a 400
@@ -1441,7 +1444,10 @@ class SessionRecordingViewSet(
                 status.HTTP_503_SERVICE_UNAVAILABLE if is_ch_error else status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-            return Response({"error": message}, status=response_status)
+            response = Response({"error": message}, status=response_status)
+            if isinstance(e, ClickHouseAtCapacity):
+                response["Retry-After"] = str(e.wait)
+            return response
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """

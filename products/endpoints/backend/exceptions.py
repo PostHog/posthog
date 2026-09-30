@@ -19,3 +19,7 @@ class EndpointAtCapacity(APIException):
         "Queries are momentarily at capacity — please retry shortly. For consistently heavy "
         "endpoints, materialize to run on dedicated endpoint compute that isn't affected by shared query load."
     )
+
+    def __init__(self, *, wait: int) -> None:
+        super().__init__()
+        self.wait = wait
