@@ -243,13 +243,13 @@ class GroupTransition:
 class AlertDeliveryPreview:
     """What delivery would send. The PoC records it instead of contacting a destination.
 
-    `alert_id` is the configuration's id, which a history row carries as `configuration_id`, not
-    as its own `alert_id` column. A delivery addresses its rows by that column, the transition's
-    `grouping_key` and `evaluation_key` together; joining on the row's `alert_id` finds nothing.
+    A delivery addresses its history rows by `configuration_id`, the transition's `grouping_key`
+    and `evaluation_key` together. The rows also carry an `alert_id`, which is the
+    `PlatformAlert` instance rather than the configuration, so nothing here is joined to it.
     """
 
     source: SourceKind
-    alert_id: str
+    configuration_id: str
     alert_name: str
     evaluation_key: str
     destination_names: tuple[str, ...]
