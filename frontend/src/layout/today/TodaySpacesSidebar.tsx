@@ -14,6 +14,7 @@ import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
 import { TodayRecentSearchField } from './TodayRecentSearchField'
 import { TodaySessionRow } from './TodaySessionRow'
+import { TodaySpacePresence } from './TodaySpacePresence'
 import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem } from './todayWorkItems'
@@ -32,6 +33,7 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentLoading,
         recentTasksUnavailable,
         collapsedSections,
+        spacePresence,
     } = useValues(todaySpacesLogic)
     const { loadSpaces, loadRecentTasks, toggleSection, setRecentSearchOpen, clearRecentSearchAndFilters } =
         useActions(todaySpacesLogic)
@@ -273,6 +275,15 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         to={urls.taskSpace(space.id)}
                                         active={location.pathname.includes(urls.taskSpace(space.id))}
                                         dataAttr="today-space-row"
+                                        badge={
+                                            spacePresence[space.id]?.length ? (
+                                                <TodaySpacePresence
+                                                    spaceId={space.id}
+                                                    authors={spacePresence[space.id]}
+                                                    surface="sidebar"
+                                                />
+                                            ) : null
+                                        }
                                     />
                                 ))}
                                 {visibleSpaces.length <= 1 && (

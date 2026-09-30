@@ -1,5 +1,6 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -26,11 +27,16 @@ import {
     groupRecentItems,
     sortRecentItems,
 } from './todayRecentOrder'
+import { TodaySpaceAuthor, spacePresence } from './todaySpaceAuthors'
 import { TodayWorkItem, buildRecentItems, sessionItem } from './todayWorkItems'
 
 const PINNED_SESSION_LIMIT = 20
 const RECENT_SESSION_LIMIT = 30
 const RECENT_ITEM_LIMIT = 30
+const PRESENCE_SESSION_LIMIT = 100
+const PRESENCE_POLL_INTERVAL_MS = 120_000
+
+export type TodayPresenceSurface = 'sidebar' | 'spaces_index'
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
 
@@ -101,6 +107,9 @@ export interface todaySpacesLogicValues {
     sectionHeights: Partial<Record<TodayWorkSectionId, number>>
     sortedSpaces: ChannelDTOApi[]
     spaceNames: Record<string, string>
+    spacePresence: Record<string, TodaySpaceAuthor[]>
+    spaceSessions: TaskListItemApi[]
+    spaceSessionsLoading: boolean
     spaces: ChannelDTOApi[]
     spacesLoading: boolean
     spacesUnavailable: boolean
@@ -145,6 +154,21 @@ export interface todaySpacesLogicActions {
         recentTasks: TaskListItemApi[]
         payload?: any
     }
+    loadSpaceSessions: () => any
+    loadSpaceSessionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSpaceSessionsSuccess: (
+        spaceSessions: TaskListItemApi[],
+        payload?: any
+    ) => {
+        spaceSessions: TaskListItemApi[]
+        payload?: any
+    }
     loadSpaces: () => any
     loadSpacesFailure: (
         error: string,
@@ -159,6 +183,13 @@ export interface todaySpacesLogicActions {
     ) => {
         spaces: ChannelDTOApi[]
         payload?: any
+    }
+    openSpaceFromPresence: (
+        spaceId: string,
+        surface: TodayPresenceSurface
+    ) => {
+        spaceId: string
+        surface: TodayPresenceSurface
     }
     resetSectionPair: (
         upper: TodayWorkSectionId,
@@ -219,6 +250,7 @@ export interface todaySpacesLogicMeta {
             spaceNames: Record<string, string>
         ) => TodayRecentSection[]
         recentLoading: (recentTasksLoading: boolean, conversationHistoryLoading: boolean) => boolean
+        spacePresence: (spaceSessions: TaskListItemApi[], user: UserType | null) => Record<string, TodaySpaceAuthor[]>
     }
 }
 
@@ -252,6 +284,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         clearRecentSearchAndFilters: true,
         setRecentSort: (sort: TodayRecentSort) => ({ sort }),
         setRecentGrouping: (grouping: TodayRecentGrouping) => ({ grouping }),
+        openSpaceFromPresence: (spaceId: string, surface: TodayPresenceSurface) => ({ spaceId, surface }),
     }),
     loaders(({ values }) => ({
         spaces: [
@@ -295,6 +328,23 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                         ordering: '-last_activity_at',
                         basic: true,
                         limit: RECENT_SESSION_LIMIT,
+                    })
+                    return response.results
+                },
+            },
+        ],
+        // Every author's sessions, not only the user's, so each space can show who else works in it.
+        spaceSessions: [
+            [] as TaskListItemApi[],
+            {
+                loadSpaceSessions: async () => {
+                    if (!values.currentTeamId) {
+                        return []
+                    }
+                    const response = await tasksList(String(values.currentTeamId), {
+                        ordering: '-last_activity_at',
+                        basic: true,
+                        limit: PRESENCE_SESSION_LIMIT,
                     })
                     return response.results
                 },
@@ -419,10 +469,27 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             (recentTasksLoading: boolean, conversationHistoryLoading: boolean): boolean =>
                 recentTasksLoading || conversationHistoryLoading,
         ],
+        spacePresence: [
+            (s) => [s.spaceSessions, s.user],
+            (spaceSessions: TaskListItemApi[], user: UserType | null): Record<string, TodaySpaceAuthor[]> =>
+                spacePresence(spaceSessions, user?.id ?? null),
+        ],
     }),
-    afterMount(({ actions }) => {
+    listeners(() => ({
+        openSpaceFromPresence: ({ spaceId, surface }) => {
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today space opened from presence', { space_id: spaceId, surface })
+        },
+    })),
+    afterMount(({ actions, cache }) => {
         actions.loadSpaces()
         actions.loadPinnedTasks()
         actions.loadRecentTasks()
+        actions.loadSpaceSessions()
+        // A reload also moves the "live" cutoff forward, so presence does not go stale while the rail stays open.
+        cache.disposables.add(() => {
+            const pollTimer = window.setInterval(() => actions.loadSpaceSessions(), PRESENCE_POLL_INTERVAL_MS)
+            return () => clearInterval(pollTimer)
+        }, 'spacePresencePoll')
     }),
 ])
