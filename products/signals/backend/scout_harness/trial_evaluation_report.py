@@ -2,44 +2,20 @@ from collections import Counter
 from datetime import UTC, datetime
 from statistics import mean
 
+from products.signals.backend.rubrics_judging import (
+    coverage as _coverage,
+    criterion_complete as _criterion_complete,
+    overall_comparable as _overall_comparable,
+    pass_rate as _pass_rate,
+)
 from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialComparisonOutcome,
     TrialComparisonReport,
     TrialCriterionAggregate,
-    TrialCriterionVerdict,
     TrialEvaluationSnapshot,
     TrialRunJudgment,
     TrialVariantAggregate,
 )
-
-
-def _pass_rate(verdicts: list[TrialCriterionVerdict]) -> float | None:
-    decisive = [verdict for verdict in verdicts if verdict.verdict in {"pass", "fail"}]
-    return sum(verdict.verdict == "pass" for verdict in decisive) / len(decisive) if decisive else None
-
-
-def _coverage(verdicts: list[TrialCriterionVerdict]) -> float | None:
-    applicable = [verdict for verdict in verdicts if verdict.verdict != "not_applicable"]
-    return sum(verdict.verdict in {"pass", "fail"} for verdict in applicable) / len(applicable) if applicable else None
-
-
-def _criterion_complete(criterion: TrialCriterionAggregate, variant: TrialVariantAggregate) -> bool:
-    return (
-        variant.judged_runs == variant.total_runs
-        and criterion.unknown == 0
-        and criterion.passed + criterion.failed == variant.total_runs
-    )
-
-
-def _overall_comparable(variant: TrialVariantAggregate, baseline: TrialVariantAggregate) -> bool:
-    if variant.judged_runs != variant.total_runs or baseline.judged_runs != baseline.total_runs:
-        return False
-    for criterion, reference in zip(variant.criteria, baseline.criteria, strict=True):
-        if criterion.not_applicable == variant.total_runs and reference.not_applicable == baseline.total_runs:
-            continue
-        if not _criterion_complete(criterion, variant) or not _criterion_complete(reference, baseline):
-            return False
-    return True
 
 
 def _comparison_outcome(variants: list[TrialVariantAggregate]) -> TrialComparisonOutcome:

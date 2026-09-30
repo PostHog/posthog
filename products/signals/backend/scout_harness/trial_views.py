@@ -52,6 +52,7 @@ from products.signals.backend.scout_harness.trial_serializers import (
     ScoutTrialSetupSerializer,
     ScoutTrialStartedSerializer,
 )
+from products.signals.backend.scout_harness.trial_settings import is_trial_project_allowed
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 
 
@@ -59,7 +60,11 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
     team: Team
 
     def _internal_trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
-        if self.team.id != 2 or not request.user.is_staff:
+        if (
+            not request.user.is_staff
+            or not is_trial_project_allowed(self.team.id)
+            or not is_trial_project_allowed(self.team.parent_team_id or self.team.id)
+        ):
             raise exceptions.NotFound()
         return self._trial_config(request, identifier)
 

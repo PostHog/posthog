@@ -227,6 +227,31 @@ def test_enrolled_team_ids_parses_payload(payload, expected):
         assert _enrolled_team_ids(_read_flag_payload()) == expected
 
 
+@pytest.mark.parametrize(
+    "debug,cloud,payload,expected",
+    [
+        (True, False, None, {*DEFAULT_ENROLLED_TEAM_IDS, 42}),
+        (True, False, {}, {*DEFAULT_ENROLLED_TEAM_IDS, 42}),
+        (True, False, {"guaranteed_team_ids": "invalid"}, {*DEFAULT_ENROLLED_TEAM_IDS, 42}),
+        (True, False, {"guaranteed_team_ids": []}, set()),
+        (True, False, {"guaranteed_team_ids": [5]}, {5}),
+        (True, False, {"skip_team_ids": [42]}, set(DEFAULT_ENROLLED_TEAM_IDS)),
+        (False, False, None, set()),
+        (False, True, None, set(DEFAULT_ENROLLED_TEAM_IDS)),
+    ],
+)
+@pytest.mark.flag_off
+def test_local_trial_enrollment_respects_flag_payload(
+    debug: bool, cloud: bool, payload: dict[str, list[int] | str] | None, expected: set[int]
+) -> None:
+    with (
+        override_settings(DEBUG=debug, SCOUT_LIVE_TRIALS_LOCAL_PROJECT_IDS={42}),
+        patch(_PAYLOAD_PATH, return_value=payload),
+        patch(_IS_CLOUD_PATH, return_value=cloud),
+    ):
+        assert _enrolled_team_ids(_read_flag_payload()) == expected
+
+
 @pytest.mark.flag_off
 def test_enrolled_team_ids_uses_match_value_true():
     # The team list lives in the payload, not the release conditions — assert we request the

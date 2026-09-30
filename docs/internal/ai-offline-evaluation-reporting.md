@@ -243,6 +243,89 @@ eval caller's temporary authentication exception, not a separate production gate
 Both backend and sandbox Go-routing settings are suppressed inside the private context and restored afterward.
 Gateway accounting remains enabled.
 
+## Saved datasets through online comparisons
+
+`products.signals.evals.saved_comparison` connects saved Parquet cases to the production comparison engine.
+The shared private workflow harness owns local services and cleanup; the online workflows own variant launches,
+repeats, automatic judging, and comparison reports. This does not start the periodic scout fleet coordinator.
+The initial integration still needs a live one-scout, two-variant pilot; passing input validation does not establish
+provider access, tool isolation, successful judging, or cleanup.
+
+Write a private plan with the saved skill name. The first variant is the baseline. This example uses invented scout data:
+
+```json
+{
+  "schema_version": 1,
+  "comparisons": [
+    {
+      "skill_name": "signals-scout-checkout-example",
+      "variants": [
+        { "label": "Baseline", "model": "gpt-5.5", "reasoning_effort": "medium", "repeats": 1 },
+        { "label": "Higher effort", "model": "gpt-5.5", "reasoning_effort": "high", "repeats": 1 }
+      ]
+    }
+  ]
+}
+```
+
+Choose one explicit UTC target cutoff for the entire batch, then validate the plan and saved inputs:
+
+```bash
+.codex/with-flox python -m products.signals.evals.saved_comparison \
+    --case /private/scout-cases/checkout/case.json \
+    --plan /private/scout-cases/comparison.json \
+    --output-dir /private/scout-comparisons \
+    --session-dir /private/scout-session \
+    --target-cutoff "$SCOUT_EVAL_CUTOFF" \
+    --provider docker \
+    --agent-runtime codex \
+    --agent-model gpt-5.5 \
+    --max-sandboxes 2 \
+    --skill-delivery exec \
+    --trials 1 \
+    --validate-only
+```
+
+Remove `--validate-only` to execute. Validation checks and merges saved inputs in a temporary directory without
+restoring a database, starting services, or calling a model. Execution repeats validation and the saved-case
+prerequisite checks. Docker is currently required. Set repetitions in the plan; `--trials` must remain `1`.
+Variants in one comparison run in parallel, so `--max-sandboxes` must cover their total repeats, up to 20 runs.
+Comparisons for different scouts run sequentially. Harness runtime/model options configure bootstrap;
+the plan selects each variant's actual model and effort. The online service validates supported combinations.
+An optional variant `instructions` file uses the saved-file shape (`path` and `sha256`), relative to the plan.
+
+Repeat `--case` for different scouts captured from the same source project, source cutoff, state checkpoint,
+timezone, and reviewed text replacement policy. The adapter merges identical records and rejects conflicting IDs,
+different snapshots, and incomplete reference graphs. All cases in a batch must use one retained repository snapshot.
+The merged dataset is restored once into one fresh eval project with one timestamp shift and identity mapping.
+Each comparison freezes its starting history; each run keeps separate private report and memory changes.
+The adapter checks shared reports, report artifacts, notes, and memory after each comparison and fails if they changed.
+An explicit cutoff preserves elapsed-time relationships; it does not freeze application time or all relative queries.
+Prepare scouts with relative time windows when their dataset will be shifted. Absolute dates in the frozen rubric
+or canonical instructions remain requirements; the run note does not translate those requirements for the judge.
+The adapter rejects a declared time-string replacement that would change those frozen requirements.
+Other absolute-date requirements still need review before comparing scores against a shifted dataset.
+
+`--session-dir` defaults to `--output-dir`. Rubrics are generated once per scout in that session and reused across
+variants, repeats, and later invocations. `--rubric-model` only affects the first generation. The adapter installs the
+frozen criteria and generator reference into the isolated project, then uses the online rubric completeness checks.
+This automatic adoption is limited to `TEST` plus `DEBUG`; the ordinary online editor still requires an explicit save.
+Candidate instruction files do not replace the frozen rubric reference.
+
+The adapter uses the online judge's model, versioned prompt, bounded evidence extraction, normalization, and scoring.
+Both judge paths import their schema, prompts, validation, and score calculations from `products/signals/backend/rubrics_judging.py`.
+It does not use the standalone saved-case judge's model or full-evidence input policy. Complete raw task logs and
+private run state are exported separately, alongside the frozen context, rubric hash, judge input, comparison result,
+dataset hashes, source commit, local patch, and invocation settings. Evidence limits remain visible in the online report;
+retaining full logs does not make the bounded judgment complete. Read coverage and inconclusive outcomes with scores.
+Inputs and artifacts stay in private storage, but scout execution, rubric generation, and judging send content to the
+configured model providers.
+
+The adapter scopes `SCOUT_LIVE_TRIALS_LOCAL_PROJECT_IDS` to the newly restored project while its worker runs.
+This empty-default allowlist only applies with `DEBUG`; staff, active membership, project/skill access,
+operator ownership, and task-token binding remain required. Explicit fleet allowlists, drain-all or skip decisions,
+daily limits, and spend gates still apply. The CLI uses the service directly; frontend project visibility is unchanged.
+
 ## Live scout comparisons
 
 For a synthetic local environment, follow the [devbox setup and quality iteration handoff](scout-online-evals-devbox.md).

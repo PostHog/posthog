@@ -53,15 +53,19 @@ Before changing services, record which project holds the synthetic data, its par
 
 Scout configuration resolves to the canonical parent project. For a child environment, verify the actual tool queries reach the intended synthetic dataset. Any local access override must account explicitly for both the requested UI project and the canonical config/context project.
 
-The current comparison UI, setup/history APIs, scoring API **and scoring worker require a staff user in project 2**. Staff status alone does not replace organization membership, project access or skill editor permission.
+The comparison UI remains restricted to staff in project 2. The setup/history APIs, scoring API and scoring worker also allow explicitly selected local projects when `DEBUG` is true. Staff status alone does not replace organization membership, project access or skill editor permission.
 
 - If project 2 already holds the synthetic data, use it and a local staff operator with the required access.
-- If the data is elsewhere, keep it there. Make a small, explicit devbox-only access adaptation before testing the complete flow. Do not renumber project rows or move data into an empty project just to expose the page.
-- The adaptation must cover `trial_views.py::_internal_trial_config`, `trial_evaluation.py::_assert_context_access`, `ScoutTrialsScene.tsx`, `ScoutsRosterActions.tsx`, and the inner `ScoutTrials.tsx` guard. Search for all project-2 checks before editing.
-- Retain staff, current membership, project/skill access, launching-operator ownership and sandbox restrictions. A backend exception must require `DEBUG` plus an explicit local project allowlist, default off. Keep frontend visibility consistent with the backend. Verify an unrelated project and another user still cannot read the results.
-- This local override does **not exist** in the implementation commit. Record its patch separately and do not publish an unrestricted gate removal as a feature fix.
+- If the data is elsewhere, keep it there. Set `SCOUT_LIVE_TRIALS_LOCAL_PROJECT_IDS` to the exact comma-separated local project IDs on the backend and worker. For a child environment, include both the requested project and canonical parent. The default is empty, and the setting has no effect outside `DEBUG`. Do not renumber project rows or move data just to expose the page.
+- Staff, current membership, project/skill access, launching-operator ownership and sandbox restrictions remain enforced. Verify an unrelated project and another user still cannot read the results. This backend setting does not change frontend visibility; a browser-based pilot outside project 2 needs a separately scoped frontend adaptation.
+- The same IDs extend local fleet enrollment only when its flag payload uses fallback defaults. An explicit enrollment list, empty list, or `skip_team_ids` still takes precedence. Daily and spend limits remain active.
 
 The broader trial launch API is not a workaround for scoring permissions: it can launch a run in a project that the scoring worker later rejects.
+
+For private saved cases, use the [saved comparison CLI](ai-offline-evaluation-reporting.md#saved-datasets-through-online-comparisons).
+It restores a same-snapshot dataset once through the shared eval harness, scopes the allowlist to that fresh project,
+and invokes the online comparison service directly. It needs no frontend adaptation. This integration's initial live pilot
+is still pending; retain the full exported logs and check the bounded online judge's limitations before interpreting results.
 
 ## 3. Make the real execution path ready
 
@@ -314,9 +318,9 @@ A high score with low coverage is not strong evidence. The judge checks bounded 
 | Scout prompt/model/effort                   | Comparison variant inputs; preserve a baseline and source skill.                                                         |
 | Saved criteria and reference                | Existing scout rubric editor and generator; `facade/rubrics.py`                                                          |
 | Saved rubric reader                         | `trial_rubrics.py`; reader construction in `trial_evaluation.py::prepare_trial_evaluation`                               |
-| Judge instructions and citation parsing     | `trial_judge.py`                                                                                                         |
-| Judge model and saved prompt version        | `trial_evaluation.py`; keep prompt-version compatibility in `trial_judge.py` synchronized.                               |
-| Scores, coverage and comparison eligibility | `trial_evaluation_report.py`                                                                                             |
+| Judge instructions and citation parsing     | Shared `products/signals/backend/rubrics_judging.py`; online evidence and transport in `trial_judge.py`                  |
+| Judge model and saved prompt version        | Model in `trial_evaluation.py`; versioned prompts in shared `rubrics_judging.py`                                         |
+| Scores, coverage and comparison eligibility | Shared score helpers in `rubrics_judging.py`; comparison eligibility in `trial_evaluation_report.py`                     |
 | Paid-call claims and saved state            | `trial_evaluation.py`, `temporal/agentic/scout_trial_evaluation.py`                                                      |
 | UI state and report display                 | `frontend/inbox/logics/scoutTrialsLogic.ts`, `frontend/inbox/components/config/scouts/trials/` under `products/signals/` |
 

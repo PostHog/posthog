@@ -335,6 +335,8 @@ class SandboxedEvalHarness:
                     # the same per-process queue lets the single eval worker serve both, and keeps
                     # those workflows off a dev worker the same way.
                     GENERAL_PURPOSE_TASK_QUEUE=temporal_task_queue(),
+                    # Scout comparisons dispatch execution and judging on the video-export queue.
+                    VIDEO_EXPORT_TASK_QUEUE=temporal_task_queue(),
                     **self.provider.settings_overrides(),
                 )
 

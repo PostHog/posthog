@@ -20,6 +20,7 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.rubrics_judging import JUDGE_PROMPT_VERSION
 from products.signals.backend.scout_harness.trial_comparison_types import (
     TrialComparisonHistoryEntry,
     TrialComparisonPlan,
@@ -50,6 +51,7 @@ from products.signals.backend.scout_harness.trial_result import (
     recover_trial_result,
 )
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader, ScoutRubricReadError
+from products.signals.backend.scout_harness.trial_settings import is_trial_project_allowed
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
 
@@ -60,7 +62,6 @@ MAX_EVIDENCE_CHARS = 80_000
 MAX_SOURCE_CHARS = 12_000
 MAX_EVIDENCE_SOURCES = 200
 JUDGE_MODEL = "gpt-5.5"
-JUDGE_PROMPT_VERSION = "8"
 _Document = TypeVar("_Document", bound=BaseModel)
 
 
@@ -157,7 +158,7 @@ def _assert_context_access(
     context: TrialContext | TrialComparisonHistoryEntry | TrialComparisonPlan, *, config: SignalScoutConfig, user: User
 ) -> None:
     if (
-        config.team_id != 2
+        not is_trial_project_allowed(config.team_id)
         or not user.is_staff
         or not user.is_active
         or context.team_id != config.team_id

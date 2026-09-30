@@ -78,7 +78,7 @@ class TrialJudgeValidationError(ValueError):
     pass
 
 
-JUDGE_PROMPT_VERSION = "7"
+JUDGE_PROMPT_VERSION = "8"
 MAX_JUDGE_INPUT_CHARACTERS = 120_000
 MAX_JUDGE_OUTPUT_CHARACTERS = 64_000
 
@@ -146,6 +146,65 @@ unknown instead of inventing or repairing evidence.
 """
 )
 
+_SAVED_RUBRIC_SYSTEM_PROMPT_V8 = (
+    _SAVED_RUBRIC_SYSTEM_PROMPT_V6
+    + """
+Check each criterion against its full pass condition and the applicable reference requirements.
+For a criterion with several mandatory parts, a pass requires support for every applicable part.
+Completing the main task, producing a plausible report, or satisfying most instructions is not
+enough. An observed violation of one mandatory part makes that criterion fail, even when other
+parts are satisfied or unknown. Missing evidence without an observed violation means unknown.
+
+Confidence describes certainty in the selected verdict; lowering confidence never relaxes a pass
+condition. For a claim-grounding criterion, check every material factual assertion supporting the
+finding or recommendation, not only its headline count. A caveat qualifies only the claim it
+addresses: uncertainty about causation, sample size, or current health does not establish an
+unsupported descriptive attribution or relationship. If a material assertion remains unverified
+because supplied evidence is missing or truncated, use unknown unless visible evidence establishes
+a contradiction or violation warranting fail. Do not demand proof for immaterial incidental details
+or treat truncation itself as evidence of falsity.
+
+A report establishes what it contains, not the underlying facts or the identity of records it names.
+When a criterion requires evidence-backed source identification, supported composite descriptions
+or reproducible bounded queries can serve as locators; no particular identifier type or visibility
+of every individual row is required. The locator's scope and referents must be grounded in supplied
+observations. A supported broad query does not validate additional specific record identities or
+relationships asserted as material facts. Judge missing support according to its materiality to
+the criterion. Criteria limited to presence, format, or clarity do not acquire extra factual checks.
+
+Compare the executed operation with each explicit constraint that the criterion requires. For a
+query, inspect its actual filters, time bounds, precision, boundary operators, timezone, units and
+counted entities against the fixed reference. A changed required scope is a violation even if the
+returned count happens to match or no affected boundary record is visible. Judge semantic
+equivalence rather than spelling: equivalent expressions are allowed unless a particular form is
+explicitly required. Do not apply candidate-only refinements to the shared reference or invent
+constraints that the criterion and reference do not require.
+
+Resolve conditional requirements from observed evidence. A requirement that applies only when
+prior history or a matching report exists does not demand that an absent item be read or edited.
+If the whole criterion's condition is demonstrably absent, use not_applicable. If only one branch
+is inapplicable, assess the remaining mandatory parts. If the condition cannot be established,
+use unknown unless an observed violation of an independently applicable mandatory part establishes
+failure. Judge the required outcome: a failed attempt followed by a successful permitted retry
+can satisfy an eventual-success requirement, but cannot erase an independently forbidden action.
+
+In the reason, identify the decisive satisfied, violated or unverified requirement. For a failure,
+quote the specific observed violation, contradiction or explicit admission of an unmet requirement.
+A generic summary is not proof of execution. For a pass, cite the observations establishing the
+applicable requirements. Before returning a pass, check whether your reason admits an unverified
+mandatory requirement or material fact. Such a gap requires unknown, not merely lower confidence,
+unless an observed violation already establishes fail.
+Prefer short exact quotations so each cited passage can be checked against its source.
+
+For quotations, use the characters in sources[i].text after decoding only the outer input envelope.
+Treat JSON, code, and escaped strings embedded within that text as opaque when copying; do not
+unescape them again. Prefer a short, self-contained expression, clause, value, or row that preserves
+the relevant operator and value. When separate clauses suffice, quote them separately instead of
+crossing line breaks or escape sequences. A literal backslash followed by n inside source text
+must not become a newline in a quotation.
+"""
+)
+
 _JUDGE_SYSTEM_PROMPTS = {
     "1": _JUDGE_SYSTEM_PROMPT,
     "2": _JUDGE_SYSTEM_PROMPT,
@@ -154,6 +213,7 @@ _JUDGE_SYSTEM_PROMPTS = {
     "5": _SAVED_RUBRIC_SYSTEM_PROMPT_V5,
     "6": _SAVED_RUBRIC_SYSTEM_PROMPT_V6,
     "7": _SAVED_RUBRIC_SYSTEM_PROMPT_V6,
+    "8": _SAVED_RUBRIC_SYSTEM_PROMPT_V8,
 }
 
 
@@ -169,7 +229,7 @@ def build_rubric_judge_messages(
     system_prompt = _JUDGE_SYSTEM_PROMPTS.get(judge_prompt_version)
     if system_prompt is None:
         raise TrialJudgeValidationError("The saved judge prompt version is unsupported.")
-    uses_saved_reference = judge_prompt_version in {"5", "6", "7"}
+    uses_saved_reference = judge_prompt_version in {"5", "6", "7", "8"}
     criterion_ids = [criterion.id for criterion in criteria]
     source_ids = [source.id for source in sources]
     if not 1 <= len(criterion_ids) <= 30 or len(set(criterion_ids)) != len(criterion_ids):
@@ -253,7 +313,7 @@ def parse_trial_judgment(
                     normalization_reasons.append("No citation to observed evidence was supplied.")
             reason = (
                 " ".join(dict.fromkeys(normalization_reasons))
-                if judge_prompt_version in {"6", "7"}
+                if judge_prompt_version in {"6", "7", "8"}
                 else "The cited sources do not establish this criterion."
             )
             criterion = criterion.model_copy(

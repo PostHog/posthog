@@ -289,6 +289,59 @@ class TestScoutTrialLaunch(APIBaseTest):
         ):
             assert self.client.get(f"{base}{action}/").status_code == 403
 
+    @parameterized.expand(
+        [(False, True, True, 404), (True, False, True, 404), (True, True, False, 404), (True, True, True, 200)]
+    )
+    def test_local_inspection_requires_debug_allowlist_and_staff(
+        self, debug: bool, allowlisted: bool, staff: bool, expected_status: int
+    ) -> None:
+        local_team = Team.objects.create(id=42, organization=self.organization, name="Local example")
+        self.skill.team = local_team
+        self.skill.save(update_fields=["team"])
+        self.config.team = local_team
+        self.config.save(update_fields=["team"])
+        self.user.is_staff = staff
+        self.user.save(update_fields=["is_staff"])
+        with (
+            override_settings(
+                DEBUG=debug, SCOUT_LIVE_TRIALS_LOCAL_PROJECT_IDS={local_team.id} if allowlisted else set()
+            ),
+            patch(
+                "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ),
+        ):
+            response = self.client.get(
+                f"/api/projects/{local_team.id}/signals/scout/configs/{self.config.id}/trial_history/"
+            )
+        assert response.status_code == expected_status, response.data
+
+    @parameterized.expand([(True, False, 404), (False, True, 404), (True, True, 200)])
+    @override_settings(DEBUG=True)
+    def test_local_inspection_requires_requested_and_canonical_project_allowlist(
+        self, allow_parent: bool, allow_child: bool, expected_status: int
+    ) -> None:
+        parent = Team.objects.create(id=42, organization=self.organization, name="Local parent")
+        child = Team.objects.create(id=43, organization=self.organization, parent_team=parent, name="Local child")
+        self.skill.team = parent
+        self.skill.save(update_fields=["team"])
+        self.config.team = parent
+        self.config.save(update_fields=["team"])
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        allowed = ({parent.id} if allow_parent else set()) | ({child.id} if allow_child else set())
+        with (
+            override_settings(SCOUT_LIVE_TRIALS_LOCAL_PROJECT_IDS=allowed),
+            patch(
+                "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ),
+        ):
+            response = self.client.get(
+                f"/api/projects/{child.id}/signals/scout/configs/{self.config.id}/trial_history/"
+            )
+        assert response.status_code == expected_status, response.data
+
     @override_settings(SCOUT_LIVE_TRIALS_ENABLED=False)
     def test_setup_remains_readable_when_disabled_and_excludes_inaccessible_models(self) -> None:
         base = self._internal_scout_base()

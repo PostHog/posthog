@@ -45,6 +45,8 @@ from products.signals.evals.agentic.saved_case import (
     SavedState,
     state_table,
 )
+from products.signals.evals.agentic.saved_dataset import SavedScoutDataset
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 SOURCE = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
@@ -63,13 +65,16 @@ def write_case(
     event_created_at: datetime | None = None,
     event_person_ids: list[UUID] | None = None,
     event_records: list[SavedEvent] | None = None,
+    skill_name: str = "signals-scout-fixture",
+    source_team_id: int | None = None,
+    skill_body: bytes = b"Inspect the supplied API files and report reproducible defects.",
 ) -> Path:
     def save(name: str, content: bytes) -> dict[str, str]:
         path = directory / name
         path.write_bytes(content)
         return file_reference(path)
 
-    body = save("skill.md", b"Inspect the supplied API files and report reproducible defects.")
+    body = save("skill.md", skill_body)
     saved_state = SavedState.model_validate(state or {"checkpoint": SOURCE.isoformat(), "complete": True})
     tables: dict[str, dict[str, str]] = {}
     for name in STATE_MODELS:
@@ -105,8 +110,9 @@ def write_case(
         "schema_version": 2,
         "case_id": "invented-case",
         "source_cutoff": SOURCE.isoformat(),
+        "source_team_id": source_team_id,
         "investigation_start": (SOURCE - timedelta(days=1)).isoformat(),
-        "skill": {"name": "signals-scout-fixture", "version": 7, "description": "Inspect API behavior.", "body": body},
+        "skill": {"name": skill_name, "version": 7, "description": "Inspect API behavior.", "body": body},
         "state": state_metadata,
         "events": events,
         "time_strings": ["2026-01-01", "2026-01-02T11:00:00Z"],
@@ -428,7 +434,8 @@ class TestSavedCaseValidation(SimpleTestCase):
 
 
 class TestSavedCaseRestore(ClickhouseTestMixin, BaseTest):
-    def test_restore_preserves_history_and_isolates_local_writes(self) -> None:
+    @parameterized.expand([False, True])
+    def test_restore_preserves_history_and_isolates_local_writes(self, shared_dataset: bool) -> None:
         self.organization.name = "Eval (saved-case-test)"
         self.organization.save(update_fields=["name"])
         report_id, task_id, task_run_id, scout_run_id, memory_id, artefact_id = [str(uuid4()) for _ in range(6)]
@@ -505,10 +512,38 @@ class TestSavedCaseRestore(ClickhouseTestMixin, BaseTest):
             ],
         }
         with tempfile.TemporaryDirectory() as temporary:
-            case = SavedScoutCase.load(write_case(Path(temporary), state=state))
+            directory = Path(temporary)
+            case = SavedScoutCase.load(write_case(directory, state=state, source_team_id=123))
             context = CustomPromptSandboxContext(team_id=self.team.id, user_id=self.user.id)
 
-            result = case.restore(context, target_cutoff=TARGET)
+            if shared_dataset:
+                second_directory = directory / "second"
+                second_directory.mkdir()
+                second = SavedScoutCase.load(
+                    write_case(
+                        second_directory,
+                        state=state,
+                        skill_name="signals-scout-second",
+                        source_team_id=123,
+                        skill_body=b"Inspect retry scheduling for the invented queue.",
+                    )
+                )
+                dataset = SavedScoutDataset.prepare([case, second], directory / "prepared")
+                with self.settings(TEST=False), self.assertRaisesRegex(RuntimeError, "local test environment"):
+                    dataset.restore(context, target_cutoff=TARGET)
+                result = dataset.restore(context, target_cutoff=TARGET)
+                self.assertEqual(result["restored_skills"], [case.skill_name, second.skill_name])
+                self.assertEqual(
+                    dict(LLMSkill.objects.filter(team_id=self.team.id).values_list("name", "body")),
+                    {
+                        case.skill_name: case.manifest.skill.body.resolve(case.path.parent).read_text(),
+                        second.skill_name: second.manifest.skill.body.resolve(second.path.parent).read_text(),
+                    },
+                )
+            else:
+                with self.settings(TEST=False), self.assertRaisesRegex(RuntimeError, "local test environment"):
+                    case.restore(context, target_cutoff=TARGET)
+                result = case.restore(context, target_cutoff=TARGET)
 
             report = SignalReport.objects.get(team_id=self.team.id)
             memory = SignalScratchpad.objects.for_team(self.team.id).get()

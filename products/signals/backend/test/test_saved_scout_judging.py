@@ -131,7 +131,7 @@ class TestSavedScoutJudgment(SimpleTestCase):
         self.assertEqual((result.score, result.coverage), (0.5, 2 / 3))
         self.assertEqual(result.request_messages, messages)
         self.assertEqual(result.messages_sha256, content_hash(messages))
-        self.assertEqual(result.judge_prompt_version, "7")
+        self.assertEqual(result.judge_prompt_version, "8")
         self.assertEqual(result.disabled_criterion_ids, ["disabled"])
         self.assertEqual(result.output_sha256, content_hash(self.output))
         self.assertEqual(result.rubric_sha256, content_hash(criteria))

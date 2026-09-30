@@ -4,13 +4,19 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import Field, JsonValue
 
 from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext
-
-
-class EvaluationDocument(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+from products.signals.backend.rubrics_judging import (
+    EvaluationDocument as EvaluationDocument,
+    TrialCriterionAggregate as TrialCriterionAggregate,
+    TrialCriterionEvidence as TrialCriterionEvidence,
+    TrialCriterionVerdict as TrialCriterionVerdict,
+    TrialEvaluationCriterion as TrialEvaluationCriterion,
+    TrialEvidenceSource as TrialEvidenceSource,
+    TrialJudgeVerdicts as TrialJudgeVerdicts,
+    TrialVariantAggregate as TrialVariantAggregate,
+)
 
 
 class TrialEvaluationVariant(EvaluationDocument):
@@ -24,20 +30,6 @@ class TrialEvaluationRequest(EvaluationDocument):
     baseline_variant_id: UUID
     variants: list[TrialEvaluationVariant] = Field(min_length=1, max_length=10)
     rubric_source: Literal["mock", "saved"]
-
-
-class TrialEvaluationCriterion(EvaluationDocument):
-    id: str
-    title: str
-    description: str
-    pass_condition: str
-    applicability: str
-
-
-class TrialEvidenceSource(EvaluationDocument):
-    id: str
-    kind: Literal["instructions", "context", "summary", "report", "memory", "trace"]
-    text: str
 
 
 class TrialRunEvidence(EvaluationDocument):
@@ -78,24 +70,6 @@ class TrialEvaluationSnapshot(EvaluationDocument):
     runs: list[TrialRunEvidence]
 
 
-class TrialCriterionEvidence(EvaluationDocument):
-    source_id: str = Field(max_length=100)
-    quote: str = Field(min_length=1, max_length=1000)
-
-
-class TrialCriterionVerdict(EvaluationDocument):
-    criterion_id: str = Field(max_length=100)
-    verdict: Literal["pass", "fail", "unknown", "not_applicable"]
-    reason: str = Field(min_length=1, max_length=2000)
-    confidence: Literal["low", "medium", "high"]
-    evidence: list[TrialCriterionEvidence] = Field(default_factory=list, max_length=6)
-
-
-class TrialJudgeVerdicts(EvaluationDocument):
-    summary: str = Field(min_length=1, max_length=2000)
-    criteria: list[TrialCriterionVerdict] = Field(min_length=1, max_length=30)
-
-
 class TrialRunJudgment(EvaluationDocument):
     launch_id: UUID
     variant_id: UUID
@@ -107,31 +81,6 @@ class TrialRunJudgment(EvaluationDocument):
     error: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
-
-
-class TrialCriterionAggregate(EvaluationDocument):
-    criterion_id: str
-    passed: int
-    failed: int
-    unknown: int
-    not_applicable: int
-    pass_rate: float | None
-    coverage: float | None
-    baseline_delta: float | None = None
-
-
-class TrialVariantAggregate(EvaluationDocument):
-    variant_id: UUID
-    label: str
-    is_baseline: bool
-    total_runs: int
-    judged_runs: int
-    excluded_runs: int
-    judge_errors: int
-    score: float | None
-    coverage: float | None
-    baseline_delta: float | None = None
-    criteria: list[TrialCriterionAggregate]
 
 
 class TrialComparisonOutcome(EvaluationDocument):

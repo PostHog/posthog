@@ -548,6 +548,43 @@ class TestScoutTrialEvaluation(BaseTest):
         self.user.save(update_fields=["is_staff"])
         assert finish_trial_evaluation(self.team.id, snapshot.evaluation_id).runs[0].status == "judge_error"
 
+    @parameterized.expand([(False, True, False), (True, False, False), (True, True, True)])
+    def test_local_worker_rechecks_debug_and_project_allowlist(
+        self, debug: bool, allowlisted: bool, allowed: bool
+    ) -> None:
+        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        self.team = Team.objects.create(id=42, organization=self.organization, name="Local example")
+        self.skill.team = self.team
+        self.skill.save(update_fields=["team"])
+        self.config.team = self.team
+        self.config.save(update_fields=["team"])
+        self.context = self.context.model_copy(update={"team_id": self.team.id})
+        self._save("contexts", self.context.id, self.context)
+        snapshot = snapshot.model_copy(update={"team_id": self.team.id})
+        snapshot_key = f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"
+        self.documents[snapshot_key] = snapshot.model_dump_json()
+        judgment = TrialRunJudgment(
+            launch_id=self.launch.id,
+            variant_id=self.request.baseline_variant_id,
+            status="judged",
+            summary="The synthetic result was judged.",
+        )
+        judge = AsyncMock(return_value=judgment)
+        with (
+            override_settings(
+                DEBUG=debug, SCOUT_LIVE_TRIALS_LOCAL_PROJECT_IDS={self.team.id} if allowlisted else set()
+            ),
+            patch(f"{JUDGE_MODULE}.judge_trial_run", judge),
+        ):
+            async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+        assert judge.await_count == int(allowed)
+        saved = json.loads(
+            self.documents[
+                f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/runs/{self.launch.id}.json"
+            ]
+        )
+        assert saved["status"] == ("judged" if allowed else "judge_error")
+
     @parameterized.expand([(False, None), (True, None), (False, "failed"), (False, "cancelled"), (False, "skipped")])
     def test_automatic_comparison_waits_for_task_teardown_and_keeps_its_launch_rubric(
         self, manual_first: bool, excluded_status: Literal["failed", "cancelled", "skipped"] | None

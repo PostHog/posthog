@@ -27,6 +27,7 @@ from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.trial_settings import local_trial_project_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -121,7 +122,9 @@ def _fallback_team_ids() -> list[int]:
     and local dev. A self-hosted instance (where teams 1/2 exist but no one opted into scouts)
     fails closed instead, so the coordinator never starts LLM scout runs for an unintended
     tenant; a self-hoster opts in by setting the payload explicitly."""
-    return list(DEFAULT_ENROLLED_TEAM_IDS) if (is_cloud() or settings.DEBUG) else []
+    if not (is_cloud() or settings.DEBUG):
+        return []
+    return sorted(set(DEFAULT_ENROLLED_TEAM_IDS) | local_trial_project_ids())
 
 
 def read_flag_payload(flag_key: str, distinct_id: str = SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID) -> dict | None:

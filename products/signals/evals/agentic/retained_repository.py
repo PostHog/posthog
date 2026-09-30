@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Literal, Self
 from unittest.mock import patch
 
 if TYPE_CHECKING:
+    from posthog.models import Team
+
     from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
     from products.tasks.backend.logic.services.sandbox import ExecutionResult
 
@@ -286,6 +288,9 @@ class RetainedScoutRepository:
         from django.conf import settings  # noqa: PLC0415 - The preparation helpers work without Django.
 
         from products.posthog_ai.eval_harness.harness import lifecycle  # noqa: PLC0415
+        from products.signals.backend.scout_harness import (
+            serializers as scout_serializers,  # noqa: PLC0415 - Django must initialize before scout imports.
+        )
         from products.tasks.backend.constants import OVERLAP_CLONE_BOOT_FEATURE_FLAG  # noqa: PLC0415
         from products.tasks.backend.logic.services import (
             sandbox as sandbox_module,  # noqa: PLC0415 - Django must initialize before sandbox imports.
@@ -308,6 +313,15 @@ class RetainedScoutRepository:
             )
             self.prepare_bundle(Path(directory))
             original_clone = DockerSandbox.clone_repository
+            original_reachability = scout_serializers.assert_scout_repositories_reachable
+
+            def assert_repositories_reachable(team: Team, repositories: list[str]) -> None:
+                if settings.TEST and settings.SANDBOX_PROVIDER == "docker":
+                    # This exact repository is cloned from the verified bundle, without a GitHub connection.
+                    repositories = [repository for repository in repositories if repository.lower() != self.repository]
+                    if not repositories:
+                        return
+                original_reachability(team, repositories)
 
             def clone_repository(
                 sandbox: DockerSandbox,
@@ -322,6 +336,9 @@ class RetainedScoutRepository:
                 return original_clone(sandbox, repository, github_token, shallow, branch, blobless)
 
             stack.enter_context(patch.object(DockerSandbox, "clone_repository", clone_repository))
+            stack.enter_context(
+                patch.object(scout_serializers, "assert_scout_repositories_reachable", assert_repositories_reachable)
+            )
             stack.enter_context(
                 patch.object(
                     lifecycle,

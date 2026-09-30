@@ -57,3 +57,6 @@ def _parse_team_ids(raw: str) -> set[int]:
 SIGNALS_LIGHTHOUSE_TEAM_IDS: set[int] = _parse_team_ids(
     os.getenv("SIGNALS_LIGHTHOUSE_TEAM_IDS", _DEFAULT_LIGHTHOUSE_TEAM_IDS)
 )
+
+# Trial access checks ignore this allowlist outside DEBUG.
+SCOUT_LIVE_TRIALS_LOCAL_PROJECT_IDS: set[int] = _parse_team_ids(os.getenv("SCOUT_LIVE_TRIALS_LOCAL_PROJECT_IDS", ""))

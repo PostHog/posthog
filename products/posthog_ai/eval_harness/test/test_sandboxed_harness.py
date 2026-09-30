@@ -13,11 +13,15 @@ from uuid import UUID
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+from django.test import override_settings
+
 import requests
 from parameterized import parameterized
 
 from products.posthog_ai.eval_harness import runner
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
+from products.posthog_ai.eval_harness.harness import temporal_env
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery, parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
@@ -25,6 +29,7 @@ from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarn
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
 from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
+from products.posthog_ai.eval_harness.harness.requirements import Infra
 from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
@@ -243,6 +248,94 @@ async def test_eval_run_preserves_bundled_skills_unless_exec_is_selected(
     assert results[0].status == "passed", results[0].error
     expected = {"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"} if delivery == "exec" and origin else {}
     assert environments == [expected]
+
+
+def test_eval_temporal_worker_registers_the_complete_scout_comparison_chain() -> None:
+    managed_worker = SimpleNamespace(run=AsyncMock(), shutdown=AsyncMock())
+    with patch.object(temporal_env, "create_worker", new=AsyncMock(return_value=managed_worker)) as create_worker:
+        worker = temporal_env.TemporalWorkerThread()
+        worker.start()
+        try:
+            registrations = create_worker.call_args.kwargs
+            assert "ProcessTaskWorkflow" in {workflow.__name__ for workflow in registrations["workflows"]}
+            assert {
+                workflow.__name__
+                for workflow in registrations["workflows"]
+                if workflow.__module__.startswith("products.signals.")
+            } == {
+                "RunScoutTrialComparisonWorkflow",
+                "RunSignalsScoutWorkflow",
+                "RunScoutTrialEvaluationWorkflow",
+            }
+            assert {
+                activity.__name__
+                for activity in registrations["activities"]
+                if activity.__module__.startswith("products.signals.")
+            } == {
+                "dispatch_scout_trial_comparison_activity",
+                "prepare_scout_trial_comparison_evaluation_activity",
+                "finish_scout_trial_comparison_activity",
+                "fail_scout_trial_comparison_activity",
+                "run_signals_scout_activity",
+                "resume_signals_scout_workflow_step",
+                "load_scout_trial_evaluation_activity",
+                "judge_scout_trial_run_activity",
+                "finish_scout_trial_evaluation_activity",
+            }
+        finally:
+            worker.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail_suite", [False, True])
+async def test_eval_routes_workflows_to_its_queue_and_restores_settings(fail_suite: bool) -> None:
+    harness = SandboxedEvalHarness(parse_args([]))
+    harness.provider = _Provider()
+    queues_seen: list[tuple[str, str, str]] = []
+
+    def record_queues() -> None:
+        queues_seen.append(
+            (settings.TASKS_TASK_QUEUE, settings.GENERAL_PURPOSE_TASK_QUEUE, settings.VIDEO_EXPORT_TASK_QUEUE)
+        )
+
+    async def suite(ctx: EvalContext) -> None:
+        record_queues()
+        if fail_suite:
+            raise RuntimeError("comparison failed")
+
+    worker = MagicMock()
+    worker.start.side_effect = record_queues
+    worker.stop.side_effect = record_queues
+    env = SimpleNamespace(shutdown=AsyncMock())
+    with (
+        override_settings(
+            TASKS_TASK_QUEUE="dev-tasks",
+            GENERAL_PURPOSE_TASK_QUEUE="dev-general",
+            VIDEO_EXPORT_TASK_QUEUE="dev-video",
+        ),
+        patch("products.posthog_ai.eval_harness.harness.lifecycle.start_temporal_env", AsyncMock(return_value=env)),
+        patch(
+            "products.posthog_ai.eval_harness.harness.lifecycle.temporal_client_target", return_value=("127.0.0.1", "1")
+        ),
+        patch("products.posthog_ai.eval_harness.harness.lifecycle.temporal_task_queue", return_value="isolated-eval"),
+        patch("products.posthog_ai.eval_harness.harness.lifecycle.terminate_stale_workflows", AsyncMock()),
+        patch("products.posthog_ai.eval_harness.harness.lifecycle.TemporalWorkerThread", return_value=worker),
+        patch.object(harness, "_sweep_notebook_kernels", AsyncMock()),
+    ):
+        results = await harness._run_suites(
+            [EvalSuite(domain="test", module_name="comparison", fn_name="suite", fn=suite)],
+            frozenset({Infra.SANDBOX}),
+            ProgressReporter(total_suites=1),
+        )
+        assert (
+            settings.TASKS_TASK_QUEUE,
+            settings.GENERAL_PURPOSE_TASK_QUEUE,
+            settings.VIDEO_EXPORT_TASK_QUEUE,
+        ) == ("dev-tasks", "dev-general", "dev-video")
+
+    assert queues_seen == [("isolated-eval", "isolated-eval", "isolated-eval")] * 3
+    assert results[0].status == ("crashed" if fail_suite else "passed")
+    env.shutdown.assert_awaited_once()
 
 
 @pytest.mark.asyncio

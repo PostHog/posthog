@@ -3,14 +3,27 @@ from __future__ import annotations
 import os
 import tempfile
 import subprocess
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
-import unittest
+from unittest.mock import patch
 
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
+from posthog.models import Team
+
+from products.signals.backend.scout_harness import (
+    serializers as scout_serializers,
+    trial_inspection,
+    trial_launch,
+)
 from products.signals.evals.agentic.retained_repository import RetainedScoutRepository
 
 
-class TestRetainedScoutRepository(unittest.TestCase):
+class TestRetainedScoutRepository(SimpleTestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -143,3 +156,68 @@ class TestRetainedScoutRepository(unittest.TestCase):
 
         self.assertFalse((self.root / "missing").exists())
         self.assertEqual(self.git(self.source, "rev-parse", "HEAD"), self.future)
+
+    @parameterized.expand(
+        [
+            ("inspection", trial_inspection.validate_scout_repositories),
+            ("launch", trial_launch.validate_scout_repositories),
+        ]
+    )
+    @override_settings(TEST=True, SANDBOX_PROVIDER="docker")
+    @patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": ""})
+    def test_retained_repository_is_reachable_only_while_fixture_is_active(
+        self, _name: str, validate: Callable[[list[str], dict[str, object]], list[str]]
+    ) -> None:
+        self.fixture.cache_directory = self.bundle.parent
+        team = Team(id=7)
+        with patch.object(
+            scout_serializers.tasks_facade, "readonly_github_integration_id", return_value=None
+        ) as github:
+            with self.fixture:
+                self.assertEqual(validate(["PostHog/posthog"], {"team": team}), ["posthog/posthog"])
+                github.assert_not_called()
+
+            with self.assertRaisesRegex(ValidationError, "Connect GitHub"):
+                validate(["posthog/posthog"], {"team": team})
+            github.assert_called_once_with(team.id)
+
+    @parameterized.expand(
+        [
+            ("prefix", True, "docker", ["posthog/posthog-extra"]),
+            ("mixed", True, "docker", ["posthog/posthog", "posthog/other"]),
+            ("production", False, "docker", ["posthog/posthog"]),
+            ("remote_provider", True, "modal", ["posthog/posthog"]),
+        ]
+    )
+    @override_settings(TEST=True, SANDBOX_PROVIDER="docker")
+    @patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": ""})
+    def test_repository_checks_still_require_github_outside_retained_fixture_scope(
+        self, _name: str, test: bool, provider: str, repositories: list[str]
+    ) -> None:
+        self.fixture.cache_directory = self.bundle.parent
+        team = Team(id=7)
+        with patch.object(
+            scout_serializers.tasks_facade, "readonly_github_integration_id", return_value=None
+        ) as github:
+            with self.fixture, override_settings(TEST=test, SANDBOX_PROVIDER=provider):
+                with self.assertRaisesRegex(ValidationError, "Connect GitHub"):
+                    scout_serializers.validate_scout_repositories(repositories, {"team": team})
+            github.assert_called_once_with(team.id)
+
+    @override_settings(TEST=True, SANDBOX_PROVIDER="docker")
+    @patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": ""})
+    def test_nonretained_repository_still_uses_its_real_github_connection(self) -> None:
+        self.fixture.cache_directory = self.bundle.parent
+        team = Team(id=7)
+        with (
+            patch.object(scout_serializers.tasks_facade, "readonly_github_integration_id", return_value=17),
+            patch.object(
+                scout_serializers.tasks_facade, "inaccessible_repositories_via_integration", return_value=[]
+            ) as reachable,
+            self.fixture,
+        ):
+            self.assertEqual(
+                scout_serializers.validate_scout_repositories(["posthog/posthog", "posthog/other"], {"team": team}),
+                ["posthog/posthog", "posthog/other"],
+            )
+            reachable.assert_called_once_with(team.id, 17, ["posthog/other"])

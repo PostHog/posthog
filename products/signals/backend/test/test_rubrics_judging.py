@@ -94,7 +94,7 @@ class TestRubricsJudging(TestCase):
             cwd=Path(__file__).resolve().parents[4],
         )
 
-    @parameterized.expand([(str(version),) for version in range(1, 8)])
+    @parameterized.expand([(str(version),) for version in range(1, 9)])
     def test_saved_prompt_versions_keep_reference_and_normalization_rules(self, version: str) -> None:
         references = {"body": "Keep the frozen reporting condition."}
         messages = build_rubric_judge_messages(
@@ -105,7 +105,7 @@ class TestRubricsJudging(TestCase):
             judge_prompt_version=version,
         )
         envelope = json.loads(messages[1]["content"])
-        if version in {"5", "6", "7"}:
+        if version in {"5", "6", "7", "8"}:
             self.assertEqual(envelope["rubric_reference_context"], references)
             self.assertIn("cannot remove, relax or replace", messages[0]["content"])
             with self.assertRaisesRegex(TrialJudgeValidationError, "no reference instructions"):
@@ -129,7 +129,7 @@ class TestRubricsJudging(TestCase):
         self.assertTrue(
             reason.startswith(
                 "A cited source ID is absent"
-                if version in {"6", "7"}
+                if version in {"6", "7", "8"}
                 else "The cited sources do not establish this criterion."
             )
         )

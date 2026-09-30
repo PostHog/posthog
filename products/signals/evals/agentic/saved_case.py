@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import json
 import hashlib
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import groupby
 from pathlib import Path, PurePosixPath
@@ -613,6 +613,21 @@ class SavedScoutCase(SavedScoutInstructions):
         target_cutoff: datetime,
         string_replacements: Mapping[str, str] | None = None,
     ) -> dict[str, JsonValue]:
+        return self._restore(
+            context,
+            target_cutoff=target_cutoff,
+            skill_sources=[self],
+            string_replacements=string_replacements,
+        )
+
+    def _restore(
+        self,
+        context: CustomPromptSandboxContext,
+        *,
+        target_cutoff: datetime,
+        skill_sources: Sequence[SavedScoutInstructions],
+        string_replacements: Mapping[str, str] | None = None,
+    ) -> dict[str, JsonValue]:
         from django.conf import settings  # noqa: PLC0415 - Manifest validation stays independent of Django.
         from django.db import transaction  # noqa: PLC0415
 
@@ -635,10 +650,13 @@ class SavedScoutCase(SavedScoutInstructions):
         if not settings.TEST:
             raise RuntimeError("Saved scout cases can only restore into the local test environment.")
         self.preflight(validate_events=False)
-        body = self.manifest.skill.body.resolve(self.path.parent).read_text()
-        support_files = [
-            (file, file.content.resolve(self.path.parent).read_text()) for file in self.manifest.skill.files
-        ]
+        sources_by_name = {source.skill_name: source for source in skill_sources}
+        if len(sources_by_name) != len(skill_sources) or self.skill_name not in sources_by_name:
+            raise ValueError("Restore requires unique skills including the primary case skill.")
+        for source in skill_sources:
+            source.manifest.skill.body.resolve(source.path.parent).read_text(encoding="utf-8")
+            for file in source.manifest.skill.files:
+                file.content.resolve(source.path.parent).read_text(encoding="utf-8")
         team = Team.objects.select_related("organization").get(id=context.team_id)
         if team.parent_team_id or team.is_demo or not team.organization.name.startswith("Eval ("):
             raise ValueError("Restore requires a fresh empty project from the eval harness.")
@@ -674,8 +692,9 @@ class SavedScoutCase(SavedScoutInstructions):
                 autostart_enabled=False, github_issue_writeback_enabled=False
             )
             configurations: dict[str, SignalScoutConfig] = {}
-            skill_names = {self.skill_name, *(run.skill_name for run in self.state.scout_runs)}
-            for skill_name in skill_names:
+            skill_names = {*sources_by_name, *(run.skill_name for run in self.state.scout_runs)}
+            for skill_name in sorted(skill_names):
+                configured_source = sources_by_name.get(skill_name)
                 config = SignalScoutConfig(
                     team_id=team.id,
                     skill_name=skill_name,
@@ -684,7 +703,7 @@ class SavedScoutCase(SavedScoutInstructions):
                     emit=True,
                     created_by_id=context.user_id,
                     enabled_by_id=context.user_id,
-                    repositories=[self.repo] if self.repo and skill_name == self.skill_name else [],
+                    repositories=[configured_source.repo] if configured_source and configured_source.repo else [],
                     write_scopes=[],
                     output_destinations={},
                     mcp_gateway_server_ids=[],
@@ -694,28 +713,34 @@ class SavedScoutCase(SavedScoutInstructions):
             for saved_run in self.state.scout_runs:
                 if saved_run.scout_config_id is not None:
                     transformer.ids[saved_run.scout_config_id] = configurations[saved_run.skill_name].id
-            skill_spec = self.manifest.skill
-            skill = LLMSkill(
-                team_id=team.id,
-                name=skill_spec.name,
-                version=skill_spec.version,
-                is_latest=True,
-                category="scout",
-                description=skill_spec.description,
-                body=body,
-                metadata=skill_spec.metadata,
-                allowed_tools=skill_spec.allowed_tools,
-                license=skill_spec.license,
-                compatibility=skill_spec.compatibility,
-                created_by_id=context.user_id,
-            )
-            LLMSkill.objects.bulk_create([skill])
-            LLMSkillFile.objects.bulk_create(
-                [
-                    LLMSkillFile(skill=skill, path=file.path, content=content, content_type=file.content_type)
-                    for file, content in support_files
-                ]
-            )
+            for source in skill_sources:
+                skill_spec = source.manifest.skill
+                skill = LLMSkill(
+                    team_id=team.id,
+                    name=skill_spec.name,
+                    version=skill_spec.version,
+                    is_latest=True,
+                    category="scout",
+                    description=skill_spec.description,
+                    body=skill_spec.body.resolve(source.path.parent).read_text(encoding="utf-8"),
+                    metadata=skill_spec.metadata,
+                    allowed_tools=skill_spec.allowed_tools,
+                    license=skill_spec.license,
+                    compatibility=skill_spec.compatibility,
+                    created_by_id=context.user_id,
+                )
+                LLMSkill.objects.bulk_create([skill])
+                LLMSkillFile.objects.bulk_create(
+                    [
+                        LLMSkillFile(
+                            skill=skill,
+                            path=file.path,
+                            content=file.content.resolve(source.path.parent).read_text(encoding="utf-8"),
+                            content_type=file.content_type,
+                        )
+                        for file in skill_spec.files
+                    ]
+                )
             for saved_metric in self.state.metrics:
                 transformer.insert(
                     Metric.objects.for_team(team.id),
