@@ -51,6 +51,7 @@ the row lists both.
 | Source                           | Comm method                 | Primary library                                                 | Tracked transport           |
 | -------------------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | ably                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| acculynx                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | adjust                           | HTTP                        | requests                                                        | ✅                          |
 | adobe_analytics                  | HTTP                        | requests                                                        | ✅                          |
 | adobe_commerce                   | HTTP                        | requests                                                        | ✅                          |
@@ -351,6 +352,7 @@ the row lists both.
 | greenhouse                       | HTTP                        | requests                                                        | ✅                          |
 | gridly                           | HTTP                        | requests                                                        | ✅                          |
 | groq                             | HTTP                        | requests                                                        | ✅                          |
+| growthbook                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | guardian                         | HTTP                        | requests                                                        | ✅                          |
 | gumroad                          | HTTP                        | requests                                                        | ✅                          |
 | guru                             | HTTP                        | requests                                                        | ✅                          |
@@ -617,6 +619,7 @@ the row lists both.
 | replicate                        | HTTP                        | requests                                                        | ✅                          |
 | reply_io                         | HTTP                        | requests                                                        | ✅                          |
 | resend                           | HTTP                        | requests                                                        | ✅                          |
+| retell_ai                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | retently                         | HTTP                        | requests                                                        | ✅                          |
 | revenuecat                       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | reverb                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -857,7 +860,6 @@ doesn't conflict with concurrent PRs.
 - ab_tasty
 - abnormal_security
 - acast
-- acculynx
 - actionstep
 - active_campaign
 - acuity_scheduling
@@ -1126,7 +1128,6 @@ doesn't conflict with concurrent PRs.
 - google_tasks
 - google_workspace_admin_reports
 - greythr
-- growthbook
 - guesty
 - gumloop
 - harness
@@ -1336,7 +1337,6 @@ doesn't conflict with concurrent PRs.
 - repairshopr
 - reply_io
 - retail_express
-- retell_ai
 - retently
 - ringcentral
 - rocket_chat
