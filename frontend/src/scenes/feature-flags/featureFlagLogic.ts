@@ -87,7 +87,6 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
-import { featureFlagsSetupLogic } from 'products/feature_flags/frontend/emptyState/featureFlagsSetupLogic'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
@@ -955,6 +954,7 @@ export interface featureFlagLogicValues {
     featureFlagMissing: boolean
     featureFlagRefresh: FeatureFlagType | null
     featureFlagRefreshLoading: boolean
+    featureFlagRestore: FeatureFlagType | null
     featureFlagRestoreLoading: boolean
     featureFlagTouched: boolean
     featureFlagTouches: Record<string, boolean>
@@ -1092,7 +1092,6 @@ export interface featureFlagLogicActions {
     updateFlag: (flag: FeatureFlagType) => {
         flag: FeatureFlagType
     } // featureFlagsLogic
-    loadFeatureFlags: (_: void) => void // featureFlagsLogic
     closeSidePanel: (tab?: SidePanelTab | undefined) => {
         tab: SidePanelTab | undefined
     } // sidePanelStateLogic
@@ -1493,11 +1492,20 @@ export interface featureFlagLogicActions {
     resetScheduleFormExpanded: () => {
         value: true
     }
-    restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => {
-        featureFlag: Partial<FeatureFlagType>
+    restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => Partial<FeatureFlagType>
+    restoreFeatureFlagFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
     }
-    restoreFeatureFlagFinished: () => {
-        value: true
+    restoreFeatureFlagSuccess: (
+        featureFlagRestore: FeatureFlagType | null,
+        payload?: Partial<FeatureFlagType>
+    ) => {
+        featureFlagRestore: FeatureFlagType | null
+        payload?: Partial<FeatureFlagType>
     }
     resumeRecurringScheduledChange: (scheduledChangeId: number) => {
         scheduledChangeId: number
@@ -2176,7 +2184,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         actions: [
             featureFlagsLogic,
-            ['updateFlag', 'deleteFlag', 'loadFeatureFlags'],
+            ['updateFlag', 'deleteFlag'],
             sidePanelStateLogic,
             ['closeSidePanel'],
             teamLogic,
@@ -2197,8 +2205,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
-        restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
-        restoreFeatureFlagFinished: true,
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
         resetEncryptedPayload: () => ({}),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
@@ -2587,13 +2593,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
-        featureFlagRestoreLoading: [
-            false,
-            {
-                restoreFeatureFlag: () => true,
-                restoreFeatureFlagFinished: () => false,
-            },
-        ],
         isEditingFlag: [
             false,
             {
@@ -3267,6 +3266,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         reportFeatureFlagArchived(via)
                     }
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                },
+            },
+        ],
+        featureFlagRestore: [
+            null as FeatureFlagType | null,
+            {
+                restoreFeatureFlag: async (featureFlag: Partial<FeatureFlagType>) => {
+                    try {
+                        // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
+                        const restoredFlag = await api.update(
+                            `api/projects/${values.currentProjectId}/feature_flags/${featureFlag.id}`,
+                            { deleted: false }
+                        )
+                        // Restore gives the flag a new tree entry. A delete from another tab or the API leaves the old entry in this tab's tree.
+                        deleteFromTree('feature_flag', String(featureFlag.id))
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
+                        actions.loadFeatureFlag()
+                        // The flag is no longer deleted, so its real verdict may differ from the retained
+                        // DELETED one. Refetch it so the banner reflects the restored flag.
+                        actions.loadFeatureFlagStatus()
+                        // A deleted flag that an experiment uses has a tombstoned key. The response carries the restored key.
+                        lemonToast.success(`${restoredFlag.key} has been restored`)
+                        return restoredFlag
+                    } catch (error: any) {
+                        lemonToast.error(error?.detail || "Couldn't restore this feature flag. Try again.")
+                        return null
+                    }
                 },
             },
         ],
@@ -4065,11 +4091,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 callback: (undo) => {
                     if (undo) {
                         refreshTreeItem('feature_flag', String(featureFlag.id))
-                        // The delete removed the flag from the loaded list, so the list has to load it again.
-                        actions.loadFeatureFlags()
-                        // Deleting a project's only flag puts the setup screen in front of the list.
-                        // That screen counts flags only when it mounts.
-                        featureFlagsSetupLogic.findMounted()?.actions.loadFlagCount()
                     } else {
                         featureFlag.id && actions.deleteFlag(featureFlag.id)
                         deleteFromTree('feature_flag', String(featureFlag.id))
@@ -4079,28 +4100,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     router.actions.push(urls.featureFlags())
                 },
             })
-        },
-        restoreFeatureFlag: async ({ featureFlag }) => {
-            try {
-                // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
-                const restoredFlag = await api.update(
-                    `api/projects/${values.currentProjectId}/feature_flags/${featureFlag.id}`,
-                    { deleted: false }
-                )
-                // Restore gives the flag a new tree entry. A delete from another tab or the API leaves the old entry in this tab's tree.
-                deleteFromTree('feature_flag', String(featureFlag.id))
-                refreshTreeItem('feature_flag', String(featureFlag.id))
-                actions.loadFeatureFlag()
-                // The flag is no longer deleted, so its real verdict may differ from the retained
-                // DELETED one. Refetch it so the banner reflects the restored flag.
-                actions.loadFeatureFlagStatus()
-                // A deleted flag that an experiment uses has a tombstoned key. The response carries the restored key.
-                lemonToast.success(`${restoredFlag.key} has been restored`)
-            } catch (error: any) {
-                lemonToast.error(error?.detail || "Couldn't restore this feature flag. Try again.")
-            } finally {
-                actions.restoreFeatureFlagFinished()
-            }
         },
         setMultivariateEnabled: async ({ enabled }) => {
             if (enabled) {

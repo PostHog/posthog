@@ -15,7 +15,6 @@ import posthog from 'posthog-js'
 import { lemonToast as sharedLemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -27,7 +26,6 @@ import { urls } from 'scenes/urls'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
-import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     CohortType,
@@ -44,7 +42,6 @@ import {
 } from '~/types'
 import { FeatureFlagFilters } from '~/types'
 
-import { featureFlagsSetupLogic } from 'products/feature_flags/frontend/emptyState/featureFlagsSetupLogic'
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import type {
     CopyFlagsDependencyRequirementsResponseApi,
@@ -2872,31 +2869,25 @@ describe('featureFlagLogic', () => {
     })
 
     describe('deleting and restoring', () => {
-        it('deletes the flag without overwriting its description, and Undo puts it back in the list', async () => {
-            let liveFlagCount = 0
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/feature_flags/': () => [
-                        200,
-                        { count: liveFlagCount, next: null, previous: null, results: [] },
-                    ],
-                },
-            })
-            const setupLogic = featureFlagsSetupLogic()
-            setupLogic.mount()
-            await expectLogic(setupLogic).toFinishAllListeners()
-            const setupStatus = (): string =>
-                productSetupStatusLogic({ productKey: ProductKey.FEATURE_FLAGS }).values.status
-            expect(setupStatus()).toBe('needs-setup')
+        let updateSpy: jest.SpyInstance
 
-            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: true })
+        beforeEach(() => {
+            updateSpy = jest.spyOn(api, 'update')
+        })
+
+        afterEach(() => {
+            updateSpy.mockRestore()
+        })
+
+        it('deletes the flag without overwriting its description, and Undo keeps it in the list', async () => {
+            updateSpy.mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: true })
             // deleteWithUndo imports its toast from @posthog/lemon-ui, which the LemonToast mock above does not reach.
             const toastSpy = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
             const successToastSpy = jest.spyOn(sharedLemonToast, 'success').mockReturnValue('toast-id')
             try {
-                await expectLogic(logic, () =>
-                    logic.actions.deleteFeatureFlag(MOCK_FEATURE_FLAG)
-                ).toFinishAllListeners()
+                await expectLogic(logic, () => logic.actions.deleteFeatureFlag(MOCK_FEATURE_FLAG))
+                    .toDispatchActions(['deleteFlag'])
+                    .toFinishAllListeners()
 
                 // A `name` in the body overwrites the flag's description.
                 expect(updateSpy.mock.calls[0][1]).toEqual({ id: MOCK_FEATURE_FLAG.id, deleted: true })
@@ -2905,62 +2896,44 @@ describe('featureFlagLogic', () => {
                     `${MOCK_FEATURE_FLAG.key} has been deleted`
                 )
 
-                liveFlagCount = 1
                 await expectLogic(logic, async () => {
                     await options?.button?.action()
-                })
-                    .toDispatchActions(['loadFeatureFlags'])
-                    .toNotHaveDispatchedActions(['deleteFlag'])
-                await expectLogic(setupLogic).toFinishAllListeners()
-                // The setup screen hides the list until the status leaves needs-setup.
-                expect(setupStatus()).toBe('has-data')
+                }).toNotHaveDispatchedActions(['deleteFlag'])
             } finally {
-                updateSpy.mockRestore()
                 toastSpy.mockRestore()
                 successToastSpy.mockRestore()
-                setupLogic.unmount()
             }
         })
 
         it('puts the restored flag back in the files tree', async () => {
-            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: false })
-            try {
-                await expectLogic(logic, () => logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG))
-                    .toDispatchActions(['restoreFeatureFlag'])
-                    .toMatchValues({ featureFlagRestoreLoading: true })
-                    .toDispatchActions(['restoreFeatureFlagFinished'])
-                    .toMatchValues({ featureFlagRestoreLoading: false })
-                    .toFinishAllListeners()
+            updateSpy.mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: false })
 
-                // Refreshing alone keeps a stale entry beside the new one, and deleting alone drops the flag.
-                expect(deleteFromTree).toHaveBeenCalledWith('feature_flag', String(MOCK_FEATURE_FLAG.id))
-                expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', String(MOCK_FEATURE_FLAG.id))
-                expect(jest.mocked(deleteFromTree).mock.invocationCallOrder[0]).toBeLessThan(
-                    jest.mocked(refreshTreeItem).mock.invocationCallOrder[0]
-                )
-                // A `name` in the body overwrites the flag's description.
-                expect(updateSpy.mock.calls[0][1]).toEqual({ deleted: false })
-                expect(lemonToast.success).toHaveBeenCalledWith(`${MOCK_FEATURE_FLAG.key} has been restored`)
-            } finally {
-                updateSpy.mockRestore()
-            }
+            await expectLogic(logic, () => logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG))
+                .toDispatchActions(['restoreFeatureFlag'])
+                .toMatchValues({ featureFlagRestoreLoading: true })
+                .toDispatchActions(['restoreFeatureFlagSuccess'])
+                .toMatchValues({ featureFlagRestoreLoading: false })
+                .toFinishAllListeners()
+
+            // Refreshing alone keeps a stale entry beside the new one, and deleting alone drops the flag.
+            expect(deleteFromTree).toHaveBeenCalledWith('feature_flag', String(MOCK_FEATURE_FLAG.id))
+            expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', String(MOCK_FEATURE_FLAG.id))
+            expect(jest.mocked(deleteFromTree).mock.invocationCallOrder[0]).toBeLessThan(
+                jest.mocked(refreshTreeItem).mock.invocationCallOrder[0]
+            )
+            expect(updateSpy.mock.calls[0][1]).toEqual({ deleted: false })
+            expect(lemonToast.success).toHaveBeenCalledWith(`${MOCK_FEATURE_FLAG.key} has been restored`)
         })
 
         it('stops loading and leaves the tree alone when the restore fails', async () => {
-            const updateSpy = jest.spyOn(api, 'update').mockRejectedValue(new Error('nope'))
-            try {
-                await expectLogic(logic, () => logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG))
-                    .toDispatchActions(['restoreFeatureFlag'])
-                    .toMatchValues({ featureFlagRestoreLoading: true })
-                    .toDispatchActions(['restoreFeatureFlagFinished'])
-                    .toMatchValues({ featureFlagRestoreLoading: false })
-                    .toFinishAllListeners()
+            updateSpy.mockRejectedValue(new Error('nope'))
 
-                expect(refreshTreeItem).not.toHaveBeenCalled()
-                expect(lemonToast.error).toHaveBeenCalled()
-            } finally {
-                updateSpy.mockRestore()
-            }
+            await expectLogic(logic, () => logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG))
+                .toFinishAllListeners()
+                .toMatchValues({ featureFlagRestoreLoading: false })
+
+            expect(refreshTreeItem).not.toHaveBeenCalled()
+            expect(lemonToast.error).toHaveBeenCalled()
         })
     })
 

@@ -409,8 +409,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 {({ disabledReason }) => (
                                     <ButtonPrimitive
                                         menuItem
-                                        disabled={!!disabledReason}
-                                        {...(disabledReason && { tooltip: disabledReason })}
                                         data-attr={
                                             featureFlag.archived ? 'unarchive-feature-flag' : 'archive-feature-flag'
                                         }
@@ -423,7 +421,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 )
                                             }
                                         }}
+                                        // ButtonPrimitive ignores `disabled` when `disabledReasons` is set.
                                         disabledReasons={{
+                                            ...(disabledReason ? { [disabledReason]: true } : {}),
                                             "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                                 !featureFlag.can_edit,
                                             'Updating…': featureFlagActiveUpdateLoading,
@@ -443,8 +443,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <ButtonPrimitive
                                     menuItem
                                     variant="danger"
-                                    disabled={!!disabledReason}
-                                    {...(disabledReason && { tooltip: disabledReason })}
                                     data-attr={featureFlag.deleted ? 'restore-feature-flag' : 'delete-feature-flag'}
                                     onClick={() => {
                                         if (featureFlag.deleted) {
@@ -458,6 +456,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         }
                                     }}
                                     disabledReasons={{
+                                        ...(disabledReason ? { [disabledReason]: true } : {}),
                                         "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                             !featureFlag.can_edit,
                                         'Restoring…': featureFlagRestoreLoading,
