@@ -1,19 +1,30 @@
 import { trialFixtureComparison, trialFixtureResult, trialFixtureSetup } from './scoutTrialsFixtures'
 import { comparisonScoreDisabledReason, initialTrialVariants, trialFormError } from './scoutTrials'
 
-describe('scout comparison validation', () => {
-    test.each([0, 1.5, 11, 100])('rejects %s repeats when the comparison has two variants', (repeats) => {
+describe('scout trial validation', () => {
+    test.each([0, 1.5, 11, 100])('rejects %s repeats when the trial has two versions', (repeats) => {
         expect(trialFormError(trialFixtureSetup, initialTrialVariants(trialFixtureSetup), repeats)).not.toBeNull()
+    })
+
+    test.each([0, 1, 11])('rejects %s versions before starting a trial', (count) => {
+        const baseline = initialTrialVariants(trialFixtureSetup)[0]
+        const variants = Array.from({ length: count }, (_, index) => ({
+            ...baseline,
+            id: String(index),
+            label: `Version ${index + 1}`,
+        }))
+
+        expect(trialFormError(trialFixtureSetup, variants, 1)).toBe('Use between 2 and 10 versions per trial.')
     })
 
     it('rejects efforts unsupported by a model and blank prompt replacements before spending on a run', () => {
         const variants = initialTrialVariants(trialFixtureSetup)
-        expect(trialFormError(trialFixtureSetup, [{ ...variants[0], effort: 'unsupported' }], 1)).toContain(
-            'supported model and effort'
-        )
-        expect(trialFormError(trialFixtureSetup, [{ ...variants[0], replacePrompt: true, prompt: ' ' }], 1)).toContain(
-            'replacement prompt'
-        )
+        expect(
+            trialFormError(trialFixtureSetup, [{ ...variants[0], effort: 'unsupported' }, variants[1]], 1)
+        ).toContain('supported model and effort')
+        expect(
+            trialFormError(trialFixtureSetup, [{ ...variants[0], replacePrompt: true, prompt: ' ' }, variants[1]], 1)
+        ).toContain('replacement prompt')
         expect(
             trialFormError(
                 { ...trialFixtureSetup, ready: false, blocked_reason: 'Gateway capture is disabled.' },

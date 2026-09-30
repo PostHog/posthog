@@ -31,7 +31,7 @@ export function ScoutsRosterActions(): JSX.Element {
                     to={urls.inboxScoutTrials()}
                     data-attr="scout-open-comparisons"
                 >
-                    Compare scouts
+                    Trials
                 </LemonButton>
             )}
             <AskAboutScoutsMenu />

@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { mswDecorator } from '~/mocks/browser'
+
+import { scoutRubricReferenceFixture } from '../scoutRubricFixtures'
 import {
     trialFixtureComparison,
     trialFixtureConfig,
@@ -29,7 +32,11 @@ const defaults: ScoutTrialsViewProps = {
     comparisonRows: [],
     managedComparison: false,
     serverComparisonIds: [],
-    editingComparison: false,
+    editingComparison: true,
+    trialView: 'setup',
+    teamId: 2,
+    fixedConfigId: trialFixtureConfig.id,
+    showTrialList: noop,
     loadComparison: noop,
     resumeComparison: noop,
     loadComparisonHistory: noop,
@@ -88,15 +95,38 @@ const defaults: ScoutTrialsViewProps = {
 }
 
 const meta: Meta<typeof ScoutTrialsView> = {
-    title: 'Scenes-App/Inbox/Scout comparisons',
+    title: 'Scenes-App/Inbox/Scout trials',
+    id: 'scenes-app-inbox-scout-comparisons',
     component: ScoutTrialsView,
     args: defaults,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/signals/scout/rubrics/:config/': () => [
+                    200,
+                    {
+                        config_id: trialFixtureConfig.id,
+                        skill_name: trialFixtureSetup.skill_name,
+                        revision: 2,
+                        criteria: trialFixtureLongReport.criteria.map((criterion) => ({
+                            ...criterion,
+                            enabled: true,
+                            source: 'custom',
+                        })),
+                        generation: null,
+                        reference_context: scoutRubricReferenceFixture,
+                        reference_generation_id: '00000000-0000-4000-8000-000000000032',
+                    },
+                ],
+            },
+        }),
+    ],
     parameters: { layout: 'fullscreen', testOptions: { waitForLoadersToDisappear: false } },
 }
 export default meta
 type Story = StoryObj<typeof ScoutTrialsView>
 
-export const Idle: Story = {}
+export const Idle: Story = { args: { trialView: 'list', editingComparison: false } }
 export const Narrow: Story = {
     decorators: [
         (Story) => (
@@ -120,13 +150,13 @@ export const Disabled: Story = {
         setup: {
             ...trialFixtureSetup,
             ready: false,
-            blocked_reason: 'Comparisons are disabled until private capture is enabled on the gateway.',
+            blocked_reason: 'Trials are disabled until private capture is enabled on the gateway.',
         },
     },
 }
 export const Loading: Story = { args: { configs: null, configsLoading: true, selectedConfigId: null, setup: null } }
 export const Error: Story = {
-    args: { setup: null, pageError: "Couldn't load this scout's comparison settings. Try again." },
+    args: { setup: null, pageError: "Couldn't load this scout's trial settings. Try again." },
 }
 
 let fixtureId = 100
@@ -173,6 +203,8 @@ const completedRows = runningRows.map((row) => ({
 
 export const Running: Story = {
     args: {
+        trialView: 'detail',
+        editingComparison: false,
         comparisons: [trialFixtureComparison],
         comparisonsForConfig: [trialFixtureComparison],
         selectedComparison: trialFixtureComparison,
@@ -217,7 +249,9 @@ export const Results: Story = {
         ],
     },
 }
-export const ResultDetails: Story = { args: { ...Results.args, selectedResult: trialFixtureResult } }
+export const ResultDetails: Story = {
+    args: { ...Results.args, selectedResult: trialFixtureResult, selectedLaunchId: trialFixtureResult.launch_id },
+}
 export const ResultsNarrow: Story = { ...Results, decorators: Narrow.decorators }
 
 export const Scored: Story = {
@@ -325,3 +359,6 @@ export const MissingSavedRubric: Story = {
         scoreDisabledReason: null,
     },
 }
+
+export const History: Story = { args: { ...Scored.args, trialView: 'list' } }
+export const HistoryNarrow: Story = { ...History, decorators: Narrow.decorators }

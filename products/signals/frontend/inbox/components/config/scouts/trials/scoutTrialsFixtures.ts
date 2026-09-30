@@ -7,6 +7,7 @@ import type {
     TrialComparisonReportApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutRubricReferenceFixture } from '../scoutRubricFixtures'
 import type { ScoutTrialComparison } from './scoutTrialUtils'
 
 export const trialFixtureConfig: SignalScoutConfigApi = {
@@ -428,7 +429,7 @@ export const trialFixtureServerComparison: ScoutTrialComparisonApi = {
     context_id: trialFixtureResult.context_id,
     created_at: trialFixtureResult.started_at!,
     baseline_variant_id: trialFixtureComparison.baselineVariantId,
-    rubric_revision: trialFixtureReport.rubric_revision,
+    rubric_revision: 2,
     variants: trialFixtureComparison.groups.map((group, index) => ({
         id: group.variantId,
         label: index === 0 ? 'Baseline' : 'Candidate prompt',
@@ -446,6 +447,9 @@ export const trialFixtureServerComparison: ScoutTrialComparisonApi = {
         report: {
             ...trialFixtureReport,
             rubric_source: 'saved',
+            rubric_revision: 2,
+            rubric_reference_context: scoutRubricReferenceFixture,
+            rubric_reference_generation_id: '00000000-0000-4000-8000-000000000032',
             limitations: ['Live data may change between runs. These results describe the captured sample.'],
         },
     },

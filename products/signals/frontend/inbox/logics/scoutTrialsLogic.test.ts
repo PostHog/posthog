@@ -96,6 +96,59 @@ describe('scoutTrialsLogic', () => {
         logic.unmount()
     })
 
+    test.each([true, false])(
+        'keeps a scout-scoped trial page on its requested scout when available=%s',
+        async (available) => {
+            const configId = '00000000-0000-4000-8000-000000000010'
+            const config = { ...trialFixtureConfig, id: configId, display_name: 'Account activity' }
+            jest.mocked(signalsScoutConfigList).mockResolvedValue(
+                available ? [trialFixtureConfig, config] : [trialFixtureConfig]
+            )
+            jest.mocked(signalsScoutConfigTrialSetup).mockClear()
+            jest.mocked(signalsScoutConfigTrialSetup).mockResolvedValue({ ...trialFixtureSetup, config_id: configId })
+            const scopedLogic = scoutTrialsLogic({ teamId: 2, userId: 42, configId })
+
+            try {
+                await expectLogic(scopedLogic, () => {
+                    scopedLogic.mount()
+                }).toFinishAllListeners()
+
+                expect(logic.values.selectedConfigId).toBe(trialFixtureConfig.id)
+                expect(scopedLogic.values.selectedConfigId).toBe(available ? configId : null)
+                if (available) {
+                    expect(scopedLogic.values.setup?.config_id).toBe(configId)
+                    expect(signalsScoutConfigTrialSetup).toHaveBeenCalledWith('2', configId)
+                    expect(scopedLogic.values.trialView).toBe('list')
+                } else {
+                    expect(scopedLogic.values.pageError).toContain('This scout is unavailable')
+                    expect(signalsScoutConfigTrialSetup).not.toHaveBeenCalled()
+                }
+            } finally {
+                scopedLogic.unmount()
+            }
+        }
+    )
+
+    it('keeps the baseline and two versions while lowering repeats when another version would exceed the run limit', async () => {
+        const baselineId = logic.values.variants[0].id
+        const candidateId = logic.values.variants[1].id
+        logic.actions.removeVariant(candidateId)
+        expect(logic.values.variants.map((variant) => variant.id)).toEqual([baselineId, candidateId])
+
+        logic.actions.setRepeats(10)
+        await expectLogic(logic, () => logic.actions.addVariant()).toFinishAllListeners()
+        expect(logic.values.variants).toHaveLength(3)
+        expect(logic.values.repeats).toBe(6)
+        expect(logic.values.totalRuns).toBe(18)
+        expect(logic.values.formError).toBeNull()
+
+        logic.actions.removeVariant(baselineId)
+        expect(logic.values.variants).toHaveLength(3)
+        logic.actions.removeVariant(candidateId)
+        expect(logic.values.variants).toHaveLength(2)
+        expect(logic.values.variants[0].id).toBe(baselineId)
+    })
+
     it('submits the complete variant plan once so running and judging do not depend on the browser staying open', async () => {
         logic.actions.setRepeats(2)
         logic.actions.setNote('Investigate checkout retries.')
@@ -375,7 +428,7 @@ describe('scoutTrialsLogic', () => {
         otherUser.unmount()
     })
 
-    it('recovers a server-saved comparison without browser history and only reads its automatically judged report', async () => {
+    it('keeps saved trials in the list and restores their report after setup or back navigation without paid submissions', async () => {
         jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
             results: [trialFixtureServerComparison],
             has_more: false,
@@ -387,8 +440,25 @@ describe('scoutTrialsLogic', () => {
         ).toFinishAllListeners()
 
         expect(logic.values.selectedComparison?.id).toBe(trialFixtureServerComparison.comparison_id)
+        expect(logic.values.trialView).toBe('list')
         expect(logic.values.evaluationState.value?.report).toEqual(trialFixtureServerComparison.evaluation?.report)
         expect(logic.values.comparisonRows).toHaveLength(4)
+        expect(signalsScoutConfigTrialComparisonRetrieve).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => logic.actions.newComparison()).toFinishAllListeners()
+        expect(logic.values.trialView).toBe('setup')
+        await expectLogic(logic, () => logic.actions.showTrialList()).toFinishAllListeners()
+        expect(logic.values.trialView).toBe('list')
+        expect(logic.values.comparisonsForConfig.map((trial) => trial.id)).toEqual([
+            trialFixtureServerComparison.comparison_id,
+        ])
+        await expectLogic(logic, () =>
+            logic.actions.selectComparison(trialFixtureConfig.id, trialFixtureServerComparison.comparison_id)
+        ).toFinishAllListeners()
+        expect(logic.values.trialView).toBe('detail')
+        expect(logic.values.evaluationState.value?.report).toEqual(trialFixtureServerComparison.evaluation?.report)
+        await expectLogic(logic, () => logic.actions.showTrialList()).toFinishAllListeners()
+        expect(logic.values.trialView).toBe('list')
         expect(signalsScoutConfigTrialComparisonCreate).not.toHaveBeenCalled()
         expect(signalsScoutConfigTrialEvaluationCreate).not.toHaveBeenCalled()
     })

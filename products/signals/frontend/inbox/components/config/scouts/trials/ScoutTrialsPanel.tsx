@@ -8,5 +8,5 @@ export function ScoutTrialsPanel(props: ScoutTrialsLogicProps): JSX.Element {
     const values = useAllValues(logic)
     const actions = useActions(logic)
 
-    return <ScoutTrialsView {...values} {...actions} />
+    return <ScoutTrialsView {...values} {...actions} teamId={props.teamId} fixedConfigId={props.configId} />
 }

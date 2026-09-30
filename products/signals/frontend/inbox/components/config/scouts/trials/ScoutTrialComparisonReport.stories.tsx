@@ -1,19 +1,40 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useState } from 'react'
 
 import { ScoutTrialComparisonReport } from './ScoutTrialComparisonReport'
-import { trialFixtureLongReport, trialFixtureReport } from './scoutTrialsFixtures'
+import { ScoutTrialRunDrawer } from './ScoutTrialRunDrawer'
+import { trialFixtureLongReport, trialFixtureReport, trialFixtureResult } from './scoutTrialsFixtures'
+import type { ScoutTrialRow } from './scoutTrialUtils'
 
 const meta: Meta<typeof ScoutTrialComparisonReport> = {
     title: 'Scenes-App/Inbox/Scout comparison report',
     component: ScoutTrialComparisonReport,
     args: { report: trialFixtureReport },
     parameters: { layout: 'padded' },
-    render: (args) => (
-        // A query container needs a sized parent when the snapshot root shrinks to its content.
-        <div className="w-[calc(100vw-2rem)] max-w-full">
-            <ScoutTrialComparisonReport {...args} />
-        </div>
-    ),
+    render: function Render(args) {
+        const [launchId, setLaunchId] = useState<string | null>(null)
+        const rows: ScoutTrialRow[] = args.report.runs.map((run, index) => ({
+            launchId: run.launch_id,
+            variant: run.variant_id,
+            model: trialFixtureResult.model,
+            effort: trialFixtureResult.reasoning_effort,
+            status: 'completed',
+            startedAt: trialFixtureResult.started_at,
+            error: null,
+            result: { ...trialFixtureResult, launch_id: run.launch_id, cost_usd: index === 0 ? null : 0.75 },
+        }))
+        return (
+            <div className="w-[calc(100vw-2rem)] max-w-full">
+                <ScoutTrialComparisonReport {...args} rows={rows} onSelectRun={setLaunchId} />
+                <ScoutTrialRunDrawer
+                    result={rows.find((row) => row.launchId === launchId)?.result ?? null}
+                    report={args.report}
+                    launchId={launchId}
+                    onClose={() => setLaunchId(null)}
+                />
+            </div>
+        )
+    },
 }
 export default meta
 type Story = StoryObj<typeof ScoutTrialComparisonReport>

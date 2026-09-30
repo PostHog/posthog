@@ -8,12 +8,12 @@ Start by reading this document and the repository's `AGENTS.md`. Follow the stag
 
 - Implementation branch: `signals/scout-live-experiments`, [PR #105078](https://github.com/PostHog/posthog/pull/105078).
 - Known implementation commit: `b56358a961ee70992b30840a7fddb38b4b7841ab`. Fetch the branch for this guide and later fixes; record the resulting SHA.
-- Implemented: private repeated scout launches, shared starting history, prompt/model/effort variants, saved results, explicit paid scoring, criterion evidence, comparison reports and JSON export.
+- Implemented: private repeated scout launches, shared starting history, prompt/model/effort versions, automatic paid judging, saved reports, criterion evidence and JSON export.
 - Verify the full flow on this devbox: generate a rubric, review and save it with its reference, run parallel scouts through the current shared Python gateway's private route, then use the real comparison judge and reload its saved report. Passing unit tests and mocked browser stories do not establish this.
 - Rubric editing, generation and storage come from [PR #106580](https://github.com/PostHog/posthog/pull/106580). Use that generator and editor. New comparisons require a reviewed, saved rubric with the reference instructions captured by the generator; they do not fall back to a mock or generate a rubric automatically.
 - This guide authorizes no production operation. Use only the devbox's synthetic project and local services. A remote model provider can still charge for inference.
 
-Use the existing remaining test budget agreed with the operator. Record a cap and a running ledger before paid calls; missing usage or `cost: null` does not mean free. Begin with one small run. Stop repeated authentication, routing or provider failures before they consume the budget.
+Use the existing remaining test budget agreed with the operator. Record a cap and a running ledger before paid calls; missing usage or `cost: null` does not mean free. Begin with one small trial: two versions and one run each. Stop repeated authentication, routing or provider failures before they consume the budget.
 
 The gateway exempts staff users from per-user cost caps by default. Fleet limits and gateway limits do not enforce this exercise's dollar budget; use bounded batches and provider accounting.
 
@@ -96,7 +96,7 @@ Use the existing local development configuration. `DEBUG=true` with `CLOUD_DEPLO
 
 The gateway process must run this branch's `services/llm-gateway` code and authenticate against the **local** database. Use the normal `llm-gateway` unit, not a second private gateway. Trial credentials select private capture themselves. A healthy older gateway or the Go gateway is not equivalent.
 
-Verify configured provider keys through the gateway's supported secret plumbing. Its settings use the `LLM_GATEWAY_` prefix, including `LLM_GATEWAY_OPENAI_API_KEY` and, when needed for the scout model, `LLM_GATEWAY_ANTHROPIC_API_KEY`. The current comparison judge uses **`gpt-5.5`**; scout model support comes from `trial_setup`. Provider reachability and authorization both need a real request.
+Verify configured provider keys through the gateway's supported secret plumbing. Its settings use the `LLM_GATEWAY_` prefix, including `LLM_GATEWAY_OPENAI_API_KEY` and, when needed for the scout model, `LLM_GATEWAY_ANTHROPIC_API_KEY`. The current comparison judge uses **`gpt-6-astra`**; scout model support comes from `trial_setup`. Provider reachability and authorization both need a real request.
 
 `.codex/with-flox` builds a minimal environment and loads the repository dotenv file. Do not assume shell-exported credentials or new `.env.local` values reach every manual command. Hogli loads `.env.local`; standalone `bin/start-llm-gateway` also sources root `.env`. Use the established ignored configuration files and verify effective settings without dumping the environment or key values.
 
@@ -183,7 +183,7 @@ Use an existing scout over the synthetic data, or create one through the local s
 
 The source skill must support report output through `emit_report` or `edit_report`. Trials currently reject extra product `write_scopes`, external `mcp_gateway_server_ids`, and `structured_output_schema`. Preserve those checks. Enable the local organization's required AI consent and source configuration where missing.
 
-Open `<devbox app URL>/project/<project_id>/inbox/scouts/comparisons` as the operator. Select the source scout and inspect:
+Open the source scout as the operator and select its **Trials** tab, after **Runs**. The tab stays scoped to that scout and opens the saved trial list. The existing `/project/<project_id>/inbox/scouts/comparisons` route remains available. The UI calls a comparison a **trial**, each configuration a **version**, and each execution a **run**; API field names remain unchanged. Inspect:
 
 ```text
 GET /api/projects/<project_id>/signals/scout/configs/<config_id>/trial_setup/
@@ -194,12 +194,16 @@ Require `ready: true`. Read `blocked_reason` otherwise. Fleet enrollment, source
 Choose a model and effort from the returned `models` list. If the source effort is null, set it explicitly. Record the source skill version, prompt hash, model, effort and data window.
 
 1. Open the source scout's rubric editor. Generate suggestions once, review the criteria and reference, then save the checklist with that generation's reference. Generation is a separate paid action. Unsaved defaults, unreviewed suggestions and older rubrics without a captured reference cannot start scoring.
-2. Remove the default **Variant 1** row and set repeats to **1**, then launch one short baseline run against a known synthetic finding.
-3. Wait for a valid completed result and inspect the captured report, memory and tool evidence.
-4. Confirm judging starts automatically after the run finishes, without a separate scoring action.
-5. Wait for the saved report. Inspect actual verdicts and source quotations; a report consisting of judge errors is not successful validation. A single variant has no winner to compare.
-6. Reload the page and export the report. Confirm it reads the same evaluation without another model call. Also close the tab during a comparison and verify server-side judging still completes.
-7. Launch a small baseline/candidate pair sharing the starting context. Confirm separate writable memory and reports, and that the source scout's instructions/shared memory and normal inbox remain unchanged.
+2. Select **New trial**. Keep the editable baseline and **Version B**, then change the second version's model, effort or prompt. **Current** uses the saved scout prompt; **Custom** replaces it for that version only.
+3. Set **Runs per version** to **1**. Review the saved rubric revision and optional instructions for every run, then select **Start trial**. Both scout runs and judging use model credits.
+4. Follow **Run scouts → Judge runs → Results**. Judging starts automatically after every run finishes; closing the page does not stop the trial.
+5. Inspect the leaderboard and check-by-check results. Open a run to read its report, then expand failed or unknown checks for reasoning and evidence. A report consisting of judge errors is not successful validation.
+6. Return to **All trials**, reopen the saved trial, reload the page and export the report. Confirm these actions retain the same IDs without another model call. Also close the tab during a trial and verify server-side judging still completes.
+7. Confirm both versions share starting history but keep separate writable memory and reports. The live scout's instructions, shared memory and normal inbox must stay unchanged.
+
+The setup requires 2–10 versions and at most 20 total runs. The baseline cannot be deleted; other versions can be deleted only while more than two remain. Adding a version lowers the repeat count when needed to stay within the run limit. Start stays disabled while the saved rubric is unavailable, has no enabled checks, or lacks a complete captured reference.
+
+The report ranks versions by total checks passed; cost and duration do not affect the ranking. Equal top totals produce a tie. Missing runs or unknown checks produce **No clear winner**. The check grid can show only differences, and run details keep each check's explanation collapsed until opened. Missing cost appears as **Unavailable**, never zero.
 
 Keep the saved rubric fixed while comparing scout edits. Editing a skill or running a comparison does not regenerate the rubric or change its reference instructions. To change the grading standard, explicitly review and save rubric changes. Adopting a new generation's reference applies it to the whole checklist; ordinary criterion edits retain the saved reference. Existing evaluation IDs keep their original rubric and evidence.
 

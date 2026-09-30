@@ -8,43 +8,49 @@ import type {
     TrialRunJudgmentApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { trialRunVerdictCounts, trialVerdictLabel } from './scoutTrialPresentation'
-import { ScoutTrialVerdictSummary } from './ScoutTrialVerdictSummary'
+import { trialOrderedVerdicts, trialRunVerdictCounts, trialVerdictLabel } from './scoutTrialPresentation'
 
 export function ScoutTrialJudgment({
     judgment,
     evidence,
     criteria,
+    summary,
 }: {
     judgment: TrialRunJudgmentApi
     evidence?: TrialRunEvidenceApi
     criteria: TrialEvaluationCriterionApi[]
+    summary?: string
 }): JSX.Element {
+    const counts = trialRunVerdictCounts(judgment.criteria ?? [])
     return (
         <div className="flex flex-col gap-3 min-w-0 break-words">
-            {evidence && (
-                <p className="m-0 text-sm text-muted break-words">{`${evidence.model} · ${evidence.reasoning_effort} effort`}</p>
-            )}
             {judgment.status !== 'judged' ? (
                 <LemonBanner type={judgment.status === 'judge_error' ? 'error' : 'warning'}>
                     {judgment.error || evidence?.exclusion_reason || judgment.summary}
                 </LemonBanner>
             ) : (
                 <>
-                    <ScoutTrialVerdictSummary counts={trialRunVerdictCounts(judgment.criteria ?? [])} />
-                    <p className="m-0">{judgment.summary}</p>
+                    <div className="flex flex-wrap gap-2">
+                        <LemonTag type="success">{`${counts.passed} passed`}</LemonTag>
+                        <LemonTag type={counts.failed ? 'danger' : 'muted'}>{`${counts.failed} failed`}</LemonTag>
+                        <LemonTag type={counts.unknown ? 'warning' : 'muted'}>{`${counts.unknown} unknown`}</LemonTag>
+                        {counts.not_applicable > 0 && (
+                            <LemonTag type="muted">{`${counts.not_applicable} not applicable`}</LemonTag>
+                        )}
+                    </div>
+                    <p className="m-0 whitespace-pre-wrap">{summary || judgment.summary}</p>
                 </>
             )}
             {!!judgment.criteria?.length && (
                 <div className="flex min-w-0 flex-col gap-2">
                     <h5 className="m-0 text-sm font-semibold">Rubric checks</h5>
                     <p className="m-0 text-xs text-muted">
-                        Open a check to see why it passed or failed and the evidence used.
+                        Failed and unknown first. Open a check to see the judge's reasoning.
                     </p>
                     <LemonCollapse
                         multiple
                         size="small"
-                        panels={judgment.criteria.map((verdict) => {
+                        panels={trialOrderedVerdicts(judgment.criteria, criteria).map((verdict) => {
                             const criterion = criteria.find((item) => item.id === verdict.criterion_id)
                             return {
                                 key: verdict.criterion_id,
@@ -72,13 +78,13 @@ export function ScoutTrialJudgment({
                                 content: (
                                     <div className="flex min-w-0 flex-col gap-3 text-sm">
                                         <div className="flex flex-col gap-1">
-                                            <strong>Judge's explanation</strong>
+                                            <strong>Judge's reasoning</strong>
                                             <p className="m-0 whitespace-pre-wrap">{verdict.reason}</p>
-                                            <span className="text-xs text-muted">{`Judge confidence: ${verdict.confidence}`}</span>
+                                            <span className="text-xs text-muted">{`Confidence: ${verdict.confidence}`}</span>
                                         </div>
                                         {!!verdict.evidence?.length && (
                                             <div className="flex flex-col gap-2">
-                                                <strong>Supporting evidence</strong>
+                                                <strong>Evidence</strong>
                                                 {verdict.evidence.map((citation, index) => (
                                                     <blockquote
                                                         key={`${citation.source_id}-${index}`}
@@ -87,7 +93,7 @@ export function ScoutTrialJudgment({
                                                         <p className="m-0 whitespace-pre-wrap break-words">
                                                             {citation.quote}
                                                         </p>
-                                                        <div className="text-xs text-muted break-all">
+                                                        <div className="font-mono text-xs text-muted break-all">
                                                             {citation.source_id}
                                                         </div>
                                                     </blockquote>
@@ -95,11 +101,12 @@ export function ScoutTrialJudgment({
                                             </div>
                                         )}
                                         {criterion && (
-                                            <div className="flex flex-col gap-1 border-t pt-3 text-secondary">
-                                                <strong>What passing looks like</strong>
-                                                <p className="m-0">{criterion.pass_condition}</p>
-                                                <p className="m-0 text-xs">{`Applies when: ${criterion.applicability}`}</p>
-                                            </div>
+                                            <dl className="m-0 grid grid-cols-1 gap-x-3 gap-y-1 rounded border bg-surface-secondary p-3 @sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+                                                <dt className="font-semibold">Passes when</dt>
+                                                <dd className="m-0">{criterion.pass_condition}</dd>
+                                                <dt className="font-semibold">Applies to</dt>
+                                                <dd className="m-0">{criterion.applicability}</dd>
+                                            </dl>
                                         )}
                                     </div>
                                 ),
@@ -140,20 +147,6 @@ export function ScoutTrialJudgment({
                                         ),
                                     }))}
                                 />
-                            ),
-                        },
-                        {
-                            key: 'run-details',
-                            header: 'Technical run details',
-                            content: (
-                                <dl className="m-0 grid grid-cols-1 gap-1 text-xs break-all">
-                                    <dt className="font-semibold">Run ID</dt>
-                                    <dd className="m-0 mb-2">{judgment.launch_id}</dd>
-                                    <dt className="font-semibold">Execution</dt>
-                                    <dd className="m-0 mb-2">{`${evidence.runtime_adapter} · ${evidence.execution_status}${evidence.service_tier ? ` · ${evidence.service_tier}` : ''}`}</dd>
-                                    <dt className="font-semibold">Prompt fingerprint</dt>
-                                    <dd className="m-0">{evidence.skill_body_sha256}</dd>
-                                </dl>
                             ),
                         },
                     ]}

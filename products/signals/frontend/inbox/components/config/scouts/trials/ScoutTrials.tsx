@@ -7,13 +7,13 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ScoutTrialsPanel } from './ScoutTrialsPanel'
 
-export function ScoutTrials(): JSX.Element {
+export function ScoutTrials({ configId }: { configId?: string }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
 
     if (currentTeamId !== 2 || !user?.is_staff) {
-        return <LemonBanner type="info">Scout comparisons are available to staff in the internal project.</LemonBanner>
+        return <LemonBanner type="info">Scout trials are available to staff in the internal project.</LemonBanner>
     }
 
-    return <ScoutTrialsPanel teamId={currentTeamId} userId={user.id} />
+    return <ScoutTrialsPanel teamId={currentTeamId} userId={user.id} configId={configId} />
 }

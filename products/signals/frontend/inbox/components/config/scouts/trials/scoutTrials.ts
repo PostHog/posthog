@@ -88,16 +88,19 @@ export function trialFormError(
     if (!Number.isInteger(repeats) || repeats < 1 || variants.length * repeats > MAX_TRIAL_RUNS) {
         return `Choose between 1 and ${MAX_TRIAL_RUNS} total runs.`
     }
-    if (variants.length < 1 || variants.some((variant) => !variant.label.trim())) {
-        return 'Give every variant a name.'
+    if (variants.length < 2 || variants.length > 10) {
+        return 'Use between 2 and 10 versions per trial.'
+    }
+    if (variants.some((variant) => !variant.label.trim())) {
+        return 'Give every version a name.'
     }
     if (new Set(variants.map((variant) => variant.label.trim())).size !== variants.length) {
-        return 'Use a different name for each variant.'
+        return 'Use a different name for each version.'
     }
     for (const variant of variants) {
         const model = setup.models.find((option) => option.model === variant.model)
         if (!model?.reasoning_efforts.includes(variant.effort)) {
-            return 'Choose a supported model and effort for every variant.'
+            return 'Choose a supported model and effort for every version.'
         }
         if (variant.replacePrompt && !variant.prompt.trim()) {
             return 'Enter a replacement prompt or use the original prompt.'
@@ -113,7 +116,7 @@ export function initialTrialVariants(setup: ScoutTrialSetupApi): ScoutTrialVaria
         : model?.reasoning_efforts.includes('medium')
           ? 'medium'
           : (model?.reasoning_efforts[0] ?? '')
-    return ['Baseline', 'Variant 1'].map((label, index) => ({
+    return ['Baseline', 'Version B'].map((label, index) => ({
         id: String(index),
         label,
         model: model?.model ?? '',
@@ -175,14 +178,14 @@ export function comparisonScoreDisabledReason(
     results: Record<string, ScoutTrialResultApi>
 ): string | null {
     if (!comparison) {
-        return 'Start or select a comparison first.'
+        return 'Start or select a trial first.'
     }
     const launches = comparison.groups.flatMap((group) => group.launchIds)
     if (launches.some((id) => !results[id] || results[id].status === 'unknown')) {
-        return 'Every run in this comparison must have a confirmed result.'
+        return 'Every run in this trial must have a confirmed result.'
     }
     if (launches.some((id) => results[id].status === 'not_started')) {
-        return 'Some runs were not started. Retry their submissions or start a new comparison.'
+        return 'Some runs were not started. Retry their submissions or start a new trial.'
     }
     if (
         launches.some(
@@ -191,7 +194,7 @@ export function comparisonScoreDisabledReason(
                 trialTaskIsActive(results[id].task_status)
         )
     ) {
-        return 'Wait for every run in this comparison to finish.'
+        return 'Wait for every run in this trial to finish.'
     }
     return null
 }
