@@ -1,44 +1,45 @@
-"""Scheduler state: SQL and row types for the shadow scheduler's tables.
+"""Scheduler state: SQL and row types for scheduler tables.
 
-``queueschedulerstate`` holds one row per in-scope schema with its cadence and
+``queueschedulerstate`` holds one row per schedule with its cadence and
 the next epoch-aligned due time; ``queueschedulerdecision`` is the append-only
 record of what the scheduler would have done at each window. Both tables are
-small (one row per schema, decisions pruned on a retention window), so unlike
+small (one row per schedule, decisions pruned on a retention window), so unlike
 the job tables they are not partitioned. All SQL lives here (the ``JobsTable``
-idiom); the tick loop drives it from ``warehouse_sources``' shadow runner.
+idiom); callers drive the tick loop.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
 
-from posthog.dataclasses import frozen
-
 SCHEDULER_STATE_TABLE = "queueschedulerstate"
 SCHEDULER_DECISION_TABLE = "queueschedulerdecision"
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class DueSchedule:
-    """One scheduler-state row: a schema's cadence and its next due time."""
+    """One scheduler-state row: a schedule's cadence and its next due time."""
 
-    schema_id: str
+    kind: str
+    schedule_key: str
     team_id: int
     interval_seconds: int
     offset_seconds: int
     next_due_at: datetime
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class DecisionRecord:
-    """One shadow decision for a schema's fire window."""
+    """One decision for a schedule's fire window."""
 
     team_id: int
-    schema_id: str
+    kind: str
+    schedule_key: str
     window_boundary: datetime
     due_at: datetime
     decision: str
@@ -48,12 +49,12 @@ class DecisionRecord:
 
 _UPSERT_STATE_SQL = f"""
     INSERT INTO {SCHEDULER_STATE_TABLE} (
-        schema_id, team_id, interval_seconds, offset_seconds, next_due_at, refreshed_at, updated_at
+        kind, schedule_key, team_id, interval_seconds, offset_seconds, next_due_at, refreshed_at, updated_at
     )
     VALUES (
-        %(schema_id)s, %(team_id)s, %(interval_seconds)s, %(offset_seconds)s, %(next_due_at)s, now(), now()
+        %(kind)s, %(schedule_key)s, %(team_id)s, %(interval_seconds)s, %(offset_seconds)s, %(next_due_at)s, now(), now()
     )
-    ON CONFLICT (schema_id) DO UPDATE SET
+    ON CONFLICT (kind, schedule_key) DO UPDATE SET
         team_id = excluded.team_id,
         -- A cadence change re-anchors the schedule; an unchanged cadence keeps
         -- the stored due time so refreshes never move a pending fire.
@@ -74,32 +75,33 @@ _INSERT_DECISIONS_SQL = f"""
         SELECT *
         FROM unnest(
             %(team_ids)s::bigint[],
-            %(schema_ids)s::text[],
+            %(kinds)s::text[],
+            %(schedule_keys)s::text[],
             %(window_boundaries)s::timestamptz[],
             %(due_times)s::timestamptz[],
             %(decisions)s::text[],
             %(intervals)s::bigint[],
             %(lateness)s::double precision[]
         ) WITH ORDINALITY AS rows(
-            team_id, schema_id, window_boundary, due_at, decision,
+            team_id, kind, schedule_key, window_boundary, due_at, decision,
             interval_seconds, late_seconds, record_index
         )
     ), deduplicated AS (
-        SELECT DISTINCT ON (schema_id, due_at) *
+        SELECT DISTINCT ON (kind, schedule_key, due_at) *
         FROM input
-        ORDER BY schema_id, due_at, record_index
+        ORDER BY kind, schedule_key, due_at, record_index
     ), inserted AS (
         INSERT INTO {SCHEDULER_DECISION_TABLE} (
-            team_id, schema_id, window_boundary, due_at, decision, interval_seconds, late_seconds
+            team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds
         )
-        SELECT team_id, schema_id, window_boundary, due_at, decision, interval_seconds, late_seconds
+        SELECT team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds
         FROM deduplicated
-        ON CONFLICT (schema_id, due_at) DO NOTHING
-        RETURNING schema_id, due_at
+        ON CONFLICT (kind, schedule_key, due_at) DO NOTHING
+        RETURNING kind, schedule_key, due_at
     )
     SELECT deduplicated.record_index
     FROM deduplicated
-    INNER JOIN inserted USING (schema_id, due_at)
+    INNER JOIN inserted USING (kind, schedule_key, due_at)
     ORDER BY deduplicated.record_index
 """
 
@@ -121,7 +123,8 @@ class SchedulerStateTable:
                 _UPSERT_STATE_SQL,
                 [
                     {
-                        "schema_id": row.schema_id,
+                        "kind": row.kind,
+                        "schedule_key": row.schedule_key,
                         "team_id": row.team_id,
                         "interval_seconds": row.interval_seconds,
                         "offset_seconds": row.offset_seconds,
@@ -134,13 +137,14 @@ class SchedulerStateTable:
     @staticmethod
     async def delete_states_not_refreshed_since(
         conn: psycopg.AsyncConnection[Any],
+        kind: str,
         cutoff: datetime,
     ) -> int:
-        """Drop rows the latest refresh did not touch (schemas that left scope)."""
+        """Drop rows the latest refresh did not touch."""
         async with conn.cursor() as cur:
             await cur.execute(
-                f"DELETE FROM {SCHEDULER_STATE_TABLE} WHERE refreshed_at < %(cutoff)s",
-                {"cutoff": cutoff},
+                f"DELETE FROM {SCHEDULER_STATE_TABLE} WHERE kind = %(kind)s AND refreshed_at < %(cutoff)s",
+                {"kind": kind, "cutoff": cutoff},
             )
             return cur.rowcount
 
@@ -148,6 +152,7 @@ class SchedulerStateTable:
     async def claim_due(
         conn: psycopg.AsyncConnection[Any],
         *,
+        kind: str,
         limit: int,
     ) -> list[DueSchedule]:
         """Lock and return the due rows. Call inside a transaction and advance
@@ -156,14 +161,14 @@ class SchedulerStateTable:
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                SELECT schema_id, team_id, interval_seconds, offset_seconds, next_due_at
+                SELECT kind, schedule_key, team_id, interval_seconds, offset_seconds, next_due_at
                 FROM {SCHEDULER_STATE_TABLE}
-                WHERE next_due_at <= now()
+                WHERE kind = %(kind)s AND next_due_at <= now()
                 ORDER BY next_due_at
                 LIMIT %(limit)s
                 FOR UPDATE SKIP LOCKED
                 """,
-                {"limit": limit},
+                {"kind": kind, "limit": limit},
             )
             rows = await cur.fetchall()
         return [DueSchedule(**row) for row in rows]
@@ -171,7 +176,7 @@ class SchedulerStateTable:
     @staticmethod
     async def advance_states(
         conn: psycopg.AsyncConnection[Any],
-        rows: list[tuple[str, datetime]],
+        rows: list[tuple[DueSchedule, datetime]],
     ) -> None:
         """Advance claimed rows to their next due time; pair with :meth:`claim_due`."""
         if not rows:
@@ -181,23 +186,27 @@ class SchedulerStateTable:
                 f"""
                 UPDATE {SCHEDULER_STATE_TABLE}
                 SET next_due_at = %(next_due_at)s, updated_at = now()
-                WHERE schema_id = %(schema_id)s
+                WHERE kind = %(kind)s AND schedule_key = %(schedule_key)s
                 """,
-                [{"schema_id": schema_id, "next_due_at": next_due_at} for schema_id, next_due_at in rows],
+                [
+                    {"kind": row.kind, "schedule_key": row.schedule_key, "next_due_at": next_due_at}
+                    for row, next_due_at in rows
+                ],
             )
 
     @staticmethod
     async def delete_states(
         conn: psycopg.AsyncConnection[Any],
-        schema_ids: list[str],
+        kind: str,
+        schedule_keys: list[str],
     ) -> int:
-        """Drop specific state rows (schemas the due scan found out of scope)."""
-        if not schema_ids:
+        """Drop specific state rows that left scope."""
+        if not schedule_keys:
             return 0
         async with conn.cursor() as cur:
             await cur.execute(
-                f"DELETE FROM {SCHEDULER_STATE_TABLE} WHERE schema_id = ANY(%(schema_ids)s)",
-                {"schema_ids": schema_ids},
+                f"DELETE FROM {SCHEDULER_STATE_TABLE} WHERE kind = %(kind)s AND schedule_key = ANY(%(schedule_keys)s)",
+                {"kind": kind, "schedule_keys": schedule_keys},
             )
             return cur.rowcount
 
@@ -208,7 +217,7 @@ class SchedulerStateTable:
     ) -> tuple[list[DecisionRecord], int]:
         """Record decisions and return (inserted records, refused count).
 
-        A refusal means the (schema_id, due_at) pair was already recorded,
+        A refusal means the (kind, schedule_key, due_at) tuple was already recorded,
         which in a single-flighted fleet indicates a duplicate-window bug
         worth a metric.
         """
@@ -219,7 +228,8 @@ class SchedulerStateTable:
                 _INSERT_DECISIONS_SQL,
                 {
                     "team_ids": [record.team_id for record in records],
-                    "schema_ids": [record.schema_id for record in records],
+                    "kinds": [record.kind for record in records],
+                    "schedule_keys": [record.schedule_key for record in records],
                     "window_boundaries": [record.window_boundary for record in records],
                     "due_times": [record.due_at for record in records],
                     "decisions": [record.decision for record in records],
@@ -235,33 +245,35 @@ class SchedulerStateTable:
     async def prune_decisions(
         conn: psycopg.AsyncConnection[Any],
         *,
+        kind: str,
         older_than_days: int,
     ) -> int:
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
                 DELETE FROM {SCHEDULER_DECISION_TABLE}
-                WHERE observed_at < now() - make_interval(days => %(days)s)
+                WHERE kind = %(kind)s AND observed_at < now() - make_interval(days => %(days)s)
                 """,
-                {"days": older_than_days},
+                {"kind": kind, "days": older_than_days},
             )
             return cur.rowcount
 
     @staticmethod
     def fetch_would_fires(
         conn: psycopg.Connection[Any],
+        kind: str,
         since: datetime,
     ) -> list[DecisionRecord]:
-        """Read the would-fire decisions for the shadow report (sync caller)."""
+        """Read the would-fire decisions for one kind."""
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
-                SELECT team_id, schema_id, window_boundary, due_at, decision, interval_seconds, late_seconds
+                SELECT team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds
                 FROM {SCHEDULER_DECISION_TABLE}
-                WHERE decision = 'would_fire' AND due_at >= %(since)s
+                WHERE kind = %(kind)s AND decision = 'would_fire' AND due_at >= %(since)s
                 ORDER BY due_at
                 """,
-                {"since": since},
+                {"kind": kind, "since": since},
             )
             rows = cur.fetchall()
         return [DecisionRecord(**row) for row in rows]

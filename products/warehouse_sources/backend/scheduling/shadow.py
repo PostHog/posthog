@@ -32,6 +32,7 @@ from products.warehouse_sources_queue.backend.sdk import DecisionRecord, DueSche
 SCHEDULER_LANE = "scheduler"
 TICK_SLOT_KEY = "tick-slot"
 REFRESH_SLOT_KEY = "refresh-slot"
+SYNC_EXTRACT_KIND = "sync.extract"
 
 DECISION_WOULD_FIRE = "would_fire"
 DECISION_SKIP_OVERLAP = "skip_overlap"
@@ -172,7 +173,7 @@ async def evaluate_due(due: list[DueSchedule], now_epoch: int) -> EvaluationResu
     if not due:
         return EvaluationResult(records=(), missed_windows=0)
 
-    due_ids = [row.schema_id for row in due]
+    due_ids = [row.schedule_key for row in due]
     scope_config = await database_sync_to_async_pool(_fetch_due_scope)(due_ids)
     running_jobs = await database_sync_to_async_pool(_fetch_running_jobs)(due_ids)
 
@@ -188,15 +189,15 @@ async def evaluate_due(due: list[DueSchedule], now_epoch: int) -> EvaluationResu
         # Temporal run fired for this boundary may already be RUNNING by the
         # time the shadow tick evaluates, but it is the run being compared.
         had_running_job_at_boundary = any(
-            schema_id == row.schema_id and created_at < datetime.fromtimestamp(fire, tz=UTC)
+            schema_id == row.schedule_key and created_at < datetime.fromtimestamp(fire, tz=UTC)
             for schema_id, created_at in running_jobs
         )
 
-        if row.schema_id not in scope_config:
+        if row.schedule_key not in scope_config:
             decision = DECISION_SKIP_OUT_OF_SCOPE
         elif had_running_job_at_boundary:
             decision = DECISION_SKIP_OVERLAP
-        elif cdc_halted_from_config(scope_config[row.schema_id]):
+        elif cdc_halted_from_config(scope_config[row.schedule_key]):
             decision = DECISION_SKIP_CDC_HALTED
         else:
             decision = DECISION_WOULD_FIRE
@@ -204,7 +205,8 @@ async def evaluate_due(due: list[DueSchedule], now_epoch: int) -> EvaluationResu
         records.append(
             DecisionRecord(
                 team_id=row.team_id,
-                schema_id=row.schema_id,
+                kind=row.kind,
+                schedule_key=row.schedule_key,
                 window_boundary=datetime.fromtimestamp(window_boundary(fire, cadence), tz=UTC),
                 due_at=datetime.fromtimestamp(fire, tz=UTC),
                 decision=decision,

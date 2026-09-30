@@ -301,14 +301,15 @@ class QueueJobLease(models.Model):
 
 
 class QueueSchedulerState(models.Model):
-    """One row per in-scope schema: its cadence and epoch-aligned next due time.
+    """One row per schedule: its cadence and epoch-aligned next due time.
 
-    Written only by the shadow scheduler's refresh and claim passes. All access
+    Written by the scheduler's refresh and claim passes. All access
     is via raw SQL in ``core/scheduler_state.py`` — this model exists for
     migration and introspection.
     """
 
-    schema_id = models.CharField(max_length=200, primary_key=True)
+    kind = models.CharField(max_length=100)
+    schedule_key = models.CharField(max_length=200)
     team_id = models.BigIntegerField()
     interval_seconds = models.BigIntegerField()
     offset_seconds = models.IntegerField()
@@ -316,10 +317,13 @@ class QueueSchedulerState(models.Model):
     refreshed_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    __repr__ = sane_repr("schema_id", "team_id", "next_due_at")
+    __repr__ = sane_repr("kind", "schedule_key", "team_id", "next_due_at")
 
     class Meta:
         db_table = "queueschedulerstate"
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "schedule_key"], name="qss_kind_key_uniq"),
+        ]
         indexes = [
             models.Index(fields=["next_due_at"], name="qss_next_due_idx"),
             models.Index(fields=["refreshed_at"], name="qss_refreshed_idx"),
@@ -327,15 +331,16 @@ class QueueSchedulerState(models.Model):
 
 
 class QueueSchedulerDecision(models.Model):
-    """Append-only shadow-scheduler decision per (schema, due time).
+    """Append-only scheduler decision per (kind, schedule key, due time).
 
-    The unique (schema_id, due_at) pair allows a cadence offset change to fire
+    The unique (kind, schedule_key, due_at) tuple allows a cadence offset change to fire
     again inside the same offset-free boundary. All access is via raw SQL in
     ``core/scheduler_state.py``.
     """
 
     team_id = models.BigIntegerField()
-    schema_id = models.CharField(max_length=200)
+    kind = models.CharField(max_length=100)
+    schedule_key = models.CharField(max_length=200)
     window_boundary = models.DateTimeField()
     due_at = models.DateTimeField()
     decision = models.CharField(max_length=32)
@@ -343,12 +348,12 @@ class QueueSchedulerDecision(models.Model):
     late_seconds = models.FloatField()
     observed_at = models.DateTimeField(auto_now_add=True)
 
-    __repr__ = sane_repr("schema_id", "window_boundary", "decision")
+    __repr__ = sane_repr("kind", "schedule_key", "window_boundary", "decision")
 
     class Meta:
         db_table = "queueschedulerdecision"
         constraints = [
-            models.UniqueConstraint(fields=["schema_id", "due_at"], name="qsd_schema_due_uniq"),
+            models.UniqueConstraint(fields=["kind", "schedule_key", "due_at"], name="qsd_kind_key_due_uniq"),
         ]
         indexes = [
             models.Index(fields=["observed_at"], name="qsd_observed_at_idx"),

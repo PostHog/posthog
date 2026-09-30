@@ -138,4 +138,12 @@ SQL lives in `core/generic_jobs.py`; the SDK wiring (`JobHandler`, `Outcome`, `G
 
 ## Scheduler state (phase 2, shadow mode)
 
-`queueschedulerstate` holds one row per in-scope schema (cadence + epoch-aligned `next_due_at`); `queueschedulerdecision` records, per `(schema_id, due_at)`, what a Postgres scheduler would have done (`would_fire` or a skip reason). SQL lives in `core/scheduler_state.py`; the tick loop, scope predicate, and due-time math live in `products/warehouse_sources/backend/scheduling/` and run via the `run_warehouse_scheduler` command. The scheduler is single-flighted fleet-wide through sentinel rows in `queuejoblease` (lane `scheduler`) and starts no syncs — `report_warehouse_scheduler_shadow` compares its decisions against the `ExternalDataJob` rows Temporal schedules actually created.
+`queueschedulerstate` holds one row per `(kind, schedule_key)` with its cadence and epoch-aligned `next_due_at`.
+`queueschedulerdecision` records one decision per `(kind, schedule_key, due_at)`.
+The warehouse scheduler uses `sync.extract` as its kind and the schema ID as its schedule key.
+SQL lives in `core/scheduler_state.py`.
+The tick loop, scope predicate, and due-time math live in `products/warehouse_sources/backend/scheduling/`.
+The `run_warehouse_scheduler` command runs the tick loop.
+The scheduler uses sentinel rows in `queuejoblease` (lane `scheduler`) to select one leader across the fleet.
+It starts no syncs.
+The `report_warehouse_scheduler_shadow` command compares decisions with the `ExternalDataJob` rows that Temporal schedules created.

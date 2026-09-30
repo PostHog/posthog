@@ -26,11 +26,15 @@ OWNER_A = str(uuid4())
 OWNER_B = str(uuid4())
 
 INTERVAL = 21600
+KIND = "test.kind"
 
 
-def _state(schema_id: str, *, due_in_seconds: float, interval: int = INTERVAL, offset: int = 0) -> DueSchedule:
+def _state(
+    schedule_key: str, *, kind: str = KIND, due_in_seconds: float, interval: int = INTERVAL, offset: int = 0
+) -> DueSchedule:
     return DueSchedule(
-        schema_id=schema_id,
+        kind=kind,
+        schedule_key=schedule_key,
         team_id=1,
         interval_seconds=interval,
         offset_seconds=offset,
@@ -39,15 +43,17 @@ def _state(schema_id: str, *, due_in_seconds: float, interval: int = INTERVAL, o
 
 
 def _decision(
-    schema_id: str,
+    schedule_key: str,
     window_boundary: datetime,
     decision: str = "would_fire",
     *,
+    kind: str = KIND,
     due_at: datetime | None = None,
 ) -> DecisionRecord:
     return DecisionRecord(
         team_id=1,
-        schema_id=schema_id,
+        kind=kind,
+        schedule_key=schedule_key,
         window_boundary=window_boundary,
         due_at=due_at or window_boundary,
         decision=decision,
@@ -56,10 +62,10 @@ def _decision(
     )
 
 
-async def _fetch_states(conn: psycopg.AsyncConnection[Any]) -> dict[str, dict[str, Any]]:
+async def _fetch_states(conn: psycopg.AsyncConnection[Any]) -> dict[tuple[str, str], dict[str, Any]]:
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(f"SELECT * FROM {SCHEDULER_STATE_TABLE}")
-        return {row["schema_id"]: row for row in await cur.fetchall()}
+        return {(row["kind"], row["schedule_key"]): row for row in await cur.fetchall()}
 
 
 @pytest.fixture(scope="session")
@@ -93,21 +99,21 @@ class TestSchedulerState:
     async def test_claim_due_returns_only_due_rows_and_advances_them(self, conn):
         await SchedulerStateTable.upsert_states(
             conn,
-            [_state("due-schema", due_in_seconds=-60), _state("future-schema", due_in_seconds=3600)],
+            [_state("due-schedule", due_in_seconds=-60), _state("future-schedule", due_in_seconds=3600)],
         )
 
         async with conn.transaction():
-            due = await SchedulerStateTable.claim_due(conn, limit=10)
-            assert [row.schema_id for row in due] == ["due-schema"]
+            due = await SchedulerStateTable.claim_due(conn, kind=KIND, limit=10)
+            assert [row.schedule_key for row in due] == ["due-schedule"]
             await SchedulerStateTable.advance_states(
-                conn, [(row.schema_id, datetime.now(UTC) + timedelta(seconds=INTERVAL)) for row in due]
+                conn, [(row, datetime.now(UTC) + timedelta(seconds=INTERVAL)) for row in due]
             )
 
         async with conn.transaction():
-            assert await SchedulerStateTable.claim_due(conn, limit=10) == []
+            assert await SchedulerStateTable.claim_due(conn, kind=KIND, limit=10) == []
 
     @pytest.mark.asyncio
-    async def test_decision_insert_dedups_on_schema_and_due_time(self, conn):
+    async def test_decision_insert_dedups_on_kind_key_and_due_time(self, conn):
         boundary = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
         first = _decision("s1", boundary)
 
@@ -119,11 +125,25 @@ class TestSchedulerState:
         ) == ([], 1)
 
         recadenced = _decision("s1", boundary, due_at=boundary + timedelta(minutes=30))
-        other_schema = _decision("s2", boundary)
-        assert await SchedulerStateTable.insert_decisions(conn, [recadenced, other_schema]) == (
-            [recadenced, other_schema],
+        other_schedule = _decision("s2", boundary)
+        assert await SchedulerStateTable.insert_decisions(conn, [recadenced, other_schedule]) == (
+            [recadenced, other_schedule],
             0,
         )
+        other_kind = _decision("s1", boundary, kind="other.kind")
+        assert await SchedulerStateTable.insert_decisions(conn, [other_kind]) == ([other_kind], 0)
+
+    @pytest.mark.asyncio
+    async def test_state_operations_are_scoped_to_kind(self, conn):
+        first = _state("shared", due_in_seconds=-60)
+        second = _state("shared", kind="other.kind", due_in_seconds=-60)
+        await SchedulerStateTable.upsert_states(conn, [first, second])
+
+        assert set(await _fetch_states(conn)) == {(KIND, "shared"), ("other.kind", "shared")}
+        async with conn.transaction():
+            assert await SchedulerStateTable.claim_due(conn, kind=KIND, limit=10) == [first]
+        assert await SchedulerStateTable.delete_states(conn, KIND, ["shared"]) == 1
+        assert set(await _fetch_states(conn)) == {("other.kind", "shared")}
 
     @pytest.mark.asyncio
     async def test_upsert_preserves_next_due_at_unless_cadence_changed(self, conn):
@@ -132,14 +152,14 @@ class TestSchedulerState:
 
         await SchedulerStateTable.upsert_states(conn, [_state("s1", due_in_seconds=9999)])
         states = await _fetch_states(conn)
-        assert states["s1"]["next_due_at"] == first.next_due_at
+        assert states[(KIND, "s1")]["next_due_at"] == first.next_due_at
 
         recadenced = _state("s1", due_in_seconds=120, interval=3600, offset=60)
         await SchedulerStateTable.upsert_states(conn, [recadenced])
         states = await _fetch_states(conn)
-        assert states["s1"]["next_due_at"] == recadenced.next_due_at
-        assert states["s1"]["interval_seconds"] == 3600
-        assert states["s1"]["offset_seconds"] == 60
+        assert states[(KIND, "s1")]["next_due_at"] == recadenced.next_due_at
+        assert states[(KIND, "s1")]["interval_seconds"] == 3600
+        assert states[(KIND, "s1")]["offset_seconds"] == 60
 
     @pytest.mark.asyncio
     async def test_stale_state_rows_deleted_after_refresh_cutoff(self, conn):
@@ -153,8 +173,8 @@ class TestSchedulerState:
             cutoff = row[0]
         await SchedulerStateTable.upsert_states(conn, [_state("kept", due_in_seconds=600)])
 
-        assert await SchedulerStateTable.delete_states_not_refreshed_since(conn, cutoff) == 1
-        assert set(await _fetch_states(conn)) == {"kept"}
+        assert await SchedulerStateTable.delete_states_not_refreshed_since(conn, KIND, cutoff) == 1
+        assert set(await _fetch_states(conn)) == {(KIND, "kept")}
 
     @pytest.mark.asyncio
     async def test_sentinel_slot_single_flights_within_ttl(self, conn):

@@ -233,13 +233,16 @@ JOB_DEFAULTS: dict[str, Any] = {
 def ensure_scheduler_tables(conn: psycopg.Connection[Any]) -> None:
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {SCHEDULER_STATE_TABLE} (
-            schema_id VARCHAR(200) PRIMARY KEY,
+            id BIGSERIAL PRIMARY KEY,
+            kind VARCHAR(100) NOT NULL,
+            schedule_key VARCHAR(200) NOT NULL,
             team_id BIGINT NOT NULL,
             interval_seconds BIGINT NOT NULL,
             offset_seconds INT NOT NULL,
             next_due_at TIMESTAMPTZ NOT NULL,
             refreshed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT qss_kind_key_uniq UNIQUE (kind, schedule_key)
         )
     """)
     conn.execute(f"CREATE INDEX IF NOT EXISTS qss_next_due_idx ON {SCHEDULER_STATE_TABLE} (next_due_at)")
@@ -248,24 +251,16 @@ def ensure_scheduler_tables(conn: psycopg.Connection[Any]) -> None:
         CREATE TABLE IF NOT EXISTS {SCHEDULER_DECISION_TABLE} (
             id BIGSERIAL PRIMARY KEY,
             team_id BIGINT NOT NULL,
-            schema_id VARCHAR(200) NOT NULL,
+            kind VARCHAR(100) NOT NULL,
+            schedule_key VARCHAR(200) NOT NULL,
             window_boundary TIMESTAMPTZ NOT NULL,
             due_at TIMESTAMPTZ NOT NULL,
             decision VARCHAR(32) NOT NULL,
             interval_seconds BIGINT NOT NULL,
             late_seconds DOUBLE PRECISION NOT NULL,
             observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            CONSTRAINT qsd_schema_due_uniq UNIQUE (schema_id, due_at)
+            CONSTRAINT qsd_kind_key_due_uniq UNIQUE (kind, schedule_key, due_at)
         )
-    """)
-    conn.execute(f"ALTER TABLE {SCHEDULER_DECISION_TABLE} DROP CONSTRAINT IF EXISTS qsd_schema_window_uniq")
-    conn.execute(f"""
-        DO $$ BEGIN
-            ALTER TABLE {SCHEDULER_DECISION_TABLE}
-                ADD CONSTRAINT qsd_schema_due_uniq UNIQUE (schema_id, due_at);
-        EXCEPTION
-            WHEN duplicate_object OR duplicate_table THEN NULL;
-        END $$
     """)
     conn.execute(f"CREATE INDEX IF NOT EXISTS qsd_observed_at_idx ON {SCHEDULER_DECISION_TABLE} (observed_at)")
 

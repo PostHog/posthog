@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     REFRESH_SLOT_KEY,
     SCHEDULER_LANE,
     SKIP_REASONS,
+    SYNC_EXTRACT_KIND,
     TICK_SLOT_KEY,
     SchemaCadence,
     evaluate_due,
@@ -53,7 +54,7 @@ SKIPS_TOTAL = Counter(
 
 DUPLICATE_WINDOWS_TOTAL = Counter(
     "warehouse_pg_scheduler_duplicate_windows_total",
-    "Decision inserts refused because the (schema, window) pair was already recorded",
+    "Decision inserts refused because the (kind, schedule key, due time) tuple was already recorded",
 )
 
 SCAN_DURATION_SECONDS = Histogram(
@@ -160,19 +161,19 @@ class ShadowScheduler:
 
             now_epoch = int(time.time())
             async with conn.transaction():
-                due = await SchedulerStateTable.claim_due(conn, limit=self._config.claim_limit)
+                due = await SchedulerStateTable.claim_due(conn, kind=SYNC_EXTRACT_KIND, limit=self._config.claim_limit)
                 result = await evaluate_due(due, now_epoch)
                 inserted_records, refused = await SchedulerStateTable.insert_decisions(conn, list(result.records))
 
                 advances = []
                 for row in due:
                     cadence = SchemaCadence(interval_seconds=row.interval_seconds, offset_seconds=row.offset_seconds)
-                    advances.append((row.schema_id, datetime.fromtimestamp(next_due_after(now_epoch, cadence), tz=UTC)))
+                    advances.append((row, datetime.fromtimestamp(next_due_after(now_epoch, cadence), tz=UTC)))
                 await SchedulerStateTable.advance_states(conn, advances)
 
-                out_of_scope = [r.schema_id for r in result.records if r.decision == DECISION_SKIP_OUT_OF_SCOPE]
+                out_of_scope = [r.schedule_key for r in result.records if r.decision == DECISION_SKIP_OUT_OF_SCOPE]
                 if out_of_scope:
-                    await SchedulerStateTable.delete_states(conn, out_of_scope)
+                    await SchedulerStateTable.delete_states(conn, SYNC_EXTRACT_KIND, out_of_scope)
 
             DUE_PER_TICK.observe(len(due))
             for record in inserted_records:
@@ -181,7 +182,7 @@ class ShadowScheduler:
                     WOULD_FIRE_TOTAL.inc()
                     logger.info(
                         "scheduler_would_fire",
-                        schema_id=record.schema_id,
+                        schema_id=record.schedule_key,
                         team_id=record.team_id,
                         due_at=record.due_at.isoformat(),
                         late_seconds=record.late_seconds,
@@ -190,17 +191,17 @@ class ShadowScheduler:
                     SKIPS_TOTAL.labels(reason=SKIP_REASONS[record.decision]).inc()
                     logger.info(
                         "scheduler_skip",
-                        schema_id=record.schema_id,
+                        schema_id=record.schedule_key,
                         team_id=record.team_id,
                         due_at=record.due_at.isoformat(),
                         reason=SKIP_REASONS[record.decision],
                     )
             if refused:
                 DUPLICATE_WINDOWS_TOTAL.inc(refused)
-            due_by_schema = {row.schema_id: row for row in due}
+            due_by_schema = {row.schedule_key: row for row in due}
             inserted_missed_windows = 0
             for record in inserted_records:
-                row = due_by_schema[record.schema_id]
+                row = due_by_schema[record.schedule_key]
                 inserted_missed_windows += max(
                     0, (int(record.due_at.timestamp()) - int(row.next_due_at.timestamp())) // row.interval_seconds
                 )
@@ -245,7 +246,8 @@ class ShadowScheduler:
             cadence = SchemaCadence(interval_seconds=interval_seconds, offset_seconds=offset_seconds)
             upserts.append(
                 DueSchedule(
-                    schema_id=schema_id,
+                    kind=SYNC_EXTRACT_KIND,
+                    schedule_key=schema_id,
                     team_id=team_id,
                     interval_seconds=interval_seconds,
                     offset_seconds=offset_seconds,
@@ -257,8 +259,10 @@ class ShadowScheduler:
 
         for start in range(0, len(upserts), UPSERT_BATCH_SIZE):
             await SchedulerStateTable.upsert_states(conn, upserts[start : start + UPSERT_BATCH_SIZE])
-        deleted = await SchedulerStateTable.delete_states_not_refreshed_since(conn, refresh_start)
-        pruned = await SchedulerStateTable.prune_decisions(conn, older_than_days=self._config.decision_retention_days)
+        deleted = await SchedulerStateTable.delete_states_not_refreshed_since(conn, SYNC_EXTRACT_KIND, refresh_start)
+        pruned = await SchedulerStateTable.prune_decisions(
+            conn, kind=SYNC_EXTRACT_KIND, older_than_days=self._config.decision_retention_days
+        )
 
         SCHEMAS_IN_SCOPE.set(len(upserts))
         SCAN_DURATION_SECONDS.observe(time.monotonic() - started)

@@ -8,6 +8,7 @@ import psycopg
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
 from products.warehouse_sources.backend.models import ExternalDataJob
+from products.warehouse_sources.backend.scheduling.shadow import SYNC_EXTRACT_KIND
 from products.warehouse_sources_queue.backend.sdk import SchedulerStateTable
 
 TOP_OFFENDERS = 10
@@ -68,7 +69,7 @@ class Command(BaseCommand):
         tolerance = timedelta(seconds=options["tolerance_seconds"])
 
         with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL) as conn:
-            decisions = SchedulerStateTable.fetch_would_fires(conn, since)
+            decisions = SchedulerStateTable.fetch_would_fires(conn, SYNC_EXTRACT_KIND, since)
         if options["team_id"] is not None:
             decisions = [d for d in decisions if d.team_id == options["team_id"]]
 
@@ -80,7 +81,7 @@ class Command(BaseCommand):
         # One-to-one greedy matching per schema, nearest job time to due time first.
         unmatched: dict[str, list[datetime]] = {}
         for decision in decisions:
-            unmatched.setdefault(decision.schema_id, []).append(decision.due_at)
+            unmatched.setdefault(decision.schedule_key, []).append(decision.due_at)
 
         matched = 0
         temporal_only: list[str] = []

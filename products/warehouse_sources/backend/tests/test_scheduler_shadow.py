@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     DECISION_SKIP_OUT_OF_SCOPE,
     DECISION_SKIP_OVERLAP,
     DECISION_WOULD_FIRE,
+    SYNC_EXTRACT_KIND,
     EvaluationResult,
     SchemaCadence,
     evaluate_due,
@@ -191,7 +192,8 @@ class TestScopePredicate:
 def _due_row(schema_id: str, team_id: int, now_epoch: int) -> DueSchedule:
     cadence = SchemaCadence(interval_seconds=21600, offset_seconds=0)
     return DueSchedule(
-        schema_id=schema_id,
+        kind=SYNC_EXTRACT_KIND,
+        schedule_key=schema_id,
         team_id=team_id,
         interval_seconds=cadence.interval_seconds,
         offset_seconds=cadence.offset_seconds,
@@ -267,17 +269,18 @@ class TestShadowSchedulerTick:
             conn.execute(
                 f"""
                 INSERT INTO {SCHEDULER_STATE_TABLE}
-                    (schema_id, team_id, interval_seconds, offset_seconds, next_due_at)
-                VALUES (%s, %s, 3600, 0, %s)
+                    (kind, schedule_key, team_id, interval_seconds, offset_seconds, next_due_at)
+                VALUES (%s, %s, %s, 3600, 0, %s)
                 """,
-                (schema_id, team_id, due_at),
+                (SYNC_EXTRACT_KIND, schema_id, team_id, due_at),
             )
         return schema_id, due_at, db_url
 
     def _record(self, schema_id: str, team_id: int, due_at: datetime) -> DecisionRecord:
         return DecisionRecord(
             team_id=team_id,
-            schema_id=schema_id,
+            kind=SYNC_EXTRACT_KIND,
+            schedule_key=schema_id,
             window_boundary=due_at,
             due_at=due_at,
             decision=DECISION_WOULD_FIRE,
@@ -312,7 +315,8 @@ class TestShadowSchedulerTick:
 
         with psycopg.Connection.connect(db_url) as conn:
             assert conn.execute(
-                f"SELECT next_due_at FROM {SCHEDULER_STATE_TABLE} WHERE schema_id = %s", (schema_id,)
+                f"SELECT next_due_at FROM {SCHEDULER_STATE_TABLE} WHERE kind = %s AND schedule_key = %s",
+                (SYNC_EXTRACT_KIND, schema_id),
             ).fetchone() == (due_at,)
             assert conn.execute(f"SELECT count(*) FROM {SCHEDULER_DECISION_TABLE}").fetchone() == (0,)
 
@@ -323,12 +327,13 @@ class TestShadowSchedulerTick:
             conn.execute(
                 f"""
                 INSERT INTO {SCHEDULER_DECISION_TABLE}
-                    (team_id, schema_id, window_boundary, due_at, decision, interval_seconds, late_seconds)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     record.team_id,
-                    record.schema_id,
+                    record.kind,
+                    record.schedule_key,
                     record.window_boundary,
                     record.due_at,
                     record.decision,
@@ -387,10 +392,23 @@ class TestShadowReport:
             conn.execute(
                 f"""
                 INSERT INTO {SCHEDULER_DECISION_TABLE}
-                    (team_id, schema_id, window_boundary, due_at, decision, interval_seconds, late_seconds)
-                VALUES (%(team_id)s, %(schema_id)s, %(due_at)s, %(due_at)s, 'would_fire', 21600, 1.0)
+                    (team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds)
+                VALUES (%(team_id)s, %(kind)s, %(schedule_key)s, %(due_at)s, %(due_at)s, 'would_fire', 21600, 1.0)
                 """,
-                {"team_id": team.pk, "schema_id": str(matched_schema.id), "due_at": due_at},
+                {
+                    "team_id": team.pk,
+                    "kind": SYNC_EXTRACT_KIND,
+                    "schedule_key": str(matched_schema.id),
+                    "due_at": due_at,
+                },
+            )
+            conn.execute(
+                f"""
+                INSERT INTO {SCHEDULER_DECISION_TABLE}
+                    (team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds)
+                VALUES (%(team_id)s, 'other.kind', %(schedule_key)s, %(due_at)s, %(due_at)s, 'would_fire', 21600, 1.0)
+                """,
+                {"team_id": team.pk, "schedule_key": str(matched_schema.id), "due_at": due_at},
             )
 
         ExternalDataJob.objects.create(
@@ -431,10 +449,10 @@ class TestShadowReport:
             conn.execute(
                 f"""
                 INSERT INTO {SCHEDULER_DECISION_TABLE}
-                    (team_id, schema_id, window_boundary, due_at, decision, interval_seconds, late_seconds)
-                VALUES (%(team_id)s, %(schema_id)s, %(due_at)s, %(due_at)s, 'would_fire', 21600, 1.0)
+                    (team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds)
+                VALUES (%(team_id)s, %(kind)s, %(schedule_key)s, %(due_at)s, %(due_at)s, 'would_fire', 21600, 1.0)
                 """,
-                {"team_id": team.pk, "schema_id": str(schema.id), "due_at": due_at},
+                {"team_id": team.pk, "kind": SYNC_EXTRACT_KIND, "schedule_key": str(schema.id), "due_at": due_at},
             )
         ExternalDataJob.objects.create(team=team, pipeline=source, schema=schema, status="Running", workflow_id=None)
 
