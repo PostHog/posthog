@@ -243,25 +243,6 @@ async def test_usage_failure_does_not_fail_evaluation(failure: str) -> None:
         )
 
 
-def test_execution_telemetry_reuses_organization_lookup_per_team() -> None:
-    module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
-    result: EvaluationActivityResult = {"result_type": "boolean", "verdict": True, "reasoning": "Example"}
-    with (
-        patch(f"{module}.Team.objects.filter") as teams,
-        patch("posthog.tasks.usage_report.get_ph_client") as capture,
-    ):
-        teams.return_value.values_list.return_value.get.side_effect = ["first-org", "second-org"]
-        for team_id in [1, 1, 2]:
-            capture_evaluation_run_usage({"id": "test-evaluation"}, result, team_id=team_id)
-
-    assert teams.call_count == 2
-    assert [call.kwargs["distinct_id"] for call in capture.return_value.capture.call_args_list] == [
-        "org-first-org",
-        "org-first-org",
-        "org-second-org",
-    ]
-
-
 def test_execution_telemetry_does_not_add_destination_region() -> None:
     events: list[dict[str, Any]] = []
 

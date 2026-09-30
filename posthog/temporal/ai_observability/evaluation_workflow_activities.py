@@ -12,7 +12,6 @@ from django.db import transaction
 
 import structlog
 import temporalio
-from cachetools.func import ttl_cache
 from structlog.contextvars import bind_contextvars
 from temporalio.exceptions import ApplicationError
 
@@ -356,11 +355,6 @@ def _evaluation_event_uuid() -> str | None:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{workflow_id}"))
 
 
-@ttl_cache(maxsize=10_000, ttl=300)
-def _evaluation_organization_id(team_id: int) -> str:
-    return str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
-
-
 def capture_evaluation_run_usage(
     evaluation: Mapping[str, object],
     result: EvaluationActivityResult,
@@ -386,7 +380,7 @@ def capture_evaluation_run_usage(
     try:
         from posthog.tasks.usage_report import get_ph_client  # noqa: PLC0415 - keeps billing imports off worker startup
 
-        organization_id = _evaluation_organization_id(team_id)
+        organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
         get_ph_client(disabled=bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False))).capture(
             distinct_id=f"org-{organization_id}",
             event="llm analytics evaluation executed",
