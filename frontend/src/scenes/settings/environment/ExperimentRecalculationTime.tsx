@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
@@ -86,7 +86,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
     }
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-start gap-2">
             <LemonSelect
                 value={utcHourFromTimeString(times[0]).toString()}
                 onChange={(value) => handleTimeChange(0, value)}
@@ -97,14 +97,23 @@ export function ExperimentRecalculationTime(): JSX.Element {
             />
             {allowSecondTime &&
                 (times.length > 1 ? (
-                    <LemonSelect
-                        allowClear
-                        value={utcHourFromTimeString(times[1]).toString()}
-                        onChange={(value) => (value === null ? removeSecondTime() : handleTimeChange(1, value))}
-                        options={optionsForIndex(1)}
-                        disabledReason={commonDisabledReason}
-                        data-attr="team-experiment-second-recalculation-time"
-                    />
+                    <div className="flex items-center gap-2">
+                        <LemonSelect
+                            value={utcHourFromTimeString(times[1]).toString()}
+                            onChange={(value) => handleTimeChange(1, value)}
+                            options={optionsForIndex(1)}
+                            disabledReason={commonDisabledReason}
+                            data-attr="team-experiment-second-recalculation-time"
+                        />
+                        <LemonButton
+                            icon={<IconX />}
+                            size="small"
+                            onClick={removeSecondTime}
+                            disabledReason={commonDisabledReason}
+                            tooltip="Remove second time"
+                            data-attr="team-experiment-remove-second-recalculation-time"
+                        />
+                    </div>
                 ) : (
                     <LemonButton
                         type="tertiary"
