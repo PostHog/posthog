@@ -381,6 +381,8 @@ Every other caller, including the editor and every MCP surface, may do exactly t
 - `PATCH` `managed_by` on its own, which hands the workflow back to the UI.
 
 The operational actions stay open as well: `rerun`, `run`, `invocations`, `cancel_invocations`, `batch_jobs`, `cancel_batch_job` and `resume_email_sending`.
+`reject_proposal` stays open because it writes only the suggestion, so a suggestion made before a push claimed the workflow can still be cleared.
+Creating or approving a suggestion is refused, because the file is the source of truth.
 `schedules` and `schedule_detail` stay open too, because the app owns a schedule's cadence.
 `onSchedule()` in a workflow file declares a schedule trigger but no cadence, so a person sets the cadence in the app after the first push.
 

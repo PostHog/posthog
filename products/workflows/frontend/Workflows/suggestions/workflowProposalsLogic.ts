@@ -37,6 +37,7 @@ export interface workflowProposalsLogicValues {
     hasUnsavedChanges: boolean // workflowLogic
     originalWorkflow: HogFlow | null // workflowLogic
     showDraftActions: boolean // workflowLogic
+    workflowSaveDisabledReason: string | null // workflowLogic
     appliedProposals: WorkflowProposalApi[]
     appliedResponse: PaginatedWorkflowProposalListApi | null
     appliedResponseLoading: boolean
@@ -178,7 +179,11 @@ export interface workflowProposalsLogicMeta {
         appliedProposals: (appliedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         optimizationEnabled: (optimization: HogFlowOptimizationApi | null) => boolean
         pendingProposals: (proposalsResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
-        approveDisabledReason: (hasUnsavedChanges: boolean, showDraftActions: boolean) => string | undefined
+        approveDisabledReason: (
+            hasUnsavedChanges: boolean,
+            showDraftActions: boolean,
+            workflowSaveDisabledReason: string | null
+        ) => string | undefined
     }
 }
 
@@ -198,7 +203,13 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             teamLogic,
             ['currentTeamIdStrict'],
             workflowLogic({ id }),
-            ['hasStagedDraft', 'hasUnsavedChanges', 'showDraftActions', 'originalWorkflow'],
+            [
+                'hasStagedDraft',
+                'hasUnsavedChanges',
+                'showDraftActions',
+                'originalWorkflow',
+                'workflowSaveDisabledReason',
+            ],
         ],
     })),
     actions({
@@ -353,8 +364,15 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] => response?.results ?? [],
         ],
         approveDisabledReason: [
-            (s) => [s.hasUnsavedChanges, s.showDraftActions],
-            (hasUnsavedChanges: boolean, showDraftActions: boolean): string | undefined => {
+            (s) => [s.hasUnsavedChanges, s.showDraftActions, s.workflowSaveDisabledReason],
+            (
+                hasUnsavedChanges: boolean,
+                showDraftActions: boolean,
+                workflowSaveDisabledReason: string | null
+            ): string | undefined => {
+                if (workflowSaveDisabledReason) {
+                    return workflowSaveDisabledReason
+                }
                 // Approving stages the suggestion server-side and reloads the workflow, which drops
                 // whatever the form still holds — the same trade discardDisabledReason guards.
                 if (hasUnsavedChanges) {

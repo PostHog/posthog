@@ -69,9 +69,13 @@ class TestCodeManagedHogFlow(APIBaseTest):
             ("publish", "post", "/publish", {}),
             ("discard_draft", "post", "/discard_draft", {}),
             ("restore_revision", "post", "/revisions/1/restore", {}),
+            ("create_proposal", "post", "/proposals", {"title": "Rename", "rationale": "Clearer.", "content": {}}),
         ]
     )
-    def test_web_write_is_refused(self, _name: str, method: str, suffix: str, payload: dict | None) -> None:
+    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
+    def test_web_write_is_refused(
+        self, _name: str, method: str, suffix: str, payload: dict | None, _feature_enabled
+    ) -> None:
         call = getattr(self.client, method)
         response = call(self._url(suffix), payload) if payload is not None else call(self._url(suffix))
 
@@ -207,6 +211,21 @@ class TestCodeManagedHogFlow(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json().get("code") != "immutable", response.json()
+
+    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
+    def test_a_suggestion_on_a_code_managed_workflow_can_still_be_rejected(self, _feature_enabled) -> None:
+        proposal = WorkflowProposal.objects.for_team(self.team.pk).create(
+            hog_flow=self.workflow,
+            title="Rename the exit",
+            rationale="Clearer step names.",
+            content={"name": "Renamed by a suggestion"},
+            base_version=self.workflow.version or 1,
+        )
+
+        response = self.client.post(self._url(f"/proposals/{proposal.id}/reject"), {})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == WorkflowProposal.Status.REJECTED
 
     @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
     def test_the_ui_sets_the_schedule_of_a_code_managed_workflow(self) -> None:

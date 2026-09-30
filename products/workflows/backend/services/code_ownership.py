@@ -23,6 +23,7 @@ _OPERATIONS_ACTIONS: Final = frozenset(
         "batch_jobs",
         "cancel_batch_job",
         "resume_email_sending",
+        "reject_proposal",
         "schedules",
         "schedule_detail",
     }

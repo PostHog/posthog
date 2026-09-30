@@ -28,6 +28,7 @@ describe('workflowProposalsLogic', () => {
     let workflowStatus: string
     let workflowDraft: Record<string, any> | null
     let workflowDraftStamp: string | null
+    let workflowManagedBy: string | null
 
     const proposal = {
         id: PROPOSAL_ID,
@@ -53,6 +54,7 @@ describe('workflowProposalsLogic', () => {
         workflowStatus = 'active'
         workflowDraft = { actions: [] }
         workflowDraftStamp = DRAFT_STAMP
+        workflowManagedBy = null
         ;(LemonDialog.open as jest.Mock).mockClear()
         useMocks({
             get: {
@@ -67,6 +69,9 @@ describe('workflowProposalsLogic', () => {
                         edges: [],
                         draft: workflowDraft,
                         draft_updated_at: workflowDraftStamp,
+                        managed_by: workflowManagedBy,
+                        source_repository: 'github.com/example/flows',
+                        source_path: 'workflows/welcome.yaml',
                         updated_at: '2026-05-01T00:00:00.000Z',
                     },
                 ],
@@ -185,18 +190,32 @@ describe('workflowProposalsLogic', () => {
         expect(approveBodies).toEqual([{ overwrite: false, expected_draft_updated_at: null }])
     })
 
-    it('will not stage a suggestion on a workflow with no publish or discard controls', async () => {
+    it.each([
+        {
+            name: 'a workflow with no publish or discard controls',
+            status: 'draft',
+            managedBy: null,
+            reason: 'Only a live workflow can stage a suggestion as a draft',
+        },
+        {
+            name: 'a code-managed workflow',
+            status: 'active',
+            managedBy: 'code',
+            reason: 'This workflow is managed by code, so changes made here are not saved. Edit workflows/welcome.yaml in github.com/example/flows and push.',
+        },
+    ])('will not stage a suggestion on $name', async ({ status, managedBy, reason }) => {
         const flowLogic = workflowLogic({ id: WORKFLOW_ID })
         flowLogic.mount()
         await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
 
-        workflowStatus = 'draft'
+        workflowStatus = status
+        workflowManagedBy = managedBy
         await expectLogic(flowLogic, () => {
             flowLogic.actions.loadWorkflow()
         }).toDispatchActions(['loadWorkflowSuccess'])
         ;(LemonDialog.open as jest.Mock).mockClear()
 
-        expect(logic.values.approveDisabledReason).toBe('Only a live workflow can stage a suggestion as a draft')
+        expect(logic.values.approveDisabledReason).toBe(reason)
 
         logic.actions.approveProposal(PROPOSAL_ID)
         await expectLogic(logic).toFinishAllListeners()
