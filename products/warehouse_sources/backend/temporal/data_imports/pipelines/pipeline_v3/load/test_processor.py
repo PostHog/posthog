@@ -13,6 +13,10 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.api.test.test_organization import create_organization
+from posthog.api.test.test_team import create_team
+
+from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
@@ -38,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     process_messages,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SOURCE_CURSOR_KEY
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined
 
 
@@ -1515,3 +1520,141 @@ class TestBatchPhaseReports:
         process_message(_message(is_final_batch=True))
 
         assert [call.args[0] for call in mock_report_phase.call_args_list] == ["deliver", "post_load", "finalize"]
+
+
+_MARKER_RUN = "queue-job-1-a1"
+_MARKER_CURSOR = {"kind": "test_cursor", "data": {"position": 7}}
+
+
+@pytest.fixture
+def marker_job(django_db_setup: None) -> ExternalDataJob:
+    team = create_team(organization=create_organization("marker org"))
+    source = ExternalDataSource.objects.create(source_id="src", connection_id="conn", team=team, source_type="Stripe")
+    schema = ExternalDataSchema.objects.create(name="Charge", team=team, source=source)
+    schema.stage_source_cursor(_MARKER_RUN, _MARKER_CURSOR)
+    return ExternalDataJob.objects.create(
+        team=team,
+        pipeline=source,
+        schema=schema,
+        status=ExternalDataJob.Status.RUNNING,
+        workflow_id="wf-1",
+        workflow_run_id="queue-job-1",
+        pipeline_version=ExternalDataJob.PipelineVersion.V3,
+    )
+
+
+def _marker_message(job: ExternalDataJob, **overrides: Any) -> dict[str, Any]:
+    # The row `PostgresProducer.send_final_marker` inserts, as the queue hands it to the loader.
+    return _message(
+        **{
+            "team_id": job.team_id,
+            "job_id": str(job.id),
+            "schema_id": str(job.schema_id),
+            "source_id": str(job.pipeline_id),
+            "run_uuid": _MARKER_RUN,
+            "batch_index": 0,
+            "s3_path": "",
+            "row_count": 0,
+            "byte_size": 0,
+            "is_final_batch": True,
+            "total_batches": 0,
+            "total_rows": 0,
+            "sync_type": "full_refresh",
+            "marker_only": True,
+            **overrides,
+        }
+    )
+
+
+@contextmanager
+def _marker_boundaries(delta_table: Any) -> Iterator[MagicMock]:
+    processed: set[tuple[str, int]] = set()
+    temporal = MagicMock()
+    temporal.start_workflow = AsyncMock()
+    helper = MagicMock()
+    helper.get_delta_table = AsyncMock(return_value=delta_table)
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                f"{_PROCESSOR}.is_batch_already_processed",
+                side_effect=lambda team_id, schema_id, run_uuid, batch_index, **_: (run_uuid, batch_index) in processed,
+            )
+        )
+        stack.enter_context(
+            patch(
+                f"{_PROCESSOR}.mark_batch_as_processed",
+                side_effect=lambda team_id, schema_id, run_uuid, batch_index, **_: processed.add(
+                    (run_uuid, batch_index)
+                ),
+            )
+        )
+        stack.enter_context(patch(f"{_PROCESSOR}.DeltaTableRef", return_value=helper))
+        post_load = stack.enter_context(
+            patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="s3://folder")
+        )
+        read = stack.enter_context(patch(f"{_PROCESSOR}.read_parquet"))
+        writer = stack.enter_context(patch(f"{_PROCESSOR}.DeltaWriter"))
+        stack.enter_context(patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports"))
+        stack.enter_context(patch(f"{_PROCESSOR}.finish_row_tracking", new_callable=AsyncMock))
+        stack.enter_context(patch(f"{_PROCESSOR}.release_v3_pipeline_lock"))
+        stack.enter_context(patch("posthog.temporal.common.client.async_connect", AsyncMock(return_value=temporal)))
+        yield MagicMock(post_load=post_load, read=read, writer=writer, temporal=temporal)
+
+
+def _live_table() -> MagicMock:
+    table = MagicMock()
+    table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+    return table
+
+
+@pytest.mark.django_db(transaction=True)
+class TestFinalMarker:
+    """A queue run without batches ends with a final marker, and the loader finalizes the run from it."""
+
+    @pytest.mark.parametrize(
+        "table,sync_type,cancelled,deliveries,expected_status,expect_promoted,expected_post_loads,expected_post_imports",
+        [
+            pytest.param(None, "full_refresh", False, 1, "Completed", True, 0, 1, id="no_table_yet"),
+            pytest.param(_live_table, "full_refresh", False, 1, "Completed", True, 1, 1, id="table_exists"),
+            pytest.param(_live_table, "cdc", False, 1, "Completed", True, 1, 0, id="buffered_cdc_zero_rows"),
+            pytest.param(_live_table, "full_refresh", True, 1, "Failed", False, 1, 0, id="cancelled_after_enqueue"),
+            pytest.param(_live_table, "full_refresh", False, 2, "Completed", True, 1, 1, id="redelivered"),
+        ],
+    )
+    def test_the_marker_finalizes_the_run_without_reading_or_writing(
+        self,
+        marker_job: ExternalDataJob,
+        table: Any,
+        sync_type: str,
+        cancelled: bool,
+        deliveries: int,
+        expected_status: str,
+        expect_promoted: bool,
+        expected_post_loads: int,
+        expected_post_imports: int,
+    ) -> None:
+        if cancelled:
+            ExternalDataJob.objects.filter(id=marker_job.id).update(status=ExternalDataJob.Status.FAILED)
+
+        with _marker_boundaries(table() if table is not None else None) as boundaries:
+            for attempt in range(1, deliveries + 1):
+                process_message(_marker_message(marker_job, sync_type=sync_type), attempt=attempt)
+
+        marker_job.refresh_from_db()
+        schema = marker_job.schema
+        assert schema is not None
+        schema.refresh_from_db()
+        assert marker_job.status == expected_status
+        assert (schema.sync_type_config.get(SOURCE_CURSOR_KEY) == _MARKER_CURSOR) is expect_promoted
+        assert ("incremental_staged" in schema.sync_type_config) is not expect_promoted
+        assert boundaries.post_load.await_count == expected_post_loads
+        assert boundaries.temporal.start_workflow.await_count == expected_post_imports
+        boundaries.read.assert_not_called()
+        boundaries.writer.assert_not_called()
+
+    def test_a_marker_never_joins_a_set(self, marker_job: ExternalDataJob) -> None:
+        data_batch = _message(run_uuid="queue-job-0-a1", batch_index=3, sync_type="incremental", is_resume=True)
+        marker = _marker_message(marker_job, sync_type="incremental", is_resume=True)
+
+        with pytest.raises(CoalescingDeclined, match="final marker"):
+            process_messages([data_batch, marker])

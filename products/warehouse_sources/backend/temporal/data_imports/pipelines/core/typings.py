@@ -16,11 +16,11 @@ class PipelineResult(TypedDict):
     It is a runtime value, not a pure property of `ExternalDataJob.pipeline_version`, for one
     reason: a v3 extraction that produced zero batches never notifies the load consumer, so the
     consumer cannot finalize a run it will never hear about — the workflow must. PipelineV3
-    therefore reports True iff at least one batch reached the queue. The other producer of True,
+    therefore reports True iff at least one batch reached the queue. A queue run
+    (`always_final_marker`) sends a final marker row when it has no batch, so the consumer hears
+    about every such run and PipelineV3 always reports True for it. The other producer of True,
     `import_data_sync`'s terminal-retry skip, is a run some other party already finalized, where
     True likewise means "workflow: hands off".
-    Making this a pure version property requires an empty-final-batch queue message so the
-    consumer hears about every v3 run — deferred until the v2 pipeline is deleted.
 
     `fast_returned` marks a run completed on a negative source probe, before any extraction.
     It always rides with `skip_post_import_activities=True` (which does the actual skipping);
