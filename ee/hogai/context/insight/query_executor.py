@@ -45,7 +45,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
@@ -53,6 +53,7 @@ from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
+from ee.hogai.context.insight.clickhouse_rejections import describe_clickhouse_rejection
 from ee.hogai.context.insight.format import (
     NULL_MARKER,
     TRUNCATED_MARKER,
@@ -442,6 +443,8 @@ class AssistantQueryExecutor:
                 if query_status.get("error"):
                     if error_message := query_status.get("error_message"):
                         raise APIException(error_message)
+                    if rejection := describe_clickhouse_rejection(query_status.get("error_code")):
+                        raise APIException(rejection)
                     raise Exception("Query failed")
 
                 # Use the completed query results
@@ -466,6 +469,8 @@ class AssistantQueryExecutor:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
             raise MaxToolRetryableError(err_message)
         except Exception as err:
+            if isinstance(err, InternalCHQueryError) and (rejection := describe_clickhouse_rejection(err.code_name)):
+                raise MaxToolRetryableError(rejection)
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
             # text (truncated) so callers can diagnose the failure instead of an opaque message —
