@@ -23,17 +23,17 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
+
 # Re-exported: the exception is defined in an import-light module so ``storage.py`` can raise it
 # without dragging this module onto the ``django.setup()`` path.
 from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized as TaskRunLogAppendUnserialized
 
 
-class DesktopAccessReason(StrEnum):
-    STARTUP_PLAN = "startup_plan"
-    PREPAID_CREDITS = "prepaid_credits"
-
-
-DESKTOP_ACCESS_REASON_SCHEMA_VALUES = [*(reason.value for reason in DesktopAccessReason), None]
+# Each label repeats its value, because the API documents these choices as plain values.
+class DesktopAccessReason(LabeledStrEnum):
+    STARTUP_PLAN = "startup_plan", "startup_plan"
+    PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
 
 
 @dataclass(frozen=True)
