@@ -130,7 +130,8 @@
     }
   },
   "bin": {
-    "agent-server": "./dist/server/bin.js"
+    "agent-server": "./dist/server/bin.js",
+    "agent-smoke": "./dist/smoke/bin.js"
   },
   "type": "module",
   "keywords": [

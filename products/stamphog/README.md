@@ -48,13 +48,19 @@ Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from o
 ## Connect a repository
 
 1. Install the Stamphog GitHub App on your GitHub organization.
-2. Open Stamphog in the PostHog app and select **Connect a repository**. The install callback syncs the repositories the installation can reach.
-3. Turn on **Enabled** for each repository you want reviewed. A connected repository reviews nothing until you do.
-4. Pick a **review mode**: "All PRs" reviews every pull request, "Label-triggered" reviews only PRs carrying the trigger label. Set the trigger label name next to the mode.
-5. Turn on **Digest enabled** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
+2. Open Stamphog in the PostHog app and connect GitHub. The callback records the repositories you can reach with your own GitHub account. It adds none of them yet.
+3. Add each repository you want reviewed from the **Add a repository** search (`POST repo_configs/add_repository`). Adding a repository turns its reviews on. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
+4. Expand the repository's row and pick a **review mode**: "All PRs" reviews every pull request, "Label-triggered" reviews only PRs carrying the trigger label. Set the trigger label name next to the mode.
+5. Turn on **Include in the digest** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
-Connecting a repository and the digest toggle need the `editor` level on the `stamphog` resource.
-The gating fields, which are enabled, review mode and trigger label, need `manager`, because they decide whether a pull request is reviewed at all.
+The repositories you can add are the ones a project member reached with their own GitHub account, not every repository the installation can reach.
+Each member who connects adds the repositories they can reach, and connecting again refreshes the list.
+Repositories removed from the installation on GitHub leave the list on their own.
+A repository added to the installation later shows up after a member connects again, because only a member's own GitHub account can prove they can reach it.
+
+Adding a repository, turning reviews back on, and the digest toggle need the `editor` level on the `stamphog` resource.
+Turning reviews off, removing a repository, and changing the review mode or trigger label need `manager`.
+So an editor can turn reviews back on for a repository a manager paused.
 
 ## Customize the review for your repository
 
@@ -125,13 +131,18 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
 Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`).
 The workflow dismisses stale approvals first, waits out other in-flight reviewer bots, then reviews.
+The sandbox starts right after the stale-approval sweep and fetches the PR head while the context loads. The checkout starts once the context is stored and runs beside the pre-check and the bot wait. Each step is its own activity, and the workflow does every wait between them. A pre-check verdict posts first, and the workflow then tears down the unused sandbox.
 Before the wait, the worker runs the engine's gates alone on the fetched context (`review_local.py --pregate`).
-When a gate refusal is certain to hold in the full review, stamphog posts it right away with a short LLM note on what the author can do, and skips the wait and the sandbox.
-Anything less certain, such as a size gate that a folder `AGENT_APPROVALS.md` could lift or a migration whose `Migration risk` check has not reported, gets the full review.
+The server also reads every `AGENT_APPROVALS.md` that governs a changed file at the PR head, so the pre-check budgets the size gate like the sandbox does.
+When a gate refusal is certain to hold in the full review, stamphog posts it right away with a short LLM note on what the author can do, and skips the wait and the sandbox review.
+A migration whose `Migration risk` check has not reported gets the same WAIT the full review would give, without the sandbox review.
+Anything less certain, such as a PR with renamed files, a dependency manifest next to a pending migration, or folder files that could not be read, gets the full review.
 A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
 
 Reviews run in an isolated Modal sandbox with per-run minted credentials.
 The sandbox fetches the PR head and its merge base at depth 1, checks out the head, and runs `review_local.py` against a pre-fetched context, with no GitHub token inside the sandbox.
+
+Every posted verdict emits a `stamphog_review_timings` event with one `stamphog_timing_<step>_ms` property per step: each context read, the bot wait, the pre-check or sandbox steps, the engine's own phases (uv launch, gates, familiarity, LLM, flush), and the verdict post.
 
 **Stacked PRs.** A stacked PR targets its parent's branch and depends on parent code that has not merged yet.
 The sandbox checkout is already the PR head, so the reviewer's Read, Grep and Glob see the post-stack tree and parent symbols resolve.

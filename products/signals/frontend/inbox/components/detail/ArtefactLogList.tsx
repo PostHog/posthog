@@ -11,6 +11,7 @@ import {
     IconCalendar,
     IconListCheck,
     IconListTreeConnected,
+    IconPause,
     IconPeople,
     IconPencil,
     IconRefresh,
@@ -44,6 +45,8 @@ import { ArtefactTaskRun } from './ArtefactTaskRun'
 import {
     artefactAttributionLabel,
     artefactLocationLabel,
+    AUTOSTART_SKIP_REASON_LABELS,
+    AutostartSkipContent,
     CheckLifecycleContent,
     CheckResultContent,
     CheckScheduledContent,
@@ -144,6 +147,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     summary_change: IconPencil,
     related_to: IconListTreeConnected,
     report_link: IconListTreeConnected,
+    autostart_skip: IconPause,
     code_review: IconListCheck,
     check_result: IconCalendar,
     check_scheduled: IconCalendar,
@@ -327,6 +331,32 @@ function ReportLinkBody({ content }: { content: ReportLinkContent }): JSX.Elemen
                 </Link>
             </div>
             {content.reason?.trim() ? <ReasoningBody text={content.reason} /> : null}
+        </div>
+    )
+}
+
+function AutostartSkipBody({ content }: { content: AutostartSkipContent }): JSX.Element | null {
+    if (!content.detail?.trim()) {
+        return null
+    }
+    const reason = content.skip_reason
+        ? (AUTOSTART_SKIP_REASON_LABELS[content.skip_reason] ?? prettify(content.skip_reason))
+        : null
+    return (
+        <div className="flex flex-col gap-1 text-xs">
+            <div className="flex items-center gap-2">
+                {reason ? <LemonTag type="muted">{reason}</LemonTag> : null}
+                {content.linked_report_id ? (
+                    <Link
+                        to={urls.inboxReport('reports', content.linked_report_id)}
+                        className="inline-flex items-center gap-1"
+                        data-attr="artefact-autostart-skip-open"
+                    >
+                        Open that report <IconExternal className="size-3" />
+                    </Link>
+                ) : null}
+            </div>
+            <ReasoningBody text={content.detail} />
         </div>
     )
 }
@@ -613,6 +643,8 @@ function renderArtefactBody({
             return <RelatedReportBody content={content as RelatedToContent} />
         case 'report_link':
             return <ReportLinkBody content={content as ReportLinkContent} />
+        case 'autostart_skip':
+            return <AutostartSkipBody content={content as AutostartSkipContent} />
         case 'code_review':
             return <CodeReviewBody content={content as CodeReviewContent} />
         case 'check_result':

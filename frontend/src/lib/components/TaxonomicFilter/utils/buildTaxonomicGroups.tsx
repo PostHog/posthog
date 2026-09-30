@@ -76,6 +76,8 @@ import {
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
+import { PersonSearchMatchTags } from 'products/persons/frontend/components/PersonSearchMatchTags'
+import type { PersonListRecordApi } from 'products/persons/frontend/generated/api.schemas'
 import { LazyHogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/LazyHogFlowTaxonomicFilters'
 
 import { InlineHogQLEditor } from '../InlineHogQLEditor'
@@ -923,9 +925,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Persons',
             searchPlaceholder: 'persons',
             type: TaxonomicFilterGroupType.Persons,
-            endpoint: `api/projects/${teamId}/persons/`,
+            endpoint: `api/projects/${teamId}/persons/?include_matched_fields=true`,
             getName: (person: PersonType) => person.name || 'Anon user?',
             getValue: (person: PersonType) => person.distinct_ids?.[0],
+            getTag: (person: PersonListRecordApi) => <PersonSearchMatchTags matchedFields={person.matched_fields} />,
             getPopoverHeader: () => `Person`,
         },
         {

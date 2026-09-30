@@ -239,6 +239,21 @@
         "params": [],
         "scope": "global"
     },
+    "autoresearch": {
+        "template": "/autoresearch",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchNew": {
+        "template": "/autoresearch/new",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchPipeline": {
+        "template": "/autoresearch/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "batchExport": {
         "template": "/pipeline/batch-exports/{id}",
         "params": ["id"],
@@ -271,6 +286,11 @@
     },
     "businessKnowledge": {
         "template": "/business-knowledge",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgePlayground": {
+        "template": "/business-knowledge/playground",
         "params": [],
         "scope": "project"
     },
@@ -604,6 +624,11 @@
         "params": ["handle"],
         "scope": "project"
     },
+    "engineeringAnalyticsAuthors": {
+        "template": "/engineering-analytics/authors",
+        "params": [],
+        "scope": "project"
+    },
     "engineeringAnalyticsDeploys": {
         "template": "/engineering-analytics/deploys",
         "params": [],
@@ -677,6 +702,11 @@
     "errorTrackingIssue": {
         "template": "/error_tracking/{id}",
         "params": ["id"],
+        "scope": "project"
+    },
+    "etlOverview": {
+        "template": "/etl",
+        "params": [],
         "scope": "project"
     },
     "event": {
@@ -1629,6 +1659,16 @@
         "params": [],
         "scope": "project"
     },
+    "taskSpace": {
+        "template": "/spaces/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceSettings": {
+        "template": "/spaces/{id}/settings",
+        "params": ["id"],
+        "scope": "project"
+    },
     "taskTracker": {
         "template": "/tasks",
         "params": [],
@@ -1646,6 +1686,16 @@
     },
     "tracing": {
         "template": "/tracing",
+        "params": [],
+        "scope": "project"
+    },
+    "tracingRetentionDetail": {
+        "template": "/tracing/retention-rules/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "tracingRetentionNew": {
+        "template": "/tracing/retention-rules/new",
         "params": [],
         "scope": "project"
     },

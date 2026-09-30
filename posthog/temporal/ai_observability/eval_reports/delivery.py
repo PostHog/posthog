@@ -14,6 +14,7 @@ import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
+from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     METRICS_UNAVAILABLE_MESSAGE,
     Citation,
@@ -47,6 +48,7 @@ _EMAIL_TD_STYLE = 'style="border: 1px solid #ddd; padding: 8px 12px;"'
 _OUTCOME_LABELS = {
     "boolean": (("pass", "Pass"), ("fail", "Fail"), ("na", "N/A")),
     "numeric": (("pass", "Pass"), ("fail", "Fail"), ("na", "N/A")),
+    "categorical": (("pass", "Pass"), ("fail", "Fail"), ("na", "N/A")),
     "sentiment": (("positive", "Positive"), ("neutral", "Neutral"), ("negative", "Negative")),
 }
 
@@ -188,7 +190,7 @@ def _format_pass_rate(rate: float | None) -> str:
 
 def _format_outcome_value(metrics: EvalReportMetrics, outcome: str) -> str:
     count = metrics.result_counts[outcome]
-    if metrics.output_type in ("boolean", "numeric"):
+    if metrics.output_type in ("boolean", "numeric", "categorical"):
         return str(count)
 
     rate = metrics.result_rates.get(outcome)
@@ -232,7 +234,7 @@ def _render_metrics_block_html(
     outcome_labels = _OUTCOME_LABELS[metrics.output_type]
     headers = "".join(f"<th>{label}</th>" for _, label in outcome_labels)
     values = "".join(f"<td>{_format_outcome_value(metrics, outcome)}</td>" for outcome, _ in outcome_labels)
-    if metrics.output_type in ("boolean", "numeric"):
+    if metrics.output_type in ("boolean", "numeric", "categorical"):
         headers += "<th>Pass rate</th>"
         values += f"<td><strong>{_format_boolean_pass_rate_value(metrics)}</strong></td>"
     table = f"<table><tr><th>Total runs</th>{headers}</tr><tr><td>{metrics.total_runs}</td>{values}</tr></table>"
@@ -247,7 +249,7 @@ def _render_metrics_slack_blocks(metrics: EvalReportMetrics | None) -> list[dict
     outcome_lines = [
         f"{label}: {_format_outcome_value(metrics, outcome)}" for outcome, label in _OUTCOME_LABELS[metrics.output_type]
     ]
-    if metrics.output_type in ("boolean", "numeric"):
+    if metrics.output_type in ("boolean", "numeric", "categorical"):
         outcome_lines.append(f"Pass rate: {_format_boolean_pass_rate_value(metrics)}")
     code_block = "\n".join([f"Total runs: {metrics.total_runs}", *outcome_lines])
 
@@ -376,11 +378,7 @@ def deliver_slack_report(
         if not integration_id or not channel:
             continue
 
-        # The Slack channel picker stores the target as "<channel_id>|#<channel_name>"
-        # (e.g. "C0B5CHB0JQH|#tech-devops-cron"). chat.postMessage only accepts the channel
-        # ID, so strip the "|#name" suffix before sending. Mirrors the subscriptions path in
-        # ee/tasks/subscriptions/slack_subscriptions.py, which splits the same composite value.
-        channel_id = channel.split("|")[0]
+        channel_id = channel_id_from_target(channel)
         if not channel_id:
             error_msg = f"Failed to send Slack message to {channel}: no channel ID in target value"
             logger.warning(error_msg)

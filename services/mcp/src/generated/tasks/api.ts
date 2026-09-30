@@ -193,14 +193,21 @@ export const LoopsCreateBody = () => zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -218,14 +225,21 @@ export const LoopsCreateBody = () => zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -243,14 +257,21 @@ export const LoopsCreateBody = () => zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -508,14 +529,21 @@ export const LoopsPartialUpdateBody = () => zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -533,14 +561,21 @@ export const LoopsPartialUpdateBody = () => zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -558,14 +593,21 @@ export const LoopsPartialUpdateBody = () => zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -939,10 +981,11 @@ export const TasksListQueryParams = () => zod.object({
             'task_analysis',
             'workflow',
             'space_setup',
+            'business_knowledge',
         ])
         .optional()
         .describe(
-            'Exclude tasks with this origin product from the results\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
+            'Exclude tasks with this origin product from the results\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge'
         ),
     hog_flow_id: zod
         .string()
@@ -1071,13 +1114,14 @@ export const TasksCreateBody = () => zod.object({
             'task_analysis',
             'workflow',
             'space_setup',
+            'business_knowledge',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge'
         ),
     repository: zod
         .string()
@@ -1167,10 +1211,16 @@ export const TasksCreateBody = () => zod.object({
             'When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. Ignored if creation does not start a run. Write-only and not persisted on the task.'
         ),
     channel: zod.string().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+    scheduled_at: zod
+        .string()
+        .nullish()
+        .describe(
+            'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+        ),
     start_run: zod
         .boolean()
         .default(tasksCreateBodyStartRunDefault)
-        .describe("Start the task's first cloud run immediately after creation."),
+        .describe('Create the first cloud run. It starts immediately unless scheduled_at is set.'),
     signal_report_discussion_question: zod
         .string()
         .max(tasksCreateBodySignalReportDiscussionQuestionMax)
@@ -1223,7 +1273,7 @@ export const TasksRetrieveParams = () => zod.object({
 })
 
 /**
- * Create a new task run and kick off the workflow.
+ * Create a new task run and kick off the workflow. The response is the refreshed task with the created run under the top-level `run` key: read `run.id` for anything run-scoped, such as the run's stream and command endpoints. The top-level `id` is the task's, and `latest_run` mirrors `run` only as long as nothing newer starts — reading either of those as the created run is deprecated.
  * @summary Run task
  */
 export const tasksRunCreatePathIdRegExp = new RegExp(
@@ -1343,7 +1393,24 @@ export const TasksRunCreateBody = () => zod.union([
                 ])
                 .optional()
                 .describe(
-                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            codex_model_access: zod
+                .union([
+                    zod
+                        .enum(['posthog-gateway', 'own-subscription'])
+                        .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            scheduled_at: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
                 ),
             mode: zod
                 .enum(['interactive', 'background'])
@@ -1507,7 +1574,24 @@ export const TasksRunCreateBody = () => zod.union([
                 ])
                 .optional()
                 .describe(
-                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            codex_model_access: zod
+                .union([
+                    zod
+                        .enum(['posthog-gateway', 'own-subscription'])
+                        .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            scheduled_at: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
                 ),
             mode: zod
                 .enum(['interactive', 'background'])
@@ -1609,6 +1693,19 @@ export const TasksRunCreateBody = () => zod.union([
         })
         .describe('Request body for creating a new task run'),
     zod.object({
+        scheduled_at: zod
+            .string()
+            .nullish()
+            .describe(
+                'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+            ),
+        model: zod.string().optional(),
+        reasoning_effort: zod
+            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .optional()
+            .describe(
+                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
         mode: zod
             .enum(['interactive', 'background'])
             .describe('\* `interactive` - interactive\n\* `background` - background')

@@ -41,6 +41,8 @@ import type {
     RunConnectionState,
     RunTerminalStatus,
     SdkSession,
+    StagedAttachment,
+    ThreadAttachment,
     ThreadItem,
     ThreadItemType,
     ToolInvocation,
@@ -54,6 +56,7 @@ import {
     type PermissionRequestFrame,
     type PosthogPermissionRequestParams,
     type PosthogProgressParams,
+    type AgentCommand,
     type PosthogUsageUpdateParams,
     type SessionUpdateUsage,
     type SseErrorFrameData,
@@ -62,10 +65,12 @@ import {
     isNotificationFrame,
     isPermissionRequestFrame,
     isPosthogNotification,
+    isSessionUpdateAvailableCommands,
     isSessionUpdateNotification,
     isSessionUpdateUsage,
     isSessionUpdateUserMessage,
     isTaskRunStateFrame,
+    parseAvailableCommands,
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
@@ -377,6 +382,97 @@ function isHiddenUserContent(content: unknown): boolean {
     return content._meta.ui.hidden === true
 }
 
+function uriPathSegments(uri: string): string[] {
+    let path = uri
+    try {
+        path = new URL(uri).pathname
+    } catch {
+        // A uri the parser rejects still splits on its separators below.
+    }
+    return path.split('/').filter(Boolean)
+}
+
+/** A segment with a broken percent escape stands as it is, rather than throwing through the whole fold. */
+function decodeUriSegment(segment: string): string {
+    try {
+        return decodeURIComponent(segment)
+    } catch {
+        return segment
+    }
+}
+
+/**
+ * The run and artifact a sandbox attachment path names, or null for any other path.
+ *
+ * The agent server writes each artifact to `.posthog/attachments/<runId>/<artifactId>/<name>`
+ * (`hydrateArtifactToPromptBlock`), and that layout is the only place the wire carries the ids. A path that
+ * does not match returns null and renders as a plain name, so a change there degrades rather than breaks.
+ */
+export function artifactRefFromUri(uri: string): { runId: string; artifactId: string } | null {
+    const segments = uriPathSegments(uri)
+    const marker = segments.lastIndexOf('attachments')
+    if (marker < 1 || segments[marker - 1] !== '.posthog' || segments.length < marker + 4) {
+        return null
+    }
+    return { runId: segments[marker + 1], artifactId: segments[marker + 2] }
+}
+
+/**
+ * A file the send carried, or null for any other content block. An attachment arrives as a `resource_link`
+ * to the copy the sandbox wrote to disk; an inline image arrives as an `image` block, which names the file
+ * only through that same `uri`.
+ */
+export function userAttachment(content: unknown): ThreadAttachment | null {
+    if (!isRecord(content) || (content.type !== 'resource_link' && content.type !== 'image')) {
+        return null
+    }
+    const uri = typeof content.uri === 'string' ? content.uri : ''
+    const named = typeof content.name === 'string' && content.name.trim() ? content.name.trim() : null
+    const fromUri = uri ? uriPathSegments(uri).at(-1) : undefined
+    const name = named ?? (fromUri ? decodeUriSegment(fromUri) : null)
+    if (!name) {
+        return null
+    }
+    return { name, ...(uri ? (artifactRefFromUri(uri) ?? {}) : {}) }
+}
+
+/**
+ * Identity is the artifact, never the name: two pasted screenshots are both `image.png`. A known artifact
+ * wins, so a file echoed in both wire forms lands once; otherwise it claims the first entry of that name
+ * still waiting for one, which a send uploads in order.
+ */
+function mergeAttachment(existing: ThreadAttachment[], incoming: ThreadAttachment): ThreadAttachment[] {
+    const byArtifact = incoming.artifactId
+        ? existing.findIndex((candidate) => candidate.artifactId === incoming.artifactId)
+        : -1
+    const target =
+        byArtifact !== -1
+            ? byArtifact
+            : existing.findIndex((candidate) => candidate.name === incoming.name && !candidate.artifactId)
+    if (target === -1) {
+        return [...existing, incoming]
+    }
+    return existing.map((candidate, position) => (position === target ? { ...candidate, ...incoming } : candidate))
+}
+
+/** What an optimistic send knows before its files have artifacts to point at. */
+function optimisticAttachments(value: unknown): ThreadAttachment[] {
+    if (!Array.isArray(value)) {
+        return []
+    }
+    return value.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.name !== 'string' || !entry.name.trim()) {
+            return []
+        }
+        return [
+            {
+                name: entry.name.trim(),
+                ...(typeof entry.previewId === 'string' ? { previewId: entry.previewId } : {}),
+            },
+        ]
+    })
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -573,16 +669,22 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
 /**
  * A debug row carries a `_posthog/console` line from the agent server, and `threadItems` gates it on
  * `showDebugLogs`, so for most viewers it renders nothing. Ending a streamed message on one splits
- * the answer wherever the delta happened to end, with nothing between the halves to explain it.
+ * the answer wherever the delta happened to end, with nothing between the halves to explain it. A
+ * send the agent has not taken up yet sinks below the whole answer before it renders, so it splits
+ * the halves the same way and is passed over too.
  */
-function onlyDebugRowsFollow(state: ThreadItem[], idx: number): boolean {
+function onlyDebugRowsFollow(state: ThreadItem[], idx: number, waitingIds: ReadonlySet<string>): boolean {
     for (let i = idx + 1; i < state.length; i++) {
-        if (state[i].type !== 'debug') {
+        if (state[i].type !== 'debug' && !waitingIds.has(state[i].id)) {
             return false
         }
     }
     return true
 }
+
+// The agent takes a queued or steering send up at the next turn boundary, so a placeholder that
+// outlives a second boundary has missed the window its echo could arrive in.
+const SETTLED_AFTER_TURNS = 2
 
 /** The in-progress spinner for a long-running status — retired when it completes, fails, or its boundary lands. */
 function isPendingStatus(item: ThreadItem, status: string): boolean {
@@ -1181,11 +1283,17 @@ function retainedFramesWithoutOptimisticEchoes(retained: StoredEntry[]): StoredL
     })
 }
 
+/**
+ * A follow-up persists under the run it was sent to, not the successor that bootstraps next, so a
+ * persisted turn cancels its local echo whichever run of the chain it belongs to. `unconfirmedEcho`
+ * is the one echo no persisted copy covers yet, matched by identity because the same words can
+ * arrive several times.
+ */
 export function reconcileRunLog(
     history: StoredLogEntry[],
     retained: StoredEntry[],
     buffered: StoredLogEntry[],
-    optimisticRunId?: string
+    unconfirmedEcho?: StoredEntry
 ): RunLog {
     let entries: StoredEntry[] = history.map((entry) => ({ entry, source: 'replay' }))
     const coverage = new RunEventCoverage(history)
@@ -1193,7 +1301,7 @@ export function reconcileRunLog(
     const rememberedHumanTexts = new Map<string, number>()
     for (const entry of dedupeBufferedAgainstHistory(history, retainedFramesWithoutOptimisticEchoes(retained))) {
         const text = persistedHumanText(entry)
-        if (!text || (optimisticRunId && entry.source_run_id !== optimisticRunId)) {
+        if (!text) {
             continue
         }
         if (entry.notification.method === '_posthog/user_message') {
@@ -1219,7 +1327,7 @@ export function reconcileRunLog(
         survivors.forEach((entry) => survivorCounts.set(entry, (survivorCounts.get(entry) ?? 0) + 1))
         for (const stored of tail) {
             const { entry } = stored
-            if (entry.notification.method === '_client/human_message') {
+            if (entry.notification.method === '_client/human_message' && stored !== unconfirmedEcho) {
                 const text = String(entry.notification.params?.content ?? '')
                 const saved = savedHumanCounts.get(text) ?? 0
                 if (saved > 0) {
@@ -1387,13 +1495,21 @@ function readPendingRunMessage(state: unknown, runId: string): PendingRunMessage
  */
 export function foldLogToThread(
     entries: StoredEntry[],
-    options: { isResumeRun: boolean; pendingMessage?: PendingRunMessage | null }
+    options: { isResumeRun: boolean; pendingMessage?: PendingRunMessage | null; taskId?: string | null }
 ): FoldedThread {
     let items: ThreadItem[] = []
     const invocations = new Map<string, ToolInvocation>()
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
     // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
     const rememberedHumanTexts = new Map<string, number>()
+    // Placeholders the composer drew for sends the agent has not taken up, in send order. A queued or
+    // steering send is echoed only when the agent takes it up, which is a turn later than the bubble,
+    // so the pairing outlives that turn. Text is what an echo matches on, because a client echo
+    // carries no id, and send order keeps repeated sends of one text apart.
+    const waitingSends: { id: string; text: string; turns: number }[] = []
+    // Sends this turn already paired, counted per text so the same send's second wire form takes no
+    // further placeholder while a second send of that text still takes its own.
+    const pairedSends = new Map<string, number>()
     let humanCount = 0
     let bubbleSeq = 0
     let separatorSeq = 0
@@ -1409,18 +1525,55 @@ export function foldLogToThread(
     let entryRunId: string | undefined
     let pendingMessageSeen = false
     let pendingInsertionIndex: number | undefined
+    let bufferedAttachments: ThreadAttachment[] = []
 
-    const pushHuman = (text: string): void => {
+    /**
+     * A wire turn opens with its message, so that is where a message goes by default. A send the
+     * agent has not taken up opens nothing and waits `atFoot` instead. `reuseId` keeps the row React
+     * already rendered when an echo takes a placeholder's place.
+     */
+    const pushHuman = (
+        text: string,
+        attachments: ThreadAttachment[] = [],
+        placement: { atFoot?: boolean; reuseId?: string } = {}
+    ): string => {
         if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
             pendingMessageSeen = true
         }
-        items = insertHumanMessageAtTurnStart(items, {
-            id: `human-${humanCount++}`,
+        const carried = [...attachments, ...bufferedAttachments]
+        const item: ThreadItem = {
+            id: placement.reuseId ?? `human-${humanCount++}`,
             type: 'human_message',
             text,
             complete: true,
+            ...(carried.length > 0 && { attachments: carried }),
             ...(timestamp !== undefined && { startedAt: timestamp }),
-        })
+        }
+        if (placement.atFoot) {
+            items.push(item)
+        } else {
+            items = insertHumanMessageAtTurnStart(items, item)
+        }
+        bufferedAttachments = []
+        return item.id
+    }
+
+    /**
+     * A prompt's blocks arrive as consecutive frames with the text first, so the file lands on the message
+     * already rendered — including one an optimistic send drew, which the echo's text dedupe drops. That
+     * entry knows the name but not the ids, so a later frame for the same name fills them in.
+     */
+    const noteAttachment = (found: ThreadAttachment): void => {
+        // The sandbox path names the run and the artifact; the download endpoint also needs the task.
+        const attachment = found.artifactId && options.taskId ? { ...found, taskId: options.taskId } : found
+        for (let index = items.length - 1; index >= 0; index--) {
+            if (items[index].type === 'human_message') {
+                const existing = items[index].attachments ?? []
+                items[index] = { ...items[index], attachments: mergeAttachment(existing, attachment) }
+                return
+            }
+        }
+        bufferedAttachments = mergeAttachment(bufferedAttachments, attachment)
     }
 
     // Surface the context blocks a send was wrapped with as copyable debug rows (gated downstream by
@@ -1435,6 +1588,9 @@ export function foldLogToThread(
         }
     }
 
+    const waitingSendIds = (): ReadonlySet<string> =>
+        new Set(waitingSends.filter((send) => send.turns < SETTLED_AFTER_TURNS).map((send) => send.id))
+
     const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
         const idx = findLastBufferIndex(items, id, type, false)
         // Continue the matched buffer only while it's incomplete and only debug rows followed it;
@@ -1444,7 +1600,7 @@ export function foldLogToThread(
         // the S3 replay always does, since the backend drops chunks), so the bare fallback id would
         // collide as a React key across messages. The continuation lookup matches the `${id}@`
         // prefix, so it still works.
-        if (idx === -1 || items[idx].complete || !onlyDebugRowsFollow(items, idx)) {
+        if (idx === -1 || items[idx].complete || !onlyDebugRowsFollow(items, idx, waitingSendIds())) {
             items.push({
                 id: `${id}@${bubbleSeq++}`,
                 type,
@@ -1529,7 +1685,13 @@ export function foldLogToThread(
         }
     }
 
-    const renderLiveHuman = (rawText: string): void => {
+    /** The oldest send of this text the agent has not taken up, which is the one it takes up next. */
+    const takeWaitingPlaceholder = (text: string): string | undefined => {
+        const index = waitingSends.findIndex((send) => send.text === text)
+        return index === -1 ? undefined : waitingSends.splice(index, 1)[0].id
+    }
+
+    const renderLiveHuman = (rawText: string, remember: boolean): void => {
         const { text, contextBlocks } = splitUserMessageContent(rawText)
         if (!text) {
             return
@@ -1537,10 +1699,40 @@ export function foldLogToThread(
         // The blocks ride only the server echo (the optimistic `_client/human_message` carries the raw
         // text), so push them even when the human text below dedupes against the optimistic render.
         pushContextBlocks(contextBlocks)
-        // The server echoes every user send live. An idle send already rendered it optimistically via
-        // `_client/human_message`; a queue-drained send (dispatched with `addToThread: false`) did not,
-        // so its echo is what surfaces it. Render unless the current turn already shows this message —
-        // which both drops the optimistic-paired echo and dedupes a send echoed in two wire forms.
+        // A send echoed in two wire forms is one send: the `_posthog/user_message` form places it and
+        // leaves a credit the `user_message_chunk` form spends. Counting rather than flagging the text
+        // keeps a second send of the same text in one turn from reading as the first send's echo.
+        if (!remember) {
+            const paired = pairedSends.get(text) ?? 0
+            if (paired > 0) {
+                pairedSends.set(text, paired - 1)
+                return
+            }
+        }
+        // The echo says the agent took the send up, so it is what places the message: the placeholder
+        // leaves the foot of the thread and the message renders at the head of the turn it opens,
+        // keeping the attachment previews the placeholder carried. A placeholder already inside this
+        // turn is where it belongs, so it stays put.
+        const waitingId = takeWaitingPlaceholder(text)
+        if (waitingId !== undefined) {
+            if (remember) {
+                pairedSends.set(text, (pairedSends.get(text) ?? 0) + 1)
+            }
+            const index = items.findIndex((item) => item.id === waitingId)
+            if (index >= items.findLastIndex((item) => item.type === 'turn_separator') + 1) {
+                // The placeholder already sits in this turn, which is where the echo would put it.
+                return
+            }
+            if (index === -1) {
+                pushHuman(text)
+                return
+            }
+            const [placeholder] = items.splice(index, 1)
+            pushHuman(text, placeholder.attachments ?? [], { reuseId: placeholder.id })
+            return
+        }
+        // No send of ours is waiting — a drained queue from another tab, or a replayed turn the
+        // current turn already shows.
         if (currentTurnHasHumanText(items, text)) {
             return
         }
@@ -1617,7 +1809,9 @@ export function foldLogToThread(
         timestamp = !importedRun && !updateMeta?.imported && Number.isFinite(recordedAt) ? recordedAt : undefined
 
         if (method === '_client/human_message') {
-            pushHuman(String(params.content ?? ''))
+            const optimisticText = String(params.content ?? '')
+            const id = pushHuman(optimisticText, optimisticAttachments(params.attachments), { atFoot: true })
+            waitingSends.push({ id, text: optimisticText, turns: 0 })
             continue
         }
         if (method === '_client/error') {
@@ -1645,6 +1839,8 @@ export function foldLogToThread(
                 ...(traceId && { traceId }),
                 ...(timestamp !== undefined && { startedAt: timestamp }),
             })
+            pairedSends.clear()
+            waitingSends.forEach((send) => (send.turns += 1))
             continue
         }
         if (method === '_posthog/progress') {
@@ -1655,6 +1851,11 @@ export function foldLogToThread(
                 // The undelivered follow-up is a consequence of the run's error, so it rides the error
                 // card instead of a second failed row. Without a preceding error it becomes the card.
                 items = items.filter((item) => !(item.type === 'progress' && item.progressGroup === group))
+                // The notice follows the send that failed, which is the last one drawn. Retiring it
+                // stops a retry of the same text from taking its placeholder, and keeps a send that
+                // was never delivered where the composer drew it instead of sinking it below the
+                // answers that came after.
+                waitingSends.pop()
                 const last = items[items.length - 1]
                 if (last?.type === 'error' && last.variant !== 'crash') {
                     items[items.length - 1] = { ...last, undeliveredMessage: true }
@@ -1754,7 +1955,18 @@ export function foldLogToThread(
             if (source === 'replay') {
                 renderReplayHuman(userText, true)
             } else {
-                renderLiveHuman(userText)
+                renderLiveHuman(userText, true)
+            }
+            if (Array.isArray(params.content)) {
+                for (const block of params.content) {
+                    if (isHiddenUserContent(block)) {
+                        continue
+                    }
+                    const attachment = userAttachment(block)
+                    if (attachment) {
+                        noteAttachment(attachment)
+                    }
+                }
             }
             continue
         }
@@ -1788,12 +2000,18 @@ export function foldLogToThread(
             if (isHiddenUserContent(update.content)) {
                 continue
             }
+            // An attached file is its own frame, carrying a resource link instead of text.
+            const attachment = userAttachment(update.content)
+            if (attachment) {
+                noteAttachment(attachment)
+                continue
+            }
             const content = update.content as { text?: string } | undefined
             const userText = String(content?.text ?? update.text ?? '')
             if (source === 'replay') {
                 renderReplayHuman(userText, false)
             } else {
-                renderLiveHuman(userText)
+                renderLiveHuman(userText, false)
             }
             continue
         }
@@ -1845,6 +2063,14 @@ export function foldLogToThread(
         }
     }
 
+    // A send the agent has not taken up sits below everything that has landed, in send order, however
+    // much arrived after the composer drew it. A settled one leaves the sink, so a send whose echo
+    // can no longer pair cannot walk the thread for the rest of the run.
+    const waiting = waitingSendIds()
+    if (waiting.size > 0) {
+        items = [...items.filter((item) => !waiting.has(item.id)), ...items.filter((item) => waiting.has(item.id))]
+    }
+
     if (options.pendingMessage && !pendingMessageSeen) {
         // This is a display fallback, not an optimistic send; bootstrap must still read the full log.
         items.splice(pendingInsertionIndex ?? items.length, 0, {
@@ -1885,6 +2111,7 @@ export interface runStreamLogicValues {
     currentProjectId: number | null // projectLogic
     toolListeners: Record<string, ToolStreamSubscription> // toolStreamEventsLogic
     user: UserType | null // userLogic
+    availableCommands: AgentCommand[]
     awaitingOptimisticAttach: boolean
     bootstrapError: StreamErrorEnvelope | null
     bootstrapLoading: boolean
@@ -2092,8 +2319,12 @@ export interface runStreamLogicActions {
         errorMessage: string
         variant: 'crash' | 'error'
     }
-    pushHumanMessage: (content: string) => {
+    pushHumanMessage: (
+        content: string,
+        stagedAttachments?: StagedAttachment[]
+    ) => {
         content: string
+        stagedAttachments: StagedAttachment[] | undefined
     }
     recoveryProgress: (
         phase: RecoveryPhase,
@@ -2140,6 +2371,9 @@ export interface runStreamLogicActions {
         record: PermissionRequestRecord
         replayedFromHistory: boolean
     }
+    setAvailableCommands: (commands: AgentCommand[]) => {
+        commands: AgentCommand[]
+    }
     setContextUsage: (usage: ContextUsage) => {
         usage: ContextUsage
     }
@@ -2182,11 +2416,19 @@ export interface runStreamLogicActions {
     sseReconnecting: (attempt: number) => {
         attempt: number
     }
-    startOptimisticResume: (message: string) => {
+    startOptimisticResume: (
+        message: string,
+        stagedAttachments?: StagedAttachment[]
+    ) => {
         message: string
+        stagedAttachments: StagedAttachment[] | undefined
     }
-    startOptimisticRun: (message?: string) => {
+    startOptimisticRun: (
+        message?: string,
+        stagedAttachments?: StagedAttachment[]
+    ) => {
         message: string | undefined
+        stagedAttachments: StagedAttachment[] | undefined
     }
     streamEnded: () => {
         value: true
@@ -2204,7 +2446,8 @@ export interface runStreamLogicMeta {
         foldedThread: (
             log: RunLog,
             isBootstrapResumeRun: boolean,
-            pendingRunMessage: PendingRunMessage | null
+            pendingRunMessage: PendingRunMessage | null,
+            bootstrappedTaskId: string | null
         ) => FoldedThread
         errorTraceIds: (threadItems: ThreadItem[]) => Map<string, string>
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
@@ -2449,7 +2692,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
          */
         markTurnStarted: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
-        pushHumanMessage: (content: string) => ({ content }),
+        pushHumanMessage: (content: string, stagedAttachments?: StagedAttachment[]) => ({
+            content,
+            stagedAttachments,
+        }),
         /**
          * Open a run optimistically before its real id exists: flips the thread to the provisioning
          * indicator and, when a first message is given, renders it immediately as the human bubble. The
@@ -2458,9 +2704,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * created; the live SSE echo dedups the seeded message. Pure composition of `setRunOpening` +
          * `pushHumanMessage`.
          */
-        startOptimisticRun: (message?: string) => ({ message }),
+        startOptimisticRun: (message?: string, stagedAttachments?: StagedAttachment[]) => ({
+            message,
+            stagedAttachments,
+        }),
         setPendingRunMessage: (message: PendingRunMessage | null) => ({ message }),
-        startOptimisticResume: (message: string) => ({ message }),
+        startOptimisticResume: (message: string, stagedAttachments?: StagedAttachment[]) => ({
+            message,
+            stagedAttachments,
+        }),
         appendResumeBoundary: true,
         rollbackOptimisticResume: true,
         attachOptimisticResume: (taskId: string, run: TaskRunDetailDTOApi) => ({ taskId, run }),
@@ -2473,6 +2725,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         mergeRunArtifacts: (partial: Partial<RunArtifacts>) => ({ partial }),
         /** Latest-wins context-usage snapshot fold (token/cost/breakdown or numeric aggregate). */
         setContextUsage: (usage: ContextUsage) => ({ usage }),
+        /** Latest-wins agent slash-command list from `available_commands_update`. */
+        setAvailableCommands: (commands: AgentCommand[]) => ({ commands }),
         /** Diagnostic `_posthog/sdk_session` plumbing — no UI. */
         setSdkSession: (session: SdkSession) => ({ session }),
         reset: true,
@@ -2839,6 +3093,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => null,
             },
         ],
+        // Kept across a resume: the successor run re-advertises its list, and until then the old one holds.
+        availableCommands: [
+            [] as AgentCommand[],
+            {
+                setAvailableCommands: (_, { commands }) => commands,
+                reset: () => [],
+            },
+        ],
         // Diagnostic resume plumbing — adapter/session identity for telemetry. No UI.
         sdkSession: [
             null as SdkSession | null,
@@ -2860,9 +3122,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * Memoized on `log` identity, so it recomputes only when a frame is actually appended.
          */
         foldedThread: [
-            (s) => [s.log, s.isBootstrapResumeRun, s.pendingRunMessage],
-            (log: RunLog, isResumeRun: boolean, pendingMessage: PendingRunMessage | null): FoldedThread =>
-                foldLogToThread(log.entries, { isResumeRun, pendingMessage }),
+            (s) => [s.log, s.isBootstrapResumeRun, s.pendingRunMessage, s.bootstrappedTaskId],
+            (
+                log: RunLog,
+                isResumeRun: boolean,
+                pendingMessage: PendingRunMessage | null,
+                taskId: string | null
+            ): FoldedThread => foldLogToThread(log.entries, { isResumeRun, pendingMessage, taskId }),
         ],
         errorTraceIds: [
             (s) => [s.threadItems],
@@ -3230,22 +3496,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             })
             const history = normalizeHistory(entries, session.runId, values.isBootstrapResumeRun)
-            let retained = values.log.entries
-            if (
-                cache.retainedMessage &&
+            const echo = cache.retainedMessage
+                ? values.log.entries.findLast(
+                      ({ entry }) =>
+                          entry.notification.method === '_client/human_message' &&
+                          entry.notification.params?.content === cache.retainedMessage
+                  )
+                : undefined
+            const echoPersisted =
+                !!echo &&
                 history.some(
                     (entry) =>
                         entry.source_run_id === session.runId && persistedHumanText(entry) === cache.retainedMessage
                 )
-            ) {
-                const optimisticIndex = retained.findLastIndex(
-                    ({ entry }) =>
-                        entry.notification.method === '_client/human_message' &&
-                        entry.notification.params?.content === cache.retainedMessage
-                )
-                retained = retained.filter((_, index) => index !== optimisticIndex)
-            }
-            const log = reconcileRunLog(history, retained, session.buffer, session.runId)
+            const retained = echoPersisted ? values.log.entries.filter((stored) => stored !== echo) : values.log.entries
+            const log = reconcileRunLog(history, retained, session.buffer, echoPersisted ? undefined : echo)
             const bufferedEntries = new Set(session.buffer)
             const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
             // Rebuild state without publishing a partial transcript or repeating live reactions.
@@ -4085,10 +4350,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.streamTokenRefreshes = 0
                 cache.disposables.dispose('event-source')
             },
-            startOptimisticRun: ({ message }) => {
+            startOptimisticRun: ({ message, stagedAttachments }) => {
                 actions.setRunOpening(true)
                 if (message) {
-                    actions.pushHumanMessage(message)
+                    actions.pushHumanMessage(message, stagedAttachments)
                 }
             },
             appendResumeBoundary: () => {
@@ -4106,13 +4371,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     ])
                 }
             },
-            startOptimisticResume: ({ message }) => {
+            startOptimisticResume: ({ message, stagedAttachments }) => {
                 const historyComplete = values.historyComplete
                 const turnComplete = values.turnComplete
                 const previousEntryCount = values.log.entries.length
                 actions.appendResumeBoundary()
                 actions.setRunOpening(true)
-                actions.pushHumanMessage(message)
+                actions.pushHumanMessage(message, stagedAttachments)
                 cache.optimisticResume = {
                     entries: values.log.entries.slice(previousEntryCount),
                     message,
@@ -4155,7 +4420,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     ...(!resume.historyComplete ? { retainedMessage: resume.message } : {}),
                 })
             },
-            pushHumanMessage: ({ content }) => {
+            pushHumanMessage: ({ content, stagedAttachments }) => {
                 // The echo is always a live turn (replayed human turns render straight from the log), so
                 // stamp the turn start for per-turn duration metrics and append it as a `client`-sourced
                 // log entry the projection renders in order.
@@ -4171,7 +4436,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     {
                         entry: {
                             type: 'notification',
-                            notification: { method: '_client/human_message', params: { content } },
+                            // The wire echo of this send is deduped against this entry, so the send time can only come from here.
+                            timestamp: new Date().toISOString(),
+                            notification: {
+                                method: '_client/human_message',
+                                params: {
+                                    content,
+                                    ...(stagedAttachments?.length ? { attachments: stagedAttachments } : {}),
+                                },
+                            },
                         },
                         source: 'client',
                     },
@@ -4407,6 +4680,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
                         }
                     }
+                    return
+                }
+                if (isSessionUpdateAvailableCommands(update)) {
+                    actions.setAvailableCommands(parseAvailableCommands(update.availableCommands))
                     return
                 }
                 if (!isKnownSessionUpdate(update)) {

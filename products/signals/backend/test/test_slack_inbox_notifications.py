@@ -13,11 +13,11 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -235,8 +235,7 @@ def org_and_team():
 
 
 def _set_team_channel(team: Team, channel: str) -> None:
-    # SignalTeamConfig is auto-created per team via register_team_extension_signal.
-    SignalTeamConfig.objects.filter(team=team).update(default_slack_notification_channel=channel)
+    set_default_slack_notification_channel(team.id, channel)
 
 
 def _make_reviewer_user(org: Organization, email: str, login: str) -> User:

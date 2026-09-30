@@ -36,10 +36,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
-from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.conversation import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     function_calls,
@@ -327,18 +327,10 @@ async def run_scan(
         model_output=finalized,
         signals=signals,
         verification=outcome.verification,
-        thumbnail_video_s=_clamp_thumbnail(outcome.thumbnail_video_s, video_clock, duration_ms),
+        thumbnail_video_s=outcome.thumbnail_video_s,
         # Read off `outcome.signals`, which is still on the video clock; `signals` above is not.
         signal_video_spans=[(s.start_time, s.end_time) for s in outcome.signals],
     )
-
-
-def _clamp_thumbnail(thumbnail_video_s: int | None, video_clock: VideoClock, duration_ms: int) -> int | None:
-    """Hold the model's pick inside the rendered video, which is shorter than the session wherever the render cut."""
-    if thumbnail_video_s is None:
-        return None
-    ceiling = video_clock.video_duration_s if video_clock.video_duration_s is not None else duration_ms / 1000
-    return max(0, min(thumbnail_video_s, int(ceiling)))
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:

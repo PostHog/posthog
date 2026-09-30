@@ -5,6 +5,7 @@ import hashlib
 from datetime import timedelta
 from typing import Any, cast
 from urllib.parse import quote, urlencode
+from uuid import uuid4
 
 import pytest
 import time_machine
@@ -20,6 +21,8 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from fakeredis import FakeConnection
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -73,13 +76,25 @@ from posthog.models.user_integration import (
 )
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
-from posthog.team_notifications.slack import is_shared_channel
+from posthog.slack.channels import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.batch_exports.backend.models import BatchExport, BatchExportDestination
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import DestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-from products.workflows.backend.models import HogFlow
+from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
+from products.workflows.backend.facade.contracts import EmailDomainVerification, WorkflowSummary
+from products.workflows.backend.facade.testing import create_workflow_for_test
+
+
+def _p256_public_pem() -> str:
+    return (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
 
 
 class TestSlackIntegration:
@@ -194,7 +209,7 @@ class TestSlackIntegration:
 
         channels = SlackIntegration(self.integration).list_public_channels()
 
-        # team_notifications reads all three flags to keep an internal message out of a channel
+        # posthog.slack.channels reads all three flags to keep an internal message out of a channel
         # shared beyond the workspace. A dropped flag reads as not shared.
         assert is_shared_channel(channels[0])
 
@@ -607,10 +622,9 @@ class TestEmailIntegration:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
 
-    @patch("posthog.models.integration.email.SESProvider")
-    def test_integration_from_domain(self, mock_ses_provider_class):
-        mock_client = MagicMock()
-        mock_ses_provider_class.return_value = mock_client
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_integration_from_domain(self, mock_create_email_domain, mock_verify_email_domain):
 
         integration = EmailIntegration.create_native_integration(
             {**self.valid_config, "mail_from_subdomain": "youmustnothavelikedmyemail", "provider": "ses"},
@@ -632,17 +646,16 @@ class TestEmailIntegration:
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
 
-        mock_client.create_email_domain.assert_called_once_with(
+        mock_create_email_domain.assert_called_once_with(
             "posthog.com",
             mail_from_subdomain="youmustnothavelikedmyemail",
             team_id=self.team.id,
             org_team_ids=[self.team.id],
         )
 
-    @patch("posthog.models.integration.email.SESProvider")
-    def test_email_verify_returns_ses_result(self, mock_ses_provider_class):
-        mock_client = MagicMock()
-        mock_ses_provider_class.return_value = mock_client
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_email_verify_returns_ses_result(self, mock_create_email_domain, mock_verify_email_domain):
 
         # Mock the verify_email_domain method to return a test result
         expected_result = {
@@ -671,7 +684,7 @@ class TestEmailIntegration:
                 },
             ],
         }
-        mock_client.verify_email_domain.return_value = expected_result
+        mock_verify_email_domain.return_value = expected_result
 
         integration = EmailIntegration.create_native_integration(
             {**self.valid_config, "provider": "ses"},
@@ -684,7 +697,7 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with(
+        mock_verify_email_domain.assert_called_once_with(
             "posthog.com", mail_from_subdomain="feedback", team_id=self.team.id
         )
 
@@ -698,17 +711,16 @@ class TestEmailIntegration:
             "provider": "ses",
         }
 
-    @patch("posthog.models.integration.email.SESProvider")
-    def test_email_verify_updates_integration(self, mock_ses_provider_class):
-        mock_client = MagicMock()
-        mock_ses_provider_class.return_value = mock_client
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_email_verify_updates_integration(self, mock_create_email_domain, mock_verify_email_domain):
 
         # Mock the verify_email_domain method to return a test result
-        expected_result = {
+        expected_result: EmailDomainVerification = {
             "status": "success",
             "dnsRecords": [],
         }
-        mock_client.verify_email_domain.return_value = expected_result
+        mock_verify_email_domain.return_value = expected_result
 
         integration = EmailIntegration.create_native_integration(
             {**self.valid_config, "provider": "ses"},
@@ -721,7 +733,7 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with(
+        mock_verify_email_domain.assert_called_once_with(
             "posthog.com", mail_from_subdomain="feedback", team_id=self.team.id
         )
 
@@ -735,19 +747,20 @@ class TestEmailIntegration:
             "provider": "ses",
         }
 
-    @patch("posthog.models.integration.email.SESProvider")
-    def test_email_verify_updates_all_other_integrations_with_same_domain(self, mock_ses_provider_class, settings):
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_email_verify_updates_all_other_integrations_with_same_domain(
+        self, mock_create_email_domain, mock_verify_email_domain, settings
+    ):
         settings.SES_ACCESS_KEY_ID = "test_access_key"
         settings.SES_SECRET_ACCESS_KEY = "test_secret_key"
 
-        mock_client = MagicMock()
-        mock_ses_provider_class.return_value = mock_client
         # Mock the verify_email_domain method to return a test result
         expected_result = {
             "status": "success",
             "dnsRecords": [],
         }
-        mock_client.verify_email_domain.return_value = expected_result
+        mock_verify_email_domain.return_value = expected_result
 
         integration1 = EmailIntegration.create_native_integration(
             {**self.valid_config, "provider": "ses"},
@@ -3153,7 +3166,7 @@ class TestGitHubIntegrationStateValidation:
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
     def test_create_github_integration_with_valid_state_succeeds(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
@@ -3269,7 +3282,7 @@ class TestGitHubIntegrationStateValidation:
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
     def test_create_github_integration_state_token_single_use(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
@@ -3712,7 +3725,7 @@ class TestGitHubTeamIntegrationComplete:
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
     def test_success_redirects_to_next_with_integration_id(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
@@ -3780,7 +3793,7 @@ class TestGitHubTeamIntegrationComplete:
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
     def test_member_can_complete_fresh_team_install(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
@@ -3846,7 +3859,7 @@ class TestGitHubTeamIntegrationComplete:
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
     def test_environment_integrations_flow_uses_team_id_from_authorize_cache(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
@@ -6548,23 +6561,30 @@ class TestGitHubIntegrationUninstall:
         assert not Integration.objects.filter(id=integration.id).exists()
 
     @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation_status")
-    @patch("posthog.api.integration.count_in_progress_runs_for_github_integration")
+    @patch("posthog.api.integration.get_in_progress_runs_for_github_integration")
     def test_destroy_github_blocked_while_background_agent_runs_in_progress(
         self, mock_count, _mock_uninstall, client: HttpClient
     ):
         integration = self._create_github_integration("12345")
         _mock_uninstall.return_value = "uninstalled"
-        mock_count.return_value = 2
+        task_id = uuid4()
+        mock_count.return_value = InProgressGithubRunsDTO(
+            count=3, oldest_task_id=task_id, oldest_task_title="Fix the login redirect"
+        )
 
         client.force_login(self.user)
         response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "2 in-progress background agent runs" in response.json()["detail"]
+        assert response.json()["detail"] == (
+            'This GitHub integration is being used by the in-progress background agent task "Fix the login redirect" '
+            f"({settings.SITE_URL}/project/{self.team.pk}/ai?task={task_id}) and 2 other runs. "
+            "Wait for them to finish or cancel them before disconnecting it."
+        )
         assert Integration.objects.filter(id=integration.id).exists()
-        mock_count.assert_called_once_with(team_id=self.team.pk, integration_id=integration.id)
+        mock_count.assert_called_once_with(team_id=self.team.pk, integration_id=integration.id, user_id=self.user.id)
 
-        mock_count.return_value = 0
+        mock_count.return_value = InProgressGithubRunsDTO(count=0)
         response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
@@ -6609,9 +6629,9 @@ class TestIntegrationDeletionWorkflowGuard:
             },
         ]
 
-    def _create_flow(self, status: str = "active", actions: list | None = None) -> HogFlow:
-        return HogFlow.objects.create(
-            team=self.team,
+    def _create_flow(self, status: str = "active", actions: list | None = None) -> WorkflowSummary:
+        return create_workflow_for_test(
+            team_id=self.team.id,
             name="Welcome Email Sequence",
             status=status,
             actions=actions if actions is not None else self._email_actions(self.integration.id),
@@ -6833,8 +6853,8 @@ class TestIntegrationDeletionHogFunctionGuard:
 
     def test_destroy_blocked_message_includes_workflows_and_functions(self, client: HttpClient):
         self._create_function(name="Slack notifier")
-        HogFlow.objects.create(
-            team=self.team,
+        create_workflow_for_test(
+            team_id=self.team.id,
             name="Slack flow",
             status="active",
             actions=[
@@ -6857,10 +6877,13 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert Integration.objects.filter(id=self.integration.id).exists()
 
     def test_destroy_blocked_message_includes_batch_exports(self, client: HttpClient):
-        dest = BatchExportDestination.objects.create(
-            config={}, type=BatchExportDestination.Destination.AWS_S3, integration=self.integration
+        batch_exports_testing.create_batch_export(
+            self.team.id,
+            name="Test batch export",
+            destination_type=DestinationType.AWS_S3,
+            destination_config={},
+            integration_id=self.integration.id,
         )
-        BatchExport.objects.create(name="Test batch export", destination=dest, team=self.team, interval="hour")
 
         response = self._delete(client)
 
@@ -6979,9 +7002,12 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
+    @parameterized.expand([("with_a_public_key", True), ("without_a_public_key", False)])
     @patch("posthog.models.integration.push.GoogleRequest")
     @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
-    def test_setting_the_mode_reaches_the_integration(self, mock_from_sa, _mock_google_request):
+    def test_setting_the_mode_reaches_the_integration(
+        self, _name: str, with_public_key: bool, mock_from_sa: MagicMock, _mock_google_request: MagicMock
+    ) -> None:
         # The serializer builds each provider's arguments from named config fields, so a key it doesn't
         # know about is dropped before it ever reaches the integration. That silently made the setup
         # UI's toggle inert; this covers the plumbing rather than just the model helper underneath it.
@@ -7001,11 +7027,17 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
                         "token_uri": "https://oauth2.googleapis.com/token",
                     },
                     "push_identity_verification": "required",
+                    **({"push_identity_public_keys": [_p256_public_pem()]} if with_public_key else {}),
                 },
             },
             format="json",
         )
 
+        if not with_public_key:
+            # Verification checks tokens against a public key only, so without one every device is refused.
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert not Integration.objects.filter(team=self.team, kind="firebase").exists()
+            return
         assert response.status_code == status.HTTP_201_CREATED, response.content
         integration = Integration.objects.get(team=self.team, kind="firebase")
         assert integration.config["push_identity_verification"] == "required"

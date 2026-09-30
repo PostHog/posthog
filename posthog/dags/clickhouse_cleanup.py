@@ -48,6 +48,7 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dags.deletes import deletes_job
+from posthog.dags.person_tombstone_queue import publish_queue_gauges, resolve_person_tombstone_queue
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
@@ -551,6 +552,52 @@ def _create_dictionary(
     )
     load_and_verify_on_every_cluster([cluster], dictionary)
     return dictionary
+
+
+class TombstoneQueueConfig(dagster.Config):
+    visibility_timeout_seconds: int = 600
+    poll_interval_seconds: int = 15
+
+
+@dagster.op
+def resolve_tombstone_queue(
+    context: dagster.OpExecutionContext,
+    config: TombstoneQueueConfig,
+    run: CleanupRun,
+) -> CleanupRun:
+    try:
+        result = resolve_person_tombstone_queue(
+            dry_run=run.dry_run,
+            min_team_id=run.min_team_id,
+            max_team_id=run.max_team_id,
+            visibility_timeout_seconds=config.visibility_timeout_seconds,
+            poll_interval_seconds=config.poll_interval_seconds,
+            log=context.log.warning,
+        )
+        if not run.dry_run:
+            publish_queue_gauges(result, time.time())
+    except Exception:
+        context.log.exception("resolving the person tombstone queue failed, continuing with the sweep")
+        return run
+
+    if result.failed_teams:
+        context.log.warning("%s teams could not be resolved after retries; their rows stay queued", result.failed_teams)
+    if result.remaining:
+        context.log.warning(
+            "persons deleted in Postgres but not confirmed deleted in ClickHouse: %s",
+            ", ".join(f"{row.team_id}:{row.person_uuid}" for row in result.remaining),
+        )
+    context.add_output_metadata(
+        {
+            "listed": dagster.MetadataValue.int(result.listed),
+            "dropped": dagster.MetadataValue.int(result.dropped),
+            "confirmed": dagster.MetadataValue.int(result.confirmed),
+            "republished": dagster.MetadataValue.int(result.republished),
+            "failed_teams": dagster.MetadataValue.int(result.failed_teams),
+            "remaining": dagster.MetadataValue.int(len(result.remaining)),
+        }
+    )
+    return run
 
 
 @dagster.op
@@ -1505,7 +1552,7 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
 )
 def clickhouse_deletion_sweep_job():
     """Sweep deleted cohort memberships, then deleted persons and their distinct ids."""
-    run = snapshot_orphaned_distinct_ids(snapshot_deleted_persons(clear_removed_cohort_data()))
+    run = snapshot_orphaned_distinct_ids(snapshot_deleted_persons(resolve_tombstone_queue(clear_removed_cohort_data())))
 
     run = recheck_revived_persons("recheck_before_distinct_id_delete")(run)
     run = delete_orphaned_distinct_ids(run)
@@ -1548,7 +1595,13 @@ SCHEDULED_RUN_CONFIG = {
                 "min_team_id": 0,
                 "max_team_id": 0,
             }
-        }
+        },
+        "resolve_tombstone_queue": {
+            "config": {
+                "visibility_timeout_seconds": 600,
+                "poll_interval_seconds": 15,
+            }
+        },
     }
 }
 

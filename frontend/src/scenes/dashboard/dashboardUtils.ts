@@ -48,7 +48,7 @@ export function getInsightQueryError(insight: InsightModel): ApiError | null {
     })
 }
 
-/** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
+/** Shape used for project template creation and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
     dashboard: DashboardType | null | undefined
 ): DashboardTemplateEditorType | undefined {
@@ -67,6 +67,7 @@ export function dashboardToSaveableTemplate(
                     return {
                         type: 'TEXT' as const,
                         body: tile.text.body,
+                        agent_context: tile.text.agent_context,
                         layouts: tile.layouts,
                         color: tile.color,
                         transparent_background: tile.transparent_background,
@@ -110,6 +111,25 @@ export function dashboardToSaveableTemplate(
                 throw new Error('Unknown tile type')
             }),
         variables: [],
+    }
+}
+
+export function dashboardTemplateForExport(
+    template: DashboardTemplateEditorType | undefined
+): DashboardTemplateEditorType | null {
+    if (!template) {
+        return null
+    }
+    return {
+        ...template,
+        tiles: template.tiles.map((tile) => {
+            if (tile.type !== 'TEXT') {
+                return tile
+            }
+            const exportedTile = { ...tile }
+            delete exportedTile.agent_context
+            return exportedTile
+        }),
     }
 }
 
@@ -209,6 +229,15 @@ function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
 export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh: Dayjs | null): boolean {
     const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
     return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
+}
+
+/**
+ * `Dashboard.last_refresh` is shared by all viewers, so one person's refresh can start a block
+ * window for everybody while the tiles keep showing old data. In that state the block must give way.
+ */
+export function isEffectiveRefreshStale(effectiveLastRefresh: Dayjs | null): boolean {
+    const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
+    return ageMinutes !== null && ageMinutes >= DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES
 }
 
 // Helper function for exponential backoff
@@ -311,6 +340,7 @@ export async function getInsightWithRetry(
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                 ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
             const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
@@ -332,6 +362,7 @@ export async function getInsightWithRetry(
                             ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                         })}`
                         // The async call returns an insight with a query_status object
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const insightResponse = await api.get(asyncApiUrl, methodOptions)
 
                         if (insightResponse?.query_status?.id) {
@@ -346,6 +377,7 @@ export async function getInsightWithRetry(
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                                     ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
+                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                                 const refreshedInsightResponse: Response = await api.getResponse(
                                     cacheUrl,
                                     methodOptions

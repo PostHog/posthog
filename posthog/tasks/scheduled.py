@@ -108,6 +108,7 @@ from products.feature_flags.backend.tasks import (
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB, run_mcp_registry_sync
+from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
@@ -147,10 +148,12 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     report_stuck_heatmap_screenshots,
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
-from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
-from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
-from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
-from products.workflows.backend.tasks.workflow_email_health import sweep_workflow_email_deliverability
+from products.workflows.backend.facade.tasks import (
+    poll_ses_account_reputation,
+    recompute_workflows_email_sending_tiers,
+    reconcile_ses_tenant_states,
+    sweep_workflow_email_deliverability,
+)
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -638,7 +641,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="*/6", minute="20"),
+        crontab(minute="*/5"),
         sweep_web_analytics_achievement_team_tracks.s(),
         name="web analytics achievements team-track sweep",
     )
@@ -999,6 +1002,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="1", minute="27"),
         cleanup_canvas_builds.s(),
         name="apply canvas build artifact retention",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="2", minute="17"),
+        cleanup_widget_snapshots.s(),
+        name="remove unreferenced notebook widget snapshots",
     )
 
     add_periodic_task_with_expiry(

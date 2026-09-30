@@ -299,6 +299,12 @@ function getNextTestPort(): number {
   return port;
 }
 
+function circularData(): Record<string, unknown> {
+  const data: Record<string, unknown> = { reason: "loop" };
+  data.self = data;
+  return data;
+}
+
 function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
@@ -704,6 +710,42 @@ describe("AgentServer HTTP Mode", () => {
           PREWARMED_RESUME_IDLE_CAPABILITY,
           MESSAGE_DRIVEN_RESUME_CAPABILITY,
         ],
+      });
+    }, 30000);
+
+    it("reports the initialization phase the runtime agent published", async () => {
+      const s = createServer();
+      await s.start();
+      const { extNotification } = (
+        s as unknown as {
+          createCloudClient(payload: {
+            run_id: string;
+            task_id: string;
+            team_id: number;
+            user_id: number;
+            distinct_id: string;
+          }): {
+            extNotification(
+              method: string,
+              params: Record<string, unknown>,
+            ): Promise<void>;
+          };
+        }
+      ).createCloudClient({
+        run_id: "test-run-id",
+        task_id: "test-task-id",
+        team_id: 1,
+        user_id: 1,
+        distinct_id: "user-1",
+      });
+
+      await extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+        status: "setup_hooks",
+      });
+
+      const response = await fetch(`http://localhost:${port}/health`);
+      expect(await response.json()).toMatchObject({
+        initializationPhase: "setup_hooks",
       });
     }, 30000);
 
@@ -1781,6 +1823,38 @@ describe("AgentServer HTTP Mode", () => {
       };
       return testServer;
     }
+
+    it.each([
+      [
+        "ACP internal error details",
+        RequestError.internalError({ details: "Session setup timed out" }),
+        "Agent server crashed: Internal error: Session setup timed out",
+      ],
+      [
+        "ACP internal error without details",
+        RequestError.internalError({}),
+        "Agent server crashed: Internal error",
+      ],
+      [
+        "ACP internal error with circular data",
+        RequestError.internalError(circularData()),
+        "Agent server crashed: Internal error",
+      ],
+      ["plain error", new Error("boom"), "Agent server crashed: boom"],
+    ])("reports %s on a fatal crash", async (_name, error, expected) => {
+      const testServer = createFailureTestServer() as unknown as {
+        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        reportFatalError(error: unknown): Promise<void>;
+      };
+
+      await testServer.reportFatalError(error);
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "test-task-id",
+        "test-run-id",
+        expect.objectContaining({ status: "failed", error_message: expected }),
+      );
+    });
 
     const interactivePayload: JwtPayload = {
       run_id: "run-1",

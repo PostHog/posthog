@@ -13,6 +13,7 @@ export const ONBOARDING_TEST_TOOLS_FLAG =
 // Gates the entire canvas feature: the app rail's Channels space, the /website
 // routes, channels and dashboards.
 export const PROJECT_BLUEBIRD_FLAG = featureFlagKeys.PROJECT_BLUEBIRD_FLAG;
+export const CANVAS_COMMENTS_FLAG = featureFlagKeys.CANVAS_COMMENTS_FLAG;
 /**
  * Gates the new channels layout (channel-scoped sidebar + task Activity panel).
  * Off keeps the previous experience and its "Enable channels" toggle. Requires
@@ -38,6 +39,8 @@ export const FAST_MODE_FLAG = featureFlagKeys.FAST_MODE_FLAG;
 export const SPOKEN_NARRATION_FLAG = featureFlagKeys.SPOKEN_NARRATION_FLAG;
 export const CODEX_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CODEX_OWN_SUBSCRIPTION_FLAG;
+export const CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG =
+  featureFlagKeys.CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG =
@@ -69,13 +72,6 @@ export const SIGNALS_PR_REFUNDS_FLAG = featureFlagKeys.SIGNALS_PR_REFUNDS_FLAG;
  * report detail route, plus report entries in the feed. Requires project-bluebird.
  */
 export const CHANNEL_REPORTS_FLAG = featureFlagKeys.CHANNEL_REPORTS_FLAG;
-
-/**
- * The global reports inbox: one sectioned, keyboard-triageable page for every
- * report, reclaiming the inbox nav slot from the channel-reports takeover.
- * The per-space sidebar list stays the working set beside it.
- */
-export const REPORTS_INBOX_FLAG = featureFlagKeys.REPORTS_INBOX_FLAG;
 
 /**
  * One-report-at-a-time keyboard triage inside the reports inbox. On by

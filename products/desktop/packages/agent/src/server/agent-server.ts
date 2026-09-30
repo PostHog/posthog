@@ -15,7 +15,6 @@ import {
   RequestError,
 } from "@agentclientprotocol/sdk";
 import { type ServerType, serve } from "@hono/node-server";
-import type { SpanContext } from "@opentelemetry/api";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
@@ -61,12 +60,6 @@ import {
   sleepWithBackoff,
   toAcpMcpServers,
 } from "@posthog/shared";
-import {
-  buildPosthogPropertiesHeaderLines,
-  buildPosthogPropertiesHeaderRecord,
-  buildPosthogScopedPropertyHeaderLines,
-  buildPosthogScopedPropertyHeaderRecord,
-} from "@posthog/shared/posthog-property-headers";
 import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
@@ -76,6 +69,7 @@ import packageJson from "../../package.json" with { type: "json" };
 import {
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
+  type ProcessKilledParams,
   type SteerDeclineCause,
 } from "../acp-extensions";
 import {
@@ -83,12 +77,14 @@ import {
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
+import type { InitializationPhase } from "../adapters/claude/session/initialization";
 import {
   getSessionJsonlPath,
   hydrateSessionJsonl,
 } from "../adapters/claude/session/jsonl-hydration";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import { codexKeyMatchesMcpServerName } from "../adapters/codex-app-server/mcp-config";
+import type { ChatgptAuthTokens } from "../adapters/codex-app-server/spawn";
 import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
 import { mergeUsage } from "../adapters/codex-app-server/usage-tracker";
 import {
@@ -103,7 +99,7 @@ import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import { configurePersistentAgentState } from "../persistent-agent-state";
-import { PostHogAPIClient } from "../posthog-api";
+import { CodexSubscriptionTokenError, PostHogAPIClient } from "../posthog-api";
 import {
   findPrUrls,
   type OwnedBranch,
@@ -129,7 +125,6 @@ import type {
 import { resourceLink } from "../utils/acp-content";
 import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
-import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -138,10 +133,24 @@ import {
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
+import {
+  CodexSubscriptionTokenClient,
+  codexSubscriptionRefreshFailureMessage,
+} from "./codex-subscription-token";
 import { CredentialRelay, CredentialRelayError } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
+import {
+  buildGatewayEnv,
+  codexAuthFromGatewayEnv,
+  type GatewayEnvInput,
+} from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
+import {
+  CliProcessRegistry,
+  isTaskRunSandbox,
+  MemoryWatchdogWatcher,
+} from "./memory-watchdog";
 import {
   checkoutExistingPullRequest,
   type ExistingPrCheckoutResult,
@@ -243,6 +252,32 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function describeFatalError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  if (!(error instanceof RequestError)) return error.message;
+  const data: unknown = error.data;
+  const details =
+    typeof data === "object" && data !== null && "details" in data
+      ? data.details
+      : data;
+  if (typeof details === "string") {
+    return details && details !== error.message
+      ? `${error.message}: ${details}`
+      : error.message;
+  }
+  if (
+    details == null ||
+    (typeof details === "object" && Object.keys(details).length === 0)
+  ) {
+    return error.message;
+  }
+  try {
+    return `${error.message}: ${JSON.stringify(details)}`;
+  } catch {
+    return error.message;
+  }
+}
+
 function budgetSnapshotFromUsageUpdate(
   message: unknown,
 ): Record<string, unknown> | undefined {
@@ -312,6 +347,21 @@ export interface PreparedInitialTaskMessage {
   taskRun: TaskRun;
   action: "wait" | "idle" | "resume" | "initial";
 }
+
+export const CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
+  "This run could not get a ChatGPT token. Open Desktop, go to Settings > Harness, and connect your ChatGPT account again. Then start the task again.";
+
+/** How a run that cannot get its plan credential reports the failure, per adapter. */
+const SUBSCRIPTION_TOKEN_FAILURE = {
+  claude: {
+    phase: "credential_relay",
+    message: CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+  },
+  codex: {
+    phase: "subscription_token",
+    message: CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+  },
+} as const;
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -424,18 +474,6 @@ function buildMissingAttachmentNotice(count: number): string {
   );
 }
 
-/**
- * The codex session's LLM auth, from the resolved gateway env. Codex must never
- * read the raw run credential: on the Go-gateway path the bearer is the per-run
- * scoped token (see configureEnvironment).
- */
-export function codexAuthFromGatewayEnv(env: GatewayEnv): {
-  apiBaseUrl: string;
-  apiKey: string;
-} {
-  return { apiBaseUrl: env.openaiBaseUrl, apiKey: env.openaiApiKey };
-}
-
 interface PrAttribution {
   createdAt: string | null;
   author: string | null;
@@ -513,6 +551,7 @@ export class AgentServer {
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
   private slackReplyContext = false;
+  private mobileClient = false;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -544,6 +583,7 @@ export class AgentServer {
     typeof createAcpConnection
   > | null = null;
   private initializationFailureCode: string | undefined;
+  private initializationPhase: InitializationPhase | undefined;
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
@@ -582,6 +622,10 @@ export class AgentServer {
   private readonly posthogExecPermissionRegex: RegExp;
   private readonly posthogExecPermissionRegexSource: string;
   private mcpRelayServer: McpRelayServer | null = null;
+  private memoryWatchdogWatcher: MemoryWatchdogWatcher | null = null;
+  private pendingProcessKills: ProcessKilledParams[] = [];
+  private readonly cliProcesses = new CliProcessRegistry(process.env);
+  private codexTokenClient: CodexSubscriptionTokenClient | null = null;
   private readonly credentialRelay = new CredentialRelay({
     emitEvent: (event) => this.broadcastEvent(event),
   });
@@ -760,6 +804,7 @@ export class AgentServer {
         status: "ok",
         hasSession: !!this.session,
         readiness: boot.state,
+        initializationPhase: this.initializationPhase,
         failureCode: this.initializationFailureCode,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
@@ -985,7 +1030,45 @@ export class AgentServer {
       );
     });
 
+    await this.startMemoryWatchdogWatcher();
     await this.autoInitializeSession();
+  }
+
+  private async startMemoryWatchdogWatcher(): Promise<void> {
+    if (!isTaskRunSandbox(process.env) || this.memoryWatchdogWatcher) return;
+    const watcher = new MemoryWatchdogWatcher({
+      onProcessKilled: (params) => this.emitProcessKilled(params),
+      logger: this.logger,
+    });
+    if (await watcher.start()) {
+      this.memoryWatchdogWatcher = watcher;
+    }
+  }
+
+  private emitProcessKilled(params: ProcessKilledParams): void {
+    const notification = {
+      jsonrpc: "2.0",
+      method: POSTHOG_NOTIFICATIONS.PROCESS_KILLED,
+      params,
+    };
+    if (this.session) {
+      this.broadcastAndPersistNotification(notification);
+      return;
+    }
+    this.pendingProcessKills.push(params);
+  }
+
+  private flushPendingProcessKills(): void {
+    if (!this.session || this.pendingProcessKills.length === 0) return;
+    const kills = this.pendingProcessKills;
+    this.pendingProcessKills = [];
+    for (const params of kills) {
+      this.broadcastAndPersistNotification({
+        jsonrpc: "2.0",
+        method: POSTHOG_NOTIFICATIONS.PROCESS_KILLED,
+        params,
+      });
+    }
   }
 
   private async loadResumeState(
@@ -1116,6 +1199,7 @@ export class AgentServer {
     this.logger.debug("Stopping agent server...");
     this.shutdownController.abort(new CredentialRelayError("cancelled"));
     this.credentialRelay.stop();
+    this.memoryWatchdogWatcher?.stop();
     try {
       await withTimeout(
         Promise.allSettled([
@@ -1160,11 +1244,10 @@ export class AgentServer {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
     const errorMessage = redactSecrets(
-      error instanceof CredentialRelayError
-        ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
-        : error instanceof Error
-          ? error.message
-          : String(error),
+      error instanceof CredentialRelayError ||
+        error instanceof CodexSubscriptionTokenError
+        ? SUBSCRIPTION_TOKEN_FAILURE[this.subscriptionAdapter()].message
+        : describeFatalError(error),
     );
     this.logger.error("Fatal agent-server error; marking run failed", error);
 
@@ -1222,11 +1305,48 @@ export class AgentServer {
     }
   }
 
-  private async reportClaudeSubscriptionTokenMissing(
+  private subscriptionAdapter(): "claude" | "codex" {
+    return this.getRuntimeAdapter() === "codex" ? "codex" : "claude";
+  }
+
+  private async refreshCodexSubscriptionTokens(): Promise<ChatgptAuthTokens> {
+    try {
+      return await this.codexSubscriptionTokens().refresh();
+    } catch (error) {
+      const code =
+        error instanceof CodexSubscriptionTokenError ? error.code : "unknown";
+      this.logger.warn("ChatGPT token refresh failed", { code });
+      throw new Error(codexSubscriptionRefreshFailureMessage(error));
+    }
+  }
+
+  private codexSubscriptionTokens(): CodexSubscriptionTokenClient {
+    if (!this.codexTokenClient) {
+      if (!this.config.codexRunToken) {
+        throw new CodexSubscriptionTokenError(
+          "forbidden",
+          0,
+          "This run has no ChatGPT run token.",
+        );
+      }
+      this.codexTokenClient = new CodexSubscriptionTokenClient({
+        posthogAPI: this.posthogAPI,
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        runToken: this.config.codexRunToken,
+        logger: this.logger.child("CodexSubscriptionToken"),
+      });
+    }
+    return this.codexTokenClient;
+  }
+
+  private async reportSubscriptionTokenMissing(
+    adapter: "claude" | "codex",
     reason: string,
   ): Promise<void> {
-    this.initializationFailureCode = "claude_credential_unavailable";
-    this.logger.warn("claude_credential_unavailable");
+    const failure = SUBSCRIPTION_TOKEN_FAILURE[adapter];
+    this.initializationFailureCode = `${adapter}_credential_unavailable`;
+    this.logger.warn(this.initializationFailureCode);
     try {
       this.broadcastEvent({
         type: "notification",
@@ -1236,9 +1356,9 @@ export class AgentServer {
           method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
           params: {
             runtimeAdapter: this.getRuntimeAdapter(),
-            initializationPhase: "credential_relay",
+            initializationPhase: failure.phase,
             reason,
-            message: CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+            message: failure.message,
           },
         },
       });
@@ -1848,8 +1968,11 @@ export class AgentServer {
     } catch (error) {
       if (this.shutdownController.signal.aborted) throw error;
       this.bootTracker.markFailed();
-      if (error instanceof CredentialRelayError) {
-        this.initializationFailureCode = "claude_credential_unavailable";
+      if (
+        error instanceof CredentialRelayError ||
+        error instanceof CodexSubscriptionTokenError
+      ) {
+        this.initializationFailureCode = `${this.subscriptionAdapter()}_credential_unavailable`;
       }
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
@@ -2057,6 +2180,7 @@ export class AgentServer {
     this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
     this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
     this.slackReplyContext = preTaskRun?.state.slack_reply_context === true;
+    this.mobileClient = preTaskRun?.state.client_platform === "mobile";
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -2128,7 +2252,28 @@ export class AgentServer {
         if (this.shutdownController.signal.aborted) throw error;
         const reason = error instanceof Error ? error.message : String(error);
         this.logger.warn("Claude subscription token relay failed", { reason });
-        await this.reportClaudeSubscriptionTokenMissing(reason);
+        await this.reportSubscriptionTokenMissing("claude", reason);
+        throw error;
+      }
+    }
+
+    let codexSubscriptionTokens: ChatgptAuthTokens | null = null;
+    if (
+      this.config.codexModelAccess === "own-subscription" &&
+      runtimeAdapter === "codex"
+    ) {
+      try {
+        codexSubscriptionTokens = await this.codexSubscriptionTokens().get();
+      } catch (error) {
+        if (this.shutdownController.signal.aborted) throw error;
+        const reason =
+          error instanceof CodexSubscriptionTokenError
+            ? error.code
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        this.logger.warn("ChatGPT token request failed", { reason });
+        await this.reportSubscriptionTokenMissing("codex", reason);
         throw error;
       }
     }
@@ -2145,6 +2290,16 @@ export class AgentServer {
         this.handleAcpTransportMessage(message, eventId),
       stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
+      processCallbacks: isTaskRunSandbox(process.env)
+        ? {
+            onProcessSpawned: ({ pid }) => {
+              void this.cliProcesses.spawned(pid);
+            },
+            onProcessExited: (pid) => {
+              void this.cliProcesses.exited(pid);
+            },
+          }
+        : undefined,
       claudeGatewayEnv:
         runtimeAdapter !== "codex" && claudeSubscriptionToken === null
           ? gatewayEnv
@@ -2157,7 +2312,10 @@ export class AgentServer {
         runtimeAdapter === "codex"
           ? {
               cwd: this.config.repositoryPath ?? "/tmp/workspace",
-              ...codexAuthFromGatewayEnv(gatewayEnv),
+              // Routing a plan run through the gateway would bill us as well.
+              ...(codexSubscriptionTokens
+                ? {}
+                : codexAuthFromGatewayEnv(gatewayEnv)),
               // Bundled-binary hint for the native codex CLI: the codex
               // binary itself, or any file in its directory. Set in the
               // sandbox image (POSTHOG_CODEX_BINARY_PATH); when unset the
@@ -2176,7 +2334,13 @@ export class AgentServer {
                   : undefined,
               serviceTier: this.config.serviceTier,
               developerInstructions: codexInstructions,
-              httpHeaders: gatewayEnv.openaiCustomHeaders,
+              httpHeaders: codexSubscriptionTokens
+                ? undefined
+                : gatewayEnv.openaiCustomHeaders,
+              chatgptAuthTokens: codexSubscriptionTokens ?? undefined,
+              refreshChatgptAuthTokens: codexSubscriptionTokens
+                ? () => this.refreshCodexSubscriptionTokens()
+                : undefined,
             }
           : undefined,
       onStructuredOutput: async (output) => {
@@ -2398,6 +2562,7 @@ export class AgentServer {
     };
     this.initializingTelemetry = undefined;
     this.flushPreSessionEvents();
+    this.flushPendingProcessKills();
 
     this.logger = new Logger({
       debug: true,
@@ -4462,6 +4627,7 @@ export class AgentServer {
       createPr: this.config.createPr,
       hasGithubToken: Boolean(resolveGithubToken()),
       isAutomatedOrigin: this.isAutomatedOrigin(),
+      mobileClient: this.mobileClient,
       isSlack: this.isSlackReplyContext(),
       projectId: this.config.projectId,
       repositoryAttached: Boolean(this.config.repositoryPath),
@@ -4672,154 +4838,9 @@ export class AgentServer {
     );
   }
 
-  private configureEnvironment({
-    runSpanContext,
-    isInternal = false,
-    originProduct,
-    signalReportId,
-    aiStage,
-    aiAgentName,
-    taskId,
-    taskRunId,
-    taskUserId,
-    taskTitle,
-    taskOriginKey,
-    repositories,
-    runtimeAdapter,
-    sandboxEnvironmentId,
-    snapshotKind,
-    prewarmed,
-    executionEnvironment,
-  }: {
-    runSpanContext?: SpanContext;
-    isInternal?: boolean;
-    originProduct?: Task["origin_product"] | null;
-    signalReportId?: string | null;
-    aiStage?: string | null;
-    aiAgentName?: string | null;
-    taskId?: string | null;
-    taskRunId?: string | null;
-    taskUserId?: number | null;
-    taskTitle?: string | null;
-    taskOriginKey?: string | null;
-    repositories?: string[];
-    runtimeAdapter?: string | null;
-    sandboxEnvironmentId?: string | null;
-    snapshotKind?: string | null;
-    prewarmed?: boolean | null;
-    executionEnvironment?: "local" | "cloud";
-  } = {}): GatewayEnv {
+  private configureEnvironment(input: GatewayEnvInput = {}): GatewayEnv {
     const { apiKey, apiUrl, projectId } = this.config;
-    const product = resolveGatewayProduct({ isInternal, originProduct });
-    // Go-gateway runs authenticate with the per-run scoped token minted by the
-    // worker (pinned product + on-behalf-of team, per-run spend cap), not the
-    // run's per-team OAuth token, whose team has no gateway wallet. A routed
-    // product with no token therefore stays on the Python gateway. The worker's env values
-    // win, because the token is pinned to the product they name.
-    const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
-    let target = resolveGatewayTarget({
-      product,
-      aiStage,
-      posthogHost: apiUrl,
-    });
-    if (target.isAiGateway && !gatewayToken) {
-      this.logger.warn(
-        `AI_GATEWAY_TOKEN missing for routed product ${target.aiProduct}; falling back to the Python gateway`,
-      );
-      target = resolveGatewayTarget({
-        product,
-        aiStage,
-        posthogHost: apiUrl,
-        env: { ...process.env, AI_GATEWAY_URL: undefined },
-      });
-    }
-    const {
-      baseUrl: gatewayUrl,
-      isAiGateway,
-      aiProduct,
-      aiStage: resolvedStage,
-    } = target;
-    const llmBearer = isAiGateway && gatewayToken ? gatewayToken : apiKey;
-    const openaiBaseUrl = gatewayUrl.endsWith("/v1")
-      ? gatewayUrl
-      : `${gatewayUrl}/v1`;
-    // Forward task metadata as `x-posthog-property-*` headers so the gateway
-    // lifts them onto the $ai_generation event. The Claude path routes these
-    // through the Anthropic SDK's ANTHROPIC_CUSTOM_HEADERS env var; the codex
-    // path sets them as `model_providers.posthog.http_headers` instead, so we
-    // also expose the record form below.
-    const gatewayProperties = {
-      // Gateway headers live for the session, so correlate with its enclosing run.
-      task_run_trace_id: runSpanContext?.traceId,
-      task_run_span_id: runSpanContext?.spanId,
-      task_origin_product: originProduct,
-      task_internal: isInternal,
-      signal_report_id: signalReportId,
-      ai_stage: resolvedStage,
-      // The team-scoped agent name; `ai_stage` stays a bounded fleet-wide tag.
-      ai_agent_name: aiAgentName,
-      task_id: taskId,
-      task_run_id: taskRunId,
-      task_user_id: taskUserId,
-      task_title: taskTitle,
-      task_origin_key: taskOriginKey,
-      task_repositories: repositories?.length
-        ? JSON.stringify(repositories)
-        : null,
-      task_runtime_adapter: runtimeAdapter,
-      task_sandbox_environment_id: sandboxEnvironmentId,
-      task_snapshot_kind: snapshotKind,
-      task_prewarmed: prewarmed,
-      task_execution_environment: executionEnvironment ?? "cloud",
-    };
-    // The Claude path appends the project scope in buildEnvironment from
-    // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below
-    // carries the same scope.
-    let customHeaders: string;
-    let openaiCustomHeaders: Record<string, string>;
-    if (isAiGateway) {
-      // The Go gateway reads one X-PostHog-Properties JSON blob and ignores
-      // per-property headers, and it has no product route, so `ai_product`
-      // has to travel in the blob or the spend lands unattributed. `team_id`
-      // is included for both adapters because the Go gateway does not read
-      // the Python gateway's project-scope header.
-      const properties = {
-        ...gatewayProperties,
-        ai_product: aiProduct,
-        team_id: projectId,
-      };
-      customHeaders = buildPosthogPropertiesHeaderLines(properties);
-      openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
-      // The Go gateway writes this into the OpenAI body's `service_tier`, which
-      // is the only way a Codex run reaches the flex or priority queue: Codex
-      // itself omits a tier its model catalogue does not advertise. Codex-only,
-      // so it rides the OpenAI record; the Claude path has no tier concept.
-      if (this.config.serviceTier) {
-        openaiCustomHeaders["X-PostHog-Service-Tier"] = this.config.serviceTier;
-      }
-      // Codex sends no trace header, so the gateway stamps a fresh id per
-      // request and a run's generations each land in a trace of one. Codex-only:
-      // this header outranks `traceparent`, so setting it for Claude would
-      // replace the per-turn ids its CLI mints with one id for the whole run.
-      if (taskRunId && runtimeAdapter === "codex") {
-        openaiCustomHeaders["X-PostHog-Trace-Id"] = taskRunId;
-      }
-    } else {
-      customHeaders = buildPosthogScopedPropertyHeaderLines(
-        gatewayProperties,
-        projectId,
-      );
-      // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
-      // blob keys, so the session id would be silently dropped there.
-      openaiCustomHeaders = buildPosthogScopedPropertyHeaderRecord(
-        {
-          ...gatewayProperties,
-          team_id: projectId,
-          $ai_session_id: taskId,
-        },
-        projectId,
-      );
-    }
+    const gatewayEnv = buildGatewayEnv(this.config, input, this.logger);
 
     // Server-level constants that don't vary per task — safe to keep in
     // process.env so spawned tools (PostHog MCP, workspace-server, etc.) can
@@ -4835,15 +4856,7 @@ export class AgentServer {
     // Task-specific gateway config is returned rather than written to
     // process.env so that concurrent sessions do not clobber each other's
     // gateway URL, auth token, or custom headers.
-    return {
-      anthropicBaseUrl: gatewayUrl,
-      anthropicAuthToken: llmBearer,
-      openaiBaseUrl,
-      openaiApiKey: llmBearer,
-      anthropicCustomHeaders: customHeaders,
-      openaiCustomHeaders,
-      posthogProjectId: String(projectId),
-    };
+    return gatewayEnv;
   }
 
   private buildSlackQuestionRelayResponse(
@@ -5094,6 +5107,13 @@ export class AgentServer {
         method: string,
         params: Record<string, unknown>,
       ) => {
+        if (
+          method === POSTHOG_NOTIFICATIONS.STATUS &&
+          (params.status === "sdk_initialization" ||
+            params.status === "setup_hooks")
+        ) {
+          this.initializationPhase = params.status;
+        }
         this.logger.debug("Extension notification", { method, params });
       },
       sessionUpdate: async (params: {

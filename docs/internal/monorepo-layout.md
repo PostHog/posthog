@@ -30,6 +30,7 @@ services/              # Independent services NOT owned by any one product
 
 packages/              # Libraries shared across more than one product/service (e.g. quill)
   owners/              # owners.yaml resolver (owners_yaml) — Python uv workspace member, RUNTIME dependency
+  agent/               # Sandbox agent runtime; agent-shadow/ is the Go observer the sandbox base image builds
 
 common/                # Shared code — holding pen, NOT a destination (goal: shrink it)
   hogql_parser/        # HogQL parser

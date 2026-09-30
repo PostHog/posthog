@@ -23,6 +23,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.github_callback import state as github_callback_state
 from posthog.api.github_callback.personal_state import list_user_github_app_installations
@@ -45,6 +46,16 @@ from posthog.api.integration import (
     github_rate_limited_response,
     validate_github_repository_name,
 )
+from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.user_integration_codex import (
+    UserCodexConnectRequestSerializer,
+    UserCodexIntegrationSerializer,
+    connect_codex_integration,
+    disconnect_codex_integration,
+    ensure_codex_connect_enabled,
+    ensure_not_sandbox_request,
+    get_codex_integration,
+)
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
@@ -53,7 +64,7 @@ from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
 from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
-from posthog.rate_limit import UserAuthenticationThrottle
+from posthog.rate_limit import CodexConnectUserThrottle, UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
@@ -287,6 +298,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "github_branches",
         "github_install_requests",
         "slack_linkable",
+        "codex",
     ]
     scope_object_write_actions = [
         "create",
@@ -301,6 +313,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "github_install_requests_destroy",
         "slack_start",
         "slack_destroy",
+        "codex_connect",
+        "codex_destroy",
     ]
 
     authentication_classes = [OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
@@ -309,6 +323,12 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     time_sensitive_exclude_actions = ["github_repos_refresh", "github_install_requests_destroy"]
     http_method_names = ["get", "post", "delete"]
     serializer_class = UserGitHubIntegrationItemSerializer
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        if self.action == "codex_connect":
+            throttles.append(CodexConnectUserThrottle())
+        return throttles
 
     def handle_exception(self, exc: Exception) -> Response:
         # Personal-GitHub actions (repos, branches, refresh) raise the same egress
@@ -837,6 +857,53 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             raise exceptions.NotFound("No Slack link found for this Slack user id.")
         integration.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        summary="Show the ChatGPT account connected for Codex cloud tasks",
+        responses={200: UserCodexIntegrationSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="codex")
+    def codex(self, request: Request, **_kwargs) -> Response:
+        user = self._get_user()
+        return Response(get_codex_integration(user))
+
+    @validated_request(
+        request_serializer=UserCodexConnectRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=UserCodexIntegrationSerializer, description="The account is connected."),
+            400: OpenApiResponse(description="The tokens are not usable, or OpenAI rejected the refresh token."),
+            403: OpenApiResponse(description="A cloud task sandbox token cannot connect an account."),
+            404: OpenApiResponse(description="ChatGPT plans for cloud tasks are not available to this user."),
+            502: OpenApiResponse(description="OpenAI could not be reached."),
+        },
+        summary="Connect a ChatGPT account for Codex cloud tasks",
+        description=(
+            "Submit the `tokens` object of the `auth.json` that `codex login` wrote on the user's machine. PostHog "
+            "refreshes the chain once to prove it works, stores the rotated tokens encrypted, and from then on "
+            "refreshes them for the user's Codex cloud runs. Only the owning user can connect. No response carries "
+            "a token."
+        ),
+    )
+    @codex.mapping.post
+    def codex_connect(self, request: ValidatedRequest, **_kwargs) -> Response:
+        ensure_not_sandbox_request(request)
+        user = self._get_user()
+        ensure_codex_connect_enabled(user)
+        return connect_codex_integration(user, request.validated_data)
+
+    @extend_schema(
+        summary="Disconnect the ChatGPT account used for Codex cloud tasks",
+        description="Revokes the refresh token at OpenAI and deletes the stored tokens. Idempotent.",
+        responses={
+            204: OpenApiResponse(description="No account is connected any more."),
+            403: OpenApiResponse(description="A cloud task sandbox token cannot disconnect an account."),
+        },
+    )
+    @codex.mapping.delete
+    def codex_destroy(self, request: Request, **_kwargs) -> Response:
+        ensure_not_sandbox_request(request)
+        user = self._get_user()
+        return disconnect_codex_integration(user)
 
 
 def _resolve_team_for_github_start(user: User, request: Request):

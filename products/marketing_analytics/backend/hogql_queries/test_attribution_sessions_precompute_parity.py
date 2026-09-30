@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -23,6 +24,8 @@ from posthog.schema import (
     PropertyMathType,
     SessionTableVersion,
 )
+
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tags_context
@@ -101,7 +104,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         campaign: str,
         event_offsets_minutes: list[int],
         source: Optional[str] = None,
-    ) -> None:
+    ) -> UUID:
         """A session opening at `opened_at` with a pageview at each offset after it."""
         session_id = str(uuid7(opened_at.strftime("%Y-%m-%dT%H:%M:%SZ")))
         for offset in event_offsets_minutes:
@@ -122,6 +125,8 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                 },
             )
 
+        return UUID(session_id)
+
     def _conversion(self, distinct_id: str, at: datetime) -> None:
         _create_event(
             team=self.team,
@@ -136,7 +141,9 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         breakdown: MarketingAnalyticsAttributionBreakdown,
         *,
         precomputed: bool,
+        live_resolution: bool = False,
         exclude_direct: bool = False,
+        exclude_unattributed: bool = False,
         allow_multiple_conversions: bool | None = None,
         modifiers: HogQLQueryModifiers | None = None,
     ) -> tuple[dict[str, _AttributionCounts], bool]:
@@ -146,11 +153,13 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             conversionGoalId=GOAL_ID,
             properties=[],
             excludeDirectTraffic=exclude_direct,
+            excludeUnattributed=exclude_unattributed,
             allowMultipleConversionsPerVisitor=allow_multiple_conversions,
             modifiers=modifiers,
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
         runner.config.sessions_precomputation_enabled = precomputed
+        runner.config.live_session_resolution_enabled = live_resolution
         response = runner.calculate()
         rows = {
             row.breakdownValue: _AttributionCounts(visitors=row.visitors, conversions=row.influencedConversions)
@@ -221,6 +230,9 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert not live_used
         assert pre_used, "the precomputed path was not used, so this proves nothing"
         assert pre == live, f"precomputed={pre} live={live}"
+        shared, used = self._run(breakdown, precomputed=False, live_resolution=True)
+        assert not used
+        assert shared == live
 
     def test_a_session_stored_under_two_jobs_is_one_touchpoint(self) -> None:
         # A session's stored start is the earliest event seen when its chunk ran. A later event that
@@ -293,6 +305,20 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert "dup" not in rows_out, f"the superseded campaign is still credited: {rows_out}"
         assert rows_out.get("dup_superseded") == _AttributionCounts(visitors=1, conversions=1), rows_out
 
+        paths_runner = MarketingAnalyticsAttributionPathsQueryRunner(
+            query=MarketingAnalyticsAttributionPathsQuery(
+                dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                breakdownBy=MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+                conversionGoalId=GOAL_ID,
+                properties=[],
+            ),
+            team=self.team,
+        )
+        paths_runner.config.sessions_precomputation_enabled = True
+        paths = paths_runner.calculate()
+        assert paths_runner._sessions_precompute_used
+        assert [(row.path, row.conversions) for row in paths.results] == [(["dup_superseded"], 1)]
+
     # Both paths hold their own reference to the ceiling, so both have to be lowered for the fixture
     # to stay small enough to read.
     @parameterized.expand([("repeat", True), ("first_only", False)])
@@ -358,7 +384,10 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert not pre_used, "the precompute answered a query whose filter it cannot honor"
         assert pre == live, f"precomputed={pre} live={live}"
 
-    def test_an_exclusion_judges_the_current_version_of_a_session(self) -> None:
+    @parameterized.expand([("direct", True, False), ("unattributed", False, True)])
+    def test_an_exclusion_judges_the_current_version_of_a_session(
+        self, _name: str, exclude_direct: bool, exclude_unattributed: bool
+    ) -> None:
         # A session's rows can disagree: the stored start moves when a backdated event arrives, and the
         # re-materialized row can carry different dimensions. Filtering the raw rows drops the current
         # version and leaves the superseded one standing, so a session that is Direct today would keep
@@ -404,9 +433,14 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        rows, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True, exclude_direct=True)
+        rows, used = self._run(
+            MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+            precomputed=True,
+            exclude_direct=exclude_direct,
+            exclude_unattributed=exclude_unattributed,
+        )
         assert used, "the precomputed path was not used, so this proves nothing"
-        assert "was_a_campaign" not in rows, f"the superseded campaign survived the exclusion: {rows}"
+        assert rows == {}, f"an excluded session survived: {rows}"
 
     @parameterized.expand(
         [
@@ -484,7 +518,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                 (MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
             ):
                 responses = []
-                for precomputed in (False, True):
+                for precomputed, live_resolution in ((False, False), (True, False), (True, True)):
                     runner = runner_type(
                         query=query_type(
                             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
@@ -495,8 +529,10 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                         team=self.team,
                     )
                     runner.config.sessions_precomputation_enabled = precomputed
+                    runner.config.live_session_resolution_enabled = live_resolution
                     response = runner.calculate()
-                    assert runner._sessions_precompute_used is (precomputed and ready)
+                    assert runner._sessions_precompute_used is (precomputed and ready and not live_resolution)
+                    assert runner._live_session_resolution_used is live_resolution
                     assert response.results
                     responses.append(response.results)
                     if isinstance(response, MarketingAnalyticsAttributionQueryResponse):
@@ -506,6 +542,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                     else:
                         assert response.attributedConversions == 2
                 self.assertCountEqual(responses[0], responses[1])
+                self.assertCountEqual(responses[0], responses[2])
 
     @parameterized.expand([(SessionTableVersion.V2,), (SessionTableVersion.V3,)])
     def test_long_session_growth_replaces_cached_dimensions(self, version: SessionTableVersion) -> None:
@@ -641,11 +678,13 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             (MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
         ):
             responses = []
-            for precomputed in (False, True):
+            for precomputed, live_resolution in ((False, False), (True, False), (True, True)):
                 runner = runner_type(query=query_type(**query_args), team=self.team)
                 runner.config.sessions_precomputation_enabled = precomputed
+                runner.config.live_session_resolution_enabled = live_resolution
                 response = runner.calculate()
-                self.assertEqual(runner._sessions_precompute_used, precomputed)
+                self.assertEqual(runner._sessions_precompute_used, precomputed and not live_resolution)
+                self.assertEqual(runner._live_session_resolution_used, live_resolution)
                 responses.append(response.results)
                 if isinstance(response, MarketingAnalyticsAttributionQueryResponse):
                     self.assertEqual(response.totalConversions, 1)
@@ -653,6 +692,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                 else:
                     self.assertEqual(response.attributedConversions, 0 if state == "mapping_first" else 1)
             self.assertCountEqual(responses[0], responses[1])
+            self.assertCountEqual(responses[0], responses[2])
 
         stored_after = sync_execute(
             "SELECT * FROM web_sessions_dimensional_preaggregated WHERE team_id = %(team)s ORDER BY session_id_v7",
@@ -832,3 +872,201 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                     assert response.attributedConversions == expected_conversions
                 results.append(response.results)
             self.assertCountEqual(results[0], results[1])
+
+    def _assert_shared_live_parity(
+        self, date_range: DateRange, *, campaigns: set[str], total_conversions: int, attributed_conversions: int
+    ) -> None:
+        for query_type, runner_type in (
+            (MarketingAnalyticsAttributionQuery, MarketingAnalyticsAttributionQueryRunner),
+            (MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
+        ):
+            results = []
+            for shared in (False, True):
+                runner = runner_type(
+                    query=query_type(
+                        dateRange=date_range,
+                        breakdownBy=MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+                        conversionGoalId=GOAL_ID,
+                        properties=[],
+                    ),
+                    team=self.team,
+                )
+                runner.config.sessions_precomputation_enabled = shared
+                runner.config.live_session_resolution_enabled = shared
+                response = runner.calculate()
+                assert not runner._sessions_precompute_used
+                assert runner._live_session_resolution_used is shared
+                assert response.totalConversions == total_conversions
+                if isinstance(response, MarketingAnalyticsAttributionQueryResponse):
+                    assert {row.breakdownValue for row in response.results or []} == campaigns
+                    assert response.unattributedConversions == total_conversions - attributed_conversions
+                else:
+                    assert response.attributedConversions == attributed_conversions
+                results.append(response.results)
+            self.assertCountEqual(results[0], results[1])
+
+    @parameterized.expand(
+        [
+            (version, tz)
+            for version in (SessionTableVersion.V2, SessionTableVersion.V3)
+            for tz in ("UTC", "America/Los_Angeles")
+        ]
+    )
+    def test_shared_live_resolution_crosses_midnight_without_cached_jobs(
+        self, version: SessionTableVersion, boundary_timezone: str
+    ) -> None:
+        self.team.timezone = "America/Los_Angeles"
+        self.team.modifiers = {"sessionTableVersion": version}
+        boundary = datetime(2023, 1, 13, tzinfo=ZoneInfo(boundary_timezone)).astimezone(UTC)
+        create_person(team=self.team, distinct_ids=["before-midnight", "after-midnight"])
+        with time_machine.travel(boundary - timedelta(minutes=1), tick=False) as clock:
+            self._session(
+                "before-midnight", boundary - timedelta(minutes=3), campaign="before", event_offsets_minutes=[0]
+            )
+            self._conversion("before-midnight", boundary - timedelta(minutes=2))
+            flush_persons_and_events()
+            self._assert_shared_live_parity(
+                DateRange(date_from="-7d"), campaigns={"before"}, total_conversions=1, attributed_conversions=1
+            )
+            clock.shift(timedelta(minutes=3))
+            self._session(
+                "after-midnight", boundary + timedelta(seconds=30), campaign="after", event_offsets_minutes=[0]
+            )
+            self._conversion("after-midnight", boundary + timedelta(minutes=1))
+            flush_persons_and_events()
+            self._assert_shared_live_parity(
+                DateRange(date_from="-7d"), campaigns={"before", "after"}, total_conversions=2, attributed_conversions=2
+            )
+        assert not PreaggregationJob.objects.filter(team=self.team).exists()
+
+    def test_shared_live_resolution_reads_delayed_nullable_campaign(self) -> None:
+        self.team.modifiers = {"sessionTableVersion": SessionTableVersion.V3}
+        create_person(team=self.team, distinct_ids=["visitor"])
+        opened_at = datetime(2023, 1, 11, 9, tzinfo=UTC)
+        session_id = uuid7("2023-01-11T09:00:00Z")
+        _create_event(
+            team=self.team,
+            distinct_id="visitor",
+            event="$pageview",
+            timestamp=opened_at,
+            properties={"$session_id": str(session_id), "$current_url": "https://example.com/"},
+        )
+        self._conversion("visitor", opened_at + timedelta(hours=1))
+        flush_persons_and_events()
+        self._materialize()
+        sync_execute(
+            """
+            INSERT INTO raw_sessions_v3
+                (team_id, session_id_v7, min_timestamp, max_timestamp, max_inserted_at, entry_utm_campaign)
+            SELECT %(team)s, toUInt128(%(session)s),
+                toDateTime64('2023-01-11 09:05:00', 6, 'UTC'),
+                toDateTime64('2023-01-11 09:05:00', 6, 'UTC'),
+                toDateTime64('2023-01-11 09:05:00', 6, 'UTC'),
+                initializeAggregation('argMinState', toNullable('delayed'), toDateTime64('2023-01-11 09:05:00', 6, 'UTC'))
+            SETTINGS insert_distributed_sync=1
+            """,
+            {"team": self.team.pk, "session": str(session_id.int)},
+        )
+        self._assert_shared_live_parity(
+            DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            campaigns={"delayed"},
+            total_conversions=1,
+            attributed_conversions=1,
+        )
+
+    @parameterized.expand([(SessionTableVersion.V2,), (SessionTableVersion.V3,)])
+    def test_shared_live_resolution_preserves_independent_session_and_event_bounds(
+        self, version: SessionTableVersion
+    ) -> None:
+        self.team.modifiers = {"sessionTableVersion": version}
+        normal_pageview = datetime(2023, 1, 11, 9, tzinfo=UTC)
+        before_credit_bound = datetime(2023, 1, 8, 11, 59, 59, tzinfo=UTC)
+        later_raw_start = datetime(2023, 1, 8, 12, 0, 1, tzinfo=UTC)
+        scenarios = [
+            ("raw-before-range", normal_pageview, [0], datetime(2023, 1, 5, 23, tzinfo=UTC)),
+            ("raw-after-range", normal_pageview, [0], datetime(2023, 1, 21, 12, tzinfo=UTC)),
+            ("raw-epoch", normal_pageview, [0], datetime(1970, 1, 1, tzinfo=UTC)),
+            ("pageview-before-credit-bound", before_credit_bound, [0], later_raw_start),
+            ("later-pageview-meets-credit-bound", before_credit_bound, [0, 1], later_raw_start),
+            ("raw-absent", normal_pageview, [0], None),
+        ]
+        session_ids = {}
+        for campaign, pageview_at, offsets, _ in scenarios:
+            create_person(team=self.team, distinct_ids=[campaign])
+            session_ids[campaign] = self._session(
+                campaign, pageview_at, campaign=campaign, event_offsets_minutes=offsets
+            )
+            self._conversion(campaign, datetime(2023, 1, 12, 12, tzinfo=UTC))
+        flush_persons_and_events()
+        table = escape_clickhouse_identifier(
+            "sharded_raw_sessions_v3" if version == SessionTableVersion.V3 else "sharded_raw_sessions"
+        )
+        for campaign, _, _, raw_at in scenarios:
+            parameters = {"team": self.team.pk, "session": str(session_ids[campaign].int)}
+            if raw_at is None:
+                sync_execute(
+                    f"ALTER TABLE {table} DELETE WHERE team_id = %(team)s AND session_id_v7 = toUInt128(%(session)s) SETTINGS mutations_sync = 2",
+                    parameters,
+                )
+            else:
+                sync_execute(
+                    f"ALTER TABLE {table} UPDATE min_timestamp = toDateTime64(%(timestamp)s, 6, 'UTC'), "
+                    "max_timestamp = toDateTime64(%(timestamp)s, 6, 'UTC') "
+                    "WHERE team_id = %(team)s AND session_id_v7 = toUInt128(%(session)s) SETTINGS mutations_sync = 2",
+                    {**parameters, "timestamp": raw_at.strftime("%Y-%m-%d %H:%M:%S.%f")},
+                )
+        self._assert_shared_live_parity(
+            DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            campaigns={
+                "raw-before-range",
+                "raw-after-range",
+                "pageview-before-credit-bound",
+                "later-pageview-meets-credit-bound",
+            },
+            total_conversions=len(scenarios),
+            attributed_conversions=1,
+        )
+
+    def test_shared_live_resolution_preserves_session_filtered_conversion_goals(self) -> None:
+        config = self.team.marketing_analytics_config
+        config.conversion_goals[0]["properties"] = [
+            {"type": "session", "key": "$entry_utm_source", "operator": "exact", "value": ["google"]}
+        ]
+        config.save()
+        create_person(team=self.team, distinct_ids=["visitor"])
+        for at, conversion_at, campaign in (
+            (datetime(2023, 1, 6, 9, tzinfo=UTC), datetime(2023, 1, 13, 10, tzinfo=UTC), "older-id"),
+            (datetime(2023, 1, 12, 9, tzinfo=UTC), datetime(2023, 1, 12, 10, tzinfo=UTC), "recent-id"),
+        ):
+            session_id = self._session("visitor", at, campaign=campaign, event_offsets_minutes=[0], source="google")
+            _create_event(
+                team=self.team,
+                distinct_id="visitor",
+                event=CONVERSION_EVENT,
+                timestamp=conversion_at,
+                properties={"$session_id": str(session_id), "revenue": 100},
+            )
+        flush_persons_and_events()
+        for query_type, runner_type in (
+            (MarketingAnalyticsAttributionQuery, MarketingAnalyticsAttributionQueryRunner),
+            (MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
+        ):
+            responses = []
+            for shared in (False, True):
+                runner = runner_type(
+                    query=query_type(
+                        dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                        breakdownBy=MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+                        conversionGoalId=GOAL_ID,
+                        properties=[],
+                        allowMultipleConversionsPerVisitor=True,
+                    ),
+                    team=self.team,
+                )
+                runner.config.sessions_precomputation_enabled = False
+                runner.config.live_session_resolution_enabled = shared
+                response = runner.calculate()
+                assert response.totalConversions == 2
+                assert not runner._live_session_resolution_used
+                responses.append(response.results)
+            self.assertCountEqual(responses[0], responses[1])

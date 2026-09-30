@@ -18,15 +18,19 @@ from posthog.temporal.common.errors import describe_failure
 
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
+    ReviewSandboxInput,
     StamphogReviewInput,
+    checkout_review_sandbox,
+    destroy_review_sandbox,
     dismiss_stale_approvals,
     fetch_review_context,
     list_in_flight_reviewer_bots,
     mark_review_failed,
     post_verdict,
     refuse_on_pre_gates,
-    run_review_in_sandbox,
+    review_in_sandbox,
     signal_review_started,
+    start_review_sandbox,
 )
 from products.stamphog.backend.tests import fakes
 
@@ -120,20 +124,54 @@ def _run_activity(activity_fn: Any, arg: Any) -> Any:
     return activity_fn.__wrapped__(arg)
 
 
+def _inline_check_out(inp: StamphogReviewInput) -> ReviewSandboxInput | None:
+    """The workflow's _check_out_sandbox: start the sandbox, then check the PR out in it."""
+    started = _run_activity(start_review_sandbox, inp)
+    if not started.get("sandbox_id"):
+        return None
+    sandbox_id = started["sandbox_id"]
+    checkout = _run_activity(
+        checkout_review_sandbox,
+        ReviewSandboxInput(review_run_id=inp.review_run_id, team_id=inp.team_id, sandbox_id=sandbox_id),
+    )
+    if checkout.get("skipped"):
+        return None
+    return ReviewSandboxInput(
+        review_run_id=inp.review_run_id,
+        team_id=inp.team_id,
+        sandbox_id=sandbox_id,
+        merge_base_sha=checkout["merge_base_sha"],
+    )
+
+
+def _discard_input(inp: StamphogReviewInput, checked_out: ReviewSandboxInput | None) -> ReviewSandboxInput:
+    """The workflow's teardown input: the started sandbox's id, or empty to read the stored one."""
+    sandbox_id = checked_out.sandbox_id if checked_out is not None else ""
+    return ReviewSandboxInput(review_run_id=inp.review_run_id, team_id=inp.team_id, sandbox_id=sandbox_id)
+
+
 def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
     """Stand in for the Temporal client by driving the real activities in order.
 
     Mirrors StamphogReviewWorkflow: dismiss stale approvals FIRST (fail-closed — even a context-fetch
     failure must not leave an earlier head's approval standing), signal the review has started (the
-    "review in flight" 👀), then fetch context, refuse on the pre-gates or else run in the (faked)
+    "review in flight" 👀), then fetch context, refuse on the pre-gates or else review in the (faked)
     sandbox, post the verdict; on any error mark the run failed, exactly like the workflow's failure
-    path.
+    path. The workflow runs the sandbox start and checkout beside the context fetch and the pre-check.
+    Here they run in order after the context fetch, and a failure surfaces where the workflow awaits
+    them: at the review, or never, when a pre-check verdict discards the sandbox.
     """
     inp = StamphogReviewInput(review_run_id=review_run_id, team_id=team_id)
+    checked_out: ReviewSandboxInput | None = None
     try:
         _run_activity(dismiss_stale_approvals, inp)
         _run_activity(signal_review_started, inp)
         _run_activity(fetch_review_context, inp)
+        checkout_error: Exception | None = None
+        try:
+            checked_out = _inline_check_out(inp)
+        except Exception as e:  # noqa: BLE001 — the workflow sees it only when it awaits the checkout
+            checkout_error = e
         try:
             refused = _run_activity(refuse_on_pre_gates, inp)["refused"]
         except Exception:  # noqa: BLE001 — the workflow falls through when the pre-gates activity fails
@@ -142,13 +180,21 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
             # One bot-wait poll, no sleeping: mirrors the workflow's loop semantics (refresh the
             # reactions snapshot, then proceed) without its durable timers.
             _run_activity(list_in_flight_reviewer_bots, inp)
-            _run_activity(run_review_in_sandbox, inp)
+            if checkout_error is not None:
+                raise checkout_error
+            if checked_out is not None:
+                _run_activity(review_in_sandbox, checked_out)
         _run_activity(post_verdict, inp)
+        if refused:
+            _run_activity(destroy_review_sandbox, _discard_input(inp, checked_out))
     except Exception as e:  # noqa: BLE001 — mirror the workflow's failure path
-        _run_activity(
-            mark_review_failed,
-            MarkReviewFailedInput(review_run_id, team_id, describe_failure(e)),
-        )
+        try:
+            _run_activity(
+                mark_review_failed,
+                MarkReviewFailedInput(review_run_id, team_id, describe_failure(e)),
+            )
+        finally:
+            _run_activity(destroy_review_sandbox, _discard_input(inp, checked_out))
 
 
 @dataclass
@@ -259,7 +305,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
             patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=_run_on_commit_immediately)
         )
         stack.enter_context(patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", fake_slack))
-        stack.enter_context(patch("posthog.team_notifications.slack.SlackIntegration", fake_slack))
+        stack.enter_context(patch("posthog.slack.channels.SlackIntegration", fake_slack))
         stack.enter_context(
             patch(
                 "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",

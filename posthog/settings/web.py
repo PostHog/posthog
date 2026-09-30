@@ -3,6 +3,8 @@ import os
 import json
 from datetime import timedelta
 
+from django.core.exceptions import ImproperlyConfigured
+
 import structlog
 from corsheaders.defaults import default_headers
 from whitenoise.compress import Compressor
@@ -181,7 +183,7 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
-    "posthog.middleware.CSPMiddleware",
+    "posthog.csp_middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
     # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
     # resolution so the /api/environments → /api/projects rewrite is in place before the
@@ -307,6 +309,8 @@ SOCIAL_AUTH_PIPELINE = (
     # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
     "posthog.api.authentication.social_identity_matches_session",
     "posthog.api.authentication.social_reauth",
+    # Must stay ahead of associate_by_email, which links an existing account by email with no check of its own
+    "posthog.api.authentication.social_email_verified_by_provider",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
@@ -344,6 +348,10 @@ SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_
 
 # For sensitive actions we have an additional permission (default 2 hour)
 SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
+
+# Changing the login email asks for a re-auth of its own, because the 2 hour window above is wide
+# enough for a stolen session cookie to take the account over (default 5 minutes)
+SESSION_FRESH_REAUTH_AGE = get_from_env("SESSION_FRESH_REAUTH_AGE", 60 * 5, type_cast=int)
 
 SESSION_COOKIE_NAME = get_from_env("SESSION_COOKIE_NAME", "sessionid")
 CSRF_COOKIE_NAME = "posthog_csrftoken"
@@ -566,10 +574,12 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": ChoicesEnumNameOverrides(
         {
             # Most enum components are named automatically: ChoicesEnumNameOverrides walks
-            # every django.db.models.Choices subclass at schema-build time and names the
-            # component after the class (EarlyAccessFeature.Stage -> EarlyAccessFeatureStageEnum),
-            # so defining choices as a TextChoices class is all a new enum needs. See
-            # posthog/openapi/enum_names.py for the derivation and its safety rules.
+            # every django.db.models.Choices subclass and every posthog.enums labeled enum at
+            # schema-build time and names the component after the class
+            # (EarlyAccessFeature.Stage -> EarlyAccessFeatureStageEnum), so defining choices as
+            # a TextChoices class, or a LabeledStrEnum in a facade contract file, is all a new
+            # enum needs. See posthog/openapi/enum_names.py for the derivation and its safety
+            # rules.
             #
             # An entry below is for a choice set no class can carry, and each group states
             # why. drf-spectacular matches an entry to fields by a hash of the exact
@@ -607,8 +617,8 @@ SPECTACULAR_SETTINGS = {
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
             # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
             "RoleEnum": ["primary", "supporting"],
-            # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
-            "ShiftBandKindEnum": ["inserted", "deleted"],
+            # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
+            "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             # The subset a client may write. Shared by the single-issue and bulk write serializers,
@@ -618,6 +628,10 @@ SPECTACULAR_SETTINGS = {
             # class carries them. The lists are derived from those literals.
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
+            "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
+            # Every grantable scope object, from posthog/scopes.py. The frontend's APIScopeObject type
+            # derives from this enum, so the object list is never copied by hand.
+            "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             # signals maps a warehouse import's status down to these three. Same values as the
             # warehouse's own SyncStatus, but that class carries different labels, so the two are
@@ -625,29 +639,33 @@ SPECTACULAR_SETTINGS = {
             "SignalSourceSyncStatusEnum": ["running", "completed", "failed"],
             "RunSourceEnum": ["manual", "signal_report", "agent"],
             "TaskBootstrapRunSourceEnum": ["manual", "signal_report"],
+            # Completion providers are a subset of LLMProvider that excludes evaluation-only models.
+            "LLMCompletionProviderEnum": "products.ai_observability.backend.models.provider_keys.llm_completion_provider_choices",
             #
             # The same choice set is declared in more than one product. A shared Choices
             # class would cross a product boundary, so the entry names the set centrally.
             "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
             "RunEnvironmentEnum": ["local", "cloud"],
+            # claude_model_access and codex_model_access carry the same pair.
+            "ModelAccessEnum": ["posthog-gateway", "own-subscription"],
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
             # growth's identity-matching tier and the signals scout suggestion confidence.
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #
-            # The definition site is a deliberately Django-free module (facade contracts,
-            # signals taxonomy), so it cannot define a models.Choices class.
+            # The definition site is a Django-free module, and no field builds these choices from a
+            # posthog.enums labeled enum, so no name derives. The engineering_analytics fields go
+            # through DataclassSerializer, which pairs each value with the member name, not a label.
+            # The signals entries need a member order, or a name without the Enum suffix, that no
+            # class derives.
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
-            "ReportLinkKindEnum": "products.signals.backend.enums.report_link_kind_choices",
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
             "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
             "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
             "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
-            "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
-            "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
-            "LifecycleStatusEnum": "products.notebooks.backend.widget_models.WIDGET_LIFECYCLE_STATUS_CHOICES",
+            "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
@@ -814,6 +832,7 @@ SPECTACULAR_SETTINGS = {
             "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
             "SurveyResultsWidgetTypeEnum": ["survey_results"],
             "LogsListWidgetTypeEnum": ["logs_list"],
+            "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
         }
     ),
@@ -1051,6 +1070,13 @@ HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY
 # Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
 # opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
 HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 500000))
+# Persons per page when the batch resolver enumerates a workflow audience. Each page is a separate
+# ClickHouse query, so a bigger page means fewer scans per run; the resolver inserts a page as one
+# Postgres transaction, which is why this is not unbounded.
+WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 5000))
+if WORKFLOWS_PERSON_BATCH_SIZE < 1:
+    # An empty page reports has_more, so the resolver would refetch it forever.
+    raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
@@ -1292,6 +1318,7 @@ except ValueError:
 # Wizard gateway-token mint. Any of the four unset refuses every mint as
 # `unconfigured`, which ends the wizard run: there is no other gateway.
 WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
+WIZARD_GATEWAY_MINT_URL = get_from_env("WIZARD_GATEWAY_MINT_URL", "")
 WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
 # OAuth application client ids allowed to mint: llm_gateway:read is an internal
 # scope on every sandbox and agent token, so the scope alone does not identify the
@@ -1358,6 +1385,7 @@ AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 EXA_API_KEY = get_from_env("EXA_API_KEY", "")
+CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
@@ -1405,6 +1433,10 @@ WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
 
 WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
     "WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY", 4, type_cast=int
+)
+
+WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE: int = get_from_env(
+    "WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE", 100, type_cast=int
 )
 
 # Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment

@@ -204,6 +204,8 @@ export interface SettingsStore {
   completionVolume: number;
   scaleSoundWithTaskLength: boolean;
   customSounds: CustomSound[];
+  // Epoch ms. Until then, alerts make no sound, voice or system notification.
+  notificationsPausedUntil: number | null;
   setDesktopNotifications: (enabled: boolean) => void;
   setDockBadgeNotifications: (enabled: boolean) => void;
   setDockBounceNotifications: (enabled: boolean) => void;
@@ -214,6 +216,7 @@ export interface SettingsStore {
   addCustomSound: (sound: CustomSound) => void;
   removeCustomSound: (id: string) => void;
   renameCustomSound: (id: string, name: string) => void;
+  setNotificationsPausedUntil: (until: number | null) => void;
 
   // Spoken notifications
   spokenNotifications: boolean;
@@ -296,6 +299,7 @@ export interface SettingsStore {
   codexModelAccess: ModelAccess;
   claudeModelAccess: ModelAccess;
   claudeCloudSubscriptionOn: boolean;
+  codexCloudSubscriptionOn: boolean;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;
   setDebugLogsCloudRuns: (enabled: boolean) => void;
@@ -305,6 +309,7 @@ export interface SettingsStore {
   setCodexModelAccess: (mode: ModelAccess) => void;
   setClaudeModelAccess: (mode: ModelAccess) => void;
   setClaudeCloudSubscriptionOn: (enabled: boolean) => void;
+  setCodexCloudSubscriptionOn: (enabled: boolean) => void;
 
   // Terminal
   terminalFont: TerminalFont;
@@ -372,6 +377,16 @@ export const NOTIFICATION_DEFAULTS = {
   elevenLabsVoiceId: "",
   elevenLabsKeyConfigured: false,
 };
+
+export const NOTIFICATION_PAUSE_MS = 60 * 60 * 1000;
+
+// No timer clears the pause: it ends when the clock passes the stored time.
+export function notificationsPaused(
+  pausedUntil: number | null,
+  now = Date.now(),
+): boolean {
+  return pausedUntil !== null && now < pausedUntil;
+}
 
 export const useSettingsStore = create<SettingsStore>()(
   persist(
@@ -457,6 +472,7 @@ export const useSettingsStore = create<SettingsStore>()(
       // Kept out of NOTIFICATION_DEFAULTS so "Reset to defaults" never discards
       // sounds the user installed.
       customSounds: [],
+      notificationsPausedUntil: null,
       setDesktopNotifications: (enabled) =>
         set({ desktopNotifications: enabled }),
       setDockBadgeNotifications: (enabled) =>
@@ -502,6 +518,8 @@ export const useSettingsStore = create<SettingsStore>()(
             s.id === id ? { ...s, name } : s,
           ),
         })),
+      setNotificationsPausedUntil: (until) =>
+        set({ notificationsPausedUntil: until }),
 
       // Composer / chat
       autoConvertLongText: "2500",
@@ -571,6 +589,7 @@ export const useSettingsStore = create<SettingsStore>()(
       codexModelAccess: "posthog-gateway",
       claudeModelAccess: "posthog-gateway",
       claudeCloudSubscriptionOn: false,
+      codexCloudSubscriptionOn: false,
       setAllowBypassPermissions: (enabled) =>
         set({ allowBypassPermissions: enabled }),
       setPreventSleepWhileRunning: (enabled) =>
@@ -584,6 +603,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setClaudeModelAccess: (mode) => set({ claudeModelAccess: mode }),
       setClaudeCloudSubscriptionOn: (enabled) =>
         set({ claudeCloudSubscriptionOn: enabled }),
+      setCodexCloudSubscriptionOn: (enabled) =>
+        set({ codexCloudSubscriptionOn: enabled }),
 
       // Terminal
       terminalFont: "berkeley-mono",
@@ -702,6 +723,7 @@ export const useSettingsStore = create<SettingsStore>()(
         completionVolume: state.completionVolume,
         scaleSoundWithTaskLength: state.scaleSoundWithTaskLength,
         customSounds: state.customSounds,
+        notificationsPausedUntil: state.notificationsPausedUntil,
         spokenNotifications: state.spokenNotifications,
         spokenNotifyNeedsInput: state.spokenNotifyNeedsInput,
         spokenNotifyCompletion: state.spokenNotifyCompletion,
@@ -738,6 +760,7 @@ export const useSettingsStore = create<SettingsStore>()(
         codexModelAccess: state.codexModelAccess,
         claudeModelAccess: state.claudeModelAccess,
         claudeCloudSubscriptionOn: state.claudeCloudSubscriptionOn,
+        codexCloudSubscriptionOn: state.codexCloudSubscriptionOn,
 
         // Terminal
         terminalFont: state.terminalFont,
