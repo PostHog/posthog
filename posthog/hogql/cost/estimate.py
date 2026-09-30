@@ -51,6 +51,26 @@ from posthog.dataclasses import frozen
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 
+# A FROM tree stops being walked past this many scans. Each CTE reference is followed into its body, so a chain
+# of CTEs that each join the previous one to itself doubles the scans per level; the cap keeps a short query
+# from costing a worker exponential work before ClickHouse ever sees it.
+MAX_SCANS = 64
+
+
+class _TooManyScans(Exception):
+    pass
+
+
+class _ScanBudget:
+    def __init__(self, limit: int = MAX_SCANS) -> None:
+        self.remaining = limit
+
+    def take(self) -> None:
+        if self.remaining <= 0:
+            raise _TooManyScans
+        self.remaining -= 1
+
+
 # A team's retention rarely exceeds this, and a query with no timestamp bound reads whatever exists.
 DEFAULT_RANGE_DAYS = 365
 
@@ -133,7 +153,10 @@ def estimate_scan(
         from posthog.hogql.transforms.property_types import build_property_swapper  # noqa: PLC0415
 
         build_property_swapper(node, context)
-    scans = _table_scans(node, now, context, ctes={})
+    try:
+        scans = _table_scans(node, now, context, ctes={}, budget=_ScanBudget())
+    except _TooManyScans:
+        return None
     if not scans:
         return None
 
@@ -298,7 +321,7 @@ _SESSION_START_COLUMNS = frozenset({"$start_timestamp", "min_timestamp", "sessio
 
 
 def _table_scans(
-    node: ast.Expr, now: datetime, context: HogQLContext, ctes: Mapping[str, CTE]
+    node: ast.Expr, now: datetime, context: HogQLContext, ctes: Mapping[str, CTE], budget: _ScanBudget
 ) -> list[_EventsScan | _SessionsScan | _OtherScan] | None:
     """Every table scan a query's FROM clause performs, or None when the FROM tree cannot be walked.
 
@@ -311,7 +334,7 @@ def _table_scans(
         scans: list[_EventsScan | _SessionsScan | _OtherScan] = []
         in_scope = dict(ctes)
         for branch in node.select_queries():
-            branch_scans = _table_scans(branch, now, context, in_scope)
+            branch_scans = _table_scans(branch, now, context, in_scope, budget)
             if branch_scans is None:
                 return None
             scans.extend(branch_scans)
@@ -337,6 +360,7 @@ def _table_scans(
         if source is None:
             return None
         if isinstance(source, _TableRef):
+            budget.take()
             name = _scan_name(join, source)
             if isinstance(source.table, EventsTable):
                 scans.append(predicates.scan_for(name, source.alias))
@@ -345,7 +369,7 @@ def _table_scans(
             else:
                 scans.append(_OtherScan(name=name, table=source.table))
         else:
-            inner = _table_scans(source, now, context, ctes)
+            inner = _table_scans(source, now, context, ctes, budget)
             if inner is None:
                 return None
             scans.extend(inner)

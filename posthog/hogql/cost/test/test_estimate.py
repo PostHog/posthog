@@ -284,6 +284,20 @@ class TestEstimateEventsScan(BaseTest):
         assert estimate.rows == 36_500_000
         assert estimate.upper_bound is False
 
+    def test_a_chain_of_self_joined_ctes_stops_at_the_scan_cap(self):
+        def chain(levels: int) -> str:
+            ctes = ["c0 AS (SELECT event FROM events)"]
+            for level in range(1, levels + 1):
+                ctes.append(
+                    f"c{level} AS (SELECT a.event AS event FROM c{level - 1} a JOIN c{level - 1} b ON a.event = b.event)"
+                )
+            return f"WITH {', '.join(ctes)} SELECT count() FROM c{levels}"
+
+        # 2^5 = 32 scans is within the cap; 2^7 = 128 is not and the query is left unestimated.
+        five = self._estimate(chain(5))
+        assert five is not None and len(five.tables) == 32
+        assert self._estimate(chain(7)) is None
+
     def test_a_query_with_no_table_has_no_estimate(self):
         assert self._estimate("SELECT 1") is None
 
