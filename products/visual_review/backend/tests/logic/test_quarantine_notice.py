@@ -86,13 +86,18 @@ class TestSendQuarantineNotice:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestQuarantineDispatchesNotice:
-    @pytest.mark.parametrize("notify_owners", [True, False])
-    def test_the_notice_is_queued_only_when_asked_for(
-        self, team, user, django_capture_on_commit_callbacks, notify_owners
+    @pytest.mark.parametrize(
+        "notify_owners,broker_error",
+        [(True, None), (False, None), (True, ConnectionError("broker down"))],
+    )
+    def test_the_notice_is_queued_only_when_asked_for_and_never_fails_the_quarantine(
+        self, team, user, django_capture_on_commit_callbacks, notify_owners, broker_error
     ):
         repo = repos.create_repo(team_id=team.id, repo_external_id=66662, repo_full_name="org/test-dispatch")
         with (
-            patch("products.visual_review.backend.tasks.tasks.notify_quarantine_owners.delay") as delay,
+            patch(
+                "products.visual_review.backend.tasks.tasks.notify_quarantine_owners.delay", side_effect=broker_error
+            ) as delay,
             django_capture_on_commit_callbacks(using=WRITER_DB, execute=True),
         ):
             entry = quarantine.quarantine_identifier(
@@ -106,3 +111,4 @@ class TestQuarantineDispatchesNotice:
             )
 
         assert delay.call_args_list == ([call(team.id, str(entry.id))] if notify_owners else [])
+        assert QuarantinedIdentifier.objects.using(WRITER_DB).filter(id=entry.id).exists()
