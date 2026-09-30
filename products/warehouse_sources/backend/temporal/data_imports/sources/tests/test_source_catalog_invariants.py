@@ -78,7 +78,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "RetellAI",
     "Roark",
     "ScaleAI",
-    "Sim",
     "Skyvern",
     "Slash",
     "Synthesia",
