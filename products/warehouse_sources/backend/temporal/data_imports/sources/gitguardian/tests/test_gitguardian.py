@@ -1,5 +1,6 @@
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -48,19 +49,28 @@ class _FakeManager:
         self.cleared = True
 
 
+class _GetRowsResult(NamedTuple):
+    rows: list[dict]
+    fetched: list[str]
+    manager: _FakeManager
+
+
 def _run_get_rows(
     monkeypatch: Any,
     endpoint: str,
-    responses: list[MagicMock],
+    responses: Sequence[MagicMock | Exception],
     manager: _FakeManager | None = None,
     **kwargs: Any,
-) -> tuple[list[dict], list[str], _FakeManager]:
+) -> _GetRowsResult:
     fetched: list[str] = []
     resp_iter = iter(responses)
 
     def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> MagicMock:
         fetched.append(url)
-        return next(resp_iter)
+        response = next(resp_iter)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
     monkeypatch.setattr(gitguardian, "_fetch_page", fake_fetch)
     monkeypatch.setattr(gitguardian, "make_tracked_session", lambda *a, **k: MagicMock())
@@ -76,7 +86,7 @@ def _run_get_rows(
         **kwargs,
     ):
         rows.extend(page)
-    return rows, fetched, manager
+    return _GetRowsResult(rows, fetched, manager)
 
 
 def _query(url: str) -> dict[str, list[str]]:
@@ -133,6 +143,11 @@ class TestLinkHeaderPagination:
         rows, fetched, _ = _run_get_rows(monkeypatch, "secret_incidents", responses)
         assert [r["id"] for r in rows] == [1, 2, 3]
         assert fetched == [f"{BASE_URL}/v1/incidents/secrets?per_page=100&ordering=date", next_url]
+
+    def test_honeytoken_events_fetch_every_status(self, monkeypatch: Any) -> None:
+        responses = [_page([]), _page([]), _page([])]
+        _, fetched, _ = _run_get_rows(monkeypatch, "honeytoken_events", responses)
+        assert [_query(url)["status"] for url in fetched] == [["open"], ["archived"], ["allowed"]]
 
     def test_first_sync_sends_ordering_but_no_date_filter(self, monkeypatch: Any) -> None:
         # No watermark => full backfill, but ordering must still be explicit so sort_mode="asc" holds.
@@ -200,6 +215,57 @@ class TestLinkHeaderPagination:
         ]
         rows, _, _ = _run_get_rows(monkeypatch, "secret_incidents", responses)
         assert rows == [{"id": 1, "date": "2026-01-01"}]
+
+
+def _http_error(status_code: int) -> requests.HTTPError:
+    response = MagicMock()
+    response.status_code = status_code
+    return requests.HTTPError(f"{status_code} Client Error", response=response)
+
+
+class TestFanOut:
+    def test_walks_every_parent_page_and_each_childs_pages(self, monkeypatch: Any) -> None:
+        teams_next = f"{BASE_URL}/v1/teams?cursor=t2&per_page=100"
+        child_next = f"{BASE_URL}/v1/teams/1/team_memberships?cursor=m2&per_page=100"
+        responses = [
+            _page([{"id": 1}], next_url=teams_next),
+            _page([{"id": 10, "team_id": 1}], next_url=child_next),
+            _page([{"id": 11, "team_id": 1}]),
+            _page([{"id": 2}]),
+            _page([{"id": 20, "team_id": 2}]),
+        ]
+        rows, fetched, manager = _run_get_rows(monkeypatch, "team_memberships", responses)
+        assert [r["id"] for r in rows] == [10, 11, 20]
+        assert fetched == [
+            f"{BASE_URL}/v1/teams?per_page=100",
+            f"{BASE_URL}/v1/teams/1/team_memberships?per_page=100",
+            child_next,
+            teams_next,
+            f"{BASE_URL}/v1/teams/2/team_memberships?per_page=100",
+        ]
+        assert manager.saved == []
+
+    def test_child_requests_keep_their_own_ordering(self, monkeypatch: Any) -> None:
+        responses = [_page([{"id": 7}]), _page([{"id": 70, "incident_id": 7}])]
+        _, fetched, _ = _run_get_rows(monkeypatch, "secret_incident_activity_logs", responses)
+        assert fetched == [
+            f"{BASE_URL}/v1/incidents/secrets?per_page=100&ordering=date",
+            f"{BASE_URL}/v1/incidents/secrets/7/activity-logs?per_page=100&ordering=created_at",
+        ]
+
+    def test_parent_deleted_mid_sync_is_skipped(self, monkeypatch: Any) -> None:
+        responses: Sequence[MagicMock | Exception] = [
+            _page([{"id": 1}, {"id": 2}]),
+            _http_error(404),
+            _page([{"id": 20, "team_id": 2}]),
+        ]
+        rows, _, _ = _run_get_rows(monkeypatch, "team_memberships", responses)
+        assert [r["id"] for r in rows] == [20]
+
+    def test_child_denial_is_not_swallowed(self, monkeypatch: Any) -> None:
+        responses: Sequence[MagicMock | Exception] = [_page([{"id": 1}]), _http_error(403)]
+        with pytest.raises(requests.HTTPError):
+            _run_get_rows(monkeypatch, "team_memberships", responses)
 
 
 class TestResumeCheckpoints:
@@ -322,6 +388,23 @@ class TestCheckEndpointAccess:
 
     def test_network_error_does_not_block_the_table(self) -> None:
         assert self._probe(requests.ConnectionError("boom")) is None
+
+    @parameterized.expand(
+        [
+            ("team_memberships", "/v1/teams"),
+            ("secret_incident_activity_logs", "/v1/incidents/secrets"),
+        ]
+    )
+    def test_fan_out_endpoints_probe_their_parent(self, endpoint: str, parent_path: str) -> None:
+        # The child path needs a real parent id; probing the placeholder would 404 and hide a
+        # missing scope. The parent carries the same scope.
+        response = MagicMock()
+        response.status_code = 200
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(gitguardian, "make_tracked_session", return_value=session):
+            check_endpoint_access("gg_sat_x", BASE_URL, endpoint)
+        assert urlsplit(session.get.call_args.args[0]).path == parent_path
 
 
 class TestFetchPageRetries:

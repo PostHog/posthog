@@ -277,6 +277,7 @@ export namespace Schemas {
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
+     * * `support_ticket` - support_ticket
      * * `survey` - survey
      * * `tagger` - tagger
      * * `ticket` - ticket
@@ -395,6 +396,7 @@ export namespace Schemas {
       Stamphog: 'stamphog',
       StreamlitApp: 'streamlit_app',
       Subscription: 'subscription',
+      SupportTicket: 'support_ticket',
       Survey: 'survey',
       Tagger: 'tagger',
       Ticket: 'ticket',
@@ -513,6 +515,7 @@ export namespace Schemas {
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
+       * * `support_ticket` - support_ticket
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket
@@ -735,6 +738,7 @@ export namespace Schemas {
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
+       * * `support_ticket` - support_ticket
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket
@@ -1136,6 +1140,7 @@ export namespace Schemas {
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
+       * * `support_ticket` - support_ticket
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket
@@ -24403,7 +24408,10 @@ export namespace Schemas {
       name?: string;
       /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
       feature_flag_key?: string;
-      /** Optional experiment description. */
+      /**
+         * Optional experiment description.
+         * @maxLength 3000
+         */
       description?: string;
     }
 
@@ -62079,6 +62087,7 @@ export namespace Schemas {
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
+       * * `support_ticket` - support_ticket
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket
@@ -67019,6 +67028,109 @@ export namespace Schemas {
       previous?: string | null;
       count?: number;
       results?: PersonListRecord[];
+    }
+
+    /**
+     * * `logs` - Logs
+     */
+    export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
+
+
+    export const PlatformAlertConfigurationSourceKindEnum = {
+      Logs: 'logs',
+    } as const;
+
+    export interface PlatformAlert {
+      /** Unique identifier of this alert instance. */
+      readonly id: string;
+      /** Key of the result group this instance tracks. Empty when the source does not group results. */
+      readonly grouping_key: string;
+      /** Current state of this alert instance.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: BillingAlertConfigurationStateEnum;
+      /**
+         * When the current firing started. Null when the instance is not firing.
+         * @nullable
+         */
+      readonly firing_started_at: string | null;
+      /**
+         * When a notification was last sent for this instance.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /**
+         * Time until which notifications are snoozed. Null when not snoozed.
+         * @nullable
+         */
+      readonly snooze_until: string | null;
+    }
+
+    /**
+     * Source-specific query settings. The shape depends on source_kind.
+     */
+    export type PlatformAlertConfigurationSourceConfig = { [key: string]: unknown };
+
+    export interface PlatformAlertConfiguration {
+      /** Unique identifier of the alert configuration. */
+      readonly id: string;
+      /** Human-readable name of the alert. */
+      readonly name: string;
+      /** Whether the alert is evaluated on schedule. */
+      readonly enabled: boolean;
+      /** Product whose data the alert evaluates.
+       *
+       * * `logs` - Logs */
+      readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
+      /** Source-specific query settings. The shape depends on source_kind. */
+      readonly source_config: PlatformAlertConfigurationSourceConfig;
+      /** Count the evaluated value is compared against. */
+      readonly threshold_count: number;
+      /** Comparison operator applied between the value and threshold_count. */
+      readonly threshold_operator: string;
+      /** Length of the evaluated time window, in minutes. */
+      readonly window_minutes: number;
+      /** Minutes between scheduled checks. */
+      readonly check_interval_minutes: number;
+      /** Number of recent checks considered when deciding to fire. */
+      readonly evaluation_periods: number;
+      /** Number of breaching checks within evaluation_periods required to fire. */
+      readonly datapoints_to_alarm: number;
+      /** Minimum minutes between notifications for the same alert. */
+      readonly cooldown_minutes: number;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not run. Null means no quiet hours. */
+      readonly schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * When the next check is due. Null when no check is scheduled.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /** Number of checks in a row that failed to evaluate. */
+      readonly consecutive_failures: number;
+      /**
+         * ID of the legacy source configuration this row was backfilled from. Null for alerts created on the platform.
+         * @nullable
+         */
+      readonly legacy_configuration_id: string | null;
+      /** When the configuration was created. */
+      readonly created_at: string;
+      /** When the configuration was last changed. */
+      readonly updated_at: string;
+      /** Runtime state for each result group of this configuration. */
+      readonly alerts: readonly PlatformAlert[];
+    }
+
+    export interface PaginatedPlatformAlertConfigurationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PlatformAlertConfiguration[];
     }
 
     /**
@@ -91446,6 +91558,7 @@ export namespace Schemas {
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
      * * `retired` - Retired
+     * * `background_removed` - Background removed
      */
     export type SignalScoutConfigPauseReasonEnum = typeof SignalScoutConfigPauseReasonEnum[keyof typeof SignalScoutConfigPauseReasonEnum];
 
@@ -91455,6 +91568,19 @@ export namespace Schemas {
       Ignored: 'ignored',
       RepeatedFailures: 'repeated_failures',
       Retired: 'retired',
+      BackgroundRemoved: 'background_removed',
+    } as const;
+
+    /**
+     * * `team` - Team
+     * * `background` - Background
+     */
+    export type SignalScoutConfigManagedByEnum = typeof SignalScoutConfigManagedByEnum[keyof typeof SignalScoutConfigManagedByEnum];
+
+
+    export const SignalScoutConfigManagedByEnum = {
+      Team: 'team',
+      Background: 'background',
     } as const;
 
     /**
@@ -91497,13 +91623,19 @@ export namespace Schemas {
        * * `paused_by_system` - Paused by system
        * * `paused_by_user` - Paused by user */
       readonly status: SignalScoutConfigStatusEnum;
-      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` (PostHog retired the scout), or `background_removed` (the background lane stopped managing the scout). Null unless `status` is `pending_pause` or `paused_by_system`.
        *
        * * `no_output` - No output
        * * `ignored` - Ignored
        * * `repeated_failures` - Repeated failures
-       * * `retired` - Retired */
+       * * `retired` - Retired
+       * * `background_removed` - Background removed */
       readonly pause_reason: SignalScoutConfigPauseReasonEnum | null;
+      /** Who controls this scout now. `team`: a person set it up or has changed it. `background`: PostHog runs it in the background and no person has edited it yet. Any edit through this API changes `background` to `team`.
+       *
+       * * `team` - Team
+       * * `background` - Background */
+      readonly managed_by: SignalScoutConfigManagedByEnum;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       readonly emit: boolean;
       /**
@@ -119011,6 +119143,17 @@ export namespace Schemas {
       Csv: 'csv',
       Json: 'json',
     } as const;
+
+    export type PlatformAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type PluginConfigsLogsListParams = {
     /**

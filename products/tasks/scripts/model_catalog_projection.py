@@ -85,10 +85,22 @@ def render_catalog(catalog: dict[str, Any]) -> str:
         """
         if model.cost is None:
             return []
+        tier = model.cost.long_context
         return [
             f"{i}{i}cost: {{",
             f"{i}{i}{i}inputPerMtok: {_n(model.cost.input_per_mtok)},",
             f"{i}{i}{i}outputPerMtok: {_n(model.cost.output_per_mtok)},",
+            *(
+                [
+                    f"{i}{i}{i}longContext: {{",
+                    f"{i}{i}{i}{i}aboveInputTokens: {tier.above_input_tokens},",
+                    f"{i}{i}{i}{i}inputPerMtok: {_n(tier.input_per_mtok)},",
+                    f"{i}{i}{i}{i}outputPerMtok: {_n(tier.output_per_mtok)},",
+                    f"{i}{i}{i}}},",
+                ]
+                if tier
+                else []
+            ),
             f"{i}{i}}},",
             f"{i}{i}costMultiplier: {_s(multiplier_label(model.id))},",
             f"{i}{i}costSummary: {_s(cost_rates(model.cost))},",
@@ -191,9 +203,16 @@ export type ByRuntimeAdapter<T> = Record<RuntimeAdapter, T>{semi}
 /** Efforts per adapter, absent where the adapter has no fallback. */
 type FallbackEfforts = Partial<ByRuntimeAdapter<readonly ReasoningEffort[]>>{semi}
 
+export interface LongContextCost {{
+{i}aboveInputTokens: number{semi}
+{i}inputPerMtok: number{semi}
+{i}outputPerMtok: number{semi}
+}}
+
 export interface ModelCost {{
 {i}inputPerMtok: number{semi}
 {i}outputPerMtok: number{semi}
+{i}longContext?: LongContextCost{semi}
 }}
 
 export interface CatalogModel {{
@@ -213,14 +232,14 @@ export interface CatalogModel {{
 {i} */
 {i}accessFlag?: string{semi}
 {i}/**
-{i} * List price in US dollars per million tokens. Absent for a model no
+{i} * Base list price in US dollars per million tokens. Absent for a model no
 {i} * public price list covers, which a picker shows with no cost at all.
 {i} */
 {i}cost?: ModelCost{semi}
 {i}/**
 {i} * Per-token cost against {baseline_label}, ready to render: `2.5×`,
-{i} * `≈0.55×`. Prefixed when input and output rates diverge enough that one
-{i} * number flatters either. Absent whenever `cost` is.
+{i} * `≈0.55×`, or `1× base`. Prefixed when input and output rates diverge
+{i} * enough that one number flatters either. Absent whenever `cost` is.
 {i} */
 {i}costMultiplier?: string{semi}
 {i}/**

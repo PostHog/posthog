@@ -2,9 +2,9 @@
 
 The Go ai-gateway serves System One models that PostHog hosts, and bills the wallet of the team that
 owns ``AI_GATEWAY_API_KEY``. TypeSafe serves Jev, but a caller reaches it only by passing a
-``TypeSafeFallback``: TypeSafe is a third party, approved for experiments that send no customer data
-(see ``posthog/egress/typesafe/README.md``). The two serve different models, so the fallback names
-its own, and the result says which model answered.
+``TypeSafeFallback`` in local development: TypeSafe is a third party, approved for experiments that
+send no customer data (see ``posthog/egress/typesafe/README.md``). The two serve different models,
+so the fallback names its own, and the result says which model answered.
 """
 
 from collections.abc import Mapping
@@ -19,6 +19,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.typesafe.client import system_one
+from posthog.egress.typesafe.transport import typesafe_allowed
 from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config, team_distinct_id
 from posthog.llm.system_one import (
     SYSTEM_ONE_PATH,
@@ -128,7 +129,7 @@ def _usable_gateway() -> AIGatewayConfig | None:
 def system_one_configured(typesafe_fallback: TypeSafeFallback | None = None) -> bool:
     if _usable_gateway() is not None:
         return True
-    return typesafe_fallback is not None and bool(settings.TYPESAFE_API_KEY)
+    return typesafe_fallback is not None and typesafe_allowed() and bool(settings.TYPESAFE_API_KEY)
 
 
 def build_system_one_client(
@@ -142,8 +143,8 @@ def build_system_one_client(
     properties: Mapping[str, str] | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> SystemOneClient:
-    """A client for ``model`` on the Go ai-gateway when it is configured, else for TypeSafe when the
-    caller passes ``typesafe_fallback``.
+    """A client for ``model`` on the Go ai-gateway when it is configured, else for TypeSafe in local
+    development when the caller passes ``typesafe_fallback``.
 
     ``ai_product``, ``distinct_id``, ``trace_id`` and ``properties`` label the gateway's event. ``team_id``
     is the customer team the gateway bills, and labels the event when ``distinct_id`` is unset. Raises
@@ -170,8 +171,8 @@ def build_system_one_client(
             model=model,
             timeout=timeout,
         )
-    if typesafe_fallback is None:
-        raise SystemOneNotConfigured("Configure AI_GATEWAY_URL (https) and AI_GATEWAY_API_KEY")
+    if typesafe_fallback is None or not typesafe_allowed():
+        raise SystemOneNotConfigured("Configure AI_GATEWAY_URL (https) and AI_GATEWAY_API_KEY for System One")
     if not settings.TYPESAFE_API_KEY:
         raise SystemOneNotConfigured("Configure AI_GATEWAY_URL and AI_GATEWAY_API_KEY, or TYPESAFE_API_KEY")
     return TypeSafeSystemOneClient(
