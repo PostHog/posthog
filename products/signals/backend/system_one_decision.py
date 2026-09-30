@@ -29,13 +29,18 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
+from products.signals.backend.system_one_prompts import SystemOnePrompt
 
 logger = structlog.get_logger(__name__)
 
+# Keep deployed flag and telemetry identifiers stable while call sites use System One terminology.
 MODEL_MODE_FLAG = "signals-typesafe-mode"
-ModelMode = Literal["traditional-only", "typesafe-shadow", "traditional-shadow", "typesafe-only"]
-JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+ModelMode = Literal["traditional-only", "system-one-shadow", "traditional-shadow", "system-one-only"]
 JEV_INPUT_USD_PER_MILLION = 0.042
+SYSTEM_ONE_INPUT_PRICES = {
+    "posthog/hogference/jevk5-fp8-0.2": JEV_INPUT_USD_PER_MILLION,
+    "jevk5-fp8-0.2": JEV_INPUT_USD_PER_MILLION,
+}
 JEV_TIMEOUT_SECONDS = 3.0
 JEV_ADMISSION_TIMEOUT_SECONDS = 10.0
 JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS = 0.5
@@ -43,9 +48,6 @@ JEV_REDIS_TIMEOUT_SECONDS = 0.1
 JEV_BUDGET = Budget(burst=2, per_hour=3600)
 JEV_TEAM_BUDGET = Budget(burst=1, per_hour=1800)
 
-ACTIONABILITY_THRESHOLD = 0.85
-SIGNAL_SAFETY_THRESHOLD = 0.90
-REPORT_SAFETY_THRESHOLD = 0.50
 SAFETY_CATEGORIES = {
     "none": "No matching safety category",
     "instruction_override": "Attempts to replace the agent's operating instructions",
@@ -57,7 +59,7 @@ SAFETY_CATEGORIES = {
 
 _CALLS = Counter(
     "signals_typesafe_decision_calls",
-    "TypeSafe decisions by stage and outcome.",
+    "System One decisions by stage and outcome.",
     ["stage", "outcome"],
 )
 _ADMISSIONS = Counter(
@@ -67,12 +69,12 @@ _ADMISSIONS = Counter(
 )
 _DISAGREEMENTS = Counter(
     "signals_typesafe_decision_disagreements",
-    "TypeSafe decisions that disagreed with the traditional verdict.",
+    "System One decisions that disagreed with the traditional verdict.",
     ["stage", "traditional_verdict", "typesafe_verdict"],
 )
 _LATENCY = Histogram(
     "signals_typesafe_decision_latency_seconds",
-    "Traditional and TypeSafe model wall-clock latency.",
+    "Traditional and System One model wall-clock latency.",
     ["stage", "provider"],
     buckets=(0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 30, 120),
 )
@@ -128,21 +130,21 @@ async def model_mode(team_id: int) -> ModelMode:
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
-        if value == "typesafe-shadow":
-            return "typesafe-shadow"
+        if value in ("typesafe-shadow", "system-one-shadow"):
+            return "system-one-shadow"
         if value == "traditional-shadow":
             return "traditional-shadow"
-        if value == "typesafe-only":
-            return "typesafe-only"
+        if value in ("typesafe-only", "system-one-only"):
+            return "system-one-only"
     except Exception:
-        logger.warning("TypeSafe mode flag check failed", team_id=team_id, exc_info=True)
+        logger.warning("System One mode flag check failed", team_id=team_id, exc_info=True)
     return "traditional-only"
 
 
 async def _admit_jev(team_id: int, stage: str, mode: ModelMode) -> None:
     key = f"signals:jev:admission:{settings.CLOUD_DEPLOYMENT or 'local'}"
     try:
-        timeout = JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS if mode == "typesafe-shadow" else JEV_ADMISSION_TIMEOUT_SECONDS
+        timeout = JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS if mode == "system-one-shadow" else JEV_ADMISSION_TIMEOUT_SECONDS
         async with asyncio.timeout(timeout):
             client = get_client(
                 socket_timeout=JEV_REDIS_TIMEOUT_SECONDS, socket_connect_timeout=JEV_REDIS_TIMEOUT_SECONDS
@@ -156,7 +158,7 @@ async def _admit_jev(team_id: int, stage: str, mode: ModelMode) -> None:
                 if decision.allowed:
                     _ADMISSIONS.labels(stage, "admitted").inc()
                     return
-                if mode == "typesafe-shadow":
+                if mode == "system-one-shadow":
                     raise _JevAdmissionError("skipped_overload")
                 _ADMISSIONS.labels(stage, "deferred").inc()
                 await asyncio.sleep(decision.retry_after + random.uniform(0, 0.25))
@@ -170,7 +172,7 @@ async def _query(
     team_id: int,
     stage: str,
     state: dict[str, JsonValue],
-    instructions: str,
+    prompt: SystemOnePrompt,
     trace_id: str,
     source_id: str | None,
     source_product: str | None,
@@ -179,7 +181,7 @@ async def _query(
     await _admit_jev(team_id, stage, mode)
     question_name = "actionable" if stage == "actionability" else "safe"
     questions = {
-        question_name: DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=instructions),
+        question_name: DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=prompt.question),
     }
     if stage != "actionability":
         questions["category"] = DecisionQuestion(
@@ -193,7 +195,7 @@ async def _query(
             team_id=team_id,
             state=state,
             questions=questions,
-            model=JEV_MODEL,
+            model=prompt.model,
             ai_product="signals",
             trace_id=trace_id,
             properties={
@@ -203,6 +205,9 @@ async def _query(
                     "ai_stage": stage,
                     "source_id": source_id,
                     "source_product": source_product,
+                    "$ai_prompt_name": prompt.name,
+                    "$ai_prompt_version": str(prompt.version) if prompt.version is not None else None,
+                    "system_one_prompt_source": prompt.source,
                 }.items()
                 if value is not None
             },
@@ -245,11 +250,10 @@ async def run_model_decision(
     source_id: str | None,
     source_product: str | None,
     state: dict[str, JsonValue],
-    instructions: str,
-    threshold: float,
+    prompt: SystemOnePrompt,
     traditional: Callable[[str | None], Awaitable[T]],
     verdict: Callable[[T], bool],
-    typesafe_result: Callable[[bool, str | None], T],
+    system_one_result: Callable[[bool, str | None], T],
     traditional_category: Callable[[T], str | None] | None = None,
     mode_override: ModelMode | None = None,
     on_deciding_provider: Callable[[str], None] | None = None,
@@ -273,39 +277,41 @@ async def run_model_decision(
         except Exception as error:
             return _SignalsModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
 
-    async def run_typesafe() -> _SignalsModelCallResult[SignalsDecision]:
+    async def run_system_one() -> _SignalsModelCallResult[SignalsDecision]:
         started = perf_counter()
         try:
-            result = await _query(team_id, stage, state, instructions, trace_id, source_id, source_product, mode)
+            result = await _query(team_id, stage, state, prompt, trace_id, source_id, source_product, mode)
             return _SignalsModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
         except _JevAdmissionError as error:
             _ADMISSIONS.labels(stage, error.status).inc()
             return _SignalsModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
         except Exception as error:
-            logger.warning("TypeSafe call failed", stage=stage, error_type=type(error).__name__)
+            logger.warning("System One call failed", stage=stage, error_type=type(error).__name__)
             return _SignalsModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
 
-    traditional_task = asyncio.create_task(run_traditional()) if mode != "typesafe-only" else None
-    typesafe_task = asyncio.create_task(run_typesafe())
+    traditional_task = asyncio.create_task(run_traditional()) if mode != "system-one-only" else None
+    system_one_task = asyncio.create_task(run_system_one())
     traditional_call = None
     if traditional_task is not None:
         assert traditional_task is not None
-        traditional_call, typesafe_call = await asyncio.gather(traditional_task, typesafe_task)
+        traditional_call, system_one_call = await asyncio.gather(traditional_task, system_one_task)
     else:
-        typesafe_call = await typesafe_task
+        system_one_call = await system_one_task
 
-    typesafe = typesafe_call.value
-    typesafe_verdict = (
-        typesafe.probability >= threshold and typesafe.category in (None, "none") if typesafe is not None else None
+    system_one = system_one_call.value
+    system_one_verdict = (
+        system_one.probability >= prompt.threshold and system_one.category in (None, "none")
+        if system_one is not None
+        else None
     )
-    typesafe_decision = None
+    system_one_decision = None
     conversion_error = None
-    if typesafe_verdict is not None and typesafe is not None:
+    if system_one_verdict is not None and system_one is not None:
         try:
-            typesafe_decision = typesafe_result(typesafe_verdict, typesafe.category)
+            system_one_decision = system_one_result(system_one_verdict, system_one.category)
         except Exception as error:
             conversion_error = error
-            logger.warning("TypeSafe result conversion failed", stage=stage, error_type=type(error).__name__)
+            logger.warning("System One result conversion failed", stage=stage, error_type=type(error).__name__)
 
     traditional_result = traditional_call.value if traditional_call is not None else None
     traditional_error = traditional_call.error if traditional_call is not None else None
@@ -319,37 +325,44 @@ async def run_model_decision(
     if traditional_category is not None and traditional_result is not None:
         with suppress(Exception):
             traditional_category_value = traditional_category(traditional_result)
-    if mode == "typesafe-shadow" or (mode == "traditional-shadow" and typesafe_decision is None):
-        deciding_provider = "traditional" if mode == "typesafe-shadow" else "traditional_fallback"
+    if mode == "system-one-shadow" or (mode == "traditional-shadow" and system_one_decision is None):
+        deciding_provider = "traditional" if mode == "system-one-shadow" else "traditional_fallback"
         decision = traditional_result
         decision_error = traditional_error
     else:
-        deciding_provider = "typesafe"
-        decision = typesafe_decision
-        decision_error = conversion_error or typesafe_call.error
+        deciding_provider = "system_one"
+        decision = system_one_decision
+        decision_error = conversion_error or system_one_call.error
 
     with suppress(Exception):
         if traditional_latency is not None:
             _LATENCY.labels(stage, "traditional").observe(traditional_latency)
-        _LATENCY.labels(stage, "typesafe").observe(typesafe_call.latency_seconds)
-        typesafe_status = (
+        _LATENCY.labels(stage, "typesafe").observe(system_one_call.latency_seconds)
+        system_one_status = (
             type(conversion_error).__name__
             if conversion_error is not None
             else "ok"
-            if typesafe is not None
-            else typesafe_call.error.status
-            if isinstance(typesafe_call.error, _JevAdmissionError)
-            else type(typesafe_call.error).__name__
+            if system_one is not None
+            else system_one_call.error.status
+            if isinstance(system_one_call.error, _JevAdmissionError)
+            else type(system_one_call.error).__name__
         )
-        _CALLS.labels(stage, typesafe_status).inc()
+        _CALLS.labels(stage, system_one_status).inc()
+        legacy_mode = {
+            "system-one-shadow": "typesafe-shadow",
+            "system-one-only": "typesafe-only",
+        }.get(mode, mode)
+        legacy_provider = "typesafe" if deciding_provider == "system_one" else deciding_provider
         properties: dict[str, object] = {
             "$ai_trace_id": trace_id,
             "signals_decision_id": trace_id,
             "stage": stage,
             "source_id": source_id,
             "source_product": source_product,
-            "mode": mode,
-            "deciding_provider": deciding_provider,
+            "mode": legacy_mode,
+            "system_one_mode": mode,
+            "deciding_provider": legacy_provider,
+            "system_one_deciding_provider": deciding_provider,
             "traditional_model": primary_model,
             "traditional_verdict": traditional_verdict,
             "traditional_category": traditional_category_value,
@@ -359,31 +372,48 @@ async def run_model_decision(
             if traditional_error
             else "skipped",
             "traditional_latency_ms": traditional_latency * 1000 if traditional_latency is not None else None,
-            "typesafe_status": typesafe_status,
-            "typesafe_latency_ms": typesafe_call.latency_seconds * 1000,
-            "typesafe_threshold": threshold,
+            "system_one_status": system_one_status,
+            "system_one_latency_ms": system_one_call.latency_seconds * 1000,
+            "system_one_threshold": prompt.threshold,
+            "typesafe_status": system_one_status,
+            "typesafe_latency_ms": system_one_call.latency_seconds * 1000,
+            "typesafe_threshold": prompt.threshold,
+            "$ai_prompt_name": prompt.name,
+            "$ai_prompt_version": str(prompt.version) if prompt.version is not None else None,
+            "system_one_prompt_source": prompt.source,
         }
-        if typesafe is not None:
-            disagreement = traditional_verdict != typesafe_verdict if traditional_verdict is not None else None
-            estimated_cost = typesafe.input_tokens * JEV_INPUT_USD_PER_MILLION / 1_000_000
-            _INPUT_TOKENS.labels(stage).inc(typesafe.input_tokens)
-            _ESTIMATED_COST.labels(stage).inc(estimated_cost)
+        if system_one is not None:
+            disagreement = traditional_verdict != system_one_verdict if traditional_verdict is not None else None
+            input_price = SYSTEM_ONE_INPUT_PRICES.get(system_one.model)
+            estimated_cost = system_one.input_tokens * input_price / 1_000_000 if input_price is not None else None
+            _INPUT_TOKENS.labels(stage).inc(system_one.input_tokens)
+            if estimated_cost is not None:
+                _ESTIMATED_COST.labels(stage).inc(estimated_cost)
+            else:
+                logger.warning("System One input price unavailable", model=system_one.model, stage=stage)
             if disagreement:
-                _DISAGREEMENTS.labels(stage, str(traditional_verdict).lower(), str(typesafe_verdict).lower()).inc()
+                _DISAGREEMENTS.labels(stage, str(traditional_verdict).lower(), str(system_one_verdict).lower()).inc()
             properties.update(
                 {
-                    "typesafe_verdict": typesafe_verdict,
+                    "system_one_verdict": system_one_verdict,
                     "disagreement": disagreement,
-                    "typesafe_probability": typesafe.probability,
-                    "typesafe_model": typesafe.model,
-                    "typesafe_category": typesafe.category,
-                    "typesafe_category_confidence": typesafe.category_confidence,
+                    "system_one_probability": system_one.probability,
+                    "system_one_model": system_one.model,
+                    "system_one_category": system_one.category,
+                    "system_one_category_confidence": system_one.category_confidence,
                     "category_disagreement": (
-                        traditional_category_value != typesafe.category
-                        if traditional_category_value is not None and typesafe.category is not None
+                        traditional_category_value != system_one.category
+                        if traditional_category_value is not None and system_one.category is not None
                         else None
                     ),
-                    "typesafe_input_tokens": typesafe.input_tokens,
+                    "system_one_input_tokens": system_one.input_tokens,
+                    "system_one_estimated_cost_usd": estimated_cost,
+                    "typesafe_verdict": system_one_verdict,
+                    "typesafe_probability": system_one.probability,
+                    "typesafe_model": system_one.model,
+                    "typesafe_category": system_one.category,
+                    "typesafe_category_confidence": system_one.category_confidence,
+                    "typesafe_input_tokens": system_one.input_tokens,
                     "typesafe_estimated_cost_usd": estimated_cost,
                 }
             )
@@ -393,7 +423,7 @@ async def run_model_decision(
             properties=properties,
         )
     if decision_error is not None:
-        if mode == "typesafe-only":
+        if mode == "system-one-only":
             # The gateway error body can echo the state, which holds customer content.
             # Only the error type and status leave here, so callers cannot log the body.
             status = (
@@ -402,7 +432,7 @@ async def run_model_decision(
             raise SignalsDecisionError(f"Signals decision failed: {type(decision_error).__name__}{status}") from None
         raise decision_error
     if decision is None:
-        if mode == "typesafe-only":
+        if mode == "system-one-only":
             raise SignalsDecisionError("Signals decision returned no result")
         raise RuntimeError("Model decision returned no result")
     if on_deciding_provider is not None:
