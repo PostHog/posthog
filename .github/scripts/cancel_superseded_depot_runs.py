@@ -23,6 +23,7 @@ WORKFLOW_PATH = "ci-backend.yml"
 ACTIVE = ("queued", "running")
 ALL = (*ACTIVE, "finished", "failed", "cancelled")
 DEPOT_JOB_URL = re.compile(r"^https://depot\.dev/orgs/[^/?]+/workflows/([a-z0-9]+)")
+CLI_TIMEOUT_SECONDS = 60
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -61,27 +62,16 @@ def superseded(own_workflow_id: str, active_workflows: Sequence[Workflow], runs:
 
 
 def depot(*args: str) -> list[dict[str, str]]:
+    result = subprocess.run(
+        ["depot", "ci", *args], check=True, capture_output=True, text=True, timeout=CLI_TIMEOUT_SECONDS
+    )
     # `depot ci run list` prints `null` when nothing matches.
-    return json.loads(subprocess.run(["depot", "ci", *args], check=True, capture_output=True, text=True).stdout) or []
+    return json.loads(result.stdout) or []
 
 
 def list_pr(noun: str, repo: str, pr_number: str, statuses: Sequence[str]) -> list[dict[str, str]]:
-    status_flags = [flag for status in statuses for flag in ("--status", status)]
-    return depot(
-        noun,
-        "list",
-        "--repo",
-        repo,
-        "--pr",
-        pr_number,
-        "--trigger",
-        "pull_request",
-        "-n",
-        "200",
-        *status_flags,
-        "-o",
-        "json",
-    )
+    scope = ["--repo", repo, "--pr", pr_number, "--trigger", "pull_request", "-n", "200", "-o", "json"]
+    return depot(noun, "list", *scope, *(flag for status in statuses for flag in ("--status", status)))
 
 
 def main() -> int:
@@ -101,14 +91,18 @@ def main() -> int:
             for row in list_pr("run", repo, pr_number, ALL)
         ]
         targets = superseded(match[1], workflows, runs)
-    except (subprocess.CalledProcessError, KeyError, ValueError) as error:
+    except (subprocess.SubprocessError, KeyError, ValueError) as error:
         sys.stdout.write(f"::warning::Could not read this PR's Depot runs, so no run was cancelled: {error!r}\n")
         return 0
     for workflow in targets:
         sys.stdout.write(f"Cancelling superseded run {workflow.run_id} (workflow {workflow.workflow_id})\n")
         try:
-            subprocess.run(["depot", "ci", "cancel", workflow.run_id, "--workflow", workflow.workflow_id], check=True)
-        except subprocess.CalledProcessError:
+            subprocess.run(
+                ["depot", "ci", "cancel", workflow.run_id, "--workflow", workflow.workflow_id],
+                check=True,
+                timeout=CLI_TIMEOUT_SECONDS,
+            )
+        except subprocess.SubprocessError:
             sys.stdout.write(f"::warning::Could not cancel run {workflow.run_id}\n")
     return 0
 
