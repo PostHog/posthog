@@ -19,7 +19,7 @@ class GerritFanoutConfig:
     ignore_statuses: frozenset[int] = frozenset({404})
 
 
-@dataclass
+@dataclass(frozen=False)
 class GerritEndpointConfig:
     name: str
     path: str
