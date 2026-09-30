@@ -1,3 +1,7 @@
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -100,3 +104,27 @@ class TestClassifyBatch:
         assert result[0].scores["neutral"] == 0.0
         assert result[0].scores["negative"] == 0.0
         assert result[0].scores["positive"] == 0.95
+
+    @patch("posthog.temporal.ai_observability.sentiment.model._load_pipeline")
+    def test_concurrent_calls_never_run_pipeline_in_parallel(self, mock_load: MagicMock):
+        active = 0
+        max_active = 0
+        counter_lock = threading.Lock()
+
+        def fake_pipe(texts: list[str], batch_size: int) -> list[list[dict[str, object]]]:
+            nonlocal active, max_active
+            with counter_lock:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.01)
+            with counter_lock:
+                active -= 1
+            return [_make_pipeline_output("positive", 0.9) for _ in texts]
+
+        mock_load.return_value = fake_pipe
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(lambda i: classify([f"text {i}"]), range(16)))
+
+        assert max_active == 1
+        assert all(r[0].label == "positive" for r in results)
