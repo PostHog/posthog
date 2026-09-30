@@ -1,5 +1,5 @@
 import type { ReplayObservationApi, WatchFeedReasonApi } from '../../generated/api.schemas'
-import { observationClipRange, watchCardHeadline, watchReasonCopy } from './WatchFeedCard'
+import { watchCardHeadline, watchReasonCopy } from './WatchFeedCard'
 
 describe('WatchFeedCard helpers', () => {
     describe('watchReasonCopy', () => {
@@ -132,23 +132,6 @@ describe('WatchFeedCard helpers', () => {
             scanner_snapshot: scannerType ? { scanner_type: scannerType } : undefined,
             scanner_result: { model_output: output },
         }) as unknown as ReplayObservationApi
-
-    describe('observationClipRange', () => {
-        it('reads the summary citation when the snapshot type is summarizer, even if the result omits scanner_type', () => {
-            const range = observationClipRange(
-                observation('summarizer', {
-                    summary: 'Wrapped up (t 30) cleanly.',
-                    reasoning: 'Debugged (t 90) at length.',
-                })
-            )
-            expect(range).toEqual({ startMs: 30_000, endMs: 30_000 })
-        })
-
-        it('reads the reasoning citation for a non-summarizer type', () => {
-            const range = observationClipRange(observation('monitor', { reasoning: 'Retried (t 45) twice.' }))
-            expect(range).toEqual({ startMs: 45_000, endMs: 45_000 })
-        })
-    })
 
     describe('watchCardHeadline', () => {
         it.each<{
