@@ -19,6 +19,9 @@ const WORKFLOW_ID = 'wf-proposals-1'
 const PROPOSAL_ID = 'proposal-1'
 const DRAFT_STAMP = '2026-05-02T00:00:00.000Z'
 
+const CODE_MANAGED_REASON =
+    'This workflow is managed by code, so changes made here are not saved. Edit workflows/welcome.yaml in github.com/example/flows and push.'
+
 describe('workflowProposalsLogic', () => {
     let logic: ReturnType<typeof workflowProposalsLogic.build>
     let approveBodies: Record<string, any>[]
@@ -29,6 +32,7 @@ describe('workflowProposalsLogic', () => {
     let workflowDraft: Record<string, any> | null
     let workflowDraftStamp: string | null
     let workflowManagedBy: string | null
+    let optimizationEnabled: boolean
 
     const proposal = {
         id: PROPOSAL_ID,
@@ -55,6 +59,7 @@ describe('workflowProposalsLogic', () => {
         workflowDraft = { actions: [] }
         workflowDraftStamp = DRAFT_STAMP
         workflowManagedBy = null
+        optimizationEnabled = false
         ;(LemonDialog.open as jest.Mock).mockClear()
         useMocks({
             get: {
@@ -79,6 +84,7 @@ describe('workflowProposalsLogic', () => {
                     proposalsListStatus === 200
                         ? [200, { count: 1, results: [proposal] }]
                         : [proposalsListStatus, { detail: 'nope' }],
+                '/api/projects/:team_id/hog_flows/:id/optimization/': () => [200, { enabled: optimizationEnabled }],
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             post: {
@@ -201,7 +207,7 @@ describe('workflowProposalsLogic', () => {
             name: 'a code-managed workflow',
             status: 'active',
             managedBy: 'code',
-            reason: 'This workflow is managed by code, so changes made here are not saved. Edit workflows/welcome.yaml in github.com/example/flows and push.',
+            reason: CODE_MANAGED_REASON,
         },
     ])('will not stage a suggestion on $name', async ({ status, managedBy, reason }) => {
         const flowLogic = workflowLogic({ id: WORKFLOW_ID })
@@ -225,6 +231,29 @@ describe('workflowProposalsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(approveBodies).toEqual([])
     })
+
+    it.each([
+        { enabled: false, reason: CODE_MANAGED_REASON },
+        { enabled: true, reason: undefined },
+    ])(
+        'locks the suggestions switch on a code-managed workflow only while it is off (on=$enabled)',
+        async ({ enabled, reason }) => {
+            const flowLogic = workflowLogic({ id: WORKFLOW_ID })
+            flowLogic.mount()
+            await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
+
+            workflowManagedBy = 'code'
+            optimizationEnabled = enabled
+            await expectLogic(flowLogic, () => {
+                flowLogic.actions.loadWorkflow()
+            }).toDispatchActions(['loadWorkflowSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.loadOptimization()
+            }).toDispatchActions(['loadOptimizationSuccess'])
+
+            expect(logic.values.optimizationDisabledReason).toBe(reason)
+        }
+    )
 
     it('a 409 reloads the workflow and the queue instead of leaving stale state on screen', async () => {
         approveStatus = 409

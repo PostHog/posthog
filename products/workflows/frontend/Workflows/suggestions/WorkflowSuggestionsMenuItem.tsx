@@ -9,7 +9,7 @@ import { workflowLogic } from '../workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 export function WorkflowSuggestionsMenuItem({ id }: { id: string }): JSX.Element {
-    const { optimizationEnabled, optimizationLoading, optimizationUnreadable } = useValues(
+    const { optimizationDisabledReason, optimizationEnabled, optimizationLoading, optimizationUnreadable } = useValues(
         workflowProposalsLogic({ id })
     )
     const { setOptimizationEnabled } = useActions(workflowProposalsLogic({ id }))
@@ -25,7 +25,9 @@ export function WorkflowSuggestionsMenuItem({ id }: { id: string }): JSX.Element
     return (
         <SceneMenuBarCheckboxItem
             checked={optimizationEnabled}
-            disabled={optimizationLoading || optimizationUnreadable || !!accessDisabledReason}
+            disabled={
+                optimizationLoading || optimizationUnreadable || !!accessDisabledReason || !!optimizationDisabledReason
+            }
             onCheckedChange={(checked) => setOptimizationEnabled(checked)}
             data-attr="workflow-menubar-suggest-improvements"
         >

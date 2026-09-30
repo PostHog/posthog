@@ -29,6 +29,8 @@ _OPERATIONS_ACTIONS: Final = frozenset(
     }
 )
 
+_SUGGESTIONS_OPT_IN_ACTION: Final = "optimization"
+
 _UPDATE_ACTIONS: Final = frozenset({"update", "partial_update"})
 
 _WORKFLOW_BODY_ACTIONS: Final = _UPDATE_ACTIONS | {"create"}
@@ -77,6 +79,12 @@ def _payload_keys(payload: Mapping[str, Any]) -> frozenset[str]:
     return frozenset(payload.keys()) - _INERT_KEYS
 
 
+def _is_operation(action: str, body: Mapping[str, Any]) -> bool:
+    if action in _OPERATIONS_ACTIONS:
+        return True
+    return action == _SUGGESTIONS_OPT_IN_ACTION and body.get("enabled") is False
+
+
 def _managed_by_code(hog_flow: HogFlow) -> OwnershipRefusal:
     return OwnershipRefusal(
         kind=RefusalKind.MANAGED_BY_CODE,
@@ -105,7 +113,7 @@ def check_write(
     body: Mapping[str, Any] = payload if isinstance(payload, Mapping) else {}
 
     if stored is not None and stored.managed_by == HogFlow.ManagedBy.CODE:
-        allowed = action in _OPERATIONS_ACTIONS or (
+        allowed = _is_operation(action, body) or (
             action in _UPDATE_ACTIONS and _payload_keys(body) in _ALLOWED_PAYLOADS
         )
         if not allowed:

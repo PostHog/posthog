@@ -45,6 +45,7 @@ export interface workflowProposalsLogicValues {
     lastSeenDraftStamp: string | null
     lastSeenVersion: number | null
     optimization: HogFlowOptimizationApi | null
+    optimizationDisabledReason: string | undefined
     optimizationEnabled: boolean
     optimizationLoading: boolean
     optimizationUnreadable: boolean
@@ -182,6 +183,10 @@ export interface workflowProposalsLogicMeta {
         approveDisabledReason: (
             hasUnsavedChanges: boolean,
             showDraftActions: boolean,
+            workflowSaveDisabledReason: string | null
+        ) => string | undefined
+        optimizationDisabledReason: (
+            optimizationEnabled: boolean,
             workflowSaveDisabledReason: string | null
         ) => string | undefined
     }
@@ -384,6 +389,11 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 }
                 return undefined
             },
+        ],
+        optimizationDisabledReason: [
+            (s) => [s.optimizationEnabled, s.workflowSaveDisabledReason],
+            (optimizationEnabled: boolean, workflowSaveDisabledReason: string | null): string | undefined =>
+                optimizationEnabled ? undefined : (workflowSaveDisabledReason ?? undefined),
         ],
     }),
     listeners(({ actions, props, values }) => ({

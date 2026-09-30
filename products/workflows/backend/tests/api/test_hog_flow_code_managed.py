@@ -9,6 +9,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.hog_flow import HogFlowViewSet
@@ -70,6 +71,7 @@ class TestCodeManagedHogFlow(APIBaseTest):
             ("discard_draft", "post", "/discard_draft", {}),
             ("restore_revision", "post", "/revisions/1/restore", {}),
             ("create_proposal", "post", "/proposals", {"title": "Rename", "rationale": "Clearer.", "content": {}}),
+            ("turn_on_suggestions", "post", "/optimization", {"enabled": True}),
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
@@ -226,6 +228,15 @@ class TestCodeManagedHogFlow(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["status"] == WorkflowProposal.Status.REJECTED
+
+    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
+    def test_suggestions_on_a_code_managed_workflow_can_still_be_turned_off(self, _feature_enabled) -> None:
+        HogFlowOptimization.objects.for_team(self.team.pk).create(hog_flow=self.workflow, team=self.team)
+
+        response = self.client.post(self._url("/optimization"), {"enabled": False})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"enabled": False}
 
     @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
     def test_the_ui_sets_the_schedule_of_a_code_managed_workflow(self) -> None:
