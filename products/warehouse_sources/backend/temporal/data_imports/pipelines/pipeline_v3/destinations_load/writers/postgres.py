@@ -38,13 +38,13 @@ from psycopg import sql
 
 from posthog.models.integration import Integration, PostgreSQLIntegration
 
-from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
+from products.batch_exports.backend.facade.pipeline import (
+    CSVStreamTransformer,
     Fields,
     PostgreSQLClient,
     PostgreSQLIntegrationNotFoundError,
     run_in_retryable_transaction,
 )
-from products.batch_exports.backend.temporal.pipeline.transformer import CSVStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,

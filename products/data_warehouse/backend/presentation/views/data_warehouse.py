@@ -34,7 +34,7 @@ from posthog.permissions import is_service_auth
 from posthog.utils import convert_property_value, flatten
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
-from products.batch_exports.backend.facade.models import BatchExportRun
+from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.data_quality.backend.presentation.serializers import DataQualityGateConfigSerializer
@@ -964,41 +964,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
                 )
 
-            # Get failed batch exports
-            # get latest run per export, then filter for failures
-            # Exclude paused exports since their last failure is no longer actionable
-            latest_run_ids = (
-                BatchExportRun.objects.filter(
-                    batch_export__team_id=self.team_id,
-                    batch_export__deleted=False,
-                    batch_export__paused=False,
-                )
-                .order_by("batch_export_id", "-created_at")
-                .distinct("batch_export_id")
-                .values_list("id", flat=True)
-            )
-
-            # nosemgrep: idor-lookup-without-team (IDs from team-scoped queryset)
-            failed_runs = BatchExportRun.objects.filter(
-                id__in=latest_run_ids,
-                status__in=[
-                    BatchExportRun.Status.FAILED,
-                    BatchExportRun.Status.FAILED_RETRYABLE,
-                    BatchExportRun.Status.TIMEDOUT,
-                    BatchExportRun.Status.TERMINATED,
-                ],
-            ).select_related("batch_export")
-
-            for run in failed_runs:
+            for failed_run in batch_exports_api.list_latest_failed_runs(self.team_id):
                 results.append(
                     {
-                        "id": str(run.parent.id),
-                        "name": getattr(run.parent, "name", "Batch export on demand"),
+                        "id": str(failed_run.export_id),
+                        "name": failed_run.export_name,
                         "type": "destination",
                         "status": "failed",
-                        "error": run.latest_error,
-                        "failed_at": run.finished_at.isoformat() if run.finished_at else None,
-                        "url": f"/pipeline/batch-exports/{run.parent.id}",
+                        "error": failed_run.error,
+                        "failed_at": failed_run.failed_at.isoformat() if failed_run.failed_at else None,
+                        "url": f"/pipeline/batch-exports/{failed_run.export_id}",
                     }
                 )
 

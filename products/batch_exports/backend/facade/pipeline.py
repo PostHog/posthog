@@ -2,12 +2,13 @@
 Export-pipeline wiring for batch_exports.
 
 Re-exports the destination clients, stream transformers and credential helpers that the
-warehouse_sources Temporal writers reuse, so a data-import writer and a batch export talk
-to Snowflake, BigQuery, Databricks, Postgres, Redshift, S3 and Azure Blob the same way.
+warehouse_sources Temporal writers and BigQuery import source reuse, so a data import and a
+batch export talk to Snowflake, BigQuery, Databricks, Postgres, Redshift, S3 and Azure Blob
+the same way.
 
 Every name here comes from ``backend/temporal/``, so importing this module pulls each
-destination's vendor SDK. Only Temporal activity code may import it. Never import it from
-``facade/api.py``, or from anything else on the ``django.setup()`` path — see
+destination's vendor SDK. Only Temporal activity code may import it at module level. Never
+import it from ``facade/api.py``, or from anything else on the ``django.setup()`` path — see
 ``posthog/test/repo_invariants/test_startup_import_budget.py``.
 """
 
@@ -18,6 +19,10 @@ from products.batch_exports.backend.temporal.destinations.azure_blob_batch_expor
 )
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
+    MissingRequiredPermissionsError,
+    ServiceAccountNotFoundError,
+    ServiceAccountOwnershipError,
+    get_our_google_cloud_credentials,
     verify_impersonated_service_account_ownership,
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
@@ -74,6 +79,7 @@ __all__ = [
     "Fields",
     "IntermittentUploadPartTimeoutError",
     "MalformedConnectionStringError",
+    "MissingRequiredPermissionsError",
     "NamedBytesIO",
     "ONE_HOUR",
     "ONE_MINUTE",
@@ -83,12 +89,15 @@ __all__ = [
     "PostgreSQLIntegrationNotFoundError",
     "RedshiftClient",
     "S3_SUPPORTED_COMPRESSIONS",
+    "ServiceAccountNotFoundError",
+    "ServiceAccountOwnershipError",
     "SnowflakeClient",
     "SnowflakeField",
     "SnowflakeTable",
     "SnowflakeType",
     "get_azure_blob_integration",
     "get_credentials_using_user_aws_role",
+    "get_our_google_cloud_credentials",
     "get_s3_integration",
     "get_snowflake_integration",
     "handle_common_errors",

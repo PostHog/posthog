@@ -519,8 +519,8 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
     grants one PostHog principal the token-creator role and both imports and exports work.
     """
     # Imported here so the source registry — which the API imports on every request path — does not
-    # pull in the batch-export Temporal module.
-    from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (  # noqa: PLC0415 — keeps the batch-export Temporal module off the source registry's import path
+    # pull in the batch-export pipeline and every destination SDK it loads.
+    from products.batch_exports.backend.facade.pipeline import (  # noqa: PLC0415 — keeps the batch-export pipeline off the source registry's import path
         MissingRequiredPermissionsError,
         ServiceAccountNotFoundError,
         ServiceAccountOwnershipError,
