@@ -101,7 +101,7 @@ function emptyPayloadMessage(
     ) : (
         <>
             Payload capture is disabled.{' '}
-            <Link to={urls.settings('project-replay', 'replay-network')}>Enable it here</Link>
+            <Link to={urls.settings('project-replay', 'replay-network-headers-payloads')}>Enable it here</Link>
         </>
     )
 }
@@ -255,6 +255,10 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
         currentTeam?.capture_performance_opt_in &&
         currentTeam?.session_recording_network_payload_capture_config?.recordBody
 
+    // the tabs stay for network requests even with nothing captured, so the prompt to turn capture on can show
+    const isNetworkRequest =
+        item.entry_type !== 'navigation' && ['fetch', 'xmlhttprequest'].includes(item.initiator_type || '')
+
     const sizeInfo = itemSizeInfo(item)
 
     const {
@@ -330,7 +334,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
                             </>
                         ),
                     },
-                    item.request_headers || item.response_headers
+                    item.request_headers || item.response_headers || isNetworkRequest
                         ? {
                               key: 'headers',
                               label: 'Headers',
@@ -343,9 +347,9 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
                               ),
                           }
                         : false,
-                    item.entry_type !== 'navigation' &&
+                    isNetworkRequest ||
                     // if we're missing the initiator type, but we do have a body then we should show it
-                    (['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') || !!item.request_body)
+                    (item.entry_type !== 'navigation' && item.request_body)
                         ? {
                               key: 'payload',
                               label: 'Payload',
@@ -358,7 +362,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
                               ),
                           }
                         : false,
-                    item.entry_type !== 'navigation' && item.response_body
+                    isNetworkRequest || (item.entry_type !== 'navigation' && item.response_body)
                         ? {
                               key: 'response_body',
                               label: 'Response',
@@ -473,7 +477,7 @@ export function HeadersDisplay({
             ) : (
                 <>
                     Headers capture is disabled.{' '}
-                    <Link to={urls.settings('project-replay', 'replay-network')}>Enable it here</Link>
+                    <Link to={urls.settings('project-replay', 'replay-network-headers-payloads')}>Enable it here</Link>
                 </>
             )}
         </div>

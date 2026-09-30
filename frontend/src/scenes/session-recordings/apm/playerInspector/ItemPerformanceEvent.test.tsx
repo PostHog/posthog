@@ -1,12 +1,22 @@
-import { render } from '@testing-library/react'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { fireEvent, render } from '@testing-library/react'
 
 import {
     BodyDisplay,
     hasNoRecordedResponse,
+    ItemPerformanceEventDetail,
     StatusTag,
 } from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
 
+import { initKeaTests } from '~/test/init'
 import { PerformanceEvent } from '~/types'
+
+const TEAM_WITHOUT_NETWORK_CAPTURE = {
+    ...MOCK_DEFAULT_TEAM,
+    capture_performance_opt_in: false,
+    session_recording_network_payload_capture_config: { recordHeaders: false, recordBody: false },
+}
 
 describe('ItemPerformanceEvent', () => {
     it.each([
@@ -80,5 +90,22 @@ describe('ItemPerformanceEvent', () => {
         const { container } = render(<StatusTag item={item} detailed={true} />)
         expect(container.querySelector('.LemonTag')?.textContent).toEqual('No response')
         expect(container.textContent).toContain('blocked, failed, or cancelled')
+    })
+
+    it.each([
+        ['Headers', 'Headers capture is disabled'],
+        ['Payload', 'Payload capture is disabled'],
+        ['Response', 'Payload capture is disabled'],
+    ])('the %s tab still offers to turn capture on when it is off', (tabLabel, expectedPrompt) => {
+        initKeaTests(true, TEAM_WITHOUT_NETWORK_CAPTURE)
+        const item = { entry_type: 'resource', method: 'GET', initiator_type: 'fetch' } as PerformanceEvent
+
+        const { container } = render(<ItemPerformanceEventDetail item={item} finalTimestamp={null} />)
+        const tab = [...container.querySelectorAll('.LemonTabs__tab')].find((el) => el.textContent === tabLabel)
+        expect(tab).toBeTruthy()
+        fireEvent.click(tab as Element)
+
+        expect(container.textContent).toContain(expectedPrompt)
+        expect(container.querySelector('a[href$="#replay-network-headers-payloads"]')).not.toBeNull()
     })
 })
