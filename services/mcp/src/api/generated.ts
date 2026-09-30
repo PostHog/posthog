@@ -1717,6 +1717,18 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    export interface AccountDetailTabsConfig {
+      /** Tab identifiers in the user's preferred order. */
+      ordered_tab_ids: string[];
+      /** Tab identifiers hidden from the tab strip. */
+      hidden_tab_ids: string[];
+      /**
+         * Tab identifier opened by default. Null uses the first available system tab.
+         * @nullable
+         */
+      default_tab_id: string | null;
+    }
+
     export interface ConversationMessageSender {
       /** Display name of the message sender. */
       readonly name: string;
@@ -2204,6 +2216,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `private` - Personal
+     * * `team` - Team
+     */
+    export type AccountViewVisibilityEnum = typeof AccountViewVisibilityEnum[keyof typeof AccountViewVisibilityEnum];
+
+
+    export const AccountViewVisibilityEnum = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
+
+    /**
      * * `doc` - doc
      */
     export type AccountViewContentTypeEnum = typeof AccountViewContentTypeEnum[keyof typeof AccountViewContentTypeEnum];
@@ -2260,8 +2284,11 @@ export namespace Schemas {
       readonly id: string;
       /** Name shown in the account view. */
       readonly name: string;
-      /** Account views created through this API are private. */
-      readonly visibility: string;
+      /** Whether the view is personal or available to the project.
+       *
+       * * `private` - Personal
+       * * `team` - Team */
+      readonly visibility: AccountViewVisibilityEnum;
       /** Validated Markdown notebook document. */
       readonly content: AccountViewContent;
       /** Searchable component labels extracted from content. */
@@ -2282,6 +2309,12 @@ export namespace Schemas {
       readonly created_at: string;
       /** When the view was last changed. */
       readonly updated_at: string;
+      /** Whether the requesting user can edit the view. */
+      readonly can_edit: boolean;
+      /** Whether the requesting user can delete the view. */
+      readonly can_delete: boolean;
+      /** Whether the requesting user can change the view visibility. */
+      readonly can_change_visibility: boolean;
     }
 
     export interface AccountViewCreate {
@@ -2294,16 +2327,6 @@ export namespace Schemas {
       content: AccountViewContent;
     }
 
-    /**
-     * * `private` - Personal
-     */
-    export type AccountViewUpdateVisibilityEnum = typeof AccountViewUpdateVisibilityEnum[keyof typeof AccountViewUpdateVisibilityEnum];
-
-
-    export const AccountViewUpdateVisibilityEnum = {
-      Private: 'private',
-    } as const;
-
     export interface AccountViewUpdate {
       /**
          * New view name. Omit to keep the current name.
@@ -2312,10 +2335,11 @@ export namespace Schemas {
       name?: string;
       /** Replacement account view components. Omit to keep current content. */
       content?: AccountViewContent;
-      /** Views can only be private.
+      /** New visibility. Only the creator or a project admin can change it.
        *
-       * * `private` - Personal */
-      visibility?: AccountViewUpdateVisibilityEnum;
+       * * `private` - Personal
+       * * `team` - Team */
+      visibility?: AccountViewVisibilityEnum;
       /**
          * Version returned by the last read.
          * @minimum 1
@@ -64430,6 +64454,13 @@ export namespace Schemas {
       data: OfflineExperimentItemPayloadInput | null;
     }
 
+    export interface OfflineResultCells {
+      /** Selected authorized versions, including versions with no results for these items. */
+      scorer_versions: OfflineScorerVersionRead[];
+      /** Submitted results for the exact selected items and versions; at most 1,000 cells. */
+      results: OfflineResultCell[];
+    }
+
     export interface OfflineResultRead {
       /** Stable result UUID. */
       id: string;
@@ -81639,6 +81670,8 @@ export namespace Schemas {
       pinned_properties?: PinnedAccountProperty[];
       /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
       task_digest?: TaskDigestPreferencesUpdate;
+      /** Complete personal account tab configuration. Omit to keep it unchanged. */
+      account_detail_tabs?: AccountDetailTabsConfig;
     }
 
     /**
@@ -104196,6 +104229,8 @@ export namespace Schemas {
       readonly pinned_properties: readonly PinnedAccountProperty[];
       /** Task digest email preferences. Disabled until the user turns the digest on. */
       readonly task_digest: TaskDigestPreferences;
+      /** Personal order, visibility, and default for account tabs. */
+      readonly account_detail_tabs: AccountDetailTabsConfig;
     }
 
     export interface UserFacetSettings {
@@ -105115,6 +105150,7 @@ export namespace Schemas {
      * * `rare_tag` - Rare Tag
      * * `novel_summary` - Novel Summary
      * * `friction` - Friction
+     * * `jev_watchable` - Jev Watchable
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent
      */
@@ -105130,6 +105166,7 @@ export namespace Schemas {
       RareTag: 'rare_tag',
       NovelSummary: 'novel_summary',
       Friction: 'friction',
+      JevWatchable: 'jev_watchable',
       UnviewedRecent: 'unviewed_recent',
       Recent: 'recent',
     } as const;
@@ -105148,7 +105185,7 @@ export namespace Schemas {
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
        * * `signal_emitted` - Signal Emitted
        * * `unusual_verdict` - Unusual Verdict
@@ -105158,6 +105195,7 @@ export namespace Schemas {
        * * `rare_tag` - Rare Tag
        * * `novel_summary` - Novel Summary
        * * `friction` - Friction
+       * * `jev_watchable` - Jev Watchable
        * * `unviewed_recent` - Unviewed Recent
        * * `recent` - Recent */
       kind: WatchFeedReasonEnum;
@@ -105186,7 +105224,12 @@ export namespace Schemas {
          */
       notability?: number | null;
       /**
-         * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+         * The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.
+         * @nullable
+         */
+      jev_probability?: number | null;
+      /**
+         * The scan's own sentence naming why the session is worth watching. Present on the `notable` and `jev_watchable` reason kinds when the scan itself found the session notable, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
          * @nullable
          */
       notability_reason?: string | null;
@@ -109589,6 +109632,43 @@ export namespace Schemas {
     include_plans?: boolean;
     };
 
+    export type BillingSpendExportDownloadParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project.
+     * @minimum 1
+     * @maximum 200
+     * @nullable
+     */
+    top_projects?: number | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
     export type BillingSpendTimeseriesRetrieveParams = {
     /**
      * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
@@ -109616,6 +109696,43 @@ export namespace Schemas {
      * @nullable
      */
     limit?: number | null;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project.
+     * @minimum 1
+     * @maximum 200
+     * @nullable
+     */
+    top_projects?: number | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingUsageExportDownloadParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the whole organization. Pass `["type"]` for a series per product. Pass `["type","team"]` for a series per product per project. To break usage down by project, pass `"type"` with `"team"`: billing counts usage per product, and the counts do not add up across products.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
     /**
      * @nullable
      */
@@ -111044,6 +111161,21 @@ export namespace Schemas {
      * @maxLength 739
      */
     scorer_version_ids?: string;
+    };
+
+    export type AiObservabilityOfflineExperimentsResultCellsRetrieveParams = {
+    /**
+     * Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.
+     * @minLength 1
+     * @maxLength 1849
+     */
+    item_ids: string;
+    /**
+     * Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids: string;
     };
 
     export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
