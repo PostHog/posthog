@@ -498,15 +498,18 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('**Dashboard**')
         })
 
-        // The Python guidance names `notebooks-add-cell`, so it must stay out of prompts
+        // The SQL and Python guidance names `notebooks-add-cell`, so it must stay out of prompts
         // for clients that aren't advertised the cell tools.
-        it.each(surfaces)('$name gates the Python section on the notebook cell tools', ({ render }) => {
+        it.each(surfaces)('$name gates the SQL and Python sections on the notebook cell tools', ({ render }) => {
             const formatter = new InstructionsFormatter()
             const cellsOn = render(formatter, { ...fullCtx, notebookCellsEnabled: true })
+            expect(cellsOn).toContain('### SQL in an analysis')
+            expect(cellsOn).toContain("cell_type: 'sql'")
             expect(cellsOn).toContain('### Python in an analysis')
             expect(cellsOn).toContain("cell_type: 'python'")
 
             const cellsOff = render(formatter, { ...fullCtx, notebookCellsEnabled: false })
+            expect(cellsOff).not.toContain('### SQL in an analysis')
             expect(cellsOff).not.toContain('### Python in an analysis')
             expect(cellsOff).toBe(render(formatter, fullCtx))
         })
