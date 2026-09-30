@@ -1,0 +1,43 @@
+# Branch 1 of Split traffic has no edge. Applying the file connects it to the step after Split traffic.
+version: 1
+key: passthrough-actions
+name: Pass-through actions
+trigger:
+  type: event
+  description: User starts this workflow.
+  event: signed_up
+steps:
+  - type: step
+    name: Send SMS
+    action_type: function_sms
+    config:
+      template_id: template-twilio
+      inputs:
+        to_number:
+          value: '{person.properties.phone}'
+        message:
+          value: Welcome!
+  - type: step
+    id: split
+    name: Split traffic
+    action_type: random_cohort_branch
+    config:
+      cohorts:
+        - percentage: 50
+          name: A
+        - percentage: 50
+          name: B
+    branches:
+      - - type: step
+          name: Wait for office hours
+          action_type: wait_until_time_window
+          config:
+            timezone: UTC
+            day: weekday
+            time:
+              - 09:00
+              - '17:00'
+      - []
+exit:
+  reason: Done
+  description: The workflow finished.

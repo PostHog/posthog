@@ -45,6 +45,7 @@ from products.workflows.backend.services.workflow_code.plan import (
     plan_update,
     plan_warnings,
 )
+from products.workflows.backend.services.workflow_code.renderer import render_workflow
 from products.workflows.backend.services.workflow_code.schema import validate_document, workflow_document_schema
 from products.workflows.backend.services.workflow_code.yaml_loader import MAX_CONTENT_BYTES, LoadedContent, load_content
 
@@ -201,6 +202,22 @@ class HogFlowCodeApplyResponseSerializer(serializers.Serializer):
     warnings = HogFlowCodeWarningSerializer(many=True, help_text="Things to look at after the apply.")
 
 
+class HogFlowCodeRenderWarningSerializer(serializers.Serializer):
+    action_id = serializers.CharField(
+        allow_null=True, help_text="The step the warning is about. Null when it concerns the whole workflow."
+    )
+    message = serializers.CharField(help_text="What the file leaves out or changes, and what applying it does.")
+
+
+class HogFlowCodeResponseSerializer(serializers.Serializer):
+    content = serializers.CharField(
+        help_text="The live workflow as a YAML workflow file. Each warning also opens the file as a # comment line."
+    )
+    warnings = HogFlowCodeRenderWarningSerializer(
+        many=True, help_text="Parts of the workflow the file cannot carry exactly. Empty when the file is exact."
+    )
+
+
 class HogFlowCodeMixin:
     """Workflows as code: the actions that read and check a workflow file on the workflows viewset."""
 
@@ -236,6 +253,15 @@ class HogFlowCodeMixin:
             )
         _report_code_event(self, "hog_flow_code_checked", workflow, {"result": plan.result, "errors_count": 0})
         return Response(HogFlowCodeCheckResponseSerializer({"plan": plan, "warnings": plan_warnings(plan)}).data)
+
+    @extend_schema(responses={200: HogFlowCodeResponseSerializer})
+    @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
+    def code(self: "HogFlowViewSet", request: Request, **kwargs: Any) -> Response:
+        """The live workflow as a YAML workflow file that code_check accepts, with warnings for what it cannot carry."""
+        workflow = self.get_object()
+        rendered = render_workflow(self.get_serializer(workflow).data, key=workflow.key)
+        _report_code_event(self, "hog_flow_code_pulled", workflow, {"warnings_count": len(rendered.warnings)})
+        return Response(HogFlowCodeResponseSerializer(rendered).data)
 
     @extend_schema(
         request=HogFlowCodeRequestSerializer,

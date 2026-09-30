@@ -1,0 +1,38 @@
+# This workflow has no key, so the file uses trial-nudge-v2, made from its name. Applying the file creates a new workflow and leaves this one as it is.
+# The file writes Send a nudge as type: step with its whole config, because a step of type email cannot hold all of it.
+version: 1
+key: trial-nudge-v2
+name: Trial nudge (v2)
+exit_condition: exit_on_conversion
+trigger:
+  type: event
+  name: trigger_1
+  event: $pageview
+  filter_test_accounts: true
+steps:
+  - type: delay
+    id: action_1
+    name: Wait 2 hours
+    duration: 2h
+  - type: step
+    id: action_2
+    name: Send a nudge
+    action_type: function_email
+    config:
+      template_id: template-email
+      inputs:
+        email:
+          value:
+            from:
+              integrationId: 3
+              integrationIds:
+                - 3
+              email: hello@example.com
+              name: Example
+            to:
+              email: '{person.properties.email}'
+            subject: Still there?
+            text: Your trial has a week left.
+            html: <p>Your trial has a week left.</p>
+exit:
+  reason: Reached the end

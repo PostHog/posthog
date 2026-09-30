@@ -1,0 +1,22 @@
+# The input auth_header of Webhook trigger is a secret. The file leaves it out, and applying the file keeps the stored value.
+version: 1
+key: webhook-trigger
+name: Webhook trigger
+trigger:
+  type: webhook
+  name: Webhook trigger
+  description: A webhook starts this workflow.
+  config:
+    template_id: template-source-webhook
+    inputs:
+      event:
+        value: '{request.body.event}'
+      distinct_id:
+        value: '{request.body.distinct_id}'
+steps:
+  - type: delay
+    name: Wait a day
+    duration: 1d
+exit:
+  reason: Done
+  description: The webhook workflow finished.

@@ -1,0 +1,43 @@
+# This workflow has no key, so the file uses welcome-email, made from its name. Applying the file creates a new workflow and leaves this one as it is.
+# The file writes Email as type: step with its whole config, because a step of type email cannot hold all of it.
+# The workflow sets conversion, which a file does not carry. Applying the file keeps the stored value.
+version: 1
+key: welcome-email
+name: Welcome email
+trigger:
+  type: event
+  event: user signed up
+steps:
+  - type: delay
+    id: action_delay_0199e2c6-2a1b-7c3d-8e4f-000000000001
+    name: Delay
+    description: Wait for 1 day.
+    duration: 1d
+  - type: step
+    id: action_function_email_0199e2c6-2a1b-7c3d-8e4f-000000000002
+    name: Email
+    description: Send an email to the user.
+    action_type: function_email
+    config:
+      template_id: template-email
+      inputs:
+        email:
+          value:
+            from:
+              integrationId: 4
+              integrationIds:
+                - 4
+              email: ''
+              name: ''
+            to:
+              email: '{{ person.properties.email }}'
+              name: ''
+            cc: []
+            bcc: []
+            replyTo: ''
+            subject: Welcome
+            preheader: ''
+            text: Welcome aboard.
+            html: <p>Welcome aboard.</p>
+exit:
+  reason: Reached the end

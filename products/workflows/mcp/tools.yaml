@@ -287,6 +287,25 @@ tools:
             awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
             running.
         ui_app: workflow
+    workflows-get-code:
+        operation: hog_flows_code_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a workflow as a file
+        description: >
+            Get any workflow as a YAML workflow file, whether it was built in PostHog, through MCP or from a file. The
+            file holds the live workflow, not a staged draft, and workflows-check-code accepts it as it is. warnings
+            list what the file cannot carry exactly, such as secret inputs (left out, and apply keeps the stored
+            value), a missing key (the file makes one from the name, so applying it creates a new workflow) or a
+            staged draft; the same warnings open the file as # comments. Edit the file, check it with
+            workflows-check-code, then apply it with workflows-apply-code.
+        feature_flag: workflows-as-code
+        feature_flag_behavior: enable
     workflows-get-code-schema:
         operation: hog_flows_code_schema_retrieve
         enabled: true

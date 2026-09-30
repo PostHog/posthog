@@ -1,0 +1,27 @@
+version: 1
+key: weekly-digest
+name: Weekly digest
+description: Posts the weekly numbers to Slack.
+status: active
+exit_condition: exit_on_trigger_not_matched
+variables:
+  - key: team_name
+    default: Example
+  - key: retries
+    type: number
+    default: '3'
+trigger:
+  type: schedule
+steps:
+  - type: function
+    id: post_digest
+    name: Post the digest
+    template: template-slack
+    inputs:
+      channel: '#digest'
+      text: Weekly digest for {variables.team_name}
+  - type: delay
+    name: Wait a day
+    duration: 1d
+exit:
+  reason: Posted

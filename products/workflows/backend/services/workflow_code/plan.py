@@ -165,10 +165,15 @@ def _removed_step_warning(step: dict[str, Any]) -> PlanWarning:
 
 
 def _canonical(state: WorkflowState) -> WorkflowState:
-    """The state with the parts that carry no meaning made equal: the order of actions and edges, and no variables."""
+    """The state with the parts that carry no meaning made equal: the order of actions and edges, no variables,
+    and a step field set to null, as the workflow editor sends unset fields."""
+    actions = [
+        {field: value for field, value in action.items() if value is not None}
+        for action in state.content.get("actions") or []
+    ]
     content = {
         **state.content,
-        "actions": sorted(state.content.get("actions") or [], key=lambda action: str(action.get("id"))),
+        "actions": sorted(actions, key=lambda action: str(action.get("id"))),
         "edges": sorted(
             state.content.get("edges") or [], key=lambda edge: json.dumps(edge, sort_keys=True, default=str)
         ),

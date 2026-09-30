@@ -36,6 +36,7 @@ EDITOR_ACTION_FIELDS = ("created_at", "updated_at")
 _SLUG_SEPARATORS = re.compile(r"[^a-z0-9]+")
 
 DocumentStep = DelayStep | BranchStep | EmailStep | WebhookStep | FunctionStep | PassThroughStep
+DocumentTrigger = EventTrigger | ScheduleTrigger | PassThroughTrigger
 
 
 class FunctionTemplate(Protocol):
@@ -208,35 +209,15 @@ class _Compiler:
         self._id_owners: dict[str, DocumentPath] = {TRIGGER_NODE_ID: ("trigger",), EXIT_NODE_ID: ("exit",)}
         self._ids: dict[DocumentPath, str] = {}
 
-    def trigger_action(self, trigger: EventTrigger | ScheduleTrigger | PassThroughTrigger) -> dict[str, Any]:
-        if isinstance(trigger, EventTrigger):
-            config: dict[str, Any] = {
-                "type": "event",
-                "filters": {
-                    "events": [
-                        {
-                            "id": trigger.event,
-                            "name": trigger.event,
-                            "type": "events",
-                            "order": 0,
-                            "properties": [_property_filter(condition) for condition in trigger.properties],
-                        }
-                    ],
-                    "properties": [],
-                    "filter_test_accounts": trigger.filter_test_accounts,
-                },
-            }
-        elif isinstance(trigger, ScheduleTrigger):
-            config = {"type": "schedule"}
-        else:
-            config = {**trigger.config, "type": trigger.type}
+    def trigger_action(self, trigger: DocumentTrigger) -> dict[str, Any]:
+        if isinstance(trigger, PassThroughTrigger):
             self.input_paths[TRIGGER_NODE_ID] = ("trigger", "config", "inputs")
         return {
             "id": TRIGGER_NODE_ID,
             "name": trigger.name,
             "description": trigger.description,
             "type": "trigger",
-            "config": config,
+            "config": trigger_config(trigger),
         }
 
     def claim_ids(self, steps: Sequence[DocumentStep], path: DocumentPath) -> None:
@@ -310,39 +291,12 @@ class _Compiler:
         return action_id
 
     def _action_body(self, step: DocumentStep, action_id: str, step_path: DocumentPath) -> dict[str, Any]:
-        match step:
-            case DelayStep():
-                return {"type": "delay", "config": {"delay_duration": step.duration}}
-            case BranchStep():
-                return {
-                    "type": "conditional_branch",
-                    "config": {
-                        "conditions": [
-                            {
-                                "name": arm.name,
-                                "filters": {"properties": [_property_filter(condition) for condition in arm.when]},
-                            }
-                            for arm in step.arms
-                        ]
-                    },
-                }
-            case EmailStep():
-                return {"type": "function_email", "config": _email_config(step)}
-            case WebhookStep():
-                return {"type": "function", "config": _webhook_config(step)}
-            case FunctionStep():
-                self.input_paths[action_id] = (*step_path, "inputs")
-                self.template_paths[action_id] = (*step_path, "template")
-                return {
-                    "type": "function",
-                    "config": {
-                        "template_id": step.template,
-                        "inputs": {key: {"value": value} for key, value in step.inputs.items()},
-                    },
-                }
-            case PassThroughStep():
-                self.input_paths[action_id] = (*step_path, "config", "inputs")
-                return {"type": step.action_type, "config": dict(step.config)}
+        if isinstance(step, FunctionStep):
+            self.input_paths[action_id] = (*step_path, "inputs")
+            self.template_paths[action_id] = (*step_path, "template")
+        elif isinstance(step, PassThroughStep):
+            self.input_paths[action_id] = (*step_path, "config", "inputs")
+        return step_action_body(step)
 
     def _branches(
         self, step: DocumentStep, step_path: DocumentPath
@@ -352,6 +306,66 @@ class _Compiler:
         if isinstance(step, PassThroughStep):
             return [(steps, (*step_path, "branches", index)) for index, steps in enumerate(step.branches)]
         return []
+
+
+def trigger_config(trigger: DocumentTrigger) -> dict[str, Any]:
+    """The trigger action's config for a document trigger."""
+    match trigger:
+        case EventTrigger():
+            return {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": trigger.event,
+                            "name": trigger.event,
+                            "type": "events",
+                            "order": 0,
+                            "properties": [_property_filter(condition) for condition in trigger.properties],
+                        }
+                    ],
+                    "properties": [],
+                    "filter_test_accounts": trigger.filter_test_accounts,
+                },
+            }
+        case ScheduleTrigger():
+            return {"type": "schedule"}
+        case PassThroughTrigger():
+            return {**trigger.config, "type": trigger.type}
+
+
+def step_action_body(step: DocumentStep) -> dict[str, Any]:
+    """The action type and config a document step compiles to, without its id, name or wiring."""
+    match step:
+        case DelayStep():
+            return {"type": "delay", "config": {"delay_duration": step.duration}}
+        case BranchStep():
+            return {
+                "type": "conditional_branch",
+                "config": {
+                    "conditions": [
+                        {
+                            "name": arm.name,
+                            "filters": {"properties": [_property_filter(condition) for condition in arm.when]},
+                        }
+                        for arm in step.arms
+                    ]
+                },
+            }
+        case EmailStep():
+            return {"type": "function_email", "config": _email_config(step)}
+        case WebhookStep():
+            return {"type": "function", "config": _webhook_config(step)}
+        case FunctionStep():
+            return {
+                "type": "function",
+                "config": {
+                    "template_id": step.template,
+                    "inputs": {key: {"value": value} for key, value in step.inputs.items()},
+                },
+            }
+        case PassThroughStep():
+            return {"type": step.action_type, "config": dict(step.config)}
 
 
 def _property_filter(condition: Condition) -> dict[str, Any]:

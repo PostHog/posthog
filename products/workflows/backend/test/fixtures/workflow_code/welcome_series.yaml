@@ -1,0 +1,34 @@
+# The file writes Send the welcome email as type: step with its whole config, because a step of type email cannot hold all of it.
+version: 1
+key: welcome-series
+name: Welcome series
+description: Greets a new signup a day later.
+status: active
+trigger:
+  type: event
+  event: user signed up
+steps:
+  - type: delay
+    name: Wait a day
+    description: Gives a new signup a day before the first email.
+    duration: 1d
+  - type: step
+    name: Send the welcome email
+    action_type: function_email
+    config:
+      template_id: template-email
+      inputs:
+        email:
+          value:
+            from:
+              integrationId: 12
+              integrationIds:
+                - 12
+              name: The Example team
+            to:
+              email: '{person.properties.email}'
+            subject: Welcome aboard
+            text: Thanks for signing up.
+            html: <p>Thanks for signing up.</p>
+exit:
+  reason: Done

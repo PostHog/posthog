@@ -4589,6 +4589,7 @@ class HogFlowViewSet(
         "proposal_outcome",
         "code_schema",
         "code_check",
+        "code",
     ]
     scope_object_write_actions = [
         "create",

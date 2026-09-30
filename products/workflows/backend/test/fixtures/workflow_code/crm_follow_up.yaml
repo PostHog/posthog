@@ -1,0 +1,54 @@
+# The input signing_secret of Tell the CRM is a secret. The file leaves it out, and applying the file keeps the stored value.
+# The input signing_secret of Tell the CRM is a secret. The file leaves it out, and applying the file keeps the stored value.
+version: 1
+key: crm-follow-up
+name: CRM follow up
+trigger:
+  type: event
+  event: checkout completed
+  properties:
+    - event: total
+      operator: gt
+      value:
+        - 100
+steps:
+  - type: webhook
+    name: Tell the CRM
+    description: Push the deal to the CRM.
+    url: https://example.com/hooks/crm
+    body:
+      distinct_id: '{event.distinct_id}'
+      plan: '{person.properties.plan}'
+  - type: branch
+    name: Which plan?
+    description: Split the path on the plan the person is on.
+    arms:
+      - name: Paid plan
+        when:
+          - person: plan
+            value:
+              - pro
+        then:
+          - type: delay
+            name: Give sales a day
+            duration: 1d
+          - type: webhook
+            id: tell_the_crm_2
+            name: Tell the CRM
+            description: Push the deal to the CRM.
+            url: https://example.com/hooks/crm
+            body:
+              distinct_id: '{event.distinct_id}'
+              plan: '{person.properties.plan}'
+      - name: Came from pricing
+        when:
+          - event: $current_url
+            operator: icontains
+            value:
+              - /pricing
+        then:
+          - type: delay
+            name: Wait a week
+            duration: 7d
+exit:
+  reason: Handed to sales
