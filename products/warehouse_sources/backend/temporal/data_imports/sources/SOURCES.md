@@ -780,6 +780,7 @@ the row lists both.
 | wufoo                            | HTTP                        | requests                                                        | ✅                          |
 | xendit                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | xmatters                         | HTTP                        | requests                                                        | ✅                          |
+| ynab                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | yoco                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | yousign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | youtube_analytics                | HTTP                        | requests                                                        | ✅                          |
@@ -1497,7 +1498,6 @@ doesn't conflict with concurrent PRs.
 - xsolla
 - yahoo_finance
 - yandex_metrica
-- ynab
 - yotpo
 - younium
 - youtube_data
