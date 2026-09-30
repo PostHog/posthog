@@ -1170,18 +1170,81 @@ class TestRateLimitPoisoningPrevention:
 
 class TestPostHogCodeUserThrottling:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("throttle_type", [UserCostBurstThrottle, UserCostSustainedThrottle])
-    async def test_posthog_code_has_no_user_cost_limit(self, throttle_type: type[_UserCostThrottleBase]) -> None:
+    @pytest.mark.parametrize(
+        ("throttle_type", "limit_usd"), [(UserCostBurstThrottle, 100.0), (UserCostSustainedThrottle, 1000.0)]
+    )
+    @pytest.mark.parametrize("code_usage_billed", [False, True])
+    async def test_posthog_code_user_cost_limit(
+        self,
+        throttle_type: type[_UserCostThrottleBase],
+        limit_usd: float,
+        code_usage_billed: bool,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(get_settings(), "posthog_code_user_cost_limits_enabled", True)
+        monkeypatch.setattr(get_settings(), "posthog_code_capped_user_ids", {42})
         throttle = throttle_type(redis=None)
-        context = make_context(product="posthog_code")
+        context = make_context(user=make_user(user_id=42), product="posthog_code", code_usage_billed=code_usage_billed)
 
-        await throttle.record_cost(context, 600.0)
+        await throttle.record_cost(context, limit_usd - 1.0)
+
+        assert (await throttle.allow_request(context)).allowed is True
+        status = await throttle.get_status(context)
+        assert status.used_usd == limit_usd - 1.0
+        assert status.remaining_usd == 1.0
+        assert status.exceeded is False
+
+        await throttle.record_cost(context, 1.0)
 
         result = await throttle.allow_request(context)
         status = await throttle.get_status(context)
-        assert result.allowed is True
-        assert status.exceeded is False
-        assert status.limit_usd == float("inf")
+        assert result.allowed is False
+        assert result.status_code == 429
+        assert result.used_usd == limit_usd
+        assert result.limit_usd == limit_usd
+        assert status.exceeded is True
+        assert status.used_usd == limit_usd
+        assert status.limit_usd == limit_usd
+        assert status.remaining_usd == 0.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("throttle_type", [UserCostBurstThrottle, UserCostSustainedThrottle])
+    async def test_code_selection_preserves_spend_and_other_product_limits(
+        self, throttle_type: type[_UserCostThrottleBase], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        monkeypatch.setattr(settings, "posthog_code_user_cost_limits_enabled", False)
+        monkeypatch.setattr(settings, "posthog_code_capped_user_ids", set())
+        throttle = throttle_type(redis=None)
+        code = make_context(user=make_user(user_id=42), product="posthog_code", code_usage_billed=True)
+        other_code = make_context(user=make_user(user_id=43), product="posthog_code", code_usage_billed=True)
+        wizard = make_context(product="wizard")
+
+        for context in (code, other_code, wizard):
+            await throttle.record_cost(context, 10_000.0)
+
+        for enabled, selected, code_denied, other_denied in (
+            (False, {42}, False, False),
+            (True, set(), False, False),
+            (True, {42}, True, False),
+            (True, {43}, False, True),
+            (True, {42, 43}, True, True),
+            (False, {42, 43}, False, False),
+        ):
+            monkeypatch.setattr(settings, "posthog_code_user_cost_limits_enabled", enabled)
+            monkeypatch.setattr(settings, "posthog_code_capped_user_ids", selected)
+
+            for context, denied in ((code, code_denied), (other_code, other_denied)):
+                assert (await throttle.allow_request(context)).allowed is not denied
+                status = await throttle.get_status(context)
+                assert status.exceeded is denied
+                if denied:
+                    assert status.used_usd == 10_000.0
+                else:
+                    assert status.used_usd == 0.0
+                    assert status.limit_usd == float("inf")
+            assert (await throttle.allow_request(wizard)).allowed is False
+            assert (await throttle.get_status(wizard)).exceeded is True
 
     @pytest.mark.asyncio
     async def test_non_code_product_allows_normal_spend(self) -> None:
@@ -1287,9 +1350,7 @@ class TestProvenanceCostKey:
 
     @pytest.mark.asyncio
     async def test_marked_run_declaring_posthog_code_keeps_its_user_budget(self) -> None:
-        # posthog_code is exempt from per-user cost limits because billable credits meter it
-        # instead. Reading that exemption off the declared product would hand it to a marked run
-        # on an Array-app token, which spends against `signals_interactive`.
+        # A Signals run with a Code token must keep its signals_interactive budget even when it declares posthog_code.
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="posthog_code", user=make_signals_user(interactive=True))
         limit, _ = throttle._get_limit_and_window(context)

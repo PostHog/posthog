@@ -674,6 +674,9 @@ importers:
       '@posthog/products-apm':
         specifier: workspace:*
         version: link:../products/apm
+      '@posthog/products-autoresearch':
+        specifier: workspace:*
+        version: link:../products/autoresearch
       '@posthog/products-batch-exports':
         specifier: workspace:*
         version: link:../products/batch_exports
@@ -2653,6 +2656,9 @@ importers:
       kea-subscriptions:
         specifier: 'catalog:'
         version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.434.14(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3176,6 +3182,9 @@ importers:
       kea-router:
         specifier: 'catalog:'
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.434.14(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4964,6 +4973,9 @@ importers:
       '@posthog/products-mcp-store':
         specifier: workspace:*
         version: link:../mcp_store
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/quill
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -5500,8 +5512,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@0.18.1
-        version: '@posthog/mcp@0.18.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))'
+        specifier: npm:@posthog/mcp@0.21.1
+        version: '@posthog/mcp@0.21.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -10772,8 +10784,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@0.18.1':
-    resolution: {integrity: sha512-w+mu1kWRgZ6sZ0b4geABAS2QiuKX8MJlKiCe2DSwZ6gB48YF3Ijo67V7XPrpT1tph6X90lMvQm3lS8CxdYJfHQ==}
+  '@posthog/mcp@0.21.1':
+    resolution: {integrity: sha512-NbSJlf1XDLJBbNBFtQWIUKS5oooXb9B1gY6V7a+MLZOAyO8Ap7zAIzagsLkpFngvkEfd757uVtEP1YyAEcWIuw==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -22991,8 +23003,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.497.0:
-    resolution: {integrity: sha512-gjkoGn/370qUXVKwSnrUNzm1fBZomsTvNsEfH0dPQrndTis7gVKb2fwr1q/KxIJwgiL6blHVOnDIOxBhYAaXIg==}
+  unlayer-types@1.498.0:
+    resolution: {integrity: sha512-SeTWINy8ZfNoQNIEBErVVI7FLjXe0Fder0ArQim2VrpQn/30Uuyi6OLAZxcokVLeBUKZz9R5QUqhivbhk7KWvA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -30385,7 +30397,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.18.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))':
+  '@posthog/mcp@0.21.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))':
     dependencies:
       '@posthog/core': 1.55.2
       posthog-node: 5.54.1(rxjs@7.8.1)
@@ -43492,7 +43504,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.497.0
+      unlayer-types: 1.498.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45811,7 +45823,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.497.0: {}
+  unlayer-types@1.498.0: {}
 
   unpipe@1.0.0: {}
 

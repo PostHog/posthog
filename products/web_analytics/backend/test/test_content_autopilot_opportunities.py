@@ -108,12 +108,17 @@ class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
             [
                 _gap("Admin question", our_cited_urls=("https://example.com/admin/users",)),
                 _gap("Docs question", our_cited_urls=("https://example.com/docs/replay",)),
+                _gap("Lookalike question", our_cited_urls=("https://example.com/docsearch",)),
             ],
             page_urls=[],
         )
 
         by_title = {opportunity.title: opportunity.target_url for opportunity in opportunities}
-        assert by_title == {"Admin question": "", "Docs question": "https://example.com/docs/replay"}
+        assert by_title == {
+            "Admin question": "",
+            "Docs question": "https://example.com/docs/replay",
+            "Lookalike question": "",
+        }
 
     def test_recommends_improving_only_a_page_the_engines_cited(self) -> None:
         opportunities = self._refresh(
