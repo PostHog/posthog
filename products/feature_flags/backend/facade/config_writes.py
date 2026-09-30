@@ -217,6 +217,20 @@ def review_update(
     # preventing a replacement that brings them back within the write limits.
     unbounded = ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
     current = _validated_stored(stored, limits=unbounded, operation="updated") if stored else None
+    # Checked first, so a changed type is not reported as values that do not match it.
+    if (
+        current is not None
+        and isinstance(document, Mapping)
+        and "return_type" in document
+        and document["return_type"] != stored["return_type"]
+    ):
+        raise ConfigValidationError(
+            [
+                ConfigError(
+                    code="invalid", detail="Cannot be changed after the flag is created.", attr="filters.return_type"
+                )
+            ]
+        )
     return review_config(document, limits=limits, current=current).warnings
 
 

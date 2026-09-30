@@ -682,6 +682,8 @@ The API lives in `backend/presentation/scout_rubrics.py` and calls `backend/faca
 `PUT` replaces the criteria only when the supplied revision matches, returning `409` for stale edits.
 Every save must include all shared defaults. Owners can edit or disable them, but cannot remove them.
 `POST .../generate/` queues the `generate-scout-rubrics` Temporal workflow and returns the active request when one already exists.
+It accepts optional `context` (up to 2,000 characters), saved on that generation request. Concurrent requests keep the first request's context; later requests do not inherit it.
+The editor exposes this as a single optional paragraph. It adds priorities without replacing the scout's responsibilities, shared defaults or saved choices.
 The backend supplies current instructions, bounded reference text from the exact skill version and recent run summaries to a background session.
 The session requests no project-read MCP scopes because that context is supplied up front. The shared sandbox's internal credentials and tool access remain an accepted limitation of the staff-only v0.
 The first request drafts complete criteria using effective defaults and disabled choices. A second request supplies the complete saved rubric and selects whole draft items by index, without rewriting them.

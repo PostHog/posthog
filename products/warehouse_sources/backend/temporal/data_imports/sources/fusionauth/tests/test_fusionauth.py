@@ -101,6 +101,11 @@ class TestBuildSearchBody:
         body = _build_search_body(FUSIONAUTH_ENDPOINTS[endpoint], {})
         assert body["search"]["orderBy"] == "insertInstant ASC"
 
+    @pytest.mark.parametrize("endpoint", ["Applications", "Tenants", "Groups", "GroupMembers"])
+    def test_lookup_endpoints_order_by_id(self, endpoint):
+        body = _build_search_body(FUSIONAUTH_ENDPOINTS[endpoint], {})
+        assert body["search"] == {"orderBy": "id ASC"}
+
     def test_login_records_has_no_order_by(self):
         # LoginRecords documents no orderBy field, so it must never be sent.
         body = _build_search_body(FUSIONAUTH_ENDPOINTS["LoginRecords"], {})
@@ -258,6 +263,10 @@ class TestFusionAuthSourceResponse:
             ("AuditLogs", ["id"], "asc", "insertInstant"),
             ("EventLogs", ["id"], "asc", "insertInstant"),
             ("LoginRecords", ["userId", "applicationId", "instant"], "desc", "instant"),
+            ("Applications", ["id"], "asc", "insertInstant"),
+            ("Tenants", ["id"], "asc", "insertInstant"),
+            ("Groups", ["id"], "asc", "insertInstant"),
+            ("GroupMembers", ["id"], "asc", "insertInstant"),
         ],
     )
     def test_response_shape(self, endpoint, primary_keys, sort_mode, partition_key):
@@ -275,6 +284,34 @@ class TestFusionAuthSourceResponse:
         assert response.partition_keys == [partition_key]
         assert response.partition_mode == "datetime"
         assert response.partition_format == "week"
+
+
+parameterized_secret_cases = pytest.mark.parametrize(
+    "endpoint, data_selector, row, expected",
+    [
+        (
+            "Applications",
+            "applications",
+            {"id": "a1", "oauthConfiguration": {"clientId": "a1", "clientSecret": "fake-secret"}},
+            {"id": "a1", "oauthConfiguration": {"clientId": "a1"}},
+        ),
+        (
+            "Tenants",
+            "tenants",
+            {
+                "id": "t1",
+                "captchaConfiguration": {"siteKey": "site", "secretKey": "fake-secret"},
+                "emailConfiguration": {"host": "smtp.example.com", "password": "fake-password"},
+            },
+            {
+                "id": "t1",
+                "captchaConfiguration": {"siteKey": "site"},
+                "emailConfiguration": {"host": "smtp.example.com"},
+            },
+        ),
+        ("Tenants", "tenants", {"id": "t2", "emailConfiguration": None}, {"id": "t2", "emailConfiguration": None}),
+    ],
+)
 
 
 class TestFusionAuthAscendingPagination:
@@ -364,6 +401,13 @@ class TestFusionAuthAscendingPagination:
         _rows(self._source(endpoint="Users"))
         assert snaps[0]["json"]["search"]["queryString"] == "*"
         assert snaps[0]["json"]["search"]["numberOfResults"] == 100
+
+    @parameterized_secret_cases
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_secret_fields_are_dropped(self, MockSession, endpoint, data_selector, row, expected):
+        session = MockSession.return_value
+        _wire(session, [_response({data_selector: [row]})])
+        assert _rows(self._source(endpoint=endpoint)) == [expected]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_does_not_follow_redirects(self, MockSession):

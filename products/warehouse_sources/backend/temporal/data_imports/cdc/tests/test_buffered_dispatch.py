@@ -5,6 +5,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import ListingProof
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -23,6 +24,9 @@ def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
     schema.cdc_mode = overrides.get("cdc_mode", "streaming")
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
+    # Explicit: an unset MagicMock attribute is truthy, which would send the snapshot path into the
+    # xmin cursor branch and fail on the missing cursor manager.
+    schema.is_xmin = overrides.get("is_xmin", False)
     schema.sync_type_config = {}
     schema.schema_metadata = {}
     schema.resolved_s3_folder_name = None
@@ -49,8 +53,10 @@ def _inputs(reset_pipeline: bool = False) -> SourceInputs:
     )
 
 
-def _days_ago(days: int | None) -> dt.datetime | None:
-    return None if days is None else dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=days)
+def _proof_days_ago(days: int | None) -> ListingProof | None:
+    if days is None:
+        return None
+    return ListingProof(listed_at=dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=days), tail={})
 
 
 def _delta_ref() -> MagicMock:
@@ -66,7 +72,7 @@ def _dispatch(
     job_version: str | None = ExternalDataJob.PipelineVersion.V3,
     clear_listing: MagicMock | None = None,
     retire_orphans: MagicMock | None = None,
-    proof_time: dt.datetime | None = None,
+    proof: ListingProof | None = None,
     hand_reset: MagicMock | None = None,
     expired: AsyncMock | None = None,
 ):
@@ -80,7 +86,7 @@ def _dispatch(
         patch(f"{_MANAGER}.DeltaTableRef", _delta_ref()),
         patch(f"{_MANAGER}.read_lane_position", AsyncMock(return_value=LanePosition(position=None, applied={}))),
         patch(f"{_MANAGER}.ensure_position_stats", AsyncMock()),
-        patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof_time)),
+        patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof)),
         patch(f"{_MANAGER}.buffer_expired_unread", expired or AsyncMock(return_value=False)),
         patch(f"{_SNAPSHOT_LANE}.hand_reset_to_capture", hand_reset or MagicMock()),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
@@ -184,7 +190,7 @@ class TestBufferedDispatch:
         schema = _schema(cdc_table_mode="both")
 
         response = _dispatch(
-            schema, _inputs(), proof_time=_days_ago(proof_days_ago), hand_reset=hand_reset, expired=expired_check
+            schema, _inputs(), proof=_proof_days_ago(proof_days_ago), hand_reset=hand_reset, expired=expired_check
         )
 
         assert hand_reset.call_args_list == ([call(schema, ANY, start_capture=False)] if reset else [])

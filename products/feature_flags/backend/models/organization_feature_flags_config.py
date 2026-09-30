@@ -6,7 +6,7 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
@@ -32,9 +32,9 @@ class OrganizationFeatureFlagsConfig(models.Model):
     # The database default keeps raw SQL INSERTs that omit this column valid. Django's default
     # applies only to rows the ORM creates.
     flag_evaluations_mode = models.SmallIntegerField(
-        choices=FlagEvaluationsMode,
-        default=FlagEvaluationsMode.EVENTS,
-        db_default=FlagEvaluationsMode.EVENTS,
+        choices=FlagEvaluationsMode.choices,
+        default=FlagEvaluationsMode.EVENTS.value,
+        db_default=FlagEvaluationsMode.EVENTS.value,
     )
 
     class Meta:
