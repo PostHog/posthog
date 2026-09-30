@@ -8,9 +8,10 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.workflows.backend.api.hog_flow import HogFlowViewSet
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.models.workflow_proposal import WorkflowProposal
+from products.workflows.backend.presentation.views.hog_flow import HogFlowViewSet
 
 TRIGGER_ACTION = {
     "id": "trigger_node",
@@ -91,14 +92,23 @@ class TestCodeManagedHogFlow(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("update", "patch", {"name": "Renamed in the UI"}),
-            ("destroy", "delete", None),
+            ("update", "patch", "", {"name": "Renamed in the UI"}),
+            ("destroy", "delete", "", None),
+            ("approve_proposal", "post", "/proposals/{proposal_id}/approve", {}),
         ]
     )
+    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
     def test_a_push_that_lands_mid_request_still_refuses_the_write(
-        self, _name: str, method: str, payload: dict | None
+        self, _name: str, method: str, suffix: str, payload: dict | None, _feature_enabled
     ) -> None:
         gui_workflow = self._create_workflow(managed_by=HogFlow.ManagedBy.GUI)
+        proposal = WorkflowProposal.objects.for_team(self.team.pk).create(
+            hog_flow=gui_workflow,
+            title="Rename the exit",
+            rationale="Clearer step names.",
+            content={"name": "Renamed by a suggestion"},
+            base_version=gui_workflow.version or 1,
+        )
         original_get_object = HogFlowViewSet.get_object
 
         def get_object_then_push(viewset):
@@ -107,7 +117,7 @@ class TestCodeManagedHogFlow(APIBaseTest):
             return hog_flow
 
         call = getattr(self.client, method)
-        url = f"/api/projects/{self.team.id}/hog_flows/{gui_workflow.id}"
+        url = f"/api/projects/{self.team.id}/hog_flows/{gui_workflow.id}{suffix.format(proposal_id=proposal.id)}"
         with patch.object(HogFlowViewSet, "get_object", get_object_then_push):
             response = call(url, payload) if payload is not None else call(url)
 
@@ -115,6 +125,7 @@ class TestCodeManagedHogFlow(APIBaseTest):
         assert response.json()["code"] == "immutable", response.json()
         gui_workflow.refresh_from_db()
         assert gui_workflow.name == "Welcome"
+        assert gui_workflow.draft is None
 
     def test_a_status_write_racing_a_push_keeps_what_the_push_wrote(self) -> None:
         gui_workflow = self._create_workflow(managed_by=HogFlow.ManagedBy.GUI)

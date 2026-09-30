@@ -6334,6 +6334,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._enforce_code_ownership(request, locked)
             proposal = self._get_proposal_or_404(locked, proposal_id)
             # The row lock serializes concurrent approvals; the second sees what the first wrote.
             locked_proposal = WorkflowProposal.objects.select_for_update().get(pk=proposal.pk)
