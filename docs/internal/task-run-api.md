@@ -8,6 +8,7 @@ This restriction also applies to warm creation, warm activation, warm resumes, a
 Requests through a PostHog connection keep the sandbox origin and the same run restrictions.
 The origin marker does not grant sandbox access.
 PostHog Desktop access, runtime access, and usage limits still apply.
+PostHog Code's per-user gateway caps are disabled by default and apply only to configured users when enabled.
 Repository-backed report discussions also require Desktop access.
 Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.
 

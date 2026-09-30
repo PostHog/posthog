@@ -3272,24 +3272,24 @@ Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; 
 
 ## Flowlu — **thin**
 
-Today (17): `accounts`, `agile_issues`, `agile_sprints`, `customer_payments`, `estimates`, `invoice_items`, `invoices`, `leads`, `pipeline_stages`, `pipelines`, `products`, `project_stages`, `projects`, `tasks`, `timelogs`, `timesheets`, `transactions`
+Today (21): `accounts`, `agile_issues`, `agile_sprints`, `agile_stages`, `billing_organizations`, `customer_payments`, `estimates`, `invoice_items`, `invoices`, `lead_sources`, `leads`, `loss_reasons`, `pipeline_stages`, `pipelines`, `products`, `project_stages`, `projects`, `tasks`, `timelogs`, `timesheets`, `transactions`
 
 Diffed against: <https://www.flowlu.com/api/json/openapien.json>
 
 - [x] `/crm/pipeline_stage/list` — lookup resolving the stage ID on every lead; we sync pipelines but not their stages (high) — added as `pipeline_stages`
 - [x] `/fin/invoice_item/list` — invoice line items - revenue by product/service instead of invoice totals only (high) — added as `invoice_items`
 - [x] `/timetracker/timelogs/list` — individual time log entries behind the timesheet rollups already synced (high) — added as `timelogs`
-- [x] `/st/stages/list` — lookup resolving project stage IDs on the projects table (high) — added as `project_stages` (Flowlu has three separate stage entities; `/agile/stages` and `/task/stages` remain open)
-- [ ] `/crm/source/list` — lookup resolving lead source IDs - core attribution dimension (high)
-- [ ] `/agile/stages/list` — lookup resolving the workflow stage on agile_issues (high)
+- [x] `/st/stages/list` — lookup resolving project stage IDs on the projects table (high) — added as `project_stages` (Flowlu has three separate stage entities; `/task/stages` remains open)
+- [x] `/crm/source/list` — lookup resolving lead source IDs - core attribution dimension (high) — added as `lead_sources`
+- [x] `/agile/stages/list` — lookup resolving the workflow stage on agile_issues (high) — added as `agile_stages`
 - [ ] `/task/stages/list` — lookup resolving task workflow stage IDs (medium)
 - [ ] `/agile/issue_type/list` — lookup resolving issue type IDs on agile_issues (medium)
 - [ ] `/fin/estimate_item/list` — estimate line items, the quoted counterpart to invoice items (medium)
 - [ ] `/st/project_expense/list` — project expenses, needed for project profitability (medium)
-- [ ] `/fin/organization/list` — lookup resolving the billing organization on invoices/transactions (medium)
-- [ ] `/crm/loss_reason/list` — lookup resolving loss reason IDs on closed-lost leads (medium)
+- [x] `/fin/organization/list` — lookup resolving the billing organization on invoices/transactions (medium) — added as `billing_organizations`
+- [x] `/crm/loss_reason/list` — lookup resolving loss reason IDs on closed-lost leads (medium) — added as `loss_reasons`
 
-Note: developers.flowlu.com is the API host, not docs (returns 404/api-key errors). The real spec is the ReDoc document at https://www.flowlu.com/api/json/openapien.json: 608 paths, 124 of them `/list` collections. PostHog exposes 17, so this is a small fraction - other untouched clusters include knowledgebase/\*, businessprocess/\*, telephony/calls, im/\* (chat threads and messages), products/pricelist_item and company/absences.
+Note: developers.flowlu.com is the API host, not docs (returns 404/api-key errors). The real spec is the ReDoc document at https://www.flowlu.com/api/json/openapien.json: 608 paths, 124 of them `/list` collections. PostHog exposes 21, so this is a small fraction - other untouched clusters include knowledgebase/\*, businessprocess/\*, telephony/calls, im/\* (chat threads and messages), products/pricelist_item and company/absences.
 
 ## FlyIo — gaps
 
@@ -3397,18 +3397,18 @@ Note: The `/api/selector/\*` family is a set of ~18 small lookup collections (al
 
 ## Freshservice — gaps
 
-Today (24): `agent_groups`, `agent_roles`, `agents`, `asset_types`, `assets`, `changes`, `contract_types`, `contracts`, `departments`, `locations`, `problems`, `products`, `purchase_orders`, `relationship_types`, `relationships`, `releases`, `requester_groups`, `requesters`, `software`, `software_installations`, `software_users`, `ticket_time_entries`, `tickets`, `vendors`
+Today (31): `agent_groups`, `agent_roles`, `agents`, `approvals`, `asset_types`, `assets`, `change_tasks`, `changes`, `contract_types`, `contracts`, `departments`, `locations`, `problem_tasks`, `problems`, `products`, `purchase_orders`, `relationship_types`, `relationships`, `release_tasks`, `releases`, `requester_groups`, `requesters`, `sla_policies`, `software`, `software_installations`, `software_users`, `ticket_conversations`, `ticket_tasks`, `ticket_time_entries`, `tickets`, `vendors`
 
 Diffed against: <https://api.freshservice.com/>
 
-- [ ] `tickets/{id}/conversations` — the actual reply and note bodies on every ticket — required for any response-content or agent-activity analysis (high)
+- [x] `tickets/{id}/conversations` — the actual reply and note bodies on every ticket — required for any response-content or agent-activity analysis (high) — synced as `ticket_conversations`
 - [x] `tickets/{id}/time_entries` — time tracked per ticket, the basis of effort and cost-per-ticket reporting (high)
 - [x] `contracts (+ contract_types lookup)` — asset/vendor contracts with cost and renewal dates; contract_types resolves the type ID carried on each contract (high)
 - [x] `applications/{id}/users and /installations (software users, software installations)` — membership tables joining the software we already sync to users and devices — license utilization is impossible without them (high)
 - [x] `assets/{id}/relationships (+ relationship_types lookup)` — the CMDB dependency graph plus the lookup that names each relationship type (high) — synced through the account-wide `/api/v2/relationships` listing, which returns the same edges without fanning out per asset
-- [ ] `sla_policies` — lookup that resolves the SLA policy ID on tickets into targets and escalation rules (medium)
-- [ ] `tickets/{id}/tasks (and problem/change/release tasks)` — sub-task breakdown and completion state under each ticket (medium)
-- [ ] `approvals` — account-wide approval records with approver, state and timestamps — the service-request bottleneck metric (medium)
+- [x] `sla_policies` — lookup that resolves the SLA policy ID on tickets into targets and escalation rules (medium)
+- [x] `tickets/{id}/tasks (and problem/change/release tasks)` — sub-task breakdown and completion state under each ticket (medium) — synced as `ticket_tasks`, `problem_tasks`, `change_tasks` and `release_tasks`
+- [x] `approvals` — account-wide approval records with approver, state and timestamps — the service-request bottleneck metric (medium) — the listing needs a filter beyond `parent`, so it is swept once per ticket/change module and approval status
 - [ ] `alerts (+ alert logs)` — alert-management records that precede incidents; logs give the state transition history (medium)
 - [ ] `service_catalog/items (+ service_categories lookup)` — resolves what was actually requested in each service request, and the category lookup (medium)
 - [ ] `tickets/{id}/csat_response` — satisfaction score per ticket — the headline support quality metric (medium)
@@ -3522,14 +3522,14 @@ Note: Fetched the Swagger 2.0 spec behind the Apiary docs (api.aptrinsic.com). P
 
 ## Gerrit — gaps
 
-Today (4): `accounts`, `changes`, `groups`, `projects`
+Today (8): `accounts`, `change_comments`, `change_files`, `changes`, `group_members`, `groups`, `project_branches`, `projects`
 
 Diffed against: <https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html>
 
-- [ ] `changes/{change-id}/comments` — inline review comments per change — the core code-review signal, not covered by the MESSAGES option (high)
-- [ ] `groups/{group-id}/members` — join table resolving accounts to the groups we already sync (high)
-- [ ] `changes/{change-id}/revisions/{revision-id}/files` — per-file insertions/deletions for code churn and review-size analysis (high)
-- [ ] `projects/{project-name}/branches` — lookup resolving the branch string carried on every change (medium)
+- [x] `changes/{change-id}/comments` — inline review comments per change — the core code-review signal, not covered by the MESSAGES option (high)
+- [x] `groups/{group-id}/members` — join table resolving accounts to the groups we already sync (high)
+- [x] `changes/{change-id}/revisions/{revision-id}/files` — per-file insertions/deletions for code churn and review-size analysis (high)
+- [x] `projects/{project-name}/branches` — lookup resolving the branch string carried on every change (medium)
 - [ ] `changes/{change-id}/reviewers` — explicit reviewer and CC list per change, including reviewers who never voted (medium)
 - [ ] `projects/{project-name}/labels` — label definitions that resolve the label names appearing in change votes (medium)
 - [ ] `projects/{project-name}/tags` — release tags per project for cut-to-ship analysis (medium)
@@ -3537,7 +3537,7 @@ Diffed against: <https://gerrit-review.googlesource.com/Documentation/rest-api-c
 - [ ] `groups/{group-id}/groups` — included subgroups, needed to expand nested group membership (low)
 - [ ] `groups/{group-id}/log.audit` — membership change history over time (low)
 
-Note: Not dynamic — settings.py hardcodes 4 endpoints. The changes stream requests o=MESSAGES/DETAILED_LABELS/CURRENT_REVISION/DETAILED_ACCOUNTS, so review messages and label votes already ride inside the change row; inline comments and per-file stats do not. Also checked rest-api-projects.html, rest-api-accounts.html, rest-api-groups.html.
+Note: Not dynamic — settings.py hardcodes 8 endpoints. The changes stream requests o=MESSAGES/DETAILED_LABELS/CURRENT_REVISION/DETAILED_ACCOUNTS, so review messages and label votes already ride inside the change row; inline comments come from change_comments and current-revision per-file stats from change_files. Also checked rest-api-projects.html, rest-api-accounts.html, rest-api-groups.html.
 
 ## Giphy — gaps
 

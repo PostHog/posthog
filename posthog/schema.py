@@ -5812,6 +5812,16 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     useMaterializedViews: bool | None = None
+    useNewEventsSchema: bool | None = Field(
+        default=None,
+        description=(
+            "Read events from the native JSON events table (`true`) or the legacy"
+            " events table (`false`). When unset, the project's stored value applies,"
+            " then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This"
+            " is an internal rollout switch. PostHog staff set the project value in"
+            " Django admin and the project settings API ignores it."
+        ),
+    )
     usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(
         default=None,
@@ -7078,6 +7088,14 @@ class RecordingsQueryExperimentExposureFilter(BaseModel):
     variant: str | None = Field(
         default=None,
         description=("Narrow to persons exposed to this variant. Defaults to all of the experiment's variants."),
+    )
+    variants: list[str] | None = Field(
+        default=None,
+        description=(
+            "Narrow to persons exposed to any of these variants. Defaults to all of the"
+            " experiment's variants. Do not combine with `variant`, the single-variant"
+            " form that predates this field."
+        ),
     )
 
 
@@ -25808,6 +25826,18 @@ class AccountsTableQuery(BaseModel):
     ] = Field(
         ...,
         description=("Columns to load for each account. Account identity fields are always returned."),
+    )
+    filterGroups: (
+        list[
+            list[AccountsTableAccountFieldFilter | AccountsTableRelationshipFilter | AccountsTableCustomPropertyFilter]
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Nonempty property-filter groups are ORed together; filters within each"
+            " group use AND. Global filters still apply."
+        ),
     )
     filters: (
         list[

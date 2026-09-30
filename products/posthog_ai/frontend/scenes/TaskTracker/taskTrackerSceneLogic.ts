@@ -869,7 +869,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                             ),
                         disposables
                     )
-                    createdRun = runResponse.latest_run
+                    // `?? latest_run` covers the deploy skew window where this bundle outruns the backend.
+                    createdRun = runResponse.run ?? runResponse.latest_run
                     runId = createdRun?.id
                 }
 
