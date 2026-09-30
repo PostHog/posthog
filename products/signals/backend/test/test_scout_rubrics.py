@@ -19,7 +19,7 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
-from products.signals.backend.presentation.scout_rubrics import ScoutRubricSaveSerializer
+from products.signals.backend.presentation.scout_rubrics import ScoutRubricGenerateSerializer, ScoutRubricSaveSerializer
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.rubrics import (
     GENERATION_TIMEOUT,
@@ -55,6 +55,13 @@ def custom_criterion() -> ScoutRubricCriterion:
 
 
 class TestRubricValidation(SimpleTestCase):
+    @parameterized.expand([("at_limit", 2000, True), ("over_limit", 2001, False)])
+    def test_generation_context_is_bounded(self, _name: str, length: int, valid: bool) -> None:
+        serializer = ScoutRubricGenerateSerializer(data={"context": "x" * length})
+        self.assertEqual(serializer.is_valid(), valid)
+        if not valid:
+            self.assertIn("context", serializer.errors)
+
     @parameterized.expand(
         [
             ("duplicate", [0, 0], None),
@@ -180,15 +187,18 @@ class TestScoutRubricsAPI(APIBaseTest):
 
     def test_generate_is_deduplicated_and_preserves_concurrent_manual_save(self) -> None:
         client = SimpleNamespace(start_workflow=AsyncMock())
+        owner_context = "Check whether a new teammate can understand the proposed next step."
         with patch("products.signals.backend.scout_harness.rubrics.sync_connect", return_value=client):
-            first = self.client.post(self.url + "generate/")
-            second = self.client.post(self.url + "generate/")
+            first = self.client.post(self.url + "generate/", {"context": f"  {owner_context}\n"})
+            second = self.client.post(self.url + "generate/", {"context": "Focus on unusual outcomes."})
         self.assertEqual(first.status_code, 202)
         self.assertEqual(first.json()["generation"]["id"], second.json()["generation"]["id"])
+        self.assertEqual(second.json()["generation"]["context"], owner_context)
         self.assertEqual(client.start_workflow.await_count, 1)
         self.config.refresh_from_db()
         generation = read_rubric_state(self.config).generation
         assert generation is not None
+        self.assertEqual(generation.context, owner_context)
         criteria = [criterion.model_dump(mode="json") for criterion in [custom_criterion(), *default_criteria()]]
         saved = self.client.put(self.url, {"revision": 0, "criteria": criteria})
         self.assertEqual(saved.status_code, 200)
@@ -200,12 +210,28 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.assertEqual(reloaded["revision"], 1)
         self.assertEqual(reloaded["criteria"][0]["id"], "custom-checkout")
         self.assertEqual(reloaded["generation"]["status"], "completed")
+        self.assertEqual(reloaded["generation"]["context"], owner_context)
         self.assertEqual(len(reloaded["generation"]["suggestions"]), 1)
         fail_generation(self.team.id, str(self.config.id), generation.id, "A delayed activity reported a failure.")
         self.assertEqual(self.client.get(self.url).json(), reloaded)
         generation.status = ScoutRubricGenerationStatus.RUNNING
         self.assertFalse(update_generation(self.team.id, str(self.config.id), generation))
         self.assertEqual(self.client.get(self.url).json(), reloaded)
+        with patch("products.signals.backend.scout_harness.rubrics.sync_connect", return_value=client):
+            next_request = self.client.post(self.url + "generate/")
+        self.assertEqual(next_request.status_code, 202)
+        self.assertNotEqual(next_request.json()["generation"]["id"], generation.id)
+        self.assertEqual(next_request.json()["generation"]["context"], "")
+        self.assertEqual(next_request.json()["criteria"], reloaded["criteria"])
+
+    def test_generate_uses_context_validation_before_reserving(self) -> None:
+        client = SimpleNamespace(start_workflow=AsyncMock())
+        with patch("products.signals.backend.scout_harness.rubrics.sync_connect", return_value=client):
+            response = self.client.post(self.url + "generate/", {"context": "x" * 2001})
+        self.assertEqual(response.status_code, 400)
+        self.config.refresh_from_db()
+        self.assertIsNone(self.config.rubrics)
+        client.start_workflow.assert_not_awaited()
 
     def test_timed_out_generation_is_retryable_and_old_worker_cannot_replace_it(self) -> None:
         config = reserve_generation(self.team.id, str(self.config.id)).config
@@ -303,6 +329,7 @@ class TestScoutRubricsAPI(APIBaseTest):
             ("completed", None, False),
             ("description_only", None, False),
             ("saved_choices", None, False),
+            ("owner_context", None, False),
             ("saved_during_draft", None, False),
             ("complete_context", None, False),
             ("truncated_context", None, False),
@@ -395,7 +422,7 @@ class TestScoutRubricsAPI(APIBaseTest):
                 emitted_report_ids=report_ids,
             )
         expected_criteria = default_criteria()
-        if name == "saved_choices":
+        if name in {"saved_choices", "owner_context"}:
             expected_criteria[0].pass_condition = "Reported checkout counts match the inspected evidence."
             expected_criteria[0].applicability = "When the scout reports checkout counts."
             expected_criteria[1].enabled = False
@@ -407,9 +434,14 @@ class TestScoutRubricsAPI(APIBaseTest):
                 custom_criterion().model_copy(update={"id": f"custom-large-{index}", "pass_condition": "🙂" * 2000})
                 for index in range(12)
             )
-        if name in {"saved_choices", "oversized_selection"}:
+        if name in {"saved_choices", "owner_context", "oversized_selection"}:
             save_rubric(self.team.id, str(self.config.id), revision=0, criteria=expected_criteria)
-        config = reserve_generation(self.team.id, str(self.config.id)).config
+        owner_context = (
+            "Check whether a new teammate can understand the proposed next step."
+            if name in {"owner_context", "start_failed", "selection_timeout"}
+            else ""
+        )
+        config = reserve_generation(self.team.id, str(self.config.id), context=owner_context).config
         generation = read_rubric_state(config).generation
         assert generation is not None
         criterion = custom_criterion()
@@ -463,6 +495,13 @@ class TestScoutRubricsAPI(APIBaseTest):
         async def start(**kwargs: object) -> tuple[SimpleNamespace, str]:
             prompt = kwargs["prompt"]
             assert isinstance(prompt, str)
+            if owner_context:
+                owner_text = prompt.split("\nUntrusted owner context:\n", 1)[1]
+                self.assertEqual(json.JSONDecoder().raw_decode(owner_text)[0], owner_context)
+                self.assertIn("covering the scout's full job", prompt)
+                self.assertIn("does not change the scout's responsibilities", prompt)
+            else:
+                self.assertNotIn("\nUntrusted owner context:\n", prompt)
             bundle_text, schema_text = prompt.split("\nUntrusted source bundle:\n", 1)[1].split("\nResult schema:\n", 1)
             bundle = json.loads(bundle_text)
             scout_context = bundle["scout_context"]
@@ -569,10 +608,12 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.config.refresh_from_db()
         state = read_rubric_state(self.config)
         self.assertEqual(
-            state.revision, 1 if name in {"saved_choices", "saved_during_draft", "oversized_selection"} else 0
+            state.revision,
+            1 if name in {"saved_choices", "owner_context", "saved_during_draft", "oversized_selection"} else 0,
         )
         self.assertEqual(state.criteria, expected_criteria)
         assert state.generation is not None
+        self.assertEqual(state.generation.context, owner_context)
         self.assertEqual(state.generation.task_run_id, str(run_id))
         self.assertEqual(state.generation.status, "failed" if failed_stage else "completed")
         self.assertEqual(len(state.generation.suggestions), 0 if failed_stage else len(kept_indices))
@@ -589,6 +630,13 @@ class TestScoutRubricsAPI(APIBaseTest):
             ]
             self.assertEqual(len(selection_calls), 1)
             selection_prompt = selection_calls[0].args[0]
+            if owner_context:
+                owner_text = selection_prompt.split("\nUntrusted owner context:\n", 1)[1]
+                self.assertEqual(json.JSONDecoder().raw_decode(owner_text)[0], owner_context)
+                self.assertIn("covering the scout's full job", selection_prompt)
+                self.assertIn("deliberately disabled choices", selection_prompt)
+            else:
+                self.assertNotIn("\nUntrusted owner context:\n", selection_prompt)
             saved_text, numbered_text = selection_prompt.split("\nUntrusted saved criteria:\n", 1)[1].split(
                 "\nNumbered draft criteria:\n", 1
             )
