@@ -28,10 +28,18 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
+import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
+
 import { SpaceFeed } from './SpaceFeed'
 import { SpaceSceneLogicProps, SpaceTab, spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
-import { SpaceTaskComposer } from './SpaceTaskComposer'
+
+const SPACE_COMPOSER_OVERRIDE = {
+    placeholder: 'What do you want to ship?',
+    hideSuggestions: true,
+    hideRecentTasks: true,
+    hideOnboardingReplay: true,
+}
 
 export const scene: SceneExport<SpaceSceneLogicProps> = {
     component: SpaceScene,
@@ -41,10 +49,9 @@ export const scene: SceneExport<SpaceSceneLogicProps> = {
 
 export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
-    const { space, spaceLoading, spaceUnavailable, spaceMissing, activeTab, savingSpace } = useValues(
-        spaceSceneLogic({ id })
-    )
-    const { setStarred, loadSpace } = useActions(spaceSceneLogic({ id }))
+    const { space, spaceLoading, spaceUnavailable, spaceMissing, activeTab, savingSpace, composerRepositoryConfig } =
+        useValues(spaceSceneLogic({ id }))
+    const { setStarred, loadSpace, sessionStarted } = useActions(spaceSceneLogic({ id }))
 
     if (!enabled || spaceMissing) {
         return <NotFound object="space" />
@@ -123,7 +130,19 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                     </TabsList>
                     <TabsContent value="feed">
                         <div className="flex max-w-3xl flex-col gap-4">
-                            <SpaceTaskComposer id={id} />
+                            {/* Mounted once the space loads, so the composer starts on the space's repository. */}
+                            {space && (
+                                <div data-attr="today-space-new-task">
+                                    <EmbeddedTaskComposer
+                                        key={space.id}
+                                        panelId={`space-${space.id}`}
+                                        channelId={space.id}
+                                        initialRepositoryConfig={composerRepositoryConfig}
+                                        composerOverride={SPACE_COMPOSER_OVERRIDE}
+                                        onTaskCreated={sessionStarted}
+                                    />
+                                </div>
+                            )}
                             <SpaceFeed id={id} />
                         </div>
                     </TabsContent>
