@@ -4812,6 +4812,33 @@ class TestHogFlowAPI(APIBaseTest):
         assert latest["detail"]["name"] == flow_name
         assert latest["detail"]["type"] == "standard"
 
+    def test_create_on_the_current_team_ignores_a_child_environment_token_in_the_form(self):
+        # A form body's `token` makes the view's `team` that environment, while `@current` still
+        # addresses the user's current team, and that team scopes the list the workflow shows up in.
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, name="child env", parent_team=self.team
+        )
+        trigger_config = {
+            "type": "event",
+            "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+        }
+
+        response = self.client.post(
+            "/api/projects/@current/hog_flows",
+            {
+                "name": "Form flow",
+                "token": child.api_token,
+                "actions[0]id": "trigger_node",
+                "actions[0]name": "trigger",
+                "actions[0]type": "trigger",
+                "actions[0]config": json.dumps(trigger_config),
+            },
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert HogFlow.objects.get(id=response.json()["id"]).team_id == self.team.id
+
     def test_update_hog_flow_logs_activity(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
