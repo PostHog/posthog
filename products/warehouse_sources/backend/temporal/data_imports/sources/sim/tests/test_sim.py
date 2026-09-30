@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock
@@ -48,7 +50,7 @@ def test_paginated_full_refresh(
         ],
     )
     response = sim_source(config, inputs, manager, "v2")
-    pages = iter(response.items())
+    pages = iter(cast(Iterable[Any], response.items()))
     assert next(pages) == [first]
     assert not manager.has_staged_state()
     assert next(pages) == [last]
@@ -84,7 +86,7 @@ def test_resume_preserves_workspace_and_sort(
     redis_client.get.return_value = b'{"cursor":"saved-cursor"}'
     http.get(f"https://www.sim.ai/api/v2/{table}", json={"data": [{key: "remaining-row"}], "nextCursor": None})
     response = sim_source(config, inputs, manager, "v2")
-    assert list(response.items()) == [[{key: "remaining-row"}]]
+    assert list(cast(Iterable[Any], response.items())) == [[{key: "remaining-row"}]]
     assert http.last_request is not None
     assert http.last_request.qs["cursor"] == ["saved-cursor"]
     assert http.last_request.qs["workspaceid"] == ["workspace-example"]
@@ -104,7 +106,9 @@ def test_empty_page_keeps_following_cursor(
             {"json": {"data": [{"runId": "after-empty-page"}], "nextCursor": None}},
         ],
     )
-    assert list(sim_source(config, inputs, manager, "v2").items()) == [[{"runId": "after-empty-page"}]]
+    assert list(cast(Iterable[Any], sim_source(config, inputs, manager, "v2").items())) == [
+        [{"runId": "after-empty-page"}]
+    ]
 
 
 def test_missing_data_fails_instead_of_replacing_table_with_empty_rows(
@@ -115,7 +119,7 @@ def test_missing_data_fails_instead_of_replacing_table_with_empty_rows(
 ) -> None:
     http.get("https://www.sim.ai/api/v2/logs", json={"error": {"code": "UNEXPECTED_RESPONSE"}})
     with pytest.raises(ValueError, match="Required data_selector"):
-        list(sim_source(config, inputs, manager, "v2").items())
+        list(cast(Iterable[Any], sim_source(config, inputs, manager, "v2").items()))
 
 
 @pytest.mark.parametrize("status,message", [(401, AUTH_ERROR), (403, PERMISSION_ERROR), (404, WORKSPACE_ERROR)])
@@ -133,7 +137,7 @@ def test_auth_failures_are_terminal(
         json={"error": {"code": "UNAUTHORIZED", "message": "Authentication required"}},
     )
     with pytest.raises(HTTPError) as error:
-        list(sim_source(config, inputs, manager, "v2").items())
+        list(cast(Iterable[Any], sim_source(config, inputs, manager, "v2").items()))
     assert http.call_count == 1
     messages = SimSource().get_non_retryable_errors()
     assert error_message_matches(str(error.value), messages)
@@ -155,7 +159,7 @@ def test_transient_failure_retries_same_page(
             {"json": {"data": [{"runId": "recovered"}], "nextCursor": None}},
         ],
     )
-    assert list(sim_source(config, inputs, manager, "v2").items()) == [[{"runId": "recovered"}]]
+    assert list(cast(Iterable[Any], sim_source(config, inputs, manager, "v2").items())) == [[{"runId": "recovered"}]]
     assert http.call_count == 2
     assert http.request_history[0].url == http.request_history[1].url
 
