@@ -11,7 +11,6 @@ interface TodayPaneRowProps {
     trailing?: JSX.Element | null
     /** A control that sits on the row's right edge and shows on hover, outside the row's own link or button. */
     action?: JSX.Element | null
-    depth?: number
     dataAttr?: string
 }
 
@@ -25,7 +24,6 @@ export function TodayPaneRow({
     onClick,
     trailing,
     action,
-    depth = 0,
     dataAttr,
 }: TodayPaneRowProps): JSX.Element {
     const content = (
@@ -40,7 +38,7 @@ export function TodayPaneRow({
             {trailing}
         </>
     )
-    const className = cn('TodayPaneRow', depth > 0 && 'TodayPaneRow--nested', action && 'TodayPaneRow--withAction')
+    const className = cn('TodayPaneRow', action && 'TodayPaneRow--withAction')
     const row = to ? (
         <Link to={to} className={className} data-active={active} data-attr={dataAttr} subtle onClick={onClick}>
             {content}
