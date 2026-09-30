@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import type { FormEvent } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -7,6 +8,19 @@ import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { dashboardAiPromptComposerLogic } from './dashboardAiPromptComposerLogic'
+
+function reportDashboardEmptyAiPromptClicked(
+    promptLabel: string,
+    dashboardId: number | undefined,
+    promptType: 'starter_question' | 'custom_prompt'
+): void {
+    posthog.capture('dashboard empty ai prompt clicked', {
+        prompt_label: promptLabel,
+        dashboard_id: dashboardId,
+        prompt_type: promptType,
+        source: 'web',
+    })
+}
 
 type SamplePromptPreview = 'activity' | 'adoption' | 'retention' | 'paths'
 
@@ -113,7 +127,7 @@ export function DashboardAiPromptComposer({
 }: DashboardAiPromptComposerProps): JSX.Element {
     const { prompt, promptSource } = useValues(dashboardAiPromptComposerLogic)
     const { setPrompt } = useActions(dashboardAiPromptComposerLogic)
-    const { reportDashboardEmptyAiPromptClicked, reportDashboardEmptyAiPromptSubmitted } = useActions(eventUsageLogic)
+    const { reportDashboardEmptyAiPromptSubmitted } = useActions(eventUsageLogic)
 
     const submitPrompt = (event: FormEvent<HTMLFormElement>): void => {
         event.preventDefault()

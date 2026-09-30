@@ -11,18 +11,16 @@ from posthog.temporal.common.logger import configure_logger
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
     configure_process_concurrency,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import (
-    HealthState,
-    start_health_server,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import (
     process_batch,
+    process_batches,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatch
+from products.warehouse_sources_queue.backend.sdk import HealthState, start_health_server
 
 logger = structlog.get_logger(__name__)
 
@@ -89,6 +87,7 @@ async def _run_consumer(
     consumer = BatchConsumer(
         config=config,
         process_batch=process_batch,
+        process_batches=process_batches,
         health_reporter=health_reporter,
         claim_sync_types=claim_sync_types,
         claim_exclude_sync_types=claim_exclude_sync_types,

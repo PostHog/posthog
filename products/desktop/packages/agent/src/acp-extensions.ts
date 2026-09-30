@@ -104,7 +104,18 @@ export const POSTHOG_NOTIFICATIONS = {
   MCP_RESPONSE: "_posthog/mcp_response",
   CREDENTIAL_REQUEST: "_posthog/credential_request",
   CREDENTIAL_RESPONSE: "_posthog/credential_response",
+  PROCESS_KILLED: "_posthog/process_killed",
 } as const;
+
+export type ProcessKilledParams = {
+  pid: number;
+  comm: string;
+  treeRssBytes: number;
+  memoryCurrentBytes: number;
+  memoryLimitBytes: number;
+  signal: string;
+  at: string;
+};
 
 export type SteerDeclineCause =
   | "cancelled"

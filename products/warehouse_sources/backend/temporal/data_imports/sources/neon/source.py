@@ -78,7 +78,7 @@ class NeonSource(PostgresSource):
             caption="Enter your Neon credentials to automatically pull your data into the PostHog Data warehouse",
             docsUrl="https://posthog.com/docs/cdp/sources/neon",
             fields=fields,
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def check_cdc_prerequisites(

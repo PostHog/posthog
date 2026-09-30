@@ -1,7 +1,7 @@
 import type { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 
-type InitializationPhase = "sdk_initialization" | "setup_hooks";
+export type InitializationPhase = "sdk_initialization" | "setup_hooks";
 
 export interface CliOutputSummary {
   lines: number;

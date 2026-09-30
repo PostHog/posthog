@@ -91,6 +91,27 @@ describe("finish tool", () => {
       expected: true,
     },
     {
+      name: "caller-managed scout suggestions run",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "scout_suggestions",
+      },
+      expected: false,
+    },
+    {
+      name: "scout suggestions run with an end-run opt-in and run ids",
+      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "scout_suggestions",
+        endRunWhenDone: true,
+      },
+      expected: false,
+    },
+    {
       name: "no gate meta",
       ctx: { cwd: "/repo", requestFinish },
       meta: undefined,

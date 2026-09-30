@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -194,6 +195,9 @@ export interface evaluationBackfillsLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    startClicked: () => {
+        value: true
+    }
     transitionBackfillDone: (id: string) => {
         id: string
     }
@@ -272,6 +276,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         setConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         seedConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setRerunExisting: (rerunExisting: boolean) => ({ rerunExisting }),
+        startClicked: true,
     }),
 
     reducers({
@@ -532,6 +537,14 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             setWindowRange: () => actions.requestEstimate(),
             setConditions: () => actions.requestEstimate(),
             setRerunExisting: () => actions.requestEstimate(),
+            // The estimate reloads on every edit, so this is the step that shows intent to start.
+            startClicked: () => {
+                posthog.capture('llma evaluation backfill start clicked', {
+                    evaluation_id: props.evaluationId,
+                    units_to_evaluate: values.estimate?.total_units ?? null,
+                    rerun_existing: values.rerunExisting,
+                })
+            },
             requestEstimate: async (_, breakpoint) => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId || !values.windowDateFrom) {
@@ -615,7 +628,13 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         }
     }),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, props }) => {
+        // Only the Backfills tab mounts this logic, so a mount is a view of the tab.
+        posthog.capture('llma evaluation backfills tab viewed', {
+            evaluation_id: props.evaluationId,
+            evaluation_type: values.evaluation?.evaluation_type,
+            target: values.evaluation?.target,
+        })
         actions.loadBackfills()
         if (values.evaluation) {
             actions.seedConditions(values.evaluation.conditions.map(toBackfillCondition))

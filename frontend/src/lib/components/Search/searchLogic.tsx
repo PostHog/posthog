@@ -986,7 +986,7 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 const categorySearchKeywords: Record<string, string[]> = {
-                    Pipeline: ['data pipelines', 'data pipeline'],
+                    CDP: ['data pipelines', 'data pipeline', 'pipeline'],
                 }
 
                 // Synonyms people search for that don't appear in the item name.

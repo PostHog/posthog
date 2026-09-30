@@ -8,13 +8,14 @@ per field. SPEC.md in this package defines the format.
 from __future__ import annotations
 
 import sys
+import stat
 import subprocess
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol, TypedDict, runtime_checkable
+from typing import Literal, Protocol, TypedDict, cast, runtime_checkable
 
-from .matcher import compile_pattern, normalize_path
+from .matcher import SEP, compile_pattern, normalize_path
 from .schema import (
     OWNERS_FILENAME,
     UNSET,
@@ -92,6 +93,18 @@ def teams_registry(text: str) -> dict[str, TeamEntry]:
     return dict(parsed.teams) if parsed is not None else {}
 
 
+PathKind = Literal["dir", "file"]
+
+
+@dataclass(frozen=True)
+class Addition:
+    """The new part of a path that the resolver's tree does not hold: the path nearest the root that
+    the tree lacks, and the owners of additions at that part (SPEC section 3.6)."""
+
+    path: str
+    additions: list[str]
+
+
 @dataclass
 class Resolution:
     """The resolved ownership of a single path."""
@@ -106,6 +119,9 @@ class Resolution:
     # file-wins; this one collects every declaration on the walk, so a nested file cannot drop what
     # an ancestor set. `inherit: false` still cuts it like everything else.
     additions: list[str] = field(default_factory=list)
+    # Set only when the resolver reads a tree and the path is not in it, such as a file that a change
+    # adds when the tree is the version before the change.
+    added: Addition | None = None
 
     @property
     def is_owned(self) -> bool:
@@ -127,6 +143,12 @@ class WireResolution(TypedDict):
     slack: str | None
     source: str | None
     additions: list[str]
+    added: WireAddition | None
+
+
+class WireAddition(TypedDict):
+    path: str
+    additions: list[str]
 
 
 def resolution_to_wire(r: Resolution) -> WireResolution:
@@ -136,6 +158,7 @@ def resolution_to_wire(r: Resolution) -> WireResolution:
         "slack": r.slack,
         "source": r.source,
         "additions": r.additions,
+        "added": {"path": r.added.path, "additions": r.added.additions} if r.added is not None else None,
     }
 
 
@@ -221,6 +244,14 @@ class BatchOwnershipSource(OwnershipSource, Protocol):
     def read_all(self, paths: list[str]) -> None: ...
 
 
+@runtime_checkable
+class TreeSource(OwnershipSource, Protocol):
+    """A source that can also tell whether the tree holds a path, and as what. The resolver needs
+    this to report a path that the tree does not hold (``Resolution.added``)."""
+
+    def path_kind(self, path: str) -> PathKind | None: ...
+
+
 @dataclass(frozen=True)
 class DiskSource:
     """Ownership files read from a worktree."""
@@ -230,6 +261,31 @@ class DiskSource:
     def read(self, path: str) -> str | None:
         file = self.repo_root / path
         return file.read_text() if file.is_file() else None
+
+    def path_kind(self, path: str) -> PathKind | None:
+        # lstat does not follow a symlink: git stores a symlink as a file, so a symlink to a
+        # directory is a leaf of the tree, and a dangling link still counts as present.
+        try:
+            mode = (self.repo_root / path).lstat().st_mode
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        return "dir" if stat.S_ISDIR(mode) else "file"
+
+
+def first_new_path(path: str, path_kind: Callable[[str], PathKind | None]) -> str | None:
+    """The part of ``path`` nearest the root that the tree does not hold, or None when the tree
+    holds ``path``. An ancestor counts as new unless the tree holds it as a directory, so a change
+    that replaces the file or symlink ``products/new`` with a directory adds ``products/new``. The
+    walk checks the ancestors before the path, because a filesystem check of the full path follows
+    a symlinked ancestor and would find a file that the tree does not hold."""
+    if not path:
+        return None
+    parts = path.split(SEP)
+    for depth in range(1, len(parts)):
+        prefix = SEP.join(parts[:depth])
+        if path_kind(prefix) != "dir":
+            return prefix
+    return None if path_kind(path) is not None else path
 
 
 # Names a sourceless resolver's files, so a Resolution still reports the path that decided ownership.
@@ -263,6 +319,9 @@ class OwnersResolver:
         self._tracked_cache: dict[str | None, list[str]] = {}
         self._parsed_ownership: list[ParsedOwnershipFile] | None = None
         self._teams_cache: dict[str, TeamEntry] | None = None
+        # Files in one directory share every ancestor, so a full-tree run asks about each
+        # directory thousands of times.
+        self._path_kind_cache: dict[str, PathKind | None] = {}
 
     def alias_files(self) -> tuple[str, ...]:
         """The alias file names the root file declares, in the order that decides a tie."""
@@ -361,8 +420,7 @@ class OwnersResolver:
             {OWNERS_FILENAME} | {f"{directory}/{name}" for directory in directories if directory for name in filenames}
         )
 
-    def resolve(self, path: str) -> Resolution:
-        norm = normalize_path(path)
+    def _merge(self, norm: str) -> _Merged:
         merged = _Merged()
 
         for f in self._collect_files(norm):
@@ -390,7 +448,24 @@ class OwnersResolver:
             if contrib.additions:
                 merged.additions = _union(merged.additions, contrib.additions)
 
-        return self._build_resolution(norm, merged)
+        return merged
+
+    def _path_kind(self, path: str) -> PathKind | None:
+        if path not in self._path_kind_cache:
+            self._path_kind_cache[path] = cast(TreeSource, self.source).path_kind(path)
+        return self._path_kind_cache[path]
+
+    def _added(self, path: str) -> Addition | None:
+        if not isinstance(self.source, TreeSource):
+            return None
+        new_path = first_new_path(path, self._path_kind)
+        if new_path is None:
+            return None
+        return Addition(path=new_path, additions=self._merge(new_path).additions)
+
+    def resolve(self, path: str) -> Resolution:
+        norm = normalize_path(path)
+        return self._build_resolution(norm, self._merge(norm), self._added(norm))
 
     def _teams_registry(self) -> dict[str, TeamEntry]:
         """The root file's ``teams:`` Slack registry (team slug -> its declared channels),
@@ -430,7 +505,7 @@ class OwnersResolver:
             return team_channel(owners[0], self._teams_registry(), self.purpose, self.producer).channel
         return None
 
-    def _build_resolution(self, path: str, merged: _Merged) -> Resolution:
+    def _build_resolution(self, path: str, merged: _Merged, added: Addition | None) -> Resolution:
         unowned_by_design = merged.owners is None
         owners: list[str] | None = None if isinstance(merged.owners, _Unset) else merged.owners
 
@@ -446,6 +521,7 @@ class OwnersResolver:
             source=merged.source,
             unowned_by_design=unowned_by_design,
             additions=merged.additions,
+            added=added,
         )
 
     def _rel(self, path: Path) -> str:

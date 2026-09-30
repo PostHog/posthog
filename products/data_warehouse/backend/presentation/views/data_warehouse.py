@@ -176,6 +176,11 @@ FAILED_EXTERNAL_JOB_STATUSES = [
 ACTIVITY_OUTCOME_COMPLETED = "completed"
 ACTIVITY_OUTCOME_FAILED = "failed"
 
+ACTIVITY_KIND_ALL = "all"
+ACTIVITY_KIND_IMPORT = "import"
+ACTIVITY_KIND_MODEL = "model"
+ACTIVITY_KINDS = {ACTIVITY_KIND_ALL, ACTIVITY_KIND_IMPORT, ACTIVITY_KIND_MODEL}
+
 ACTIVITY_OUTCOME_STATUSES: dict[str, tuple[list[str], list[str]]] = {
     ACTIVITY_OUTCOME_COMPLETED: (
         [ExternalDataJobStatus.COMPLETED],
@@ -581,6 +586,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Without this a caller that only wants imports has to over-fetch and drop the rest, and
+        # a team with enough view failures fills every page with them.
+        kind = request.GET.get("kind", ACTIVITY_KIND_ALL)
+        if kind not in ACTIVITY_KINDS:
+            supported = ", ".join(sorted(ACTIVITY_KINDS))
+            return Response(
+                {"error": f"Invalid kind parameter. Must be one of: {supported}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         outcome = request.GET.get("outcome", ACTIVITY_OUTCOME_COMPLETED)
         if outcome not in ACTIVITY_OUTCOME_STATUSES:
             supported = ", ".join(sorted(ACTIVITY_OUTCOME_STATUSES))
@@ -625,8 +640,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                           AND (dwsq.id IS NULL OR dwsq.id = ANY(%s::uuid[]))
                     )
                     SELECT * FROM external_jobs
+                    WHERE %s IN (%s, %s)
                     UNION ALL
                     SELECT * FROM modeling_jobs
+                    WHERE %s IN (%s, %s)
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
                 """,
@@ -640,6 +657,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         modeling_statuses,
                         cutoff_time,
                         saved_query_ids,
+                        # Placeholders bind in SQL text order, so both kind filters come after
+                        # every CTE parameter, not next to the CTE they read.
+                        kind,
+                        ACTIVITY_KIND_ALL,
+                        ACTIVITY_KIND_IMPORT,
+                        kind,
+                        ACTIVITY_KIND_ALL,
+                        ACTIVITY_KIND_MODEL,
                         limit + 1,
                         offset,
                     ],
@@ -658,9 +683,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         next_url = None
         prev_url = None
         if has_more:
-            next_url = f"?limit={limit}&offset={offset + limit}&cutoff_days={cutoff_days}&outcome={outcome}"
+            next_url = f"?limit={limit}&offset={offset + limit}&cutoff_days={cutoff_days}&outcome={outcome}&kind={kind}"
         if offset > 0:
-            prev_url = f"?limit={limit}&offset={max(0, offset - limit)}&cutoff_days={cutoff_days}&outcome={outcome}"
+            prev_url = f"?limit={limit}&offset={max(0, offset - limit)}&cutoff_days={cutoff_days}&outcome={outcome}&kind={kind}"
 
         return Response(
             {
@@ -911,8 +936,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "source_type": schema.source.source_type if schema.source else None,
                         "status": sync_status,
                         "error": schema.latest_error,
+                        # A webhook table is pushed to, never pulled on a schedule, so a surface
+                        # about scheduled imports can drop it rather than call it stopped.
+                        "sync_type": schema.sync_type,
                         "failed_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
-                        "url": f"/data-warehouse/sources/{schema.source_id}" if schema.source_id else None,
+                        # The source scene keys on a prefixed id, so a bare UUID renders a
+                        # broken page. Every ExternalDataSource uses the `managed-` prefix,
+                        # direct-connect ones included.
+                        "url": f"/data-warehouse/sources/managed-{schema.source_id}" if schema.source_id else None,
                     }
                 )
 
@@ -929,7 +960,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "status": "failed",
                         "error": None,
                         "failed_at": source.updated_at.isoformat() if source.updated_at else None,
-                        "url": f"/data-warehouse/sources/{source.id}",
+                        "url": f"/data-warehouse/sources/managed-{source.id}",
                     }
                 )
 

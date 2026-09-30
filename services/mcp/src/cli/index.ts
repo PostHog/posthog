@@ -18,7 +18,7 @@ tools
 search <regex_pattern>
 info [--json] <tool_name>
 schema <tool_name> [field_path]
-call [--json] [--confirm] <tool_name> <json_input>`
+call [--json] [--confirm] <tool_name> [json_input]`
 
 interface BuiltExec {
     context: Context
@@ -40,7 +40,7 @@ Usage:
   posthog-cli api search <regex>
   posthog-cli api info [--json] <tool>
   posthog-cli api schema <tool> [field.path]
-  posthog-cli api call [--json] [--dry-run] [--confirm] <tool> '<json>'
+  posthog-cli api call [--json] [--dry-run] [--confirm] <tool> ['<json>']
   posthog-cli api skill list [--json]
   posthog-cli api skill install [--force] <skill-id>
   posthog-cli api agents-md install [--path AGENTS.md]
@@ -251,7 +251,7 @@ async function main(): Promise<void> {
             const toolName = args.shift()
             const jsonBody = args.length > 0 ? args.join(' ') : '{}'
             if (!toolName) {
-                throw new Error('Usage: posthog-cli api call [--json] [--dry-run] [--confirm] <tool> <json>')
+                throw new Error('Usage: posthog-cli api call [--json] [--dry-run] [--confirm] <tool> [json]')
             }
             await runExecCommand(`call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`)
             return

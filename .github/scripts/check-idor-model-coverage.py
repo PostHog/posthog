@@ -213,6 +213,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
+        # OneToOne extension keyed on the team, read by team_id from the suggestion refresher and endpoint;
+        # no endpoint looks it up by a user-supplied ID.
+        "TeamReplayVisionConfig",
         "TeamTracingConfig",
         "TeamJsSnippetConfig",
         "TeamProvisioningConfig",
@@ -373,6 +376,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingPlaylistItem",  # via Playlist
         "SharePassword",  # via SharingConfiguration
         "SourceBatchStatus",  # via SourceBatch
+        "QueueJobStatus",  # via QueueJob
+        # Keyed by (lane, group_key), not a direct team_id column — group_key is a
+        # generic caller-defined string (e.g. "team:schema") rather than always a
+        # team scope, unlike SourceGroupLease which carries team_id explicitly.
+        "QueueJobLease",
         "StreamlitAppSandbox",  # via StreamlitApp
         "TaggedItem",  # via Tag/Dashboard/Insight
         "TicketAssignment",  # via Ticket
