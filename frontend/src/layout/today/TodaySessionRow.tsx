@@ -47,6 +47,7 @@ export function TodaySessionRow({
     return (
         <TodaySpacesRow
             label={item.title || 'Untitled session'}
+            // Unread shows only as a solid status dot; the title keeps its resting weight, like desktop.
             icon={<TodaySessionStatusDot dot={todaySessionDot(item, unread)} />}
             to={urls.aiTask(item.id)}
             active={location.pathname.endsWith('/ai') && searchParams.task === item.id}
@@ -61,9 +62,7 @@ export function TodaySessionRow({
                 ) : null
             }
             badgeCount={badgeCount === 2 ? 2 : 1}
-            unread={unread}
-            // The status dot turns solid for unread output, so a second dot at the end would repeat it.
-            unreadDot={false}
+            ticker
             action={
                 <TodaySessionMenu
                     sessionId={item.id}

@@ -1,6 +1,10 @@
+import { useState } from 'react'
+
 import { Button, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+
+import { TodayOverflowText } from './TodayOverflowText'
 
 interface TodaySpacesRowProps {
     label: string
@@ -18,6 +22,8 @@ interface TodaySpacesRowProps {
     unread?: boolean
     /** Off when the row's icon already marks it unread. */
     unreadDot?: boolean
+    /** Fade a long label and scroll it on hover instead of cutting it with an ellipsis. */
+    ticker?: boolean
 }
 
 export function TodaySpacesRow({
@@ -32,15 +38,24 @@ export function TodaySpacesRow({
     actionCount = 1,
     unread = false,
     unreadDot = true,
+    ticker = false,
 }: TodaySpacesRowProps): JSX.Element {
+    const [hovered, setHovered] = useState(false)
+    const [keyboardFocused, setKeyboardFocused] = useState(false)
     return (
-        <div className="group/row relative flex min-w-0 items-center">
+        <div
+            className="group/row relative flex min-w-0 items-center"
+            onPointerEnter={ticker ? () => setHovered(true) : undefined}
+            onPointerLeave={ticker ? () => setHovered(false) : undefined}
+        >
             <Button
                 size="row"
                 left
                 render={<LinkPrimitive to={to} />}
                 aria-current={active ? 'page' : undefined}
                 data-attr={dataAttr}
+                onFocus={ticker ? (e: React.FocusEvent<HTMLElement>) => setKeyboardFocused(e.currentTarget.matches(':focus-visible')) : undefined}
+                onBlur={ticker ? () => setKeyboardFocused(false) : undefined}
                 className={cn(
                     'min-w-0 text-xs font-medium text-foreground',
                     active && 'bg-fill-selected',
@@ -49,7 +64,16 @@ export function TodaySpacesRow({
                 )}
             >
                 <span className="flex size-3.5 shrink-0 items-center justify-center">{icon}</span>
-                <span className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold')}>{label}</span>
+                {ticker ? (
+                    <TodayOverflowText
+                        reveal={hovered || keyboardFocused}
+                        className={cn('flex-1', unread && 'font-semibold')}
+                    >
+                        {label}
+                    </TodayOverflowText>
+                ) : (
+                    <span className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold')}>{label}</span>
+                )}
                 {unread && unreadDot && !active && (
                     <span
                         role="img"
