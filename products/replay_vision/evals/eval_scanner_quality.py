@@ -218,10 +218,10 @@ async def eval_scanner_quality(ctx: EvalContext) -> None:
 
     api_key = os.environ.get("POSTHOG_API_KEY", "").strip()
     if os.environ.get(DATASET_KEY_ENV_VAR, "").strip() and os.environ.get(DATASET_BUCKET_ENV_VAR, "").strip():
-        dataset = download_pinned_dataset(root)
+        dataset = await asyncio.to_thread(download_pinned_dataset, root)
     else:
         dataset = load_dataset(root)
-    ensure_dataset_consent(dataset, api_key)
+    await asyncio.to_thread(ensure_dataset_consent, dataset, api_key)
     golden_cases = dataset.cases
     missing = [g.case_id for g in golden_cases if not (g.video_path(root).exists() and g.inputs_path(root).exists())]
     if missing:

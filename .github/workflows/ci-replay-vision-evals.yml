@@ -171,8 +171,8 @@ jobs:
               run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Collect golden dataset
-              # Skipped when the pin is configured: the eval step downloads the pinned dataset itself.
-              if: steps.gate.outputs.enabled == 'true' && vars.REPLAY_VISION_EVAL_PIN_BUCKET == ''
+              # Skipped only when both pin vars are set, because the eval step downloads the pin only then.
+              if: steps.gate.outputs.enabled == 'true' && (vars.REPLAY_VISION_EVAL_PIN_BUCKET == '' || vars.REPLAY_VISION_EVAL_PIN_KEY == '')
               shell: bash
               env:
                   POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}

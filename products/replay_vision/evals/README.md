@@ -106,7 +106,7 @@ REPLAY_VISION_EVAL_DATASET_OBJECT_KEY=replay-vision/golden/main/manifest.json \
 POSTHOG_API_KEY=... GEMINI_API_KEY=... hogli evals eval_scanner_quality
 ```
 
-The suite downloads the pinned manifest and any case bytes missing locally, then re-verifies the source org's consent before scanning. Recording bytes in an internal bucket needs the data-governance decision below before it becomes the CI default.
+The suite downloads the pinned manifest and every case file, replacing local copies, then re-verifies the source org's consent before scanning. Recording bytes in an internal bucket needs the data-governance decision below before it becomes the CI default.
 
 ## Data handling
 

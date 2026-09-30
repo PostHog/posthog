@@ -12,6 +12,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from google.genai import types as genai_types
+from pydantic import ValidationError
 
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
@@ -454,7 +455,7 @@ def test_upload_pinned_dataset_refuses_a_dataset_with_missing_local_files(tmp_pa
         upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
 
 
-def test_download_pinned_dataset_round_trips_and_skips_existing_local_cases(tmp_path: Path) -> None:
+def test_download_pinned_dataset_replaces_existing_local_case_files(tmp_path: Path) -> None:
     dataset = GoldenDataset(
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         host="https://us.posthog.com",
@@ -477,10 +478,16 @@ def test_download_pinned_dataset_round_trips_and_skips_existing_local_cases(tmp_
     ):
         downloaded = download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
     assert [case.case_id for case in downloaded.cases] == ["c1", "c2"]
-    # c1's local files existed, so they were not overwritten by the remote bytes.
-    assert remote["c1"].video_path(tmp_path).read_bytes() == b"video-c1"
-    assert remote["c2"].video_path(tmp_path).read_bytes().startswith(b"remote-")
-    assert remote["c2"].inputs_path(tmp_path).read_text().startswith("remote-")
+    # c1's stale local bytes must not survive, or they are scored under the pinned manifest.
+    for case_id in ("c1", "c2"):
+        assert remote[case_id].video_path(tmp_path).read_bytes().startswith(b"remote-")
+        assert remote[case_id].inputs_path(tmp_path).read_text().startswith("remote-")
+
+
+@pytest.mark.parametrize("case_id", ["../escape", "/tmp/escape", "a/b", ""])
+def test_golden_case_rejects_ids_that_leave_the_dataset_directory(case_id: str) -> None:
+    with pytest.raises(ValidationError):
+        _golden("monitor", None, _monitor_output("no"), case_id=case_id)
 
 
 def test_download_pinned_dataset_fails_when_a_case_video_is_absent_remote(tmp_path: Path) -> None:

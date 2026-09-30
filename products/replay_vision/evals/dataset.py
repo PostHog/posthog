@@ -42,7 +42,11 @@ def parse_utc(raw: Any) -> dt.datetime:
 class GoldenCase(BaseModel, frozen=True):
     """One collected observation: the frozen scanner config, its recorded output, and the human label if any."""
 
-    case_id: str = Field(description="Source ReplayObservation id; doubles as the case directory name.")
+    # The pattern keeps a manifest from pointing case files outside the dataset directory.
+    case_id: str = Field(
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="Source ReplayObservation id; doubles as the case directory name.",
+    )
     scanner_id: str
     scanner_name: str
     scanner_type: str
@@ -183,10 +187,10 @@ def upload_pinned_dataset(
 
 
 def download_pinned_dataset(root: Path, *, bucket: str | None = None, key: str | None = None) -> GoldenDataset:
-    """Download the pinned dataset into root, skipping cases whose bytes are already on disk.
+    """Download the pinned dataset into root, replacing any local case files.
 
-    A re-run costs nothing for the part already local, so CI runners can cache nothing and still
-    only pay for what a fresh runner needs.
+    Local files are never reused, because a file left by another pin or a partial download has the
+    same path as the pinned one and would be scored under the wrong manifest.
     """
     from posthog.storage import object_storage  # noqa: PLC0415 - keeps boto3/Django off the eval import path
 
@@ -198,8 +202,6 @@ def download_pinned_dataset(root: Path, *, bucket: str | None = None, key: str |
     root.mkdir(parents=True, exist_ok=True)
     save_dataset(root, dataset)
     for golden in dataset.cases:
-        if golden.video_path(root).exists() and golden.inputs_path(root).exists():
-            continue
         golden.case_dir(root).mkdir(parents=True, exist_ok=True)
         video = object_storage.read_bytes(
             _case_key(location.key, golden.case_id, VIDEO_NAME), bucket=location.bucket, missing_ok=True
