@@ -21,10 +21,15 @@ export interface AccountAuditStartRequestApi {
      */
     reason: string
     /**
-     * Name of the single-file skill in the US internal Growth project (team 2).
+     * Project ID containing the skill in this region. The credential owner must have read access.
+     * @minimum 1
+     */
+    skill_project: number
+    /**
+     * Name of the single-file skill in skill_project. Uses its latest active version.
      * @maxLength 64
      */
-    skill_name?: string
+    skill_name: string
 }
 
 export interface AccountAuditStartResponseApi {

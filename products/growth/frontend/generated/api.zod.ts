@@ -11,7 +11,6 @@ import * as zod from 'zod'
 
 export const growthAccountAuditsStartCreateBodyReasonMax = 500
 
-export const growthAccountAuditsStartCreateBodySkillNameDefault = `onboarding-account-audit`
 export const growthAccountAuditsStartCreateBodySkillNameMax = 64
 
 export const GrowthAccountAuditsStartCreateBody = /* @__PURE__ */ zod.object({
@@ -27,11 +26,14 @@ export const GrowthAccountAuditsStartCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(growthAccountAuditsStartCreateBodyReasonMax)
         .describe('Why the account audit is being requested.'),
+    skill_project: zod
+        .number()
+        .min(1)
+        .describe('Project ID containing the skill in this region. The credential owner must have read access.'),
     skill_name: zod
         .string()
         .max(growthAccountAuditsStartCreateBodySkillNameMax)
-        .default(growthAccountAuditsStartCreateBodySkillNameDefault)
-        .describe('Name of the single-file skill in the US internal Growth project (team 2).'),
+        .describe('Name of the single-file skill in skill_project. Uses its latest active version.'),
 })
 
 /**
