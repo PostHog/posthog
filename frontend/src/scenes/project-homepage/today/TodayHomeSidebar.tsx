@@ -17,12 +17,12 @@ export function TodayHomeSidebar(): JSX.Element {
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
 
     return (
-        <div className="TodaySidebar">
+        <div className="TodayPane">
             <LemonButton type="primary" fullWidth center icon={<IconPlus />} to={urls.ai()} data-attr="today-new-chat">
                 New chat
             </LemonButton>
-            <div className="TodaySidebar__scroll">
-                <div className="TodaySidebar__sectionLabel Today__label">Today</div>
+            <div className="TodayPane__scroll">
+                <div className="TodayPane__heading Today__label">Today</div>
                 <div className="TodaySidebar__list">
                     <TodayNavItem
                         title="Home"
