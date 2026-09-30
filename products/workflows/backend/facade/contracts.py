@@ -223,3 +223,46 @@ class TwilioAccount(TypedDict, total=False):
     """Empty when the Twilio request fails."""
 
     sid: str
+
+
+@frozen
+class WorkflowRevisionSummary:
+    """One entry of a workflow's version history, without the content snapshot."""
+
+    version: int
+    created_at: datetime
+    created_by: "User | None"
+
+
+@frozen
+class WorkflowRevision:
+    version: int
+    created_at: datetime
+    created_by: "User | None"
+    content: dict[str, Any]
+
+
+class WorkflowRevisionNotFound(Exception):
+    pass
+
+
+class WorkflowDraftExists(Exception):
+    """A draft is staged and the caller did not ask to overwrite it."""
+
+
+class WorkflowDraftChanged(Exception):
+    """The staged draft changed since the caller confirmed the overwrite."""
+
+
+class ProposalMetric(TypedDict):
+    metric: str
+    value: float | None
+    n: int
+    below_minimum_sample: bool
+
+
+class ProposalVersionOutcome(TypedDict):
+    version: int
+    target: ProposalMetric
+    click_through: ProposalMetric
+    guardrails: list[ProposalMetric]
