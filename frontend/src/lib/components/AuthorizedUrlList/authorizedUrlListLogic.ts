@@ -257,6 +257,21 @@ const FRAMEABLE_URL_SCHEME = /^https?:\/\//i
 export const checkUrlIsSafeToFrame = (url: string, authorizedUrls: string[]): boolean =>
     FRAMEABLE_URL_SCHEME.test(url) && checkUrlIsAuthorized(url, authorizedUrls)
 
+/** Returns an error message when a concrete URL cannot launch the toolbar under a wildcard pattern. */
+export const validateWildcardLaunchUrl = (url: string, wildcardPattern: string): string | undefined => {
+    const trimmed = url.trim()
+    if (!trimmed) {
+        return 'Enter a URL'
+    }
+    if (trimmed.includes('*')) {
+        return 'Replace the * with a real value'
+    }
+    if (!checkUrlIsSafeToFrame(trimmed, [wildcardPattern])) {
+        return `URL does not match ${wildcardPattern}`
+    }
+    return undefined
+}
+
 export interface SuggestedDomain {
     url: string
     count: number

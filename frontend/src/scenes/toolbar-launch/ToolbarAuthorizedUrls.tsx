@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import type { ChangeEvent } from 'react'
+import { type ChangeEvent, useState } from 'react'
 
 import { IconCopy, IconEllipsis, IconExternal, IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
@@ -32,15 +32,92 @@ import {
     ItemDescription,
     ItemGroup,
     ItemTitle,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
     Text,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    AuthorizedUrlListType,
+    authorizedUrlListLogic,
+    validateWildcardLaunchUrl,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
+
+function WildcardLaunchButton({
+    wildcardPattern,
+    launchUrl,
+    onCopyLaunchCode,
+}: {
+    wildcardPattern: string
+    launchUrl: (url: string) => string
+    onCopyLaunchCode: () => void
+}): JSX.Element {
+    const [concreteUrl, setConcreteUrl] = useState('')
+    const [showError, setShowError] = useState(false)
+    const error = validateWildcardLaunchUrl(concreteUrl, wildcardPattern)
+
+    return (
+        <Popover
+            onOpenChange={(open) => {
+                if (!open) {
+                    setConcreteUrl('')
+                    setShowError(false)
+                }
+            }}
+        >
+            <PopoverTrigger render={<Button variant="primary" size="sm" data-attr="toolbar-open-wildcard" />}>
+                <IconExternal />
+                Launch
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80">
+                <form
+                    className="flex flex-col gap-3"
+                    onSubmit={(event) => {
+                        event.preventDefault()
+                        if (error) {
+                            setShowError(true)
+                            return
+                        }
+                        window.open(launchUrl(concreteUrl.trim()), '_blank', 'noopener')
+                    }}
+                >
+                    <Field>
+                        <FieldLabel htmlFor="toolbar-wildcard-launch-url">URL to open</FieldLabel>
+                        <Input
+                            id="toolbar-wildcard-launch-url"
+                            autoFocus
+                            value={concreteUrl}
+                            placeholder={wildcardPattern.replace(/:\*/g, ':3000').replace(/\*/g, 'app')}
+                            aria-invalid={showError && !!error}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) => setConcreteUrl(event.target.value)}
+                        />
+                        {showError && error && <FieldError>{error}</FieldError>}
+                    </Field>
+                    <Text size="xs" variant="muted">
+                        Enter a page that matches {wildcardPattern}. Or copy the manual launch code and run it in the
+                        browser console on your site.
+                    </Text>
+                    <div className="flex flex-wrap justify-end gap-2">
+                        <Button type="button" variant="link-muted" size="sm" onClick={onCopyLaunchCode}>
+                            <IconCopy />
+                            Copy manual launch code
+                        </Button>
+                        <Button type="submit" variant="primary" size="sm" data-attr="toolbar-wildcard-launch">
+                            <IconExternal />
+                            Launch
+                        </Button>
+                    </div>
+                </form>
+            </PopoverContent>
+        </Popover>
+    )
+}
 
 export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.Element {
     const logic = authorizedUrlListLogic({
@@ -187,17 +264,11 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
                                     ) : (
                                         <>
                                             {isWildcard ? (
-                                                <Tooltip>
-                                                    <TooltipTrigger
-                                                        render={
-                                                            <Button variant="primary" size="sm" disabled>
-                                                                <IconExternal />
-                                                                Launch
-                                                            </Button>
-                                                        }
-                                                    />
-                                                    <TooltipContent>Wildcard URLs cannot be launched</TooltipContent>
-                                                </Tooltip>
+                                                <WildcardLaunchButton
+                                                    wildcardPattern={keyedURL.url}
+                                                    launchUrl={launchUrl}
+                                                    onCopyLaunchCode={copyLaunchCode}
+                                                />
                                             ) : (
                                                 <Button
                                                     variant="primary"

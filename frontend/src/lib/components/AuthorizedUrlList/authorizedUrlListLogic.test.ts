@@ -20,6 +20,7 @@ import {
     directToolbarUrl,
     filterNotAuthorizedUrls,
     validateProposedUrl,
+    validateWildcardLaunchUrl,
 } from './authorizedUrlListLogic'
 
 describe('the authorized urls list logic', () => {
@@ -464,6 +465,32 @@ describe('the authorized urls list logic', () => {
 
         it('is unsafe when no URLs are authorized', () => {
             expect(checkUrlIsSafeToFrame('https://example.com', [])).toBe(false)
+        })
+    })
+
+    describe('validateWildcardLaunchUrl', () => {
+        it.each([
+            { url: 'https://app.example.com', pattern: 'https://*.example.com', error: undefined },
+            { url: ' https://app.example.com/some/path ', pattern: 'https://*.example.com', error: undefined },
+            { url: 'http://localhost:3000', pattern: 'http://localhost:*', error: undefined },
+            { url: '', pattern: 'https://*.example.com', error: 'Enter a URL' },
+            {
+                url: 'https://*.example.com',
+                pattern: 'https://*.example.com',
+                error: 'Replace the * with a real value',
+            },
+            {
+                url: 'https://app.example.com.evil.com',
+                pattern: 'https://*.example.com',
+                error: 'URL does not match https://*.example.com',
+            },
+            {
+                url: 'javascript:alert(1)//.example.com',
+                pattern: '*.example.com',
+                error: 'URL does not match *.example.com',
+            },
+        ])('returns $error for "$url" against $pattern', ({ url, pattern, error }) => {
+            expect(validateWildcardLaunchUrl(url, pattern)).toBe(error)
         })
     })
 
