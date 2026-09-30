@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "archived": {
+            "description": "Whether the dashboard is archived. Archived dashboards are hidden from the dashboard list scene by default. Distinct from deleting the dashboard.",
+            "type": "boolean"
+        },
         "breakdown_colors": {
             "anyOf": [
                 {
