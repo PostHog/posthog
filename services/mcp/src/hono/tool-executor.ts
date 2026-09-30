@@ -856,14 +856,7 @@ export class ToolExecutor {
             const handlerResult = await renderUiTool.handler(state.context, validation.data)
             toolCallsTotal.inc({ tool: 'render-ui', status: 'success' })
             stop({ status: 'success' })
-            void trackToolCall(
-                'render-ui',
-                Date.now() - startMs,
-                false,
-                state,
-                inputShape,
-                analyticsMeta
-            )
+            void trackToolCall('render-ui', Date.now() - startMs, false, state, inputShape, analyticsMeta)
             // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
             return handlerResult
         } catch (error: unknown) {

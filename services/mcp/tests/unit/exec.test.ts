@@ -2065,10 +2065,7 @@ describe('exec tool', () => {
     describe('describeInputKeys', () => {
         it('lists the top-level keys sorted, without values', () => {
             const schema = z.object({ zeta: z.string(), alpha: z.number(), mid: z.object({ nested: z.string() }) })
-            const keys = describeInputKeys(
-                { zeta: 'secret-value', alpha: 1, mid: { nested: 'also-secret' } },
-                schema
-            )
+            const keys = describeInputKeys({ zeta: 'secret-value', alpha: 1, mid: { nested: 'also-secret' } }, schema)
 
             expect(keys).toEqual(['alpha', 'mid', 'zeta'])
             expect(JSON.stringify(keys)).not.toContain('secret')

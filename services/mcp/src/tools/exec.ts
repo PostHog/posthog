@@ -1490,10 +1490,7 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * true of the field paths as well: a key the schema never declared belongs to the
  * caller, so it is masked rather than recorded (see `normalizeDescriptorPath`).
  */
-export function describeValidationError(
-    error: z.ZodError,
-    schema: z.ZodType
-): { fields: string[] } {
+export function describeValidationError(error: z.ZodError, schema: z.ZodType): { fields: string[] } {
     const declaredNames = declaredPropertyNames(schema)
     const fields = [
         ...new Set(
