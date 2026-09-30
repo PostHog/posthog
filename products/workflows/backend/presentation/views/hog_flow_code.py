@@ -304,7 +304,9 @@ class HogFlowCodeMixin:
 
 def _workflow_code(view: "HogFlowViewSet") -> WorkflowCode:
     return WorkflowCode(
-        team_id=view.team_id,
+        # The serializer creates a workflow in the route's team, so the key lookup must use that team too.
+        # A form body's `token` would switch `view.team_id` to its environment on `@current`.
+        team_id=view.get_serializer_context()["team_id"],
         access=view.user_access_control,
         writer=view._workflow_writer(),
         through_mcp=view._is_mcp_request(view.request),
