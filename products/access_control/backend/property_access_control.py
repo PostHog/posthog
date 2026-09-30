@@ -164,7 +164,7 @@ def get_property_access_level(
                 user=user,
                 organization_id=property.team.organization_id,
             )
-            .only("id", "level")
+            .only("id", "level", "user_id")
             .first()
         )
 
@@ -257,7 +257,7 @@ def get_non_writable_property_names(
         organization = Organization.objects.get(team__id=team_id)
         membership = (
             OrganizationMembership.objects.filter(user=user, organization_id=organization.id)
-            .only("id", "level")
+            .only("id", "level", "user_id")
             .first()
         )
         user_role_ids = _get_user_role_ids(membership, organization)
@@ -356,7 +356,7 @@ def get_restricted_properties_with_group_type_index_for_team(
         membership_qs = OrganizationMembership.objects.filter(
             user=user,
             organization_id=organization.id,
-        ).only("id", "level")
+        ).only("id", "level", "user_id")
         membership = membership_qs.first()
 
         if membership is None:
@@ -406,8 +406,10 @@ def _get_user_role_ids(membership: OrganizationMembership | None, organization: 
     """
     if membership is None or not organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
         return set()
+    # Looked up by user, not by organization member: valid_for_authorization() accepts memberships
+    # without an organization member, and the access control facade loads roles the same way.
     return set(
-        RoleMembership.objects.filter(organization_member=membership)
+        RoleMembership.objects.filter(user_id=membership.user_id, role__organization_id=organization.id)
         .valid_for_authorization()
         .values_list("role_id", flat=True)
     )

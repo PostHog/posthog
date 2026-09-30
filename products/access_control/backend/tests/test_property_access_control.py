@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition
 
@@ -18,7 +20,7 @@ from products.access_control.backend.property_access_control import (
 )
 
 
-def _enable_property_access_control(organization, *, role_based_access: bool = True):
+def _enable_property_access_control(organization: Organization, *, role_based_access: bool = True) -> None:
     features = [AvailableFeature.PROPERTY_ACCESS_CONTROL]
     if role_based_access:
         features.append(AvailableFeature.ROLE_BASED_ACCESS)
@@ -209,7 +211,9 @@ class TestGetPropertyAccessLevel(BaseTest):
             ("without_role_based_access", False, PropertyAccessLevel.NONE),
         ]
     )
-    def test_role_rule_overrides_default(self, _name, role_based_access, expected_level):
+    def test_role_rule_overrides_default(
+        self, _name: str, role_based_access: bool, expected_level: PropertyAccessLevel
+    ) -> None:
         _enable_property_access_control(self.organization, role_based_access=role_based_access)
         role = Role.objects.create(name="Analyst", organization=self.organization)
         RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
@@ -229,6 +233,24 @@ class TestGetPropertyAccessLevel(BaseTest):
         )
         level = get_property_access_level(property=self.prop_def, user=self.user)
         assert level == expected_level
+
+    def test_role_rule_applies_to_membership_without_organization_member(self) -> None:
+        role = Role.objects.create(name="Analyst", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=None)
+
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.prop_def,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
+            role=role,
+        )
+        level = get_property_access_level(property=self.prop_def, user=self.user)
+        assert level == PropertyAccessLevel.READ_WRITE
 
     def test_user_rule_takes_priority_over_role_rule(self):
         from products.access_control.backend.models.role import Role, RoleMembership
@@ -407,7 +429,9 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
             ("without_role_based_access", False, {("secret_event_prop", PropertyDefinition.Type.EVENT)}),
         ]
     )
-    def test_role_override_removes_from_restricted(self, _name, role_based_access, expected_restricted):
+    def test_role_override_removes_from_restricted(
+        self, _name: str, role_based_access: bool, expected_restricted: set[RestrictedProperty]
+    ) -> None:
         _enable_property_access_control(self.organization, role_based_access=role_based_access)
         role = Role.objects.create(name="Analyst", organization=self.organization)
         RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
