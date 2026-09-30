@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonCollapse, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonDialog, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -37,25 +37,27 @@ export function ScoutStructuredOutputSection({
     config,
     onUpdate,
     updating = false,
+    onUnsavedChange,
 }: {
     config: SignalScoutConfig
     onUpdate: (configId: string, updates: SignalScoutConfigUpdate) => void
     updating?: boolean
+    /** Called when the editor gains or loses an unsaved edit, so a host modal can guard its backdrop. */
+    onUnsavedChange?: (unsaved: boolean) => void
 }): JSX.Element {
     const saved = config.structured_output_schema ?? null
     const savedText = saved ? JSON.stringify(saved, null, 2) : ''
     // Null until something is typed, so an untouched editor follows the saved schema.
     const [draft, setDraft] = useState<string | null>(null)
-    // The schema the last save sent, held until the request settles. The draft clears only if the
-    // stored schema then matches it. A rejected save reverts the config, so the typed JSON stays on
-    // screen to correct and save again.
-    const [submitted, setSubmitted] = useState<Record<string, unknown> | null>(null)
-    const [confirmingTurnOff, setConfirmingTurnOff] = useState(false)
+    // The schema the last save or turn-off sent (null for a turn-off), held until the request settles.
+    // The draft clears only if the stored schema then matches it. A rejected request reverts the
+    // config, so the typed JSON stays on screen to correct and try again.
+    const [submitted, setSubmitted] = useState<{ schema: Record<string, unknown> | null } | null>(null)
     useEffect(() => {
         if (updating || !submitted) {
             return
         }
-        if (objectsEqual(saved, submitted)) {
+        if (objectsEqual(saved, submitted.schema)) {
             setDraft(null)
         }
         setSubmitted(null)
@@ -63,6 +65,12 @@ export function ScoutStructuredOutputSection({
     const text = draft ?? savedText
     const { schema, error } = parseScoutStructuredOutputSchema(text)
     const changed = JSON.stringify(schema) !== JSON.stringify(saved)
+    const unsaved = draft !== null && changed
+    useEffect(() => {
+        onUnsavedChange?.(unsaved)
+        return () => onUnsavedChange?.(false)
+    }, [unsaved, onUnsavedChange])
+    const errorId = `${config.id}-structured-output-error`
     const fieldNames = scoutStructuredOutputFieldNames(saved)
     const headerFields = fieldNames.slice(0, HEADER_FIELD_LIMIT)
     const tagType = config.emit ? 'option' : 'muted'
@@ -90,7 +98,9 @@ export function ScoutStructuredOutputSection({
                                             {headerFields.map((name) => (
                                                 <Tooltip key={name} title={name}>
                                                     <LemonTag size="small" type={tagType} className="max-w-40">
-                                                        <span className="truncate">{name}</span>
+                                                        <span className="truncate" translate="no">
+                                                            {name}
+                                                        </span>
                                                     </LemonTag>
                                                 </Tooltip>
                                             ))}
@@ -133,8 +143,14 @@ export function ScoutStructuredOutputSection({
                                     disabled={updating}
                                     onChange={setDraft}
                                     aria-label={`${config.skill_name} record schema`}
+                                    aria-invalid={!!error}
+                                    aria-describedby={error ? errorId : undefined}
                                 />
-                                {error ? <span className="text-[11.5px] text-danger">{error}</span> : null}
+                                {error ? (
+                                    <span id={errorId} role="alert" className="text-[11.5px] text-danger">
+                                        {error}
+                                    </span>
+                                ) : null}
                                 {!config.emit ? (
                                     <span className="text-[11.5px] text-warning">
                                         This scout is in a dry run, so it records nothing. Turn on "Write signals to the
@@ -142,79 +158,62 @@ export function ScoutStructuredOutputSection({
                                     </span>
                                 ) : null}
                                 <div className="flex flex-wrap items-center justify-end gap-2">
-                                    {confirmingTurnOff ? (
-                                        <>
-                                            <span className="mr-auto min-w-0 text-[11.5px] text-default">
-                                                Turn off structured output?
-                                            </span>
-                                            <div className="flex shrink-0 gap-2">
-                                                <LemonButton
-                                                    size="small"
-                                                    type="secondary"
-                                                    onClick={() => setConfirmingTurnOff(false)}
-                                                >
-                                                    Cancel
-                                                </LemonButton>
-                                                <LemonButton
-                                                    size="small"
-                                                    type="primary"
-                                                    status="danger"
-                                                    loading={updating}
-                                                    disabledReason={disabledReason}
-                                                    onClick={() => {
-                                                        onUpdate(config.id, { structured_output_schema: null })
-                                                        setDraft(null)
-                                                        setConfirmingTurnOff(false)
-                                                    }}
-                                                    data-attr="scout-structured-output-clear"
-                                                >
-                                                    Turn off
-                                                </LemonButton>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                            {saved ? (
-                                                <LemonButton
-                                                    size="small"
-                                                    type="secondary"
-                                                    status="danger"
-                                                    className="mr-auto"
-                                                    disabledReason={disabledReason}
-                                                    onClick={() => setConfirmingTurnOff(true)}
-                                                >
-                                                    Turn off
-                                                </LemonButton>
-                                            ) : null}
-                                            {draft !== null && changed ? (
-                                                <LemonButton
-                                                    size="small"
-                                                    type="tertiary"
-                                                    disabledReason={disabledReason}
-                                                    onClick={() => setDraft(null)}
-                                                    data-attr="scout-structured-output-discard"
-                                                >
-                                                    Discard
-                                                </LemonButton>
-                                            ) : null}
-                                            <LemonButton
-                                                size="small"
-                                                type="secondary"
-                                                loading={updating}
-                                                disabledReason={saveDisabledReason}
-                                                onClick={() => {
-                                                    if (!schema) {
-                                                        return
-                                                    }
-                                                    onUpdate(config.id, { structured_output_schema: schema })
-                                                    setSubmitted(schema)
-                                                }}
-                                                data-attr="scout-structured-output-save"
-                                            >
-                                                Save schema
-                                            </LemonButton>
-                                        </>
-                                    )}
+                                    {saved ? (
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            status="danger"
+                                            className="mr-auto"
+                                            disabledReason={disabledReason}
+                                            onClick={() =>
+                                                LemonDialog.open({
+                                                    title: 'Turn off structured output?',
+                                                    description:
+                                                        'The scout stops producing records. You can add a schema again later.',
+                                                    primaryButton: {
+                                                        children: 'Turn off',
+                                                        status: 'danger',
+                                                        onClick: () => {
+                                                            onUpdate(config.id, { structured_output_schema: null })
+                                                            setSubmitted({ schema: null })
+                                                        },
+                                                        'data-attr': 'scout-structured-output-clear',
+                                                    },
+                                                    secondaryButton: { children: 'Cancel' },
+                                                })
+                                            }
+                                            data-attr="scout-structured-output-turn-off"
+                                        >
+                                            Turn off
+                                        </LemonButton>
+                                    ) : null}
+                                    {unsaved ? (
+                                        <LemonButton
+                                            size="small"
+                                            type="tertiary"
+                                            disabledReason={disabledReason}
+                                            onClick={() => setDraft(null)}
+                                            data-attr="scout-structured-output-discard"
+                                        >
+                                            Discard
+                                        </LemonButton>
+                                    ) : null}
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        loading={updating}
+                                        disabledReason={saveDisabledReason}
+                                        onClick={() => {
+                                            if (!schema) {
+                                                return
+                                            }
+                                            onUpdate(config.id, { structured_output_schema: schema })
+                                            setSubmitted({ schema })
+                                        }}
+                                        data-attr="scout-structured-output-save"
+                                    >
+                                        Save schema
+                                    </LemonButton>
                                 </div>
                             </div>
                         ),

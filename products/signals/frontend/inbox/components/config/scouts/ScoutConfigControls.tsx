@@ -69,6 +69,8 @@ interface ScoutConfigFormProps extends ScoutConfigControlsProps {
     deleting?: boolean
     /** True while this scout's config update request is in flight. */
     updating?: boolean
+    /** Called when a staged edit (the record schema) gains or loses unsaved changes. */
+    onUnsavedChange?: (unsaved: boolean) => void
 }
 
 /** Enable/disable toggle for a scout. Lives on the row, not in the settings form. */
@@ -99,6 +101,7 @@ export function ScoutConfigForm({
     onDelete,
     deleting,
     updating = false,
+    onUnsavedChange,
 }: ScoutConfigFormProps): JSX.Element {
     const { timezone: projectTimezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -334,7 +337,13 @@ export function ScoutConfigForm({
             />
             {/* Keyed by scout because the scout page keeps this form mounted when the URL moves to another
                 scout, and an unsaved schema draft must not become the next scout's save. */}
-            <ScoutStructuredOutputSection key={config.id} config={config} onUpdate={onUpdate} updating={updating} />
+            <ScoutStructuredOutputSection
+                key={config.id}
+                config={config}
+                onUpdate={onUpdate}
+                updating={updating}
+                onUnsavedChange={onUnsavedChange}
+            />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}

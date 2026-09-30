@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import { initKeaTests } from '~/test/init'
 
@@ -116,6 +118,36 @@ describe('ScoutStructuredOutputSection', () => {
         expect(editor).toHaveValue(expectedText)
     })
 
+    it.each([
+        ['refuses', SCHEMA, '{"type": "object", "properties": {"score": {"type": "integer"}}}'],
+        ['accepts', null, ''],
+    ])('keeps the right text in the editor when the API %s the turn-off', (_outcome, stored, expectedText) => {
+        const edit = '{"type": "object", "properties": {"score": {"type": "integer"}}}'
+        const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const withSchema = { ...CONFIG, structured_output_schema: SCHEMA }
+        let rerender: (ui: JSX.Element) => void = () => {}
+        const onUpdate = (_configId: string, updates: Partial<SignalScoutConfigApi>): void =>
+            rerender(
+                <ScoutStructuredOutputSection config={{ ...withSchema, ...updates }} onUpdate={jest.fn()} updating />
+            )
+        ;({ rerender } = render(<ScoutStructuredOutputSection config={withSchema} onUpdate={onUpdate} />))
+        fireEvent.click(screen.getByText('Structured output'))
+        const editor = screen.getByLabelText('signals-scout-hygiene record schema')
+
+        fireEvent.change(editor, { target: { value: edit } })
+        fireEvent.click(screen.getByText('Turn off'))
+        act(() => open.mock.calls[0][0].primaryButton?.onClick?.({} as React.MouseEvent<HTMLElement>))
+        rerender(
+            <ScoutStructuredOutputSection
+                config={{ ...CONFIG, structured_output_schema: stored }}
+                onUpdate={jest.fn()}
+            />
+        )
+
+        expect(editor).toHaveValue(expectedText)
+        open.mockRestore()
+    })
+
     it('refuses to save a schema the API would reject', () => {
         const onUpdate = openSection(CONFIG)
 
@@ -124,18 +156,21 @@ describe('ScoutStructuredOutputSection', () => {
         })
 
         expect(screen.getByText('The schema must set "type": "object" at its root.')).toBeInTheDocument()
+        expect(screen.getByLabelText('signals-scout-hygiene record schema')).toHaveAttribute('aria-invalid', 'true')
         fireEvent.click(screen.getByText('Save schema'))
         expect(onUpdate).not.toHaveBeenCalled()
     })
 
-    it('turns the channel off only after the clear is confirmed', () => {
+    it('turns the channel off only after the dialog is confirmed', () => {
         // A stray click must not delete a schema the scout records against.
+        const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
         const onUpdate = openSection({ ...CONFIG, structured_output_schema: SCHEMA })
 
         fireEvent.click(screen.getByText('Turn off'))
         expect(onUpdate).not.toHaveBeenCalled()
 
-        fireEvent.click(screen.getByText('Turn off'))
+        open.mock.calls[0][0].primaryButton?.onClick?.({} as React.MouseEvent<HTMLElement>)
         expect(onUpdate).toHaveBeenCalledWith('config-1', { structured_output_schema: null })
+        open.mockRestore()
     })
 })
