@@ -21,6 +21,8 @@ export const SPACE_FEED_TYPES: { value: SpaceFeedType; label: string }[] = [
 
 export const DEFAULT_SPACE_FEED_TYPES: SpaceFeedType[] = SPACE_FEED_TYPES.map((type) => type.value)
 
+export type SpaceFeedView = 'list' | 'cards'
+
 export type SpaceFeedStatusFilter = 'any' | 'unread'
 export type SpaceFeedPinnedFilter = 'any' | 'pinned'
 export type SpaceFeedEnvironmentFilter = 'any' | 'local' | 'cloud'

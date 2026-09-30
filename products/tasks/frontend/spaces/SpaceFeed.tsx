@@ -18,6 +18,7 @@ import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 
 import { SpaceFeedCard } from './SpaceFeedCard'
 import { SpaceFeedControls } from './SpaceFeedControls'
+import { SpaceFeedListRow } from './SpaceFeedListRow'
 import { SpaceFeedPullRequestRow } from './SpaceFeedPullRequestRow'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
 import { spaceSceneLogic } from './spaceSceneLogic'
@@ -33,10 +34,11 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
         sessionsUnavailable,
     } = useValues(spaceSceneLogic({ id }))
     const { loadSessions } = useActions(spaceSceneLogic({ id }))
-    const { filtersActive } = useValues(spaceFeedViewLogic)
+    const { view, filtersActive } = useValues(spaceFeedViewLogic)
     const { clearFilters } = useActions(spaceFeedViewLogic)
     const { pinnedItems, unreadSessionIds } = useValues(todaySpacesLogic)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
+    const listRows = view === 'list'
 
     if (sessionsLoading && !feedItems.length) {
         return (
@@ -104,33 +106,64 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
             )}
             {feedSections.map((section) => (
                 <Fragment key={section.key}>
-                    {section.label !== null && (
-                        <div className="flex items-center gap-3 pt-5 pb-2">
-                            <Separator className="flex-1" />
+                    {section.label !== null &&
+                        (listRows ? (
                             <Text
-                                render={<span />}
                                 size="xxs"
-                                weight="semibold"
+                                weight="medium"
                                 variant="muted"
-                                className="shrink-0 tracking-wider uppercase"
+                                className="px-2 pt-3 pb-1 tracking-wider uppercase"
                             >
                                 {section.label}
                             </Text>
-                            <Separator className="flex-1" />
-                        </div>
-                    )}
+                        ) : (
+                            <div className="flex items-center gap-3 pt-5 pb-2">
+                                <Separator className="flex-1" />
+                                <Text
+                                    render={<span />}
+                                    size="xxs"
+                                    weight="semibold"
+                                    variant="muted"
+                                    className="shrink-0 tracking-wider uppercase"
+                                >
+                                    {section.label}
+                                </Text>
+                                <Separator className="flex-1" />
+                            </div>
+                        ))}
                     {section.entries.map((entry) => {
                         const task = sessionsById[entry.item.id]
                         if (!task) {
                             return null
                         }
-                        return entry.kind === 'pr' ? (
-                            <SpaceFeedPullRequestRow
-                                key={entry.key}
-                                pullRequest={entry.pullRequest}
-                                session={entry.item}
-                                author={task.created_by ?? null}
-                            />
+                        // List rows are ruled apart, like PostHog Desktop's.
+                        const rowClassName = 'border-b border-border last:border-b-0'
+                        if (entry.kind === 'pr') {
+                            const row = (
+                                <SpaceFeedPullRequestRow
+                                    key={entry.key}
+                                    pullRequest={entry.pullRequest}
+                                    session={entry.item}
+                                    author={task.created_by ?? null}
+                                    listRow={listRows}
+                                />
+                            )
+                            return listRows ? (
+                                <div key={entry.key} className={rowClassName}>
+                                    {row}
+                                </div>
+                            ) : (
+                                row
+                            )
+                        }
+                        return listRows ? (
+                            <div key={entry.key} className={rowClassName}>
+                                <SpaceFeedListRow
+                                    task={task}
+                                    pinned={pinnedIds.has(task.id)}
+                                    unread={unreadSessionIds.has(task.id)}
+                                />
+                            </div>
                         ) : (
                             <SpaceFeedCard
                                 key={entry.key}
