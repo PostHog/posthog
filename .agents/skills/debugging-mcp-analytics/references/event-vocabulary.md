@@ -95,10 +95,12 @@ stamped in `tool-executor.ts` and registered in `posthog/taxonomy/taxonomy.py`.
 
 A `$mcp_tool_call` that named a tool and its arguments (a direct-mode call, `render-ui`, or an
 exec `call`) also carries the call's shape, stamped in `tool-executor.ts` from the raw input before
-any alias is folded away: `$mcp_input_keys` (the top-level argument names the caller sent, sorted,
-capped at 20, never values, a key that is not identifier-shaped recorded as `*`; in exec mode parsed
-from the `call` command's JSON) and `$mcp_param_aliases_used` (`alias->canonical` tokens such as
-`experimentId->id`, present only when the normaliser filled the canonical from that alias). Exec
+any alias is folded away, by the `@posthog/mcp` SDK helper `getToolInputProperties`:
+`$mcp_input_keys` (the top-level argument names the caller sent, never values: declared names and
+aliases first, then undeclared identifier-shaped names, capped at 20, any other name recorded as
+one `[redacted]` entry; in exec mode parsed from the `call` command's JSON) and
+`$mcp_input_aliases_used` (`alias:canonical` tokens such as `experimentId:id`, present only when
+the normaliser filled the canonical from that alias). Exec
 discovery verbs (`tools`, `search`, `info`, `schema`) carry neither, so rate alias use against the
 rows where `$mcp_input_keys` is set, not against every `$mcp_tool_call`. Group the two by
 `$mcp_client_name` to see which spelling each agent reaches for and how much of it the alias layer

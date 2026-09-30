@@ -130,32 +130,3 @@ export function readParamAliases(schema: z.ZodType): Record<string, readonly str
     }
     return merged
 }
-
-/**
- * Which aliases the normaliser actually relied on, as `alias->canonical` tokens. Mirrors
- * `normalizeParamAliases` exactly: a canonical the input already carries is never filled
- * from an alias, and only the first alias in map order fills it; anything else was deleted
- * unused and is not recorded. Both halves are names the tool's own schema declares, never
- * input values, so the list is safe to record.
- */
-export function describeAliasesUsed(
-    aliasMap: Record<string, readonly string[]> | undefined,
-    input: Record<string, unknown>
-): string[] {
-    if (!aliasMap) {
-        return []
-    }
-    const used: string[] = []
-    for (const [canonical, aliases] of Object.entries(aliasMap)) {
-        if (input[canonical] !== undefined) {
-            continue
-        }
-        for (const alias of aliases) {
-            if (Object.prototype.hasOwnProperty.call(input, alias)) {
-                used.push(`${alias}->${canonical}`)
-                break
-            }
-        }
-    }
-    return used.sort()
-}
