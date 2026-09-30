@@ -9730,6 +9730,10 @@ snapshots:
         hash: v1.k794b7964.1074de0d6b43c97997e4cf0805a72c6d6421d705c19302d513843b20fcd228a6.iLBmTqiDcsehqfv8-kOyDSMaUBDhMJzv8zv-BXpxmPQ
     scenes-app-experiments-setup-context--setup-context-drawer-narrow--light:
         hash: v1.k794b7964.cc999db118582bdb5f64351350f6013fc380f65ff7f029699b999ec6ec88d165.fgI_0tKTAlU-s75XAXeOKhCSc5GAiqMeTvCcgYcPFrg
+    scenes-app-feature-flags--deleted-feature-flag--dark:
+        hash: v1.k794b7964.3795bb1f396527c180bfcef4de823b5064fc13a2ed44cd4ef60abe7cb88002bb.bDHlqsOUbRivTPIRkkukSBdGNT9qfo4LPtuL5GSKvyI
+    scenes-app-feature-flags--deleted-feature-flag--light:
+        hash: v1.k794b7964.0e7e762946624e513cd91315999f4eec08f741351e5305537f752ca23f73d043.iZUHrQEikVJFEDf5HnL6ffOYuQZJr5lCturFKuLetiI
     scenes-app-feature-flags--edit-encrypted-remote-config-feature-flag--dark:
         hash: v1.k794b7964.8504bd833db23615979e665b2e02508a6a6d8650fe64ba2bd8ab16509e6b5f2c.Mr1CI-569yDB1Rd7c08A7B-_0GSnEHXA0wNvR22TNF4
     scenes-app-feature-flags--edit-encrypted-remote-config-feature-flag--light:
