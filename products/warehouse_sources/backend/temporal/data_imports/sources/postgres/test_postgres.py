@@ -2616,6 +2616,12 @@ class TestIsConnectionLimitError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15"
             ),
+            # Supavisor's instance-wide sibling of EMAXCONNSESSION: the pooler's total client-facing
+            # connection count (across every tenant) hit its own cap, not just this tenant's pool.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 6543 failed: '
+                "FATAL:  (EMAXCONN) max client connections reached, limit: 200"
+            ),
             # A pooler (PgBouncer-style) that caches an upstream login failure reveals the limit on
             # the first query as a ProtocolViolation, not an OperationalError — it must still be
             # recognised so the discovery retry recovers instead of surfacing it as captured noise.
@@ -2627,6 +2633,7 @@ class TestIsConnectionLimitError:
     )
     def test_connection_limit_errors_are_detected(self, error):
         assert _is_connection_limit_error(error) is True
+        assert _is_dropped_or_connect_timeout(error) is True
 
     @pytest.mark.parametrize(
         "error",
