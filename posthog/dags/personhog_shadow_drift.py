@@ -73,6 +73,8 @@ class DriftCategoryReport:
 
 PropertyDriftKind = Literal["only_in_legacy", "only_in_personhog", "value_differs"]
 
+_PROPERTY_DRIFT_MAX_ROWS = 100
+
 
 @frozen
 class PropertyKeyDrift:
@@ -233,14 +235,18 @@ WHERE p.hash_key IS NULL OR l.hash_key IS NULL OR l.hash_key <> p.hash_key
 LIMIT %(limit)s
 """
 
-_PROPERTY_DIFF_SQL = """
-WITH pairs AS (
-    SELECT l.team_id, l.uuid, l.properties AS legacy_props, p.properties AS personhog_props
-    FROM posthog_person l
-    JOIN personhog_person_tmp p USING (team_id, uuid)
-    WHERE NOT l.is_deleted AND NOT p.is_deleted
-      AND l.properties::text IS DISTINCT FROM p.properties::text
+_PROPERTY_DIFF_SQL = f"""
+{_PERSON_SIDES}, mismatched AS (
+    SELECT team_id, uuid
+    FROM legacy l
+    JOIN personhog p USING (team_id, uuid)
+    WHERE l.properties_hash IS DISTINCT FROM p.properties_hash
     LIMIT %(limit)s
+), pairs AS (
+    SELECT m.team_id, m.uuid, l.properties AS legacy_props, p.properties AS personhog_props
+    FROM mismatched m
+    JOIN posthog_person l USING (team_id, uuid)
+    JOIN personhog_person_tmp p USING (team_id, uuid)
 ), keys AS (
     SELECT team_id, uuid, legacy_props, personhog_props, k.key
     FROM pairs, LATERAL (
@@ -348,8 +354,10 @@ def _format_person_property_detail(team_id: object, person_uuid: object, rows: l
         f"{row['key']!r} {row['kind']} "
         f"legacy={_format_property_side(row['legacy_type'], row['legacy_length'])} "
         f"personhog={_format_property_side(row['personhog_type'], row['personhog_length'])}"
-        for row in rows
+        for row in rows[:_PROPERTY_DRIFT_MAX_ROWS]
     )
+    if len(rows) > _PROPERTY_DRIFT_MAX_ROWS:
+        keys += "; ..."
     return f"team={team_id} uuid={person_uuid} differing_keys={len(rows)}: {keys}"
 
 
@@ -377,13 +385,10 @@ def sample_property_drift(
     return PropertyDriftSample(sampled_persons=len(persons), key_drifts=key_drifts, person_details=person_details)
 
 
-_PROPERTY_DRIFT_TABLE_ROWS = 100
-
-
-def _property_drift_table(sample: PropertyDriftSample, limit: int | None = None) -> str:
+def _property_drift_table(sample: PropertyDriftSample) -> str:
     lines = ["| key | kind | persons |", "|---|---|---|"]
-    for drift in sample.key_drifts[:limit]:
-        key = drift.key.replace("|", "\\|")
+    for drift in sample.key_drifts[:_PROPERTY_DRIFT_MAX_ROWS]:
+        key = drift.key.replace("|", "\\|").replace("\n", "\\n").replace("\r", "\\r")
         lines.append(f"| {key} | {drift.kind} | {drift.persons} |")
     return "\n".join(lines)
 
@@ -564,15 +569,15 @@ def report_shadow_drift(context: dagster.OpExecutionContext, config: ShadowDrift
     metadata["summary"] = dagster.MetadataValue.md("\n".join(lines))
     if property_drift is not None:
         context.log.info(
-            f"[persons] property drift by key over {property_drift.sampled_persons} sampled persons:\n"
+            f"[persons] property drift by key over {property_drift.sampled_persons} sampled persons "
+            f"({len(property_drift.key_drifts)} key rows, up to {_PROPERTY_DRIFT_MAX_ROWS} shown):\n"
             f"{_property_drift_table(property_drift)}"
         )
         for detail in property_drift.person_details:
             context.log.info(f"[persons] property drift detail: {detail}")
         metadata["persons_property_drift_sampled_persons"] = dagster.MetadataValue.int(property_drift.sampled_persons)
-        metadata["persons_property_drift_keys"] = dagster.MetadataValue.md(
-            _property_drift_table(property_drift, limit=_PROPERTY_DRIFT_TABLE_ROWS)
-        )
+        metadata["persons_property_drift_key_rows"] = dagster.MetadataValue.int(len(property_drift.key_drifts))
+        metadata["persons_property_drift_keys"] = dagster.MetadataValue.md(_property_drift_table(property_drift))
     context.add_output_metadata(metadata)
 
 
