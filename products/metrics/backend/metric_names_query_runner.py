@@ -17,6 +17,11 @@ of one fingerprint agrees on it and `any()` cannot return a stale type.
 Surfaces `metric_type` alongside the name so the viewer can hint at the
 type-appropriate default aggregation (gauge -> avg, counter/sum -> sum, etc.)
 without a second round-trip.
+
+The series `last_seen` can lag the newest sample. Capture sends the series
+labels on the first sample of each label window only, and `metric_series`
+takes rows only from labelled samples. So the catalog takes `last_seen` from
+the newest sample that the sparkline query reads.
 """
 
 import datetime as dt
@@ -33,6 +38,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
@@ -70,6 +76,20 @@ def _isoformat(value: Any) -> str | None:
     if value is None:
         return None
     return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+@frozen
+class _RecentSamples:
+    sparkline: list[float]
+    last_seen: dt.datetime
+
+
+def _newest(series_last_seen: Any, recent: _RecentSamples | None) -> Any:
+    if recent is None:
+        return series_last_seen
+    if series_last_seen is None:
+        return recent.last_seen
+    return max(series_last_seen, recent.last_seen)
 
 
 class MetricNamesQueryRunner:
@@ -203,21 +223,21 @@ class MetricNamesQueryRunner:
         )
 
         names = [row[0] for row in response.results]
-        sparklines = self._sparklines(names) if self.include_sparklines else {}
+        recent = self._recent_samples(names) if self.include_sparklines else {}
 
         return [
             {
                 "name": row[0],
                 "metric_type": row[1],
                 "unit": row[2],
-                "last_seen": _isoformat(row[3]),
-                "sparkline": sparklines.get(row[0], []),
+                "last_seen": _isoformat(_newest(row[3], recent.get(row[0]))),
+                "sparkline": recent[row[0]].sparkline if row[0] in recent else [],
             }
             for row in response.results
         ]
 
-    def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
-        """A small recent shape per metric, for the catalog cards.
+    def _recent_samples(self, names: Sequence[str]) -> dict[str, _RecentSamples]:
+        """A small recent shape and the newest sample time per metric, for the catalog cards.
 
         Reads the raw `metrics` data points. Each metric is bucketed onto a
         fixed grid and averaged per bucket across its series; a card only shows
@@ -241,7 +261,8 @@ class MetricNamesQueryRunner:
                 SELECT
                     metric_name AS name,
                     toDateTime(intDiv(toUnixTimestamp(timestamp) - toUnixTimestamp({window_start}), {bucket_seconds}) * {bucket_seconds} + toUnixTimestamp({window_start})) AS bucket_start,
-                    avg(value) AS bucket_value
+                    avg(value) AS bucket_value,
+                    max(timestamp) AS bucket_newest_sample
                 FROM posthog.metrics
                 WHERE timestamp > {window_start}
                   AND time_bucket >= {bucket_from}
@@ -276,9 +297,11 @@ class MetricNamesQueryRunner:
         )
 
         sparklines: dict[str, list[float]] = {}
-        for name, _bucket_start, bucket_value in response.results:
+        newest: dict[str, dt.datetime] = {}
+        for name, _bucket_start, bucket_value, bucket_newest_sample in response.results:
             sparklines.setdefault(name, []).append(float(bucket_value))
-        return sparklines
+            newest[name] = max(newest.get(name, bucket_newest_sample), bucket_newest_sample)
+        return {name: _RecentSamples(sparkline=points, last_seen=newest[name]) for name, points in sparklines.items()}
 
     def _series_scope_subquery(self, names: Sequence[str]) -> ast.SelectQuery:
         """The series fingerprints, for these names, owned by the scoped services.
