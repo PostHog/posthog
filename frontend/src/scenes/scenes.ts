@@ -140,7 +140,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.HOG_FUNCTION,
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
-    [Scene.ExperimentsStaffTools]: { instanceLevel: true, name: 'Experiments staff tools' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -332,6 +331,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Homepage',
         layout: 'app-raw-no-header',
+    },
+    [Scene.Library]: {
+        projectBased: true,
+        name: 'Library',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
@@ -804,7 +807,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     // Must come before the parameterized /experiments/:id route
-    [urls.experimentsStaffTools()]: [Scene.ExperimentsStaffTools, 'experimentsStaffTools'],
+    [urls.experimentsStaffTools()]: ['ExperimentsStaffTools' as Scene, 'experimentsStaffTools'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
@@ -826,6 +829,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
+    [urls.todayReport(':reportId')]: [Scene.ProjectHomepage, 'todayReport'],
+    [urls.library()]: [Scene.Library, 'library'],
+    [urls.library(':objectType')]: [Scene.Library, 'libraryObjectType'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],

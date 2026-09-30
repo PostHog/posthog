@@ -62,7 +62,7 @@ class TestPushDispatcher(TestCase):
         mock_delay.assert_called_once()
         user_id, title, body, data, suppressed = mock_delay.call_args.args
         self.assertEqual(user_id, self.user.id)
-        self.assertEqual(title, "PostHog Desktop")
+        self.assertEqual(title, "posthog")
         self.assertIn(expected_body_fragment, body)
         self.assertEqual(data["taskId"], str(self.task.id))
         self.assertEqual(data["taskRunId"], str(self.task_run.id))
@@ -216,7 +216,7 @@ class TestPushDispatcher(TestCase):
 
         send_user_push(
             self.user.id,
-            "PostHog Desktop",
+            "posthog",
             "Finished",
             {"notificationKind": "completed"},
         )

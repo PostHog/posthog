@@ -44,8 +44,20 @@ Rule of thumb:
 - Pull-only API, no cursor we can persist → `SimpleSource`.
 - Pull-only API with any cursor/next-page/time-filter we can save between runs → `ResumableSource`.
 - Source can call us back with change events → add `WebhookSource` on top of whichever pull base fits.
+- Source's next run starts from a position only the source can compute, not the max of a column → add `CursorSource`.
 
 Databases and file-transfer sources (SFTP, S3) stay on `SimpleSource` unless there's a clear reason otherwise.
+
+### Durable source cursors (`CursorSource`)
+
+The incremental field covers the common case: the pipeline takes the max of a column and the next run filters above it.
+Some positions are not a column max: a Postgres xmin ceiling captured before the read, or a set of Kafka partition offsets.
+For those, add the `CursorSource[CursorT]` mixin from `sources/common/cursor.py` instead of new fields on `SourceResponse` or new keys in `sync_type_config`.
+
+- Define the cursor as a `@frozen` dataclass with a `cursor_kind: ClassVar[str]`. Keep the kind stable, because a changed kind discards every stored cursor. Give fields added later a default, because a stored cursor that lacks a required field is discarded.
+- Implement `cursor_class()`. Override `merge_cursors(current, candidate)` when a run that read less must not move the cursor back (Kafka keeps the per-partition max). Override `cursor_from_legacy()` only when migrating state that was stored under other keys.
+- In `source_for_pipeline`, call `self.get_cursor_manager(inputs)`. `load()` returns the stored cursor, or `None` on a reset or a table rebuild. `stage(cursor)` hands the next cursor to the pipeline.
+- The pipeline persists the staged cursor only after the run's rows are durable (on v3, the loader promotes it with the final batch), and a reset clears it. `postgres/xmin_cursor.py` is the reference.
 
 ## Prefer the shared REST framework
 

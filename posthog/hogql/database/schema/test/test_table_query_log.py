@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.cost.accuracy import cost_estimate_accuracy_hogql
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -83,3 +84,16 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             external_tables=None,
         )
         assert response.results is not None
+
+    def test_cost_estimate_accuracy_query_runs_against_the_archive(self):
+        response = execute_hogql_query(cost_estimate_accuracy_hogql(days=7), self.team)
+
+        assert response.results is not None
+        assert response.columns == [
+            "plan_fingerprint",
+            "queries",
+            "median_rows_q_error",
+            "p90_rows_q_error",
+            "median_bytes_q_error",
+            "p90_bytes_q_error",
+        ]

@@ -1609,7 +1609,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
-        self.assertEqual(response.headers["Content-Length"], "0")
+        self.assertNotIn("Content-Length", response.headers)
 
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(

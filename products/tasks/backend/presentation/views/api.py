@@ -220,6 +220,7 @@ from products.tasks.backend.presentation.serializers import (
     WarmTaskResumeResponseSerializer,
     WizardCloudRunSerializer,
 )
+from products.tasks.backend.presentation.task_review_serializers import TaskReviewQuerySerializer, TaskReviewSerializer
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -580,6 +581,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         return Response(TaskSearchResultSerializer(results, many=True).data)
 
+    @validated_request(
+        query_serializer=TaskReviewQuerySerializer, responses={200: OpenApiResponse(response=TaskReviewSerializer)}
+    )
+    @action(detail=True, methods=["get"], required_scopes=["task:read"])
+    def review(self, request, pk=None, **kwargs):
+        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        if task is None:
+            raise NotFound()
+        result = tasks_facade.task_review(
+            self.team_id, str(task.id), request.user.id, request.validated_query_data["page"]
+        )
+        return Response(TaskReviewSerializer(result).data)
+
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
         summary="Get task",
@@ -640,6 +654,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             page = tasks_facade.list_task_comments(
                 team_id=self.team_id,
                 task_id=task_id,
+                user_id=self._user_id(),
                 artifact_id=params.validated_data.get("artifact_id"),
                 include_resolved=params.validated_data["include_resolved"],
                 limit=params.validated_data["limit"],
@@ -670,6 +685,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             comment = tasks_facade.retrieve_task_comment(
                 team_id=self.team_id,
                 task_id=task_id,
+                user_id=self._user_id(),
                 comment_id=parsed_comment_id,
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),
@@ -1367,7 +1383,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 pk,
                 self.team_id,
                 self._user_id(),
-                validated_data=dict(request.validated_data),
+                validated_data={
+                    **request.validated_data,
+                    "client_platform": "mobile"
+                    if request.headers.get("X-PostHog-Client-Platform") == "mobile"
+                    else None,
+                },
                 **(
                     {"warm_retry_token": request.headers["X-PostHog-Warm-Retry"]}
                     if "X-PostHog-Warm-Retry" in request.headers
