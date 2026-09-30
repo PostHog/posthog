@@ -9,12 +9,14 @@ import type { OfflineExperimentPageApi } from '../generated/api.schemas'
 import { offlineExperimentsLogic } from './offlineExperimentsLogic'
 import { overviewExperiments, overviewScorers, overviewHistory } from './offlineOverviewFixtures'
 import { readOfflineScorerPreferences, saveOfflineScorerPreferences } from './offlineOverviewState'
+import { offlineOverviewTrendLogic } from './offlineOverviewTrendLogic'
 
 jest.mock('../generated/api', () => ({
     aiObservabilityOfflineExperimentsList: jest.fn(),
     aiObservabilityOfflineExperimentsScorerSummariesList: jest.fn(),
     llmAnalyticsScoreDefinitionsList: jest.fn(),
     llmAnalyticsScoreDefinitionsRetrieve: jest.fn(),
+    aiObservabilityOfflineScorersHistoryList: jest.fn(),
 }))
 
 const page: OfflineExperimentPageApi = { results: overviewExperiments, count: 100, next_cursor: 'cursor-2' }
@@ -67,38 +69,93 @@ describe('offlineExperimentsLogic', () => {
         expect(logic.values.hoveredTrend).toBeNull()
     })
 
-    it('shares all-time bounds across selected scorers and ignores history from another filter window', () => {
+    it('shares all-time bounds across selected scorers and ignores history from another filter window', async () => {
         const logic = offlineExperimentsLogic(props)
         logic.mount()
         const [first, second] = overviewScorers
         logic.actions.setScorerIds([first.id, second.id])
         logic.actions.setFilters({ date_from: 'all' })
-        const queryKey = logic.values.trendQueryKey
         const end = Date.parse(logic.values.dateRange!.dateTo)
         const recent = Date.parse('2026-09-20T00:00:00Z')
         const older = Date.parse('2026-08-01T00:00:00Z')
 
+        jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockImplementation(async (_, scorerId) => ({
+            count: 1,
+            next_cursor: null,
+            results: [
+                {
+                    ...overviewHistory(first)[0],
+                    experiment: {
+                        ...overviewHistory(first)[0].experiment,
+                        started_at: new Date(scorerId === first.id ? recent : older).toISOString(),
+                    },
+                },
+            ],
+        }))
+        const trendProps = {
+            teamId: props.teamId,
+            overviewId: logic.key,
+            dateTo: logic.values.dateRange!.dateTo,
+            refreshKey: logic.values.refreshKey,
+            filters: logic.values.trendFilters,
+        }
+        const firstTrend = offlineOverviewTrendLogic({ ...trendProps, scorerId: first.id })
+        const secondTrend = offlineOverviewTrendLogic({ ...trendProps, scorerId: second.id })
+        expect(api.aiObservabilityOfflineScorersHistoryList).not.toHaveBeenCalled()
+        firstTrend.mount()
+        const unmountSecond = secondTrend.mount()
         expect(logic.values.trendXDomain).toBeUndefined()
-        logic.actions.setTrendStart(first.id, queryKey, recent)
-        logic.actions.setTrendStart(second.id, queryKey, older)
+        await jest.advanceTimersByTimeAsync(150)
+        expect(logic.values.trendXDomain).toEqual([older, end])
+
+        jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockRejectedValueOnce(
+            new Error('History unavailable')
+        )
+        secondTrend.actions.loadOfflineOverviewTrend()
+        expect(logic.values.trendXDomain).toEqual([recent, end])
+        await jest.advanceTimersByTimeAsync(150)
+        expect(secondTrend.values.trendError).toBe(true)
+        expect(logic.values.trendXDomain).toEqual([recent, end])
+        secondTrend.actions.loadOfflineOverviewTrend()
+        expect(logic.values.trendXDomain).toEqual([recent, end])
+        await jest.advanceTimersByTimeAsync(150)
         expect(logic.values.trendXDomain).toEqual([older, end])
 
         logic.actions.setFilters({ search: 'a run' })
         expect(logic.values.trendXDomain).toEqual([older, end])
         logic.actions.setScorerIds([first.id])
+        unmountSecond()
         expect(logic.values.trendXDomain).toEqual([recent, end])
 
         logic.actions.setFilters({ run_source: 'ci' })
         expect(logic.values.trendXDomain).toBeUndefined()
-        logic.actions.setTrendStart(first.id, queryKey, older)
+        offlineOverviewTrendLogic({
+            ...trendProps,
+            scorerId: first.id,
+            filters: logic.values.trendFilters,
+            dateTo: logic.values.dateRange!.dateTo,
+        })
         expect(logic.values.trendXDomain).toBeUndefined()
-        logic.actions.setTrendStart(first.id, logic.values.trendQueryKey, recent)
-        expect(logic.values.trendXDomain).toEqual([recent, end])
+        await jest.advanceTimersByTimeAsync(150)
+        expect(logic.values.trendXDomain).toEqual([recent, Date.parse(logic.values.dateRange!.dateTo)])
 
         logic.actions.refresh()
         expect(logic.values.trendXDomain).toBeUndefined()
+        offlineOverviewTrendLogic({
+            ...trendProps,
+            scorerId: first.id,
+            filters: logic.values.trendFilters,
+            dateTo: logic.values.dateRange!.dateTo,
+            refreshKey: logic.values.refreshKey,
+        })
+        expect(logic.values.trendXDomain).toBeUndefined()
+        await jest.advanceTimersByTimeAsync(150)
+        expect(logic.values.trendXDomain).toEqual([recent, Date.parse(logic.values.dateRange!.dateTo)])
         logic.actions.setFilters({ date_from: '-7d' })
-        expect(logic.values.trendXDomain).toEqual([Date.parse(logic.values.dateRange!.dateFrom!), end])
+        expect(logic.values.trendXDomain).toEqual([
+            Date.parse(logic.values.dateRange!.dateFrom!),
+            Date.parse(logic.values.dateRange!.dateTo),
+        ])
     })
 
     it.each(['new', 'saved empty', 'URL empty'])(

@@ -1,3 +1,5 @@
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
+
 import type {
     AiObservabilityOfflineExperimentsListParams,
     AiObservabilityOfflineScorersHistoryListParams,
@@ -107,23 +109,10 @@ export function offlineRunSourceLabel(source: string | null): string {
 }
 
 // A page can contain many chosen charts; keep their independent reads bounded.
-let activeTrendReads = 0
-const waitingTrendReads: (() => void)[] = []
+const trendReadController = new ConcurrencyController(3)
+let nextTrendReadPriority = 0
 
 export async function withOfflineTrendReadLimit<T>(read: () => Promise<T>): Promise<T> {
-    if (activeTrendReads >= 3) {
-        await new Promise<void>((resolve) => waitingTrendReads.push(resolve))
-    } else {
-        activeTrendReads++
-    }
-    try {
-        return await read()
-    } finally {
-        const next = waitingTrendReads.shift()
-        if (next) {
-            next()
-        } else {
-            activeTrendReads--
-        }
-    }
+    // Equal-priority tasks are not FIFO, so each read gets its position in the queue.
+    return trendReadController.run({ fn: read, priority: nextTrendReadPriority++ })
 }

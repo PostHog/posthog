@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    type LogicWrapper,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -25,6 +37,11 @@ import {
     type OfflineExperimentFilters,
     type OfflineOverviewTrendFilters,
 } from './offlineOverviewState'
+import {
+    getOfflineOverviewTrendKey,
+    selectOfflineOverviewTrendStates,
+    type OfflineOverviewTrendState,
+} from './offlineOverviewTrendLogic'
 import { resolveOfflineDateRange } from './offlineScoreTrends'
 import type { OfflineDateRange } from './offlineScoreTrends'
 
@@ -63,14 +80,6 @@ export interface offlineExperimentsLogicValues {
     suggestedScorersError: boolean
     suggestedScorersLoading: boolean
     trendFilters: OfflineOverviewTrendFilters
-    trendQueryKey: string
-    trendStarts: Record<
-        string,
-        {
-            queryKey: string
-            timestamp: number | null
-        }
-    >
     trendXDomain: [number, number] | undefined
 }
 
@@ -173,15 +182,6 @@ export interface offlineExperimentsLogicActions {
     setScorerSearch: (search: string) => {
         search: string
     }
-    setTrendStart: (
-        scorerId: string,
-        queryKey: string,
-        timestamp: number | null
-    ) => {
-        queryKey: string
-        scorerId: string
-        timestamp: number | null
-    }
     suggestScorerIds: (scorerIds: string[]) => {
         scorerIds: string[]
     }
@@ -194,22 +194,13 @@ export interface offlineExperimentsLogicMeta {
         cursor: (cursorStack: string[]) => string | null
         dateRange: (filters: OfflineExperimentFilters, resolvedNow: string, arg: any) => OfflineDateRange | null
         trendFilters: (filters: OfflineExperimentFilters) => OfflineOverviewTrendFilters
-        trendQueryKey: (
-            dateRange: OfflineDateRange | null,
-            trendFilters: OfflineOverviewTrendFilters,
-            refreshKey: number
-        ) => string
         trendXDomain: (
             dateRange: OfflineDateRange | null,
             scorerIds: string[] | null,
-            trendStarts: Record<
-                string,
-                {
-                    queryKey: string
-                    timestamp: number | null
-                }
-            >,
-            trendQueryKey: string
+            arg: Record<string, OfflineOverviewTrendState>,
+            trendFilters: OfflineOverviewTrendFilters,
+            refreshKey: number,
+            arg2: OfflineExperimentsLogicProps
         ) => [number, number] | undefined
     }
 }
@@ -221,18 +212,13 @@ export type offlineExperimentsLogicType = MakeLogicType<
     offlineExperimentsLogicMeta
 >
 
-export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
+export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> = kea<offlineExperimentsLogicType>([
     props({} as OfflineExperimentsLogicProps),
     key(({ teamId, userId }) => `${teamId}:${userId}`),
     path((key) => ['products', 'ai_observability', 'offlineExperimentsLogic', key]),
     actions({
         setHoveredTrend: (chartId: string, timestamp: number) => ({ chartId, timestamp }),
         clearHoveredTrend: (chartId: string) => ({ chartId }),
-        setTrendStart: (scorerId: string, queryKey: string, timestamp: number | null) => ({
-            scorerId,
-            queryKey,
-            timestamp,
-        }),
         setFilters: (filters: Partial<OfflineExperimentFilters>) => ({ filters }),
         setHasExperiments: (hasExperiments: boolean) => ({ hasExperiments }),
         hydrateUrl: (search: Record<string, unknown>) => ({ search }),
@@ -382,17 +368,6 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
                 refresh: () => null,
             },
         ],
-        trendStarts: [
-            {} as Record<string, { queryKey: string; timestamp: number | null }>,
-            {
-                setTrendStart: (state, { scorerId, queryKey, timestamp }) => ({
-                    ...state,
-                    [scorerId]: { queryKey, timestamp },
-                }),
-                setScorerIds: (state, { scorerIds }) =>
-                    Object.fromEntries(Object.entries(state).filter(([scorerId]) => scorerIds.includes(scorerId))),
-            },
-        ],
         draftScorerIds: [[] as string[], { setDraftScorerIds: (_, { scorerIds }) => scorerIds }],
         chooserOpen: [false, { openChooser: () => true, closeChooser: () => false }],
         scorerSearch: ['', { setScorerSearch: (_, { search }) => search }],
@@ -469,18 +444,22 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
                 statuses: filters.statuses || OFFLINE_ALL_UPLOAD_STATES,
             }),
         ],
-        trendQueryKey: [
-            (s) => [s.dateRange, s.trendFilters, s.refreshKey],
-            (dateRange: OfflineDateRange | null, filters: OfflineOverviewTrendFilters, refreshKey: number): string =>
-                JSON.stringify([dateRange, filters, refreshKey]),
-        ],
         trendXDomain: [
-            (s) => [s.dateRange, s.scorerIds, s.trendStarts, s.trendQueryKey],
+            (s) => [
+                s.dateRange,
+                s.scorerIds,
+                selectOfflineOverviewTrendStates,
+                s.trendFilters,
+                s.refreshKey,
+                (_, props: OfflineExperimentsLogicProps) => props,
+            ],
             (
                 dateRange: OfflineDateRange | null,
                 scorerIds: string[] | null,
-                starts: Record<string, { queryKey: string; timestamp: number | null }>,
-                queryKey: string
+                trends: Record<string, OfflineOverviewTrendState>,
+                filters: OfflineOverviewTrendFilters,
+                refreshKey: number,
+                props: OfflineExperimentsLogicProps
             ): [number, number] | undefined => {
                 if (!dateRange) {
                     return undefined
@@ -490,8 +469,30 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
                     return [Date.parse(dateRange.dateFrom), end]
                 }
                 const timestamps = (scorerIds || []).flatMap((scorerId) => {
-                    const start = starts[scorerId]
-                    return start?.queryKey === queryKey && start.timestamp !== null ? [start.timestamp] : []
+                    const state =
+                        trends[
+                            getOfflineOverviewTrendKey({
+                                teamId: props.teamId,
+                                overviewId: `${props.teamId}:${props.userId}`,
+                                scorerId,
+                            })
+                        ]
+                    const trend = state?.trend
+                    if (
+                        !trend ||
+                        state.trendLoading ||
+                        state.trendError ||
+                        trend.query.dateFrom !== dateRange.dateFrom ||
+                        trend.query.dateTo !== dateRange.dateTo ||
+                        trend.query.refreshKey !== refreshKey ||
+                        trend.query.filters?.run_source !== filters.run_source ||
+                        (trend.query.filters?.statuses || OFFLINE_ALL_UPLOAD_STATES) !== filters.statuses
+                    ) {
+                        return []
+                    }
+                    return trend.page.results
+                        .map(({ experiment }) => Date.parse(experiment.started_at))
+                        .filter(Number.isFinite)
                 })
                 const start = Math.min(...timestamps)
                 return Number.isFinite(start) && start < end ? [start, end] : undefined

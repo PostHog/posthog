@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useId } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
@@ -10,6 +11,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import type { ScoreDefinitionModalMode } from './scoreDefinitionModalUtils'
 import { ScoreDefinitionVersionModal } from './ScoreDefinitionVersionModal'
+import { scoreDefinitionVersionModalLogic } from './scoreDefinitionVersionModalLogic'
 
 export function ScoreDefinitionActions({
     definition,
@@ -24,7 +26,10 @@ export function ScoreDefinitionActions({
     toggleArchive: (definition: ScoreDefinitionApi) => void
     onVersionCreated: () => void
 }): JSX.Element {
-    const [versionModalOpen, setVersionModalOpen] = useState(false)
+    const instanceKey = useId()
+    const versionModalLogic = scoreDefinitionVersionModalLogic({ instanceKey })
+    const { isOpen: versionModalOpen } = useValues(versionModalLogic)
+    const { openModal: openVersionModal, closeModal: closeVersionModal } = useActions(versionModalLogic)
 
     return (
         <>
@@ -46,7 +51,7 @@ export function ScoreDefinitionActions({
                         },
                         {
                             label: 'Create new version',
-                            onClick: () => setVersionModalOpen(true),
+                            onClick: openVersionModal,
                             'data-attr': 'llma-scorer-new-version',
                         },
                         {
@@ -75,7 +80,7 @@ export function ScoreDefinitionActions({
                 <ScoreDefinitionVersionModal
                     teamId={String(definition.team)}
                     scorerId={definition.id}
-                    onClose={() => setVersionModalOpen(false)}
+                    onClose={closeVersionModal}
                     onSuccess={onVersionCreated}
                 />
             )}

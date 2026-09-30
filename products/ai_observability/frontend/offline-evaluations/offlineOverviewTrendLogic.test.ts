@@ -75,8 +75,8 @@ describe('offlineOverviewTrendLogic', () => {
             const trendProps = {
                 ...props,
                 dateFrom: undefined,
-                overviewLogic,
-                trendQueryKey: overviewLogic.values.trendQueryKey,
+                overviewId: overviewLogic.key,
+                dateTo: overviewLogic.values.dateRange!.dateTo,
             }
             let finishOld: () => void = () => {}
             let markRequestStarted: () => void = () => {}
@@ -101,11 +101,12 @@ describe('offlineOverviewTrendLogic', () => {
             const logic = offlineOverviewTrendLogic(trendProps)
             logic.mount()
             await requestStarted
+            expect(overviewLogic.values.trendXDomain).toBeUndefined()
             overviewLogic.actions.setFilters({ run_source: 'ci' })
+            expect(overviewLogic.values.trendXDomain).toBeUndefined()
             offlineOverviewTrendLogic({
                 ...trendProps,
                 filters: overviewLogic.values.trendFilters,
-                trendQueryKey: overviewLogic.values.trendQueryKey,
             })
             await expectLogic(logic).toDispatchActions(['loadOfflineOverviewTrendSuccess'])
             finishOld()
@@ -135,8 +136,8 @@ describe('offlineOverviewTrendLogic', () => {
         const trendProps = {
             ...props,
             dateFrom: undefined,
-            overviewLogic,
-            trendQueryKey: overviewLogic.values.trendQueryKey,
+            overviewId: overviewLogic.key,
+            dateTo: overviewLogic.values.dateRange!.dateTo,
         }
         const olderPoints = page.results.slice(0, 2).map((point) => ({
             ...point,
@@ -169,7 +170,6 @@ describe('offlineOverviewTrendLogic', () => {
         offlineOverviewTrendLogic({
             ...trendProps,
             dateFrom: '2026-09-20T00:00:00Z',
-            trendQueryKey: overviewLogic.values.trendQueryKey,
         })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.activeVersion?.version).toBe(2)

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useId } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -8,6 +9,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import { ScoreDefinitionVersionModal } from './ScoreDefinitionVersionModal'
+import { scoreDefinitionVersionModalLogic } from './scoreDefinitionVersionModalLogic'
 
 export function ScoreDefinitionVersionButton({
     definition,
@@ -16,7 +18,10 @@ export function ScoreDefinitionVersionButton({
     definition: ScoreDefinitionApi
     onSuccess?: (definition: ScoreDefinitionApi) => void
 }): JSX.Element {
-    const [isOpen, setIsOpen] = useState(false)
+    const instanceKey = useId()
+    const logic = scoreDefinitionVersionModalLogic({ instanceKey })
+    const { isOpen } = useValues(logic)
+    const { openModal, closeModal } = useActions(logic)
 
     return (
         <>
@@ -24,7 +29,7 @@ export function ScoreDefinitionVersionButton({
                 resourceType={AccessControlResourceType.LlmAnalytics}
                 minAccessLevel={AccessControlLevel.Editor}
             >
-                <LemonButton size="small" onClick={() => setIsOpen(true)}>
+                <LemonButton size="small" onClick={openModal}>
                     Create new version
                 </LemonButton>
             </AccessControlAction>
@@ -32,7 +37,7 @@ export function ScoreDefinitionVersionButton({
                 <ScoreDefinitionVersionModal
                     teamId={String(definition.team)}
                     scorerId={definition.id}
-                    onClose={() => setIsOpen(false)}
+                    onClose={closeModal}
                     onSuccess={onSuccess}
                 />
             )}
