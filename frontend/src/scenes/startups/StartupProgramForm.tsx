@@ -21,7 +21,7 @@ const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
  * tokens inside the page's quill subtree - see styles/quill-bridge.scss.
  */
 export function StartupProgramForm(): JSX.Element {
-    const { startupProgram, isYC, ycBatchOptions } = useValues(startupProgramLogic)
+    const { startupProgram, isYC, ycBatchOptions, billing } = useValues(startupProgramLogic)
     const { setStartupProgramValue } = useActions(startupProgramLogic)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -188,7 +188,15 @@ export function StartupProgramForm(): JSX.Element {
                     </>
                 )}
 
-                <LemonButton type="primary" htmlType="submit" className="mt-4" data-attr="startup-program-submit">
+                <LemonButton
+                    type="primary"
+                    htmlType="submit"
+                    className="mt-4"
+                    data-attr="startup-program-submit"
+                    disabledReason={
+                        !billing?.has_active_subscription ? 'Add billing details in step 1 to submit' : undefined
+                    }
+                >
                     Submit Application
                 </LemonButton>
 
