@@ -27,8 +27,19 @@ seeding path that lands files in the cloned repo. The skipped-pre-edit-read
 regression is covered instead by deterministic scorer unit tests against
 synthesized call sequences: see ``FreshReadsBeforeEdit`` in ``scorers.py`` and
 ``TestFreshReadsBeforeEdit`` in
-``products/posthog_ai/eval_harness/test/test_feature_flags_scorers.py``. The
-failed/unavailable-check refusal wording has no scorer yet.
+``products/posthog_ai/eval_harness/test/test_feature_flags_scorers.py``.
+
+Three more regressions are ungraded, and nothing here would catch them:
+
+- The failed/unavailable-check refusal wording has no scorer.
+- Nothing requires the skill's "Check whether the cleanup already exists" search.
+  No registered scorer reads a Bash command, so a run that skips that step and goes
+  straight to the call-site search passes every scorer here. The cases cannot require
+  it either, because the suite accepts a run that stops to ask about product tours
+  before it reaches the step. Grading it needs a case whose prompt already answers the
+  tour question, and a scorer that matches the ``git log -S`` call by command text.
+- Nothing checks the pre-publish read. ``FreshReadsBeforeEdit`` grades the pre-edit
+  reads only, and no case reaches a publish.
 ``FreshReadsBeforeEdit`` is deliberately left out of the suite's scorer list below.
 No case here can seed call sites, so it would add a ``None`` row to every case on
 every run, and its divider would stay unmeasured against a real agent trace. The
