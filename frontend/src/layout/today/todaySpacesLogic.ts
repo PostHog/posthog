@@ -19,13 +19,16 @@ import {
     taskChannelsList,
     taskChannelsStarCreate,
     tasksList,
+    tasksSummariesCreate,
 } from 'products/tasks/frontend/generated/api'
 import {
     ChannelDTOApi,
+    PrStateEnumApi,
     TaskActivityDTOApi,
     TaskActivityReadMarkerApi,
     TaskListItemApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
 import {
     DEFAULT_RECENT_FILTERS,
@@ -121,6 +124,7 @@ export interface todaySpacesLogicValues {
     pinnedItems: TodayWorkItem[]
     pinnedTasks: TaskListItemApi[]
     pinnedTasksLoading: boolean
+    pullRequestStates: Record<string, PrStateEnumApi>
     recentFilters: TodayRecentFilters
     recentFiltersActive: boolean
     recentGrouping: TodayRecentGrouping
@@ -195,6 +199,9 @@ export interface todaySpacesLogicActions {
         pinnedTasks: TaskListItemApi[]
         payload?: any
     }
+    loadPullRequestStates: (sessionIds: string[]) => {
+        sessionIds: string[]
+    }
     loadRecentTasks: () => any
     loadRecentTasksFailure: (
         error: string,
@@ -256,6 +263,9 @@ export interface todaySpacesLogicActions {
     ) => {
         lower: TodayWorkSectionId
         upper: TodayWorkSectionId
+    }
+    setPullRequestStates: (states: Record<string, PrStateEnumApi>) => {
+        states: Record<string, PrStateEnumApi>
     }
     setRecentFilters: (filters: TodayRecentFilters) => {
         filters: TodayRecentFilters
@@ -360,6 +370,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         copySpaceLink: (spaceId: string) => ({ spaceId }),
         markSessionRead: (marker: TaskActivityReadMarkerApi, activityIds: string[]) => ({ marker, activityIds }),
         markSessionReadFailed: (activityIds: string[]) => ({ activityIds }),
+        loadPullRequestStates: (sessionIds: string[]) => ({ sessionIds }),
+        setPullRequestStates: (states: Record<string, PrStateEnumApi>) => ({ states }),
     }),
     loaders(({ values }) => ({
         spaces: [
@@ -425,6 +437,10 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         ],
     })),
     reducers({
+        pullRequestStates: [
+            {} as Record<string, PrStateEnumApi>,
+            { setPullRequestStates: (state, { states }) => ({ ...state, ...states }) },
+        ],
         collapsedSections: [
             [] as TodayWorkSectionId[],
             { persist: true },
@@ -589,6 +605,22 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         }
     }),
     listeners(({ actions, values }) => ({
+        loadPinnedTasksSuccess: ({ pinnedTasks }) =>
+            actions.loadPullRequestStates(sessionIdsWithPullRequests(pinnedTasks)),
+        loadRecentTasksSuccess: ({ recentTasks }) =>
+            actions.loadPullRequestStates(sessionIdsWithPullRequests(recentTasks)),
+        // One batched lookup per list.
+        loadPullRequestStates: async ({ sessionIds }) => {
+            if (!sessionIds.length || !values.currentTeamId) {
+                return
+            }
+            try {
+                const response = await tasksSummariesCreate(String(values.currentTeamId), { ids: sessionIds })
+                actions.setPullRequestStates(pullRequestStates(response.results))
+            } catch {
+                // A failed lookup only leaves the chips neutral, so it stays quiet.
+            }
+        },
         toggleStar: async ({ spaceId, starred }) => {
             try {
                 await taskChannelsStarCreate(String(values.currentTeamId), spaceId, { starred })

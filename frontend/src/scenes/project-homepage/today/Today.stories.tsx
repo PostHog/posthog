@@ -232,6 +232,22 @@ const meta: Meta = {
                 },
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
             },
+            post: {
+                '/api/projects/:team_id/tasks/summaries/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'task-1',
+                            latest_run: {
+                                pr_url: 'https://github.com/example-org/webapp/pull/421',
+                                pr_state: 'merged',
+                            },
+                        },
+                    ],
+                },
+            },
         }),
     ],
     parameters: {

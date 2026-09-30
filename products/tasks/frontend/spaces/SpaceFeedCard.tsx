@@ -25,6 +25,7 @@ import { TodaySessionMenu } from '~/layout/today/TodaySessionMenu'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { TodaySessionStatusIcon } from '~/layout/today/TodaySessionStatusIcon'
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { activeCloudRunId, analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
@@ -42,6 +43,7 @@ interface SpaceFeedCardProps {
 export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
     const { user } = useValues(userLogic)
+    const { pullRequestStates } = useValues(todaySpacesLogic)
     const item = sessionItem(task)
     const status = spaceFeedStatus(task.latest_run)
     const pullRequests = splitPullRequests(item.pullRequests)
@@ -128,6 +130,7 @@ export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX
                             key={pullRequest.url}
                             pullRequest={pullRequest}
                             label={pullRequestLabel(pullRequest, task.repository)}
+                            state={pullRequestStates[pullRequest.url]}
                             dataAttr="today-pr-chip-feed"
                         />
                     ))}
@@ -151,6 +154,7 @@ export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX
                                         key={pullRequest.url}
                                         pullRequest={pullRequest}
                                         label={pullRequestLabel(pullRequest, task.repository)}
+                                        state={pullRequestStates[pullRequest.url]}
                                         dataAttr="today-pr-chip-feed"
                                     />
                                 ))}
