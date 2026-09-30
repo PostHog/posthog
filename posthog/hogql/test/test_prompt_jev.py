@@ -307,7 +307,8 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
     def test_sql_decisions(self, query: str, expected: list) -> None:
         with patch("httpx.AsyncClient.post", side_effect=gateway_response) as post:
             response = execute_hogql_query(query, self.team, user=self.user)
-        self.assertEqual(response.results, expected)
+        # UNION ALL without ORDER BY returns rows in any order.
+        self.assertEqual(sorted(response.results), sorted(expected))
         self.assertLessEqual(post.call_count, 1)
 
     def test_one_query_mixes_models_with_a_call_per_model(self) -> None:
