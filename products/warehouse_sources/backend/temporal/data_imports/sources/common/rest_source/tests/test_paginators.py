@@ -173,19 +173,12 @@ class TestJSONResponseCursorPaginator:
         p.update_state(resp)
         assert p.has_next_page is False
 
-    @pytest.mark.parametrize(
-        "cursor_path,body",
-        [
-            ("next_cursor", {"next_cursor": "same-cursor"}),
-            ("pageInfo.nextCursor", {"pageInfo": {"nextCursor": "same-cursor"}}),
-        ],
-    )
-    def test_stops_when_cursor_does_not_advance(self, cursor_path: str, body: dict[str, Any]) -> None:
-        p = JSONResponseCursorPaginator(cursor_path=cursor_path)
-        p.update_state(_make_response(body))
+    def test_repeated_cursor_guard_is_opt_in(self) -> None:
+        p = JSONResponseCursorPaginator(cursor_path="next_cursor")
+        response = _make_response({"next_cursor": "same-cursor"})
+        p.update_state(response)
+        p.update_state(response)
         assert p.has_next_page is True
-        p.update_state(_make_response(body))
-        assert p.has_next_page is False
 
     def test_can_raise_when_cursor_does_not_advance(self) -> None:
         p = JSONResponseCursorPaginator(cursor_path="next_cursor", raise_on_repeated_cursor=True)

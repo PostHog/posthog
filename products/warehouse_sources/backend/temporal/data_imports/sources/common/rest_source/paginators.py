@@ -213,11 +213,8 @@ class JSONResponseCursorPaginator(BasePaginator):
             return
 
         next_cursor = values[0]
-        if next_cursor == self._previous_cursor_value:
-            if self.raise_on_repeated_cursor:
-                raise ValueError("Cursor pagination is not advancing (repeated cursor)")
-            self._has_next_page = False
-            return
+        if self.raise_on_repeated_cursor and next_cursor == self._previous_cursor_value:
+            raise ValueError("Cursor pagination is not advancing (repeated cursor)")
 
         self._previous_cursor_value = next_cursor
         self._cursor_value = next_cursor
