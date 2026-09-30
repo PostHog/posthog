@@ -15,6 +15,7 @@ from parameterized import parameterized
 from products.alerts_platform.backend.facade.scheduling import (
     DEFAULT_SCHEDULE_INTERVAL_SECONDS,
     advance_next_check_at,
+    advance_schedule,
     compute_shard_offset_seconds,
 )
 
@@ -462,3 +463,51 @@ class TestAdvanceNextCheckAtWithShard(TestCase):
         # Next gap is exactly the new cadence.
         next_check = advance_next_check_at(result, new_cadence, result, shard_offset_seconds=new_shard_offset)
         assert next_check - result == timedelta(minutes=new_cadence)
+
+
+class TestRecurrenceDispatch(TestCase):
+    """`advance_schedule` picks the minute arithmetic or the calendar anchor by recurrence unit."""
+
+    NOW = datetime(2026, 9, 30, 21, 0, tzinfo=UTC)
+
+    def test_no_unit_keeps_the_minute_arithmetic(self) -> None:
+        current = datetime(2026, 9, 30, 20, 55, tzinfo=UTC)
+        assert advance_schedule(
+            current_next_check_at=current,
+            check_interval_minutes=10,
+            recurrence_unit=None,
+            anchor_time=None,
+            tz_name="America/New_York",
+            now=self.NOW,
+        ) == advance_next_check_at(current, 10, self.NOW)
+
+    @parameterized.expand(
+        [
+            ("day", datetime(2026, 10, 1, 8, 0, tzinfo=UTC)),
+            ("week", datetime(2026, 10, 5, 8, 0, tzinfo=UTC)),
+            ("month", datetime(2026, 10, 1, 8, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_a_calendar_unit_lands_on_the_local_anchor(self, unit: str, expected: datetime) -> None:
+        assert (
+            advance_schedule(
+                current_next_check_at=None,
+                check_interval_minutes=10,
+                recurrence_unit=unit,
+                anchor_time="04:00",
+                tz_name="America/New_York",
+                now=self.NOW,
+            )
+            == expected
+        )
+
+    def test_a_monthly_recurrence_does_not_fall_back_to_the_interval(self) -> None:
+        result = advance_schedule(
+            current_next_check_at=self.NOW,
+            check_interval_minutes=10,
+            recurrence_unit="month",
+            anchor_time="04:00",
+            tz_name="UTC",
+            now=self.NOW,
+        )
+        assert result - self.NOW > timedelta(days=1)

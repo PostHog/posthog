@@ -4,11 +4,13 @@ A source decides whether its data breached; everything about what that means for
 and every write to these rows, stays here. A source never holds one of these models.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
+
+from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCheckInput,
@@ -16,7 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertUpsert,
 )
 from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
-from products.alerts_platform.backend.facade.scheduling import advance_next_check_at, compute_shard_offset_seconds
+from products.alerts_platform.backend.facade.scheduling import advance_schedule, compute_shard_offset_seconds
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
@@ -193,6 +195,18 @@ def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None
         safe_record(increment_history_rows_dropped, len(rows) - recorded)
 
 
+def _team_timezone_reader(team_id: int) -> Callable[[], str]:
+    """Reads the team's timezone at most once, and only if a calendar recurrence asks for it."""
+    cached: list[str] = []
+
+    def read() -> str:
+        if not cached:
+            cached.append(Team.objects.filter(id=team_id).values_list("timezone", flat=True).first() or "UTC")
+        return cached[0]
+
+    return read
+
+
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
@@ -223,6 +237,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         if not configurations:
             return 0
         alerts = _alerts_for_write(team_id, configurations)
+        team_timezone = _team_timezone_reader(team_id)
 
         rows: list[PlatformAlertEventRow] = []
         for configuration in configurations:
@@ -241,10 +256,13 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:
                 configuration.enabled = False
-            configuration.next_check_at = advance_next_check_at(
-                configuration.next_check_at,
-                configuration.check_interval_minutes,
-                now,
+            configuration.next_check_at = advance_schedule(
+                current_next_check_at=configuration.next_check_at,
+                check_interval_minutes=configuration.check_interval_minutes,
+                recurrence_unit=configuration.recurrence_unit,
+                anchor_time=configuration.anchor_time,
+                tz_name=team_timezone(),
+                now=now,
                 shard_offset_seconds=compute_shard_offset_seconds(
                     configuration.id, configuration.check_interval_minutes
                 ),
@@ -280,6 +298,8 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
                 "threshold_operator": upsert.threshold_operator,
                 "window_minutes": upsert.window_minutes,
                 "check_interval_minutes": upsert.check_interval_minutes,
+                "recurrence_unit": upsert.recurrence_unit,
+                "anchor_time": upsert.anchor_time,
                 "evaluation_periods": upsert.evaluation_periods,
                 "datapoints_to_alarm": upsert.datapoints_to_alarm,
                 "cooldown_minutes": upsert.cooldown_minutes,

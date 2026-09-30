@@ -47,7 +47,19 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     threshold_operator = models.CharField(max_length=16)
 
     window_minutes = models.PositiveIntegerField()
+
     check_interval_minutes = models.PositiveIntegerField()
+
+    class RecurrenceUnit(models.TextChoices):
+        DAY = "day", "Day"
+        WEEK = "week", "Week"
+        MONTH = "month", "Month"
+
+    # Null means the recurrence is `check_interval_minutes`. Minutes cannot express a month, and
+    # DST moves the local instant a day or a week lands on, so the two take different paths.
+    recurrence_unit = models.CharField(max_length=8, choices=RecurrenceUnit.choices, null=True, blank=True)
+    # Local wall time, HH:MM, that a calendar recurrence lands on in the team's timezone.
+    anchor_time = models.CharField(max_length=5, null=True, blank=True)
     evaluation_periods = models.PositiveIntegerField(default=1, db_default=1)
     datapoints_to_alarm = models.PositiveIntegerField(default=1, db_default=1)
     cooldown_minutes = models.PositiveIntegerField(default=0, db_default=0)
