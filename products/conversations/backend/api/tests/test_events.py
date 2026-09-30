@@ -128,10 +128,9 @@ class TestConversationEvents(BaseTest):
             assignee_type, assignee_id = "user", str(teammate.id)
             expected = {"assignee_role_name": None, "assignee_email": "sam@example.com", "assignee_name": "Sam"}
         else:
-            outsider = User.objects.create_and_join(
-                Organization.objects.create(name="Other Org"), "outsider@example.com", None
-            )
-            assignee_type, assignee_id = "user", str(outsider.id)
+            leaver = User.objects.create_and_join(self.organization, "alex@example.com", None, first_name="Alex")
+            leaver.leave(organization=self.organization)
+            assignee_type, assignee_id = "user", str(leaver.id)
             expected = {"assignee_role_name": None, "assignee_email": None, "assignee_name": None}
 
         capture_ticket_assigned(self.ticket, assignee_type, assignee_id, actor=self.user, actor_type="user")
@@ -145,6 +144,7 @@ class TestConversationEvents(BaseTest):
         [
             ("unassigned", None, None, None),
             ("user", "user", None, None),
+            ("former_member", "former_member", None, None),
             ("role", "role", "Support Escalations", "Support Escalations"),
         ]
     )
@@ -158,6 +158,11 @@ class TestConversationEvents(BaseTest):
             expected_type, expected_id = "user", str(self.user.id)
             # The user has no first or last name, so the display name falls back to the email.
             expected_email, expected_name = self.user.email, self.user.email
+        elif assignment_kind == "former_member":
+            leaver = User.objects.create_and_join(self.organization, "alex@example.com", None, first_name="Alex")
+            TicketAssignment.objects.create(ticket=self.ticket, user=leaver)
+            leaver.leave(organization=self.organization)
+            expected_type, expected_id = "user", str(leaver.id)
         elif assignment_kind == "role":
             role = Role.objects.create(name=role_name, organization=self.organization)
             TicketAssignment.objects.create(ticket=self.ticket, role=role)

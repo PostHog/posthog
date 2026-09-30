@@ -399,7 +399,7 @@ def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = Fals
     return properties
 
 
-def _get_assignee_user_properties(ticket: Ticket, user_id: int | str) -> dict:
+def _get_assignee_user_properties(ticket: Ticket, user_id: int | str) -> dict[str, str | None]:
     """Email and display name for a user assignee.
 
     Both stay None once the assignee leaves the organization: removing a member does not clear
@@ -420,7 +420,7 @@ def _get_assignee_user_properties(ticket: Ticket, user_id: int | str) -> dict:
 
 def _get_assignee_display_properties(
     ticket: Ticket, assignee_type: str | None, assignee_id: str | None, role: Role | None = None
-) -> dict:
+) -> dict[str, str | None]:
     """Readable assignee fields, so a workflow filter can name a teammate or a team.
 
     `assignee_role_name` is set only for role assignments, `assignee_email` and `assignee_name`
@@ -428,7 +428,7 @@ def _get_assignee_display_properties(
     UUID, which nobody building a workflow has to hand. Pass `role` when the caller loaded it with
     the assignment, so message events do not query the role a second time.
     """
-    unset = {"assignee_role_name": None, "assignee_email": None, "assignee_name": None}
+    unset: dict[str, str | None] = {"assignee_role_name": None, "assignee_email": None, "assignee_name": None}
     if not assignee_id:
         return unset
     if assignee_type == "user":
@@ -442,7 +442,7 @@ def _get_assignee_display_properties(
     return unset
 
 
-def _get_assignment_properties(ticket: Ticket) -> dict:
+def _get_assignment_properties(ticket: Ticket) -> dict[str, str | None]:
     """Current assignment on the ticket, so workflows can route a single team's tickets.
 
     `assignee_type` is "user", "role", or None (unassigned).
