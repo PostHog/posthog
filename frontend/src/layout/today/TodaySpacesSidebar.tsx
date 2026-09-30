@@ -33,6 +33,8 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentLoading,
         recentTasksUnavailable,
         collapsedSections,
+        unreadSessionIds,
+        unreadSpaceIds,
     } = useValues(todaySpacesLogic)
     const { loadSpaces, loadRecentTasks, toggleSection, setRecentSearchOpen, clearRecentSearchAndFilters } =
         useActions(todaySpacesLogic)
@@ -49,6 +51,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                 pinned={pinnedIds.has(item.id)}
                 dataAttr={dataAttr}
                 surface="sidebar"
+                unread={unreadSessionIds.has(item.id)}
             />
         ) : (
             <TodaySpacesRow
@@ -276,6 +279,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         dataAttr="today-space-row"
                                         action={<TodaySpaceActions space={space} />}
                                         actionCount={2}
+                                        unread={unreadSpaceIds.has(space.id)}
                                     />
                                 ))}
                                 {visibleSpaces.length <= 1 && (

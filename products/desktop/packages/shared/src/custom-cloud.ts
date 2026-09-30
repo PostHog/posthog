@@ -110,6 +110,13 @@ export function getCustomCloud(): CustomCloud | null {
   return configured ?? fromEnv();
 }
 
+/** Go ai-gateway hosts a mint or the dev override may name. */
+const AI_GATEWAY_HOSTS = new Set([
+  "ai-gateway.us.posthog.com",
+  "ai-gateway.eu.posthog.com",
+  "ai-gateway.dev.posthog.dev",
+]);
+
 const POSTHOG_DOMAINS = ["posthog.com", "posthog.dev"];
 
 function postHogDomain(host: string): string | undefined {
@@ -169,4 +176,40 @@ export function isCredentialOriginAllowed(
     domain !== undefined &&
     postHogDomain(targetHost) === domain
   );
+}
+
+/**
+ * The origin of a Go gateway URL, or null unless it is a bare https origin on
+ * the ai-gateway allowlist with the default port. Loopback passes only with
+ * `allowLoopback` (the dev override). With `apiHost`, the gateway must share
+ * its PostHog domain, so a prod bearer never reaches a dev host or the reverse.
+ */
+export function validateAiGatewayUrl(
+  raw: string,
+  options: { allowLoopback?: boolean; apiHost?: string } = {},
+): string | null {
+  const parsed = safeUrl(raw.trim());
+  if (!parsed) return null;
+  if (parsed.username || parsed.password) return null;
+  if (
+    parsed.search ||
+    parsed.hash ||
+    parsed.pathname.replace(/\/+$/, "") !== ""
+  ) {
+    return null;
+  }
+  const host = parsed.hostname.replace(/\.+$/, "").toLowerCase();
+  const origin = `${parsed.protocol}//${canonicalHost(parsed)}`;
+  if (isLoopbackHost(host)) {
+    const httpish = parsed.protocol === "https:" || parsed.protocol === "http:";
+    return options.allowLoopback && httpish ? origin : null;
+  }
+  if (parsed.protocol !== "https:" || !AI_GATEWAY_HOSTS.has(host)) return null;
+  if (parsed.port !== "") return null;
+  if (options.apiHost !== undefined) {
+    const api = safeUrl(options.apiHost);
+    const apiHost = api?.hostname.replace(/\.+$/, "").toLowerCase() ?? "";
+    if (postHogDomain(apiHost) !== postHogDomain(host)) return null;
+  }
+  return origin;
 }
