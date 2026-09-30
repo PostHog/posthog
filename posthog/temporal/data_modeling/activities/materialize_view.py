@@ -68,7 +68,7 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataWa
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
-from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
+from products.data_warehouse.backend.facade.api import delta_proxy_storage_options, ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.pipelines import CDPProducer
@@ -417,6 +417,7 @@ def get_aws_storage_options() -> dict[str, str]:
         }
 
     return {
+        **delta_proxy_storage_options(),
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 

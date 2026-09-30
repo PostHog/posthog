@@ -47,7 +47,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
-from products.metrics.backend.metric_query_runner import MetricQueryRunner
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
@@ -243,7 +243,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     rows_by_clause: dict[str, list[dict[str, Any]]] = {}
     for clause in request.clauses:
         runner_aggregation = _resolve_runner_aggregation(clause)
-        runner = MetricQueryRunner(
+        runner = build_metric_query_runner(
             team=team,
             metric_name=clause.metric_name,
             aggregation=runner_aggregation,

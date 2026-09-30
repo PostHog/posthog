@@ -17,12 +17,15 @@ class TestGerritSource:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
 
-    def test_only_changes_supports_incremental(self):
+    def test_only_change_listings_support_incremental(self):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
 
         assert schemas["changes"].supports_incremental is True
         assert [f["field"] for f in schemas["changes"].incremental_fields] == ["updated"]
-        for name in ("accounts", "projects", "groups"):
+        for name in ("change_comments", "change_files"):
+            assert schemas[name].supports_incremental is True
+            assert [f["field"] for f in schemas[name].incremental_fields] == ["change_updated"]
+        for name in ("accounts", "projects", "groups", "group_members", "project_branches"):
             assert schemas[name].supports_incremental is False
             assert schemas[name].incremental_fields == []
 

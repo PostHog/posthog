@@ -104,6 +104,7 @@ class SystemOneResult:
     model: str
     answers: Mapping[str, Answer]
     input_tokens: int | None
+    output_tokens: int | None = None
 
 
 def _as_mapping(value: object) -> Mapping[str, object] | None:
@@ -177,11 +178,17 @@ def parse_system_one_response(payload: object, questions: Mapping[str, Question]
 
     usage = _as_mapping(body.get("usage")) or {}
     input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens")
     return SystemOneResult(
         model=answered_model,
         answers={
             question_id: _parse_answer(question_id, question, raw_answers.get(question_id))
             for question_id, question in questions.items()
         },
-        input_tokens=input_tokens if isinstance(input_tokens, int) and not isinstance(input_tokens, bool) else None,
+        input_tokens=input_tokens
+        if isinstance(input_tokens, int) and not isinstance(input_tokens, bool) and input_tokens >= 0
+        else None,
+        output_tokens=output_tokens
+        if isinstance(output_tokens, int) and not isinstance(output_tokens, bool) and output_tokens >= 0
+        else None,
     )

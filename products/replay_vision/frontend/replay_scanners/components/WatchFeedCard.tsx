@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconFlag, IconPlay, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
@@ -319,7 +319,14 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                     summarizer's outcome is the title + body above, so it adds no chip here. */}
                 <div className="relative z-10 flex flex-wrap items-center gap-2 min-w-0">
                     {scannerType && <ScannerTypeBadge scannerType={scannerType} />}
-                    <span className="text-muted text-xs truncate">{scannerName}</span>
+                    {/* The question says what the result answers; the scanner's name is a hover away. */}
+                    {observation.prompt_question ? (
+                        <Tooltip title={scannerName}>
+                            <span className="text-xs truncate">{observation.prompt_question}</span>
+                        </Tooltip>
+                    ) : (
+                        <span className="text-muted text-xs truncate">{scannerName}</span>
+                    )}
                     {scannerType !== 'summarizer' && <ObservationResultSummary observation={observation} />}
                 </div>
                 {headline?.body && (
