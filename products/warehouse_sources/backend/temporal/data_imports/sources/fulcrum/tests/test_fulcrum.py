@@ -56,17 +56,20 @@ def _make_manager(resume_state: FulcrumResumeConfig | None = None) -> mock.Magic
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+def _wire(session: mock.MagicMock, responses: list[Response], urls: list[str] | None = None) -> list[dict[str, Any]]:
     """Wire a mock session and return a list capturing each request's params AT SEND TIME.
 
     ``request.params`` is one dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
+    shows only the final state — snapshot a copy when each request is prepared instead. Pass
+    ``urls`` to collect the requested URLs in the same order.
     """
     session.headers = {}
     param_snapshots: list[dict[str, Any]] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
+        if urls is not None:
+            urls.append(request.url)
         prepared = mock.MagicMock()
         prepared.url = request.url
         return prepared
@@ -101,14 +104,18 @@ class TestToEpochSeconds:
 
 
 class TestIncrementalParams:
+    # Both endpoints filter through `updated_since`, but they key off different cursor fields
+    # (records on updated_at, audit_logs on time), so the cursor comes from the endpoint config.
+    @parameterized.expand(["records", "audit_logs"])
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_records_incremental_adds_updated_since(self, MockSession) -> None:
+    def test_incremental_adds_updated_since(self, endpoint: str, MockSession) -> None:
         session = MockSession.return_value
-        params = _wire(session, [_response("records", [{"id": "1"}], total_pages=1, current_page=1)])
+        config = FULCRUM_ENDPOINTS[endpoint]
+        params = _wire(session, [_response(config.data_key, [{"id": "1"}], total_pages=1, current_page=1)])
 
         _rows(
             _source(
-                "records",
+                endpoint,
                 _make_manager(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
@@ -118,7 +125,7 @@ class TestIncrementalParams:
         # updated_since is the epoch-seconds cutoff; per_page and page ride alongside it.
         assert params[0]["updated_since"] == 1609459200
         assert params[0]["page"] == 1
-        assert params[0]["per_page"] == FULCRUM_ENDPOINTS["records"].page_size
+        assert params[0]["per_page"] == config.page_size
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_records_full_refresh_omits_filter(self, MockSession) -> None:
@@ -136,7 +143,7 @@ class TestIncrementalParams:
 
         assert "updated_since" not in params[0]
 
-    @parameterized.expand(["forms", "projects", "photos"])
+    @parameterized.expand(["forms", "projects", "photos", "records_history", "groups"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_incremental_endpoints_never_filter(self, endpoint: str, MockSession) -> None:
         # A full-refresh endpoint must never send updated_since even when a watermark is present —
@@ -320,3 +327,70 @@ class TestRetryAndErrors:
 
         with pytest.raises(HTTPError):
             _rows(_source("forms", _make_manager()))
+
+
+class TestStaticEndpointParams:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_groups_requests_associations(self, MockSession) -> None:
+        # Without associations=true the group rows carry no member/layer/project/form ids, which is
+        # the whole reason the table exists — so it must ride on every page, not just the first.
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response("groups", [{"id": "g1"}], total_pages=2, current_page=1),
+                _response("groups", [{"id": "g2"}], total_pages=2, current_page=2),
+            ],
+        )
+
+        _rows(_source("groups", _make_manager()))
+
+        assert [p["associations"] for p in params] == ["true", "true"]
+
+
+class TestFormHistoryFanout:
+    def _parent_page(self) -> Response:
+        return _response("forms", [{"id": "f1"}, {"id": "f2"}], total_pages=1, current_page=1)
+
+    def _child_page(self, form_id: str, version: int) -> Response:
+        return _response("forms", [{"id": form_id, "version": version}], total_pages=1, current_page=1)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_forms_and_tags_rows_with_form_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        _wire(session, [self._parent_page(), self._child_page("f1", 1), self._child_page("f2", 3)], urls=urls)
+
+        rows = _rows(_source("form_history", _make_manager()))
+
+        assert urls[1:] == [
+            "https://api.fulcrumapp.com/api/v2/forms/f1/history.json",
+            "https://api.fulcrumapp.com/api/v2/forms/f2/history.json",
+        ]
+        # The parent id is injected under form_id, which is half the table's primary key — a row
+        # missing it would collide with every other form's version of the same number.
+        assert [(r["form_id"], r["version"]) for r in rows] == [("f1", 1), ("f2", 3)]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_each_finished_parent(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [self._parent_page(), self._child_page("f1", 1), self._child_page("f2", 3)])
+
+        manager = _make_manager()
+        _rows(_source("form_history", manager))
+
+        completed = [call.args[0].completed for call in manager.save_state.call_args_list]
+        assert completed[-1] == ["/forms/f1/history.json", "/forms/f2/history.json"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_parents(self, MockSession) -> None:
+        # The parent listing is always re-fetched; only the child fetches are skipped.
+        session = MockSession.return_value
+        urls: list[str] = []
+        _wire(session, [self._parent_page(), self._child_page("f2", 3)], urls=urls)
+
+        manager = _make_manager(FulcrumResumeConfig(completed=["/forms/f1/history.json"]))
+        rows = _rows(_source("form_history", manager))
+
+        assert urls[1:] == ["https://api.fulcrumapp.com/api/v2/forms/f2/history.json"]
+        assert [r["form_id"] for r in rows] == ["f2"]

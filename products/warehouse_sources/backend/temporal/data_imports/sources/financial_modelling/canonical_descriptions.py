@@ -185,4 +185,82 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "paymentDate": "Date the dividend is paid.",
         },
     },
+    "available_exchanges": {
+        "description": "Every stock exchange Financial Modeling Prep supports, resolving the exchange codes carried on stock_list and company_profiles.",
+        "docs_url": _DOCS,
+        "columns": {
+            "exchange": "Short exchange code, as it appears on stock_list and company_profiles.",
+            "name": "Full name of the exchange.",
+            "countryName": "Country the exchange operates in.",
+            "countryCode": "ISO country code of the exchange.",
+            "symbolSuffix": "Suffix appended to symbols traded on this exchange.",
+            "delay": "Delay applied to this exchange's price data.",
+        },
+    },
+    "available_sectors": {
+        "description": "Every sector classification Financial Modeling Prep assigns, resolving the sector values on company_profiles.",
+        "docs_url": _DOCS,
+        "columns": {
+            "sector": "Sector name, as it appears on company_profiles.",
+        },
+    },
+    "available_industries": {
+        "description": "Every industry classification Financial Modeling Prep assigns, resolving the industry values on company_profiles.",
+        "docs_url": _DOCS,
+        "columns": {
+            "industry": "Industry name, as it appears on company_profiles.",
+        },
+    },
+    "splits": {
+        "description": "Stock split history per symbol. Needed to compare historical_prices across a split.",
+        "docs_url": _DOCS,
+        "columns": {
+            "symbol": "Ticker symbol the split applies to.",
+            "date": "Date the split took effect.",
+            "numerator": "New shares issued for every `denominator` shares held.",
+            "denominator": "Shares held that the `numerator` shares replace.",
+        },
+    },
+    "market_capitalization": {
+        "description": "Current market capitalization per symbol: one always-current row, replaced on every sync.",
+        "docs_url": _DOCS,
+        "columns": {
+            "symbol": "Ticker symbol the valuation belongs to.",
+            "date": "Date the market capitalization was observed.",
+            "marketCap": "Market capitalization in the reporting currency.",
+        },
+    },
+    "historical_market_capitalization": {
+        "description": "Daily market capitalization history per symbol, the standard size dimension for equity analysis.",
+        "docs_url": _DOCS,
+        "columns": {
+            "symbol": "Ticker symbol the valuation belongs to.",
+            "date": "Date the market capitalization was observed.",
+            "marketCap": "Market capitalization in the reporting currency on that date.",
+        },
+    },
+    "institutional_positions_summary": {
+        "description": "Institutional 13F holdings summarized per symbol and calendar quarter: how many institutions hold the symbol, the shares and value they hold, and how both moved since the previous quarter.",
+        "docs_url": _DOCS,
+        "columns": {
+            "symbol": "Ticker symbol the holdings are in.",
+            "cik": "SEC Central Index Key of the company the symbol belongs to.",
+            "date": "End date of the reporting quarter.",
+            "investorsHolding": "Number of institutions reporting a position in the quarter.",
+            "investorsHoldingChange": "Change in the number of institutions holding since the previous quarter.",
+            "numberOf13Fshares": "Total shares held across all reported 13F positions.",
+            "numberOf13FsharesChange": "Change in total shares held since the previous quarter.",
+            "totalInvested": "Total value of the reported positions.",
+            "totalInvestedChange": "Change in total value since the previous quarter.",
+            "ownershipPercent": "Share of the company held by institutions, as a percentage.",
+            "ownershipPercentChange": "Change in institutional ownership percentage since the previous quarter.",
+            "newPositions": "Positions opened during the quarter.",
+            "increasedPositions": "Positions increased during the quarter.",
+            "reducedPositions": "Positions reduced during the quarter.",
+            "closedPositions": "Positions closed during the quarter.",
+            "totalCalls": "Total call options held across the reported positions.",
+            "totalPuts": "Total put options held across the reported positions.",
+            "putCallRatio": "Ratio of puts to calls held across the reported positions.",
+        },
+    },
 }

@@ -20,7 +20,6 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -644,11 +643,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                                 : { kind: NodeKind.InsightVizNode, source: insightQuery }
                         const response = await api.insights.generateMetadata(query)
 
-                        eventUsageLogic.actions.reportInsightMetadataAiGenerated(insightQuery.kind)
+                        posthog.capture('insight metadata ai generated', { query_kind: insightQuery.kind })
 
                         return { name: response.name, description: response.description }
                     } catch (e) {
-                        eventUsageLogic.actions.reportInsightMetadataAiGenerationFailed(insightQuery.kind)
+                        posthog.capture('insight metadata ai generation failed', { query_kind: insightQuery.kind })
                         throw e
                     }
                 },

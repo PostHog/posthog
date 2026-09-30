@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from posthog.hogql.escape_sql import escape_hogql_string
 
+from posthog.dataclasses import frozen
+from posthog.utils import relative_date_parse
+
 MAX_NORMALIZED_TEXT_CHARS = 1000
+MAX_STACK_FRAMES = 50
 # The issue detail tool returns the full description, so list rows keep only a preview.
 MAX_LIST_DESCRIPTION_CHARS = 300
 
@@ -88,6 +94,29 @@ EVENT_SEARCH_PROPERTIES = ["properties.$exception_types", "properties.$exception
 PROPERTY_COLUMN_NAMES = {
     select.removeprefix("properties.") for select in [*CONTEXT_EVENT_SELECTS, *EVENT_PROPERTY_SELECTS]
 }
+
+ISSUE_BREAKDOWN_TOP_VALUES = 5
+ISSUE_BREAKDOWN_MAX_DAYS = 30
+MAX_BREAKDOWN_VALUE_CHARS = 200
+# Ask for more values than the response returns: NULL and empty values can take a slot, and they are dropped.
+ISSUE_BREAKDOWN_QUERY_VALUES = ISSUE_BREAKDOWN_TOP_VALUES + 2
+# Dimension name in the response -> event property. All of them have materialized columns. A property without one
+# makes the query read the whole properties blob, which holds the exception payload. On a high-volume issue that
+# multiplies the bytes read by about 40, for example with $trace_id or $exception_handled.
+ISSUE_BREAKDOWN_DIMENSIONS = {
+    "path": "$pathname",
+    "url": "$current_url",
+    "screen": "$screen_name",
+    "browser": "$browser",
+    "os": "$os",
+    "library": "$lib",
+    "library_version": "$lib_version",
+    "app_version": "$app_version",
+}
+ISSUE_BREAKDOWN_SESSION_PROPERTY = "$session_id"
+ISSUE_BREAKDOWN_PROPERTIES = [*ISSUE_BREAKDOWN_DIMENSIONS.values(), ISSUE_BREAKDOWN_SESSION_PROPERTY]
+# Labels the breakdowns query uses for a missing value.
+BREAKDOWN_EMPTY_VALUES = {"", "$$_posthog_breakdown_null_$$"}
 
 
 def build_event_selects(includes: list[str]) -> list[str]:
@@ -277,8 +306,14 @@ def normalize_stacktrace(
         if isinstance(raw_frames, list)
         else None
     )
+    frames_omitted = 0
+    if frames is not None and len(frames) > MAX_STACK_FRAMES:
+        # Frames run from the outermost call to the frame that raised, so keep the end of the list. A deep
+        # recursion can otherwise return thousands of frames that repeat the same few lines.
+        frames_omitted = len(frames) - MAX_STACK_FRAMES
+        frames = frames[-MAX_STACK_FRAMES:]
     base_stacktrace = strip_non_raw_fields(stacktrace_record)
-    return compact_dict({**base_stacktrace, "frames": frames})
+    return compact_dict({**base_stacktrace, "frames": frames, "frames_omitted": frames_omitted or None})
 
 
 def normalize_exception(
@@ -378,6 +413,35 @@ def map_event_row(
     return event
 
 
+def dedupe_repeated_stacktraces(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Replace a stack trace that the page already returned with a reference to the first copy.
+
+    Events of one issue usually share one stack, so a page of sampled events otherwise repeats the same frames once
+    for each event. The reference names the event and the index of the exception in its `$exception_list`, because
+    one event can hold several exceptions with different stacks, and two of them can share a stack. Stacks that
+    differ in any frame, or in code variables, stay in full.
+    """
+    first_copy_by_stack: dict[str, dict[str, object]] = {}
+    for event in events:
+        event_uuid = event.get("uuid")
+        properties = as_record(event.get("properties"))
+        exceptions = properties.get("$exception_list") if properties else None
+        if not isinstance(exceptions, list):
+            continue
+        for index, exception in enumerate(exceptions):
+            exception_record = as_record(exception)
+            stacktrace = as_record(exception_record.get("stacktrace")) if exception_record else None
+            if exception_record is None or stacktrace is None or not stacktrace.get("frames"):
+                continue
+            key = json.dumps(stacktrace, sort_keys=True, default=str)
+            first_copy = first_copy_by_stack.get(key)
+            if first_copy is not None:
+                exception_record["stacktrace"] = dict(first_copy)
+            elif isinstance(event_uuid, str):
+                first_copy_by_stack[key] = {"same_as_event": event_uuid, "same_as_exception": index}
+    return events
+
+
 def map_context_event_properties(data: dict[str, object]) -> dict[str, object]:
     rows = data.get("results")
     row = rows[0] if isinstance(rows, list) and rows else None
@@ -460,6 +524,93 @@ def extract_latest_release(event_properties: dict[str, object]) -> dict[str, obj
             "repo_name": git.get("repo_name") if git else None,
         }
     )
+
+
+@frozen
+class BreakdownRange:
+    date_from: datetime
+    date_to: datetime
+    # True when the limit made the range shorter than the request.
+    range_limited: bool
+
+
+def resolve_breakdown_range(date_range: dict[str, object], timezone_info: ZoneInfo, now: datetime) -> BreakdownRange:
+    """Resolve the breakdown range and limit it to the last ISSUE_BREAKDOWN_MAX_DAYS days before its end.
+
+    The breakdown aggregates every matching event, so its cost grows with the range. The limit keeps the cost
+    bounded.
+    """
+    raw_date_to = date_range.get("date_to")
+    date_to = relative_date_parse(str(raw_date_to), timezone_info, now=now) if raw_date_to else now
+    raw_date_from = date_range.get("date_from")
+    date_from = (
+        relative_date_parse(str(raw_date_from), timezone_info, now=now)
+        if raw_date_from and raw_date_from != "all"
+        else None
+    )
+    earliest = date_to - timedelta(days=ISSUE_BREAKDOWN_MAX_DAYS)
+    if date_from is None or date_from < earliest:
+        return BreakdownRange(date_from=earliest, date_to=date_to, range_limited=True)
+    return BreakdownRange(date_from=date_from, date_to=date_to, range_limited=False)
+
+
+def breakdown_query_date_range(
+    date_range: dict[str, object], timezone_info: ZoneInfo, now: datetime
+) -> tuple[dict[str, str | None], bool]:
+    """Build the date range for the breakdowns query and say whether the 30-day limit made it shorter.
+
+    A range within the limit keeps the requested strings, so a relative range such as -7d gives the same query, and
+    the same cache key, on every call. A relative date_to is sent resolved: the breakdowns query reads it forward.
+    """
+    resolved = resolve_breakdown_range(date_range, timezone_info, now)
+    raw_date_from = date_range.get("date_from")
+    return {
+        "date_from": resolved.date_from.isoformat() if resolved.range_limited else str(raw_date_from),
+        "date_to": resolved.date_to.isoformat() if date_range.get("date_to") else None,
+    }, resolved.range_limited
+
+
+def as_count(value: object) -> int:
+    # The breakdowns query returns counts as floats.
+    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0
+
+
+def breakdown_values(results: dict[str, object], prop: str, limit: int) -> list[dict[str, object]]:
+    property_result = as_record(results.get(prop))
+    raw_values = property_result.get("values") if property_result else None
+    values: list[dict[str, object]] = []
+    for item in raw_values if isinstance(raw_values, list) else []:
+        record = as_record(item)
+        value = record.get("value") if record else None
+        count = record.get("count") if record else None
+        if not isinstance(value, str) or value in BREAKDOWN_EMPTY_VALUES:
+            continue
+        values.append({"value": truncate_text(value, MAX_BREAKDOWN_VALUE_CHARS), "count": as_count(count)})
+    return values[:limit]
+
+
+def map_issue_breakdown(results: dict[str, object]) -> dict[str, object]:
+    """Map ErrorTrackingBreakdownsQuery results to the compact breakdown of the issue tool."""
+    totals = [
+        as_count(record.get("total_count"))
+        for prop in ISSUE_BREAKDOWN_PROPERTIES
+        if (record := as_record(results.get(prop))) is not None
+    ]
+    top_values = {
+        name: breakdown_values(results, prop, ISSUE_BREAKDOWN_TOP_VALUES)
+        for name, prop in ISSUE_BREAKDOWN_DIMENSIONS.items()
+    }
+    # The URL only matters when there is no path: backend SDKs set $current_url but not $pathname.
+    if top_values["path"]:
+        top_values["url"] = []
+    sessions = breakdown_values(results, ISSUE_BREAKDOWN_SESSION_PROPERTY, ISSUE_BREAKDOWN_TOP_VALUES)
+    return {
+        # Each event adds one row for each property, so every property has the same total.
+        "occurrences": max(totals, default=0),
+        "sample_session_ids": [session["value"] for session in sessions],
+        # Leave out empty dimensions: backend SDKs send no browser or OS, and web SDKs send no screen name.
+        "top_values": {name: items for name, items in top_values.items() if items},
+    }
 
 
 def build_impact(issue: dict[str, object]) -> dict[str, object]:

@@ -268,6 +268,26 @@ export const allReports: SignalReport[] = [...reportTabReports, ...pullRequestRe
 
 // ── Detail-endpoint payloads ────────────────────────────────────────────────
 
+/** Answers `POST signals/reports/source_metadata/` from the given reports, as the inbox list loads its source line. */
+export function mockSourceMetadata(
+    reports: SignalReport[]
+): ({ request }: { request: Request }) => Promise<[number, { reports: object[] }]> {
+    return async ({ request }) => {
+        const { report_ids } = (await request.json()) as { report_ids: string[] }
+        const byId = new Map(reports.map((report) => [report.id, report]))
+        return [
+            200,
+            {
+                reports: report_ids.map((id) => ({
+                    id,
+                    source_products: byId.get(id)?.source_products ?? [],
+                    scout_name: byId.get(id)?.scout_name ?? null,
+                })),
+            },
+        ]
+    }
+}
+
 export function mockSignals(reportId: string, count = 4): SignalNode[] {
     return Array.from({ length: count }).map((_, i) => ({
         signal_id: `${reportId}-sig-${i}`,

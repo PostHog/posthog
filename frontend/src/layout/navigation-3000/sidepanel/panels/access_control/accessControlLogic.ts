@@ -365,6 +365,7 @@ export interface accessControlLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -385,6 +386,7 @@ export interface accessControlLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
                 | 'offline_evaluation_ingestion'
@@ -430,6 +432,7 @@ export interface accessControlLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
         ) =>
             | 'access_control'
@@ -591,6 +594,7 @@ export interface accessControlLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -611,6 +615,7 @@ export interface accessControlLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
                 | 'offline_evaluation_ingestion'
@@ -656,6 +661,7 @@ export interface accessControlLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
             resource_id: string
         ) => string
@@ -713,6 +719,7 @@ export interface accessControlLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -733,6 +740,7 @@ export interface accessControlLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
                 | 'offline_evaluation_ingestion'
@@ -778,6 +786,7 @@ export interface accessControlLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
         ) => string
         minimumAccessLevel: (accessControls: AccessControlResponseType | null) => AccessControlLevel | null

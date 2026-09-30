@@ -281,7 +281,6 @@ describe('maxBillingContextLogic', () => {
                 '/api/environments/:team_id/pipeline-destinations': { results: mockDestinations },
                 '/api/environments/:team_id/plugin_configs': { results: [] },
                 '/api/organizations/:organization_id/plugins': { results: [] },
-                '/api/organizations/:organization_id/batch_exports': { results: [] },
                 '/api/projects/:project_id/pipeline_destination_configs/': { results: [] },
                 '/api/environments/:team_id/batch_exports/': { results: [] },
             },

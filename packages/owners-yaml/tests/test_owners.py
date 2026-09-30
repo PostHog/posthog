@@ -21,7 +21,7 @@ from owners_yaml import (
 )
 from owners_yaml.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
 from owners_yaml.fmt import CanonicalPlacer, CanonicalPlan
-from owners_yaml.resolver import OwnersResolver, team_channel
+from owners_yaml.resolver import DiskSource, OwnersResolver, PathKind, first_new_path, team_channel
 from owners_yaml.schema import (
     _RULE_KEYS,
     DEFAULT_ALIAS_FILES,
@@ -849,6 +849,7 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
             "slack": "#registry-chan",
             "source": "reg/owners.yaml",
             "additions": [],
+            "added": {"path": "reg/x.py", "additions": []},
         }
     }
     jsonschema = pytest.importorskip("jsonschema")
@@ -907,6 +908,71 @@ def test_both_front_doors_pass_the_producer_to_the_channel_lookup(
         return
     assert exit_code == 0, output
     assert json.loads(output)["mapped/x.py"]["slack"] == channel
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("products/new/sub/a.py", "products/new"),
+        ("products/old/c.py", "products/old/c.py"),
+        ("products/old/existing.py", None),
+        ("products/old", None),
+        ("products/was-a-file/a.py", "products/was-a-file"),
+        ("products/linked/a.py", "products/linked"),
+    ],
+    ids=[
+        "new-directory",
+        "new-file-in-existing-directory",
+        "existing-file",
+        "existing-directory",
+        "file-to-directory",
+        "symlink-to-directory",
+    ],
+)
+def test_first_new_path_names_the_part_nearest_the_root_that_the_tree_lacks(path: str, expected: str | None) -> None:
+    tree: dict[str, PathKind] = {
+        "products": "dir",
+        "products/old": "dir",
+        "products/old/existing.py": "file",
+        "products/was-a-file": "file",
+        "products/linked": "file",
+        "products/linked/a.py": "file",
+    }
+
+    assert first_new_path(path, tree.get) == expected
+
+
+def test_disk_source_reports_a_symlink_to_a_directory_as_a_file(tmp_path: Path) -> None:
+    _write(tmp_path, "real/a.py", "")
+    (tmp_path / "linked").symlink_to(tmp_path / "real", target_is_directory=True)
+
+    source = DiskSource(tmp_path)
+
+    assert source.path_kind("linked") == "file"
+    assert source.path_kind("real") == "dir"
+    assert first_new_path("linked/a.py", source.path_kind) == "linked"
+
+
+@pytest.mark.parametrize("front_door", ["cli", "module"])
+def test_both_front_doors_report_the_new_part_of_a_path_the_tree_lacks(tmp_path: Path, front_door: str) -> None:
+    _write(
+        tmp_path,
+        "owners.yaml",
+        "version: 1\nowners: team-root\nrules:\n  - match: '/products/*'\n    additions: team-arch\n",
+    )
+    _write(tmp_path, "products/old/owners.yaml", "version: 1\nowners: team-old\n")
+    _write(tmp_path, "products/old/x.py", "")
+
+    exit_code, output = _resolve_json(
+        front_door, tmp_path, ["products/new/a.py", "products/old/x.py", "products/old/y.py"]
+    )
+
+    assert exit_code == 0, output
+    wire = json.loads(output)
+    assert wire["products/new/a.py"]["added"] == {"path": "products/new", "additions": ["team-arch"]}
+    assert wire["products/new/a.py"]["additions"] == []
+    assert wire["products/old/x.py"]["added"] is None
+    assert wire["products/old/y.py"]["added"] == {"path": "products/old/y.py", "additions": []}
 
 
 @pytest.mark.parametrize("root", ["nope", ""], ids=["missing", "empty"])

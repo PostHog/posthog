@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 import contextvars
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
+    repartition_activity_has_work,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
@@ -32,11 +34,14 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
+CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
 TEAM_ID = 1
 SCHEMA_ID = str(uuid.uuid4())
 JOB_ID = str(uuid.uuid4())
 SOURCE_ID = str(uuid.uuid4())
+TEMP_URI = "s3://bucket/folder/table__repartition_tmp_1a2b3c4d"
+OTHER_TEMP_URI = "s3://bucket/folder/table__repartition_tmp_5e6f7a8b"
 
 PENDING_TARGET = {
     "partition_mode": "datetime",
@@ -518,8 +523,10 @@ class TestBudgetExhaustion:
 class TestKilledAttemptRetry:
     @parameterized.expand(
         [
-            ("checkpoint_stood_still", 39097, 39097, False),
-            ("checkpoint_advanced", 39097, 12, True),
+            ("checkpoint_stood_still", 39097, TEMP_URI, 39097, TEMP_URI, False),
+            ("checkpoint_advanced", 39097, TEMP_URI, 12, TEMP_URI, True),
+            ("rewrite_restarted_and_wrote_rows", 12, OTHER_TEMP_URI, 39097, TEMP_URI, True),
+            ("rewrite_restarted_and_wrote_nothing", 0, None, 39097, TEMP_URI, False),
         ]
     )
     @patch(f"{MODULE}.current_activity_attempt", return_value=2)
@@ -534,7 +541,9 @@ class TestKilledAttemptRetry:
         self,
         _name: str,
         checkpoint_rows: int,
+        checkpoint_temp_uri: str | None,
         started_from: int,
+        started_temp_uri: str,
         expect_rewrite: bool,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
@@ -548,12 +557,20 @@ class TestKilledAttemptRetry:
         # Temporal retries the activity only for an attempt that recorded no outcome, and a charge
         # still outstanding means it was killed outright rather than re-raised deliberately. Running
         # the same rewrite again holds the sync for another activity budget and dies in the same
-        # place, so it is worth doing only while the checkpoint keeps moving.
+        # place, so it is worth doing only while the checkpoint keeps moving. A restart is the case
+        # the row count alone gets wrong: the dead attempt rebuilt from row 0, so its checkpoint
+        # reads below the stamp however many rows it committed.
         schema = _schema(
             name="public.usages",
             s3_folder_name="usages",
-            pending={**PENDING_TARGET, "attempts": 1, "charged_job_id": JOB_ID, "attempt_rows": started_from},
-            rewrite={"rows_written": checkpoint_rows},
+            pending={
+                **PENDING_TARGET,
+                "attempts": 1,
+                "charged_job_id": JOB_ID,
+                "attempt_rows": started_from,
+                "attempt_rewrite_id": started_temp_uri,
+            },
+            rewrite={"rows_written": checkpoint_rows, "temp_uri": checkpoint_temp_uri},
         )
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
         mock_repartition.return_value = {"outcome": "completed", "row_count": 101633}
@@ -587,10 +604,12 @@ class TestKilledAttemptRetry:
 
     @parameterized.expand(
         [
-            ("checkpoint_advanced", 488925, 301744, None, True),
-            ("checkpoint_stood_still", 488925, 488925, None, False),
-            ("no_recorded_start", 488925, None, None, False),
-            ("run_advanced_though_its_last_retry_did_not", 488925, 488925, 301744, True),
+            ("checkpoint_advanced", 488925, TEMP_URI, 301744, None, True),
+            ("checkpoint_stood_still", 488925, TEMP_URI, 488925, None, False),
+            ("no_recorded_start", 488925, TEMP_URI, None, None, False),
+            ("run_advanced_though_its_last_retry_did_not", 488925, TEMP_URI, 488925, 301744, True),
+            ("run_restarted_the_rewrite_and_wrote_rows", 301744, OTHER_TEMP_URI, 488925, 488925, True),
+            ("run_restarted_the_rewrite_and_wrote_nothing", 0, None, 488925, 488925, False),
         ]
     )
     @patch(f"{MODULE}.capture_exception")
@@ -606,6 +625,7 @@ class TestKilledAttemptRetry:
         self,
         _name: str,
         checkpoint_rows: int,
+        checkpoint_temp_uri: str | None,
         started_from: int | None,
         run_started_from: int | None,
         expect_resume: bool,
@@ -621,21 +641,25 @@ class TestKilledAttemptRetry:
     ) -> None:
         # A hard-killed attempt records no outcome; only its checkpoint can prove progress. The cap
         # counts sync runs, so a run that advanced the rewrite and then spent its last retry dying
-        # on arrival still converged and must keep the table.
+        # on arrival still converged and must keep the table. The sync's own merge invalidates the
+        # checkpoint often enough that a run routinely rebuilds from row 0, and the rebuilt
+        # checkpoint reads below the stamp even when the run committed a large prefix.
         pending = {
             **PENDING_TARGET,
             "trigger_reason": "coarsening",
             "attempts": MAX_REPARTITION_ATTEMPTS,
             "charged_job_id": str(uuid.uuid4()),
             "attempt_rows": started_from,
+            "attempt_rewrite_id": TEMP_URI,
         }
         if run_started_from is not None:
             pending["run_rows"] = run_started_from
+            pending["run_rewrite_id"] = TEMP_URI
         schema = _schema(
             name="public.deals",
             s3_folder_name="deals",
             pending=pending,
-            rewrite={"rows_written": checkpoint_rows},
+            rewrite={"rows_written": checkpoint_rows, "temp_uri": checkpoint_temp_uri},
         )
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
         mock_repartition.return_value = {"outcome": "completed"}
@@ -661,6 +685,67 @@ class TestKilledAttemptRetry:
             assert failed[0]["error_type"] == "RepartitionAttemptsExhausted"
             schema.clear_repartition_pending.assert_called_once()
             schema.stamp_last_repartition_at.assert_called_once()
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_coarsen_enabled", return_value=True)
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_the_cap_does_not_discard_a_swap_staged_while_it_was_deciding(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_coarsen_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # Every attempt that spends the cap died without recording an outcome, and a heartbeat-timed-out
+        # one keeps running meanwhile: it can stage a swap between the markers being read and the cap
+        # being weighed. Giving up there writes back the whole stale config, so the swap marker — which
+        # says what scheme the data on disk now carries, and holds this schema's imports until it
+        # resolves — would be erased and the next merge would run against settings that no longer
+        # describe the table.
+        schema = _schema(
+            name="public.deals",
+            s3_folder_name="deals",
+            pending={
+                **PENDING_TARGET,
+                "trigger_reason": "coarsening",
+                "attempts": MAX_REPARTITION_ATTEMPTS,
+                "charged_job_id": str(uuid.uuid4()),
+                "attempt_rows": 488925,
+                "run_rows": 488925,
+            },
+            rewrite={"rows_written": 488925},
+        )
+        staged_swap = {
+            "state": "ready",
+            "temp_uri": "s3://bucket/deals__repartitioned",
+            "live_uri": "s3://bucket/deals",
+        }
+        schema.refresh_from_db.side_effect = lambda **_: setattr(schema, "repartition_swap", staged_swap)
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "completed"}
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+        schema.clear_repartition_swap.assert_not_called()
+        schema.clear_repartition_pending.assert_not_called()
+        # The swap is driven to completion instead of being abandoned at the cap.
+        mock_repartition.assert_awaited_once()
 
 
 class TestTransientObjectStoreFailure:
@@ -1061,6 +1146,63 @@ class TestFeatureFlagGate:
         )
 
         assert mock_repartition.await_count == (1 if expect_rewrite else 0)
+
+
+class TestRepartitionActivityHasWork:
+    @parameterized.expand(
+        [
+            (
+                "revive_pending_stands_down",
+                {"delta_revive_required": {"at": "x"}},
+                PENDING_TARGET,
+                None,
+                None,
+                True,
+                False,
+            ),
+            ("queued_rewrite_flag_on", {}, PENDING_TARGET, None, None, True, True),
+            # The activity's own fast path treats a queued rewrite as a no-op once the flag that
+            # staged it is disabled (the flag is the only lever support has to release such a table) —
+            # this must agree, or the schema keeps paying a full activity round trip forever.
+            ("queued_rewrite_released_by_disabled_flag", {}, PENDING_TARGET, None, None, False, False),
+            (
+                "queued_rewrite_admin_reason_fails_open",
+                {},
+                {**PENDING_TARGET, "trigger_reason": "admin"},
+                None,
+                None,
+                False,
+                True,
+            ),
+            ("staged_swap", {}, None, {"state": "ready"}, None, False, True),
+            ("flag_on_measures_the_table", {}, None, None, None, True, True),
+            ("flag_off_nothing_queued", {}, None, None, None, False, False),
+            ("coarsen_nomination_without_flag", {}, None, None, {"requested_by": "op"}, False, True),
+            ("cdc_never_measures", {"sync_type": ExternalDataSchema.SyncType.CDC}, None, None, None, True, False),
+        ]
+    )
+    @patch(f"{CONTROLLER_MODULE}.is_auto_repartition_enabled")
+    def test_matches_the_activitys_own_fast_path(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        pending: dict[str, Any] | None,
+        swap: dict[str, Any] | None,
+        coarsen_requested: dict[str, Any] | None,
+        enabled: bool,
+        expected: bool,
+        mock_enabled: MagicMock,
+    ) -> None:
+        # The workflow skips scheduling the activity on this answer, so a False here for a table the
+        # activity would have rewritten or measured silently stops that table repartitioning.
+        mock_enabled.return_value = enabled
+        schema = _schema(name="public.usages", s3_folder_name="usages", pending=pending, swap=swap)
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.coarsen_requested = coarsen_requested
+        for attribute, value in overrides.items():
+            setattr(schema, attribute, value)
+
+        assert repartition_activity_has_work(schema) is expected
 
 
 class TestMaybeFlagPreExtraction:
