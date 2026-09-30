@@ -596,6 +596,7 @@ class TestSavedQuery(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["view_count"], 0)
         folder_id = response.json()["id"]
 
         DataWarehouseSavedQuery.objects.create(

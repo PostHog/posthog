@@ -11,8 +11,8 @@ from django.contrib.auth.models import AnonymousUser
 
 import posthoganalytics
 from opentelemetry import trace
-from rest_framework.authentication import SessionAuthentication
 
+from posthog.auth import SessionAuthentication
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
 from posthog.helpers.oauth_pending_connection import PendingOAuthConnection

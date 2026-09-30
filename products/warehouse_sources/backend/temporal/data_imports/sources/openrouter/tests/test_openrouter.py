@@ -57,6 +57,19 @@ class TestFetch:
         assert result == {"data": []}
         assert session.get.call_count == 2
 
+    def test_retries_then_succeeds_on_truncated_body(self):
+        truncated = _response(200)
+        truncated.json.side_effect = requests.exceptions.JSONDecodeError(
+            "Unterminated string", '{"data": [{"id": "a', 10
+        )
+        session = mock.Mock()
+        session.get.side_effect = [truncated, _response(200, {"data": [{"id": "a"}]})]
+
+        result = openrouter._fetch(session, "https://openrouter.ai/api/v1/models", {}, mock.Mock())
+
+        assert result == {"data": [{"id": "a"}]}
+        assert session.get.call_count == 2
+
     @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
     def test_client_errors_raise(self, status_code):
         session = mock.Mock()
