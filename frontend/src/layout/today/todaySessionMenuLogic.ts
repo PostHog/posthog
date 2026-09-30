@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { toast } from '@posthog/quill'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -117,7 +117,7 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
                 actions.sessionUpdated(sessionId)
                 return true
             } catch {
-                lemonToast.error(failure)
+                toast.error({ title: failure })
                 actions.sessionUpdateFailed(sessionId)
                 return false
             }
@@ -129,7 +129,7 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
                     await tasksPinCreate(String(values.currentTeamId), sessionId, { pinned })
                     actions.sessionUpdated(sessionId)
                 } catch {
-                    lemonToast.error(`Couldn’t ${pinned ? 'pin' : 'unpin'} this session. Try again.`)
+                    toast.error({ title: `Couldn’t ${pinned ? 'pin' : 'unpin'} this session. Try again.` })
                     actions.sessionUpdateFailed(sessionId)
                 }
             },
@@ -143,12 +143,9 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
                     `Couldn’t ${archived ? 'archive' : 'restore'} this session. Try again.`
                 )
                 if (done && archived) {
-                    lemonToast.success('Session archived', {
-                        button: {
-                            label: 'Undo',
-                            action: () => actions.archiveSession(sessionId, false),
-                            dataAttr: 'today-session-archive-undo',
-                        },
+                    toast.success({
+                        title: 'Session archived',
+                        action: { label: 'Undo', onClick: () => actions.archiveSession(sessionId, false) },
                     })
                 }
             },
