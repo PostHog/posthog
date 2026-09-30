@@ -19,6 +19,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
+    _refresh_task_run,
     create_task_and_trigger,
     extract_json_from_text,
     poll_for_turn,
@@ -343,6 +344,14 @@ class MultiTurnSession:
                 action = "retrying..." if attempt == 1 else "giving up"
                 self.output_fn(f"Agent returned empty response for {label or 'followup'}, {action}")
             return None
+
+    async def run_is_terminal(self) -> bool:
+        """Re-read the TaskRun and tell if it already reached a terminal status.
+
+        A follow-up to a terminal run gets no new agent turn, so the poll fails at once.
+        """
+        self.task_run = await _refresh_task_run(self.task_run.id)
+        return self.task_run.is_terminal
 
     @property
     def workflow_handle(self) -> WorkflowHandle:

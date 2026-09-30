@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
@@ -58,8 +59,11 @@ _DRAFT_JSON_NUDGE = (
 _DRAFT_NUDGE_POLL_SECONDS = 90
 
 
-class DraftNotProducedError(RuntimeError):
-    """The draft agent gave no usable draft. Raised only while a retry attempt remains."""
+class DraftNotProducedError(NonReportableError, RuntimeError):
+    """The draft agent gave no usable draft. Raised only while a retry attempt remains.
+
+    The retry is planned, so error tracking must not report it.
+    """
 
 
 def _parse_draft(text: str | None) -> SupportReplyDraft | None:
@@ -96,6 +100,7 @@ def _give_up(reason: str) -> SupportReplyDraft:
     ticket in_progress.
     """
     if llm_attempts() < DRAFT_ACTIVITY_MAX_ATTEMPTS:
+        logger.warning("support_draft_retrying", reason=reason)
         raise DraftNotProducedError(reason)
     logger.warning("support_draft_blocked_last_attempt", reason=reason)
     return SupportReplyDraft(
@@ -111,12 +116,21 @@ async def _draft_from_session(session: MultiTurnSession, first_text: str) -> Sup
     draft = _parse_draft(first_text)
     if draft is not None:
         return draft
-    logger.warning("support_draft_no_json_nudging", task_run_id=str(session.task_run.id))
+    task_run_id = str(session.task_run.id)
+    try:
+        run_is_terminal = await session.run_is_terminal()
+    except Exception:
+        logger.warning("support_draft_run_status_check_failed", task_run_id=task_run_id, exc_info=True)
+        run_is_terminal = False
+    if run_is_terminal:
+        logger.warning("support_draft_no_json_run_ended", task_run_id=task_run_id)
+        return _give_up("The draft agent run ended without a JSON object.")
+    logger.warning("support_draft_no_json_nudging", task_run_id=task_run_id)
     session.max_poll_seconds = _DRAFT_NUDGE_POLL_SECONDS
     try:
         followup = await session.send_followup_raw(_DRAFT_JSON_NUDGE, label="support draft json")
     except Exception:
-        logger.warning("support_draft_json_nudge_failed", task_run_id=str(session.task_run.id), exc_info=True)
+        logger.warning("support_draft_json_nudge_failed", task_run_id=task_run_id, exc_info=True)
         return _give_up("The draft agent failed while it was asked for the draft JSON.")
     draft = _parse_draft(followup)
     if draft is not None:
