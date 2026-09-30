@@ -659,6 +659,7 @@ the row lists both.
 | shutterstock                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sigma_computing                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | signoz                           | HTTP                        | requests                                                        | ✅                          |
+| sim                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | simfin                           | HTTP                        | requests                                                        | ✅                          |
 | similarweb                       | HTTP                        | requests                                                        | ✅                          |
 | simplecast                       | HTTP                        | requests                                                        | ✅                          |
@@ -1377,7 +1378,6 @@ doesn't conflict with concurrent PRs.
 - shortio
 - sideshift
 - signnow
-- sim
 - simon_data
 - simplecast
 - simplesat
