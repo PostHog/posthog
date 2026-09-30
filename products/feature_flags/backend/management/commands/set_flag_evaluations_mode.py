@@ -16,13 +16,13 @@ from uuid import UUID
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_evaluations_mode import (
     UnknownIdsError,
     get_organizations,
     select_organizations,
     set_organization_flag_evaluations_mode,
 )
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 
 
 def _parse_instant(value: str) -> datetime:
