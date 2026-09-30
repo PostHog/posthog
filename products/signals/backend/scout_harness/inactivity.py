@@ -74,8 +74,8 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutRun,
 )
+from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.slack_delivery import get_scout_slack_destination
-from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY
 
 logger = structlog.get_logger(__name__)
 

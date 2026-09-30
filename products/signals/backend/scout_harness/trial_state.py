@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, JsonValue, TypeAdapter
 from posthog.dataclasses import frozen
 
 from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY as SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.tools.runs import _build_task_url
 from products.signals.backend.scout_harness.tools.scratchpad import (
     DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
@@ -26,7 +27,6 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
 if TYPE_CHECKING:
     from uuid import UUID
 
-SCOUT_TRIAL_METADATA_KEY = "scout_trial"
 SCOUT_TRIAL_STATE_KEY = "scout_trial_private"
 MAX_SCOUT_TRIAL_STATE_BYTES = 2 * 1024 * 1024
 

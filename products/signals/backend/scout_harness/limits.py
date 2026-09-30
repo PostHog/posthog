@@ -35,6 +35,7 @@ STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 # note to: steering meant for one run must not crowd out the run's own instructions.
 MAX_RUN_NOTE_CHARS = 1_000
 
+SCOUT_TRIAL_METADATA_KEY = "scout_trial"
 MAX_TRIAL_VARIANTS = 20
 MAX_TRIAL_REPEATS = 20
 MAX_TRIAL_RUNS = MAX_TRIAL_VARIANTS * MAX_TRIAL_REPEATS

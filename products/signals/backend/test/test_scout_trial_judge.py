@@ -832,7 +832,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         active = 0
         peak = 0
         loop = asyncio.get_running_loop()
-        now = loop.time()
+        now = 1_000.0
 
         async def complete(*, messages: list[ChatCompletionMessageParam], **options: object) -> ChatCompletion:
             nonlocal active, peak, now
