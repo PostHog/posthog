@@ -72,7 +72,6 @@ export function FlatNavBrowse(): JSX.Element {
                             icon={<IconNotification />}
                             isCollapsed={isLayoutNavCollapsed}
                             data-attr="nav-item-inbox"
-                            tag="beta"
                             onClick={() => reportNavItemClicked('inbox', 'primary')}
                         />
                     )}

@@ -2534,6 +2534,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'inbox' as FileSystemIconType,
         href: urls.inbox(),
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
+        tags: ['beta'],
         sceneKey: 'Inbox',
         sceneKeys: ['Inbox'],
     },
