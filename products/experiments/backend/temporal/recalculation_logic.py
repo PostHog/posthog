@@ -36,10 +36,10 @@ from products.experiments.backend.hogql_queries.error_handling import (
     classify_experiment_query_error,
     get_user_friendly_message,
 )
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
-from products.experiments.backend.metric_resolution import build_metric, find_metric_dict, resolve_scheduled_metrics
+from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
+from products.experiments.backend.metric_calculation.spec import plan_metric
+from products.experiments.backend.metric_resolution import build_metric, resolve_scheduled_metrics
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -706,8 +706,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        metric_dict = find_metric_dict(experiment, metric_uuid)
-        if metric_dict is None:
+        spec = plan_metric(experiment, metric_uuid)
+        if spec is None:
             return _fail(
                 recalculation_id,
                 metric_uuid,
@@ -715,6 +715,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 f"Metric {metric_uuid} not found in experiment {experiment_id}",
                 error_type="validation_error",
             )
+        metric_dict = spec.definition
 
         if not experiment.start_date:
             return _fail(
@@ -725,15 +726,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        config_fp = compute_metric_fingerprint(
-            metric_dict,
-            experiment.start_date,
-            get_experiment_stats_method(experiment),
-            experiment.exposure_criteria,
-            only_count_matured_users=experiment.only_count_matured_users,
-            excluded_variants=experiment.excluded_variants,
-        )
-        recalc_fp = compute_recalc_fingerprint(config_fp)
+        recalc_fp = compute_recalc_fingerprint(spec.calculation_key())
 
         # Skip the query if this metric is already computed for this exact config and window; a config change
         # changes the fingerprint, so a stale result won't match and recomputes.

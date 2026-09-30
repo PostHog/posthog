@@ -57,11 +57,11 @@ class TestMetricResolution(BaseTest):
         self._attach_saved(experiment, {"uuid": saved_secondary_uuid, "metric_type": "mean"}, {"type": "secondary"})
         self._attach_saved(experiment, {"uuid": saved_untyped_uuid, "metric_type": "mean"})
 
-        assert [(m.uuid, m.role) for m in resolve_experiment_metrics(experiment)] == [
-            (primary["uuid"], "primary"),
-            (secondary["uuid"], "secondary"),
-            (saved_secondary_uuid, "secondary"),
-            (saved_untyped_uuid, "primary"),
+        assert [(m.uuid, m.role, m.source) for m in resolve_experiment_metrics(experiment)] == [
+            (primary["uuid"], "primary", "inline"),
+            (secondary["uuid"], "secondary", "inline"),
+            (saved_secondary_uuid, "secondary", "saved"),
+            (saved_untyped_uuid, "primary", "saved"),
         ]
 
     def test_prefetched_links_resolve_without_queries(self):

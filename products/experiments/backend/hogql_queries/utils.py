@@ -1,6 +1,6 @@
 import math
 from enum import Enum
-from typing import Any, Optional, TypeVar
+from typing import Any, Literal, Optional, TypeVar
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -116,14 +116,17 @@ def sanitize_non_finite(value: Any) -> Any:
     return value
 
 
-def get_experiment_stats_method(experiment) -> str:
-    if experiment.stats_config is None:
-        return "bayesian"
-    else:
-        stats_method = experiment.stats_config.get("method", "bayesian")
-        if stats_method not in ["bayesian", "frequentist"]:
-            return "bayesian"
-        return stats_method
+StatsMethod = Literal["bayesian", "frequentist"]
+
+
+def resolve_stats_method(stats_config: dict | None) -> StatsMethod:
+    """The statistics method an experiment's results use. A missing or unknown method is Bayesian."""
+    method = stats_config.get("method") if isinstance(stats_config, dict) else None
+    return "frequentist" if method == "frequentist" else "bayesian"
+
+
+def get_experiment_stats_method(experiment) -> StatsMethod:
+    return resolve_stats_method(experiment.stats_config)
 
 
 def split_baseline_and_test_variants(
@@ -463,6 +466,62 @@ def _resolve_sequential_settings(
     return enabled, tuning_parameter
 
 
+@frozen
+class BayesianSettings:
+    """What the Bayesian test reads from an experiment's stats config, with defaults applied."""
+
+    ci_level: float
+    difference_type: DifferenceType
+
+
+@frozen
+class FrequentistSettings:
+    """What the frequentist test reads from an experiment's stats config, with the team's sequential
+    testing defaults and the product defaults applied."""
+
+    alpha: float
+    difference_type: DifferenceType
+    sequential_testing_enabled: bool
+    sequential_tuning_parameter: float
+
+
+def _method_config(stats_config: dict | None, method: StatsMethod) -> dict:
+    method_config = stats_config.get(method) if isinstance(stats_config, dict) else None
+    return method_config if isinstance(method_config, dict) else {}
+
+
+def resolve_bayesian_settings(stats_config: dict | None) -> BayesianSettings:
+    bayesian_config = _method_config(stats_config, "bayesian")
+    return BayesianSettings(
+        ci_level=_validate_numeric_range(bayesian_config.get("ci_level", 0.95), 0.0, 1.0, 0.95),
+        difference_type=_parse_enum_config(
+            bayesian_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
+        ),
+    )
+
+
+def resolve_frequentist_settings(
+    stats_config: dict | None,
+    *,
+    team_default_sequential_testing_enabled: bool,
+    team_default_sequential_tuning_parameter: int | None,
+) -> FrequentistSettings:
+    frequentist_config = _method_config(stats_config, "frequentist")
+    sequential_testing_enabled, sequential_tuning_parameter = _resolve_sequential_settings(
+        frequentist_config,
+        team_default_enabled=team_default_sequential_testing_enabled,
+        team_default_tuning_parameter=team_default_sequential_tuning_parameter,
+    )
+    return FrequentistSettings(
+        alpha=_validate_numeric_range(frequentist_config.get("alpha", 0.05), 0.0, 1.0, 0.05),
+        difference_type=_parse_enum_config(
+            frequentist_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
+        ),
+        sequential_testing_enabled=sequential_testing_enabled,
+        sequential_tuning_parameter=sequential_tuning_parameter,
+    )
+
+
 def get_frequentist_experiment_result(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
@@ -472,23 +531,19 @@ def get_frequentist_experiment_result(
     team_default_sequential_testing_enabled: bool = False,
     team_default_sequential_tuning_parameter: int | None = None,
 ) -> ExperimentQueryResponse:
-    frequentist_config = stats_config.get("frequentist", {}) if stats_config else {}
     resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
-
-    sequential_testing_enabled, sequential_tuning_parameter = _resolve_sequential_settings(
-        frequentist_config,
-        team_default_enabled=team_default_sequential_testing_enabled,
-        team_default_tuning_parameter=team_default_sequential_tuning_parameter,
+    settings = resolve_frequentist_settings(
+        stats_config,
+        team_default_sequential_testing_enabled=team_default_sequential_testing_enabled,
+        team_default_sequential_tuning_parameter=team_default_sequential_tuning_parameter,
     )
 
     config = FrequentistConfig(
-        alpha=_validate_numeric_range(frequentist_config.get("alpha", 0.05), 0.0, 1.0, 0.05),
+        alpha=settings.alpha,
         test_type=TestType.TWO_SIDED,
-        difference_type=_parse_enum_config(
-            frequentist_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
-        ),
-        sequential_testing_enabled=sequential_testing_enabled,
-        sequential_tuning_parameter=sequential_tuning_parameter,
+        difference_type=settings.difference_type,
+        sequential_testing_enabled=settings.sequential_testing_enabled,
+        sequential_tuning_parameter=settings.sequential_tuning_parameter,
     )
     method = FrequentistMethod(config)
 
@@ -576,15 +631,10 @@ def get_bayesian_experiment_result(
     stats_config: dict | None = None,
     cuped_config: CupedQueryConfig | None = None,
 ) -> ExperimentQueryResponse:
-    bayesian_config = stats_config.get("bayesian", {}) if stats_config else {}
     resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
+    settings = resolve_bayesian_settings(stats_config)
 
-    config = BayesianConfig(
-        ci_level=_validate_numeric_range(bayesian_config.get("ci_level", 0.95), 0.0, 1.0, 0.95),
-        difference_type=_parse_enum_config(
-            bayesian_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
-        ),
-    )
+    config = BayesianConfig(ci_level=settings.ci_level, difference_type=settings.difference_type)
     method = BayesianMethod(config)
 
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)

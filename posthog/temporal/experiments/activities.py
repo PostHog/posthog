@@ -37,6 +37,7 @@ from products.experiments.backend.facade.timeseries import (
     build_metric,
     is_daily_timeseries_metric,
     is_scheduled_metric,
+    metric_calculation_keys,
     resolve_saved_metric_definition,
     sync_timeseries_recalculation,
 )
@@ -45,9 +46,8 @@ from products.experiments.backend.hogql_queries.error_handling import (
     capture_experiment_metric_error_event,
     classify_experiment_query_error,
 )
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
+from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
@@ -88,6 +88,7 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
 
     for experiment in experiments:
         all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+        calculation_keys = metric_calculation_keys(experiment.id, team_id=experiment.team_id).inline
 
         for metric in all_metrics:
             metric_uuid = metric.get("uuid")
@@ -100,14 +101,10 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
             if not is_scheduled_metric(metric):
                 continue
 
-            fingerprint = compute_metric_fingerprint(
-                metric,
-                experiment.start_date,
-                get_experiment_stats_method(experiment),
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
-            )
+            fingerprint = calculation_keys.get(metric_uuid)
+            if fingerprint is None:
+                # The experiment lost this metric after the discovery query read it.
+                continue
 
             experiment_metrics.append(
                 ExperimentRegularMetricInput(
@@ -389,7 +386,12 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
     ).prefetch_related("experimenttosavedmetric_set__saved_metric")
 
     for experiment in experiments:
-        for exp_to_saved_metric in experiment.experimenttosavedmetric_set.all():
+        saved_metric_links = experiment.experimenttosavedmetric_set.all()
+        if not saved_metric_links:
+            continue
+        calculation_keys = metric_calculation_keys(experiment.id, team_id=experiment.team_id).saved
+
+        for exp_to_saved_metric in saved_metric_links:
             saved_metric = exp_to_saved_metric.saved_metric
             metric_uuid = saved_metric.query.get("uuid")
 
@@ -403,17 +405,10 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
             if not is_scheduled_metric(saved_metric.query):
                 continue
 
-            # Fingerprint the effective definition (with the link overrides), the same dict the calc
-            # activity computes and every reader (timeseries sync, chart read) resolves. Hashing the raw
-            # saved query here would file override-configured metrics under a hash no reader looks up.
-            fingerprint = compute_metric_fingerprint(
-                resolve_saved_metric_definition(saved_metric.query, exp_to_saved_metric.metadata),
-                experiment.start_date,
-                get_experiment_stats_method(experiment),
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
-            )
+            fingerprint = calculation_keys.get(exp_to_saved_metric.id)
+            if fingerprint is None:
+                # The experiment lost this link after the discovery query read it.
+                continue
 
             experiment_metrics.append(
                 ExperimentSavedMetricInput(
