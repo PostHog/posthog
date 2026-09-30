@@ -37,7 +37,7 @@ from posthog.exceptions import (
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_property
 from posthog.models import Entity, User
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -794,7 +794,14 @@ ACTIVITY_TYPES = {
 
 
 def log_activity_from_viewset(
-    viewset, instance, activity=None, name=None, previous=None, detail_type=None, short_id=None
+    viewset,
+    instance,
+    activity=None,
+    name=None,
+    previous=None,
+    detail_type=None,
+    short_id=None,
+    extra_changes: Optional[list[Change]] = None,
 ) -> None:
     try:
         model_class = instance.__class__.__name__
@@ -805,6 +812,8 @@ def log_activity_from_viewset(
         if previous is not None:
             changes = changes_between(model_class, previous=previous, current=instance)
             detail_kwargs["changes"] = changes
+        if extra_changes:
+            detail_kwargs["changes"] = [*(detail_kwargs.get("changes") or []), *extra_changes]
         if detail_type is not None:
             detail_kwargs["type"] = detail_type
         if short_id is not None:

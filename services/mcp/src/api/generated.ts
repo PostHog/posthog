@@ -51682,13 +51682,15 @@ export namespace Schemas {
       workflow?: HogFlow | null;
     }
 
-    export interface HogFlowRevision {
-      /** Workflow version this snapshot was published as. */
-      readonly version: number;
-      readonly created_at: string;
-      readonly created_by: UserBasic | null;
-      /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
-      readonly content: unknown;
+    export interface HogFlowRestoreChanges {
+      /** Names of steps the restore removes, compared with the staged draft or, without one, the live workflow. */
+      removed_steps: string[];
+      /** Names of steps the restore adds back. */
+      added_steps: string[];
+      /** Names of steps the restore keeps but whose configuration (for example, conditions) changes. */
+      updated_steps: string[];
+      /** Workflow content fields other than steps that the restore changes, such as `edges`, `conversion` or `exit_condition`. */
+      updated_settings: string[];
     }
 
     export interface HogFlowRevisionBasic {
@@ -51696,6 +51698,17 @@ export namespace Schemas {
       readonly version: number;
       readonly created_at: string;
       readonly created_by: UserBasic | null;
+    }
+
+    export interface HogFlowRevisionDetail {
+      /** Workflow version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+      /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
+      readonly content: unknown;
+      /** What restoring this version as a draft changes, compared with the current staged draft or, without one, the live workflow. */
+      readonly restore_changes: HogFlowRestoreChanges;
     }
 
     export interface HogFlowRevisionRestoreRequest {

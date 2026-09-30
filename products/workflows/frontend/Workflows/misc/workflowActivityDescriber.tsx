@@ -10,6 +10,9 @@ import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import type { HogFlowRestoreChangesApi } from '../../generated/api.schemas'
+import { RestoreChangesSummary } from '../RestoreChangesSummary'
+
 const nameOrLinkToWorkflow = (id?: string | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(empty string)'
     return id ? <Link to={urls.workflow(id, 'workflow')}>{displayName}</Link> : displayName
@@ -201,17 +204,23 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
     }
 
     if (logItem.activity == 'revision_restored') {
+        // Entries written before the restore recorded its changes carry no `restored_version`.
+        const restored = logItem.detail.changes?.find((change) => change.field === 'restored_version')?.after as
+            | (HogFlowRestoreChangesApi & { version: number })
+            | undefined
+        const versionLabel = restored ? `version ${restored.version}` : 'an earlier version'
         return {
             summary: activityLogSummary(
                 logItem,
-                'Staged an earlier version for review',
+                `Replaced the staged draft with ${versionLabel}`,
                 nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
             ),
             description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> restored a past version into the staged draft of the{' '}
-                    {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
-                </>
+                <div>
+                    <ActivityLogUserName logItem={logItem} /> replaced the staged draft of the {objectNoun}{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)} with {versionLabel}
+                    {restored ? <RestoreChangesSummary changes={restored} /> : null}
+                </div>
             ),
         }
     }

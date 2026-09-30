@@ -1,6 +1,8 @@
+import { render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -35,6 +37,18 @@ describe('workflowRevisionsLogic', () => {
                         { version: 2, created_at: '2026-04-01T00:00:00.000Z', created_by: null },
                     ],
                 },
+                '/api/projects/:team_id/hog_flows/:id/revisions/:version': {
+                    version: 2,
+                    created_at: '2026-04-01T00:00:00.000Z',
+                    created_by: null,
+                    content: {},
+                    restore_changes: {
+                        removed_steps: ['Check plan'],
+                        added_steps: [],
+                        updated_steps: [],
+                        updated_settings: [],
+                    },
+                },
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             post: {
@@ -52,6 +66,22 @@ describe('workflowRevisionsLogic', () => {
     it('loads revisions on mount', async () => {
         await expectLogic(logic).toDispatchActions(['loadRevisionsSuccess'])
         expect(logic.values.revisions.map((revision) => revision.version)).toEqual([3, 2])
+    })
+
+    it('restoreRevision shows the steps the restore removes before it asks to confirm', async () => {
+        const openSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        try {
+            await expectLogic(logic, () => {
+                logic.actions.restoreRevision(2)
+            }).toFinishAllListeners()
+
+            expect(openSpy).toHaveBeenCalledTimes(1)
+            render(<>{openSpy.mock.calls[0][0].content}</>)
+            expect(screen.getByText('Check plan')).toBeTruthy()
+            expect(restoreBodies).toEqual([])
+        } finally {
+            openSpy.mockRestore()
+        }
     })
 
     // Restore must send overwrite (the confirm dialog already warned about replacing a staged

@@ -88,6 +88,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
 from posthog.permissions import posthog_feature_flag_enabled
@@ -3873,6 +3874,38 @@ class HogFlowRevisionSerializer(HogFlowRevisionBasicSerializer):
         read_only_fields = fields
 
 
+class HogFlowRestoreChangesSerializer(serializers.Serializer):
+    removed_steps = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Names of steps the restore removes, compared with the staged draft or, without one, the live workflow.",
+    )
+    added_steps = serializers.ListField(
+        child=serializers.CharField(), help_text="Names of steps the restore adds back."
+    )
+    updated_steps = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Names of steps the restore keeps but whose configuration (for example, conditions) changes.",
+    )
+    updated_settings = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Workflow content fields other than steps that the restore changes, such as `edges`, `conversion` or `exit_condition`.",
+    )
+
+
+class HogFlowRevisionDetailSerializer(HogFlowRevisionSerializer):
+    restore_changes = serializers.SerializerMethodField(
+        help_text="What restoring this version as a draft changes, compared with the current staged draft or, without one, the live workflow."
+    )
+
+    class Meta(HogFlowRevisionSerializer.Meta):
+        fields = [*HogFlowRevisionSerializer.Meta.fields, "restore_changes"]
+        read_only_fields = fields
+
+    @extend_schema_field(HogFlowRestoreChangesSerializer)
+    def get_restore_changes(self, revision: HogFlowRevision) -> dict:
+        return dataclasses.asdict(restore_changes(self.context["hog_flow"], revision.content))
+
+
 class HogFlowRevisionRestoreRequestSerializer(serializers.Serializer):
     overwrite = serializers.BooleanField(
         default=False,
@@ -4275,6 +4308,49 @@ def describe_steps(hog_flow: HogFlow, step_ids: list[str]) -> list[str]:
     """Step names for a person to read. A step deleted since has no name left, so it keeps its id."""
     names = {_item_id(item): item.get("name") for item in snapshot_flow_content(hog_flow).get("actions") or []}
     return [names.get(step_id) or step_id for step_id in step_ids]
+
+
+@frozen
+class RestoreChanges:
+    removed_steps: list[str]
+    added_steps: list[str]
+    updated_steps: list[str]
+    updated_settings: list[str]
+
+
+def restore_changes(hog_flow: HogFlow, revision_content: dict) -> RestoreChanges:
+    """What restoring `revision_content` changes, compared with the content the draft replaces: the
+    staged draft if one is open, else the live workflow. A restore replaces that content whole, so
+    a person must see what goes before they confirm. Holds step names and field names only, never
+    step configuration, so it is safe to show and to log."""
+    template_cache: TemplateCache = {}
+    replaced = {**snapshot_flow_content(hog_flow), **(hog_flow.draft or {})}
+    old = _without_bytecode_contracts(strip_content_secrets(replaced, template_cache))
+    new = _without_bytecode_contracts(strip_content_secrets(dict(revision_content), template_cache))
+
+    def steps_by_id(content: dict) -> dict[str, dict]:
+        return {item["id"]: item for item in content.get("actions") or [] if isinstance(item, dict) and item.get("id")}
+
+    def step_name(item: dict) -> str:
+        return item.get("name") or item["id"]
+
+    old_steps = steps_by_id(old)
+    new_steps = steps_by_id(new)
+    return RestoreChanges(
+        removed_steps=[step_name(item) for step_id, item in old_steps.items() if step_id not in new_steps],
+        added_steps=[step_name(item) for step_id, item in new_steps.items() if step_id not in old_steps],
+        updated_steps=[
+            step_name(item)
+            for step_id, item in new_steps.items()
+            if step_id in old_steps and old_steps[step_id] != item
+        ],
+        # `trigger` mirrors the trigger step, so a trigger change already reads as an updated step.
+        updated_settings=[
+            field
+            for field in DRAFT_CONTENT_FIELDS
+            if field not in ("actions", "trigger") and old.get(field) != new.get(field)
+        ],
+    )
 
 
 def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal, content: Optional[dict] = None) -> list[str]:
@@ -5808,7 +5884,7 @@ class HogFlowViewSet(
 
     @extend_schema(
         parameters=[OpenApiParameter("version", int, OpenApiParameter.PATH, description="Workflow version to fetch.")],
-        responses={200: HogFlowRevisionSerializer},
+        responses={200: HogFlowRevisionDetailSerializer},
     )
     @action(detail=True, methods=["GET"], url_path=r"revisions/(?P<version>\d+)")
     def revision_detail(self, request: Request, version: Optional[str] = None, *args, **kwargs):
@@ -5817,7 +5893,7 @@ class HogFlowViewSet(
             revision = HogFlowRevision.objects.get(hog_flow=instance, version=int(version or 0))
         except HogFlowRevision.DoesNotExist:
             raise exceptions.NotFound("No such revision for this workflow.")
-        return Response(HogFlowRevisionSerializer(revision).data)
+        return Response(HogFlowRevisionDetailSerializer(revision, context={"hog_flow": instance}).data)
 
     @extend_schema(
         parameters=[
@@ -5856,6 +5932,7 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
+            changes = restore_changes(locked, revision.content)
             locked.draft = dict(revision.content)
             locked.draft_updated_at = timezone.now()
             unstage_workflow_proposals(locked)
@@ -5865,9 +5942,33 @@ class HogFlowViewSet(
             locked.draft_encrypted_inputs = None
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
-        log_activity_from_viewset(self, locked, activity="revision_restored", name=locked.name, previous=before_update)
+        log_activity_from_viewset(
+            self,
+            locked,
+            activity="revision_restored",
+            name=locked.name,
+            previous=before_update,
+            # `draft` is masked in the activity log, so its diff cannot say what the restore replaced.
+            extra_changes=[
+                Change(
+                    type="HogFlow",
+                    action="changed",
+                    field="restored_version",
+                    before=None,
+                    after={"version": revision.version, **dataclasses.asdict(changes)},
+                )
+            ],
+        )
         self._emit_resource_edited(locked)
-        self._report_workflow_action("hog_flow_revision_restored", locked, {"version": revision.version})
+        self._report_workflow_action(
+            "hog_flow_revision_restored",
+            locked,
+            {
+                "version": revision.version,
+                "removed_steps_count": len(changes.removed_steps),
+                "updated_steps_count": len(changes.updated_steps),
+            },
+        )
 
         return Response(self.get_serializer(locked).data)
 

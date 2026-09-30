@@ -180,12 +180,15 @@ const WorkflowsGetRevisionSchema = () => {
     return HogFlowsRevisionsRetrieveParams.omit({ project_id: true })
 }
 
-const workflowsGetRevision = (): ToolBase<ReturnType<typeof WorkflowsGetRevisionSchema>, Schemas.HogFlowRevision> => ({
+const workflowsGetRevision = (): ToolBase<
+    ReturnType<typeof WorkflowsGetRevisionSchema>,
+    Schemas.HogFlowRevisionDetail
+> => ({
     name: 'workflows-get-revision',
     schema: WorkflowsGetRevisionSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsGetRevisionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.HogFlowRevision>({
+        const result = await context.api.request<Schemas.HogFlowRevisionDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/${encodeURIComponent(String(params.version))}/`,
         })
