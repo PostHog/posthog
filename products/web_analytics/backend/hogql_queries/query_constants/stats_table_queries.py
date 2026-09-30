@@ -288,6 +288,44 @@ WHERE and({inside_periods}, {event_where}, {all_properties})
 GROUP BY session_id, breakdown_value
 """
 
+# Channel-type breakdown in two phases. `$channel_type` is a session field, so the
+# sessions side cannot be dropped, but the lazy events↔sessions join re-runs the
+# sessions subquery on every events shard and probes it once per event. Here the
+# events are first reduced to one row per session with no join (same session key
+# as NO_JOIN_MAIN_INNER_QUERY), then joined once to the sessions that start in a
+# period. Sessions that start outside both periods never reach a period bucket in
+# the outer query, so filtering them out changes no result. The LEFT JOIN keeps
+# sessionless and non-UUIDv7 events under a NULL session, as the lazy join does.
+CHANNEL_TYPE_TWO_PHASE_INNER_QUERY = """
+SELECT
+    e.filtered_person_id AS filtered_person_id,
+    e.filtered_pageview_count AS filtered_pageview_count,
+    s.breakdown_value AS breakdown_value,
+    e.session_id AS session_id,
+    s.start_timestamp AS start_timestamp
+FROM (
+    SELECT
+        {filtered_person_id} AS filtered_person_id,
+        {filtered_pageview_count} AS filtered_pageview_count,
+        if(
+            equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+            events.$session_id,
+            NULL
+        ) AS session_id
+    FROM events
+    WHERE and({inside_periods}, {event_where}, {all_properties})
+    GROUP BY session_id
+) AS e
+LEFT JOIN (
+    SELECT
+        sessions.session_id AS session_id,
+        sessions.$channel_type AS breakdown_value,
+        sessions.$start_timestamp AS start_timestamp
+    FROM sessions
+    WHERE {sessions_in_periods}
+) AS s ON e.session_id = s.session_id
+"""
+
 # No-join variants of the PAGE-breakdown queries: counts come straight from events
 # (bucketed by event timestamp) and bounce comes straight from the sessions table
 # (bucketed by session start), instead of routing both through the events↔sessions

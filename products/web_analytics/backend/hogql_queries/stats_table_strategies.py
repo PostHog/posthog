@@ -7,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
 from products.web_analytics.backend.hogql_queries.query_constants.stats_table_queries import (
+    CHANNEL_TYPE_TWO_PHASE_INNER_QUERY,
     FIRST_PAGEVIEW_INNER_QUERY,
     FRUSTRATION_METRICS_INNER_QUERY,
     MAIN_INNER_QUERY,
@@ -263,6 +264,36 @@ class ChannelTypeStrategy(SimpleBreakdownStrategy):
     per-row work materially heavier than other simple breakdowns, which
     is why this gets its own tag for attribution even though the outer
     SQL is the same template."""
+
+
+class ChannelTypeTwoPhaseStrategy(ChannelTypeStrategy):
+    """INITIAL_CHANNEL_TYPE breakdown without the per-event sessions join.
+
+    Eligible when the tile shows only visitors and views: every other
+    session-derived column would need the join back. The outer query is
+    inherited unchanged; only the inner scan differs.
+    """
+
+    INNER_QUERY = CHANNEL_TYPE_TWO_PHASE_INNER_QUERY
+
+    def build_query(self) -> ast.SelectQuery:
+        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="stats_table_channel_type").inc()
+        return super().build_query()
+
+    def _inner_query(self, breakdown: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            self.INNER_QUERY,
+            timings=self.runner.timings,
+            placeholders={
+                **self._event_aggregation_placeholders(),
+                "event_where": self.runner.event_type_expr,
+                "all_properties": self.runner.all_properties(),
+                "inside_periods": self.runner._periods_expression(),
+                "sessions_in_periods": self.runner._periods_expression("$start_timestamp"),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
 
 
 class FirstPageviewAttributionStrategy(SimpleBreakdownStrategy):
