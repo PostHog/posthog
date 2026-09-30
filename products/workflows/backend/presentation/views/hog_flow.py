@@ -152,6 +152,7 @@ from products.workflows.backend.facade.email_health import (
     team_email_sending_allowance,
 )
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
+from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
 from products.workflows.backend.facade.proposals import (
     UNAVAILABLE_GUARDRAILS,
     is_optimization_enabled,
@@ -220,8 +221,6 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
-    fetch_message_asset_html,
-    fetch_message_assets,
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
 from products.workflows.backend.services.timing_reschedule import (
