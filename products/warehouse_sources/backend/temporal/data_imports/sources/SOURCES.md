@@ -896,6 +896,7 @@ doesn't conflict with concurrent PRs.
 - astronomer
 - athenahealth
 - atlan
+- audiogo
 - auth0
 - autodesk_construction_cloud
 - automox
@@ -1039,6 +1040,7 @@ doesn't conflict with concurrent PRs.
 - encharge
 - entsoe
 - eurostat
+- exact_online
 - expensify
 - facebook_pages
 - faros_ai
@@ -1181,6 +1183,7 @@ doesn't conflict with concurrent PRs.
 - lawmatics
 - learnworlds
 - lemon_squeezy
+- lettrlabs
 - lever
 - liana
 - lingo_dev
