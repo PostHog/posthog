@@ -28,7 +28,7 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.facade.testing import seed_metric
 
 # 08:55 — the 08:00 hourly bucket is still accumulating; 07:00 is the last complete one.
-FROZEN_TIME = dateutil.parser.parse("2026-07-01T08:55:00.000Z")
+FROZEN_TIME = dateutil.parser.parse("2026-09-19T08:55:00.000Z")
 
 
 def _metrics_flag_only(flag: str, *args: Any, **kwargs: Any) -> bool:
@@ -40,10 +40,10 @@ def _stub_investigation_result(metric_name: str, mover_label: str = "pod-1") -> 
         metric_name=metric_name,
         aggregation="avg",
         interval="1 minute",
-        baseline_from="2026-07-01T05:00:00+00:00",
-        baseline_to="2026-07-01T06:00:00+00:00",
-        anomaly_from="2026-07-01T06:00:00+00:00",
-        anomaly_to="2026-07-01T07:00:00+00:00",
+        baseline_from="2026-09-19T05:00:00+00:00",
+        baseline_to="2026-09-19T06:00:00+00:00",
+        anomaly_from="2026-09-19T06:00:00+00:00",
+        anomaly_to="2026-09-19T07:00:00+00:00",
         baseline_mean=5.0,
         baseline_stddev=0.5,
         anomaly_mean=50.0,
@@ -131,7 +131,7 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             metric_name=self.metric_name,
             metric_type="gauge",
             points=[
-                (dt.datetime(2026, 7, 1, hour, 30, tzinfo=dt.UTC), value) for hour, value in values_by_hour.items()
+                (dt.datetime(2026, 9, 19, hour, 30, tzinfo=dt.UTC), value) for hour, value in values_by_hour.items()
             ],
             labels=labels or {},
         )
@@ -220,7 +220,7 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             team_id=self.team.pk,
             metric_name=divisor_metric,
             metric_type="gauge",
-            points=[(dt.datetime(2026, 7, 1, hour, 30, tzinfo=dt.UTC), 10.0) for hour in (6, 7)],
+            points=[(dt.datetime(2026, 9, 19, hour, 30, tzinfo=dt.UTC), 10.0) for hour in (6, 7)],
             labels={},
         )
         insight = self.create_metrics_insight(

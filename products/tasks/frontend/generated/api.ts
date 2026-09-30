@@ -93,6 +93,7 @@ import type {
     TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
+    TaskReviewApi,
     TaskRunAnalysisActivityRequestApi,
     TaskRunAnalysisActivityResponseApi,
     TaskRunAnalyzeResponseApi,
@@ -151,6 +152,7 @@ import type {
     TasksListParams,
     TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
+    TasksReviewRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
@@ -1584,12 +1586,43 @@ export const tasksPresenceDestroy = async (projectId: string, id: string, option
     })
 }
 
+export const getTasksReviewRetrieveUrl = (projectId: string, id: string, params?: TasksReviewRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/review/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/review/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksReviewRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: TasksReviewRetrieveParams,
+    options?: RequestInit
+): Promise<TaskReviewApi> => {
+    return apiMutator<TaskReviewApi>(getTasksReviewRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getTasksRunCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/run/`
 }
 
 /**
- * Create a new task run and kick off the workflow. **Responds with the task, not the run**: the new run is nested under `latest_run`, and the top-level `id` is still the task's. Read `latest_run.id` for anything run-scoped, such as the run's stream and command endpoints.
+ * Create a new task run and kick off the workflow. The response is the refreshed task with the created run under the top-level `run` key: read `run.id` for anything run-scoped, such as the run's stream and command endpoints. The top-level `id` is the task's, and `latest_run` mirrors `run` only as long as nothing newer starts — reading either of those as the created run is deprecated.
  * @summary Run task
  */
 export const tasksRunCreate = async (
@@ -2110,7 +2143,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. Permission responses return 503 agent_session_not_ready only when rejected before execution; clients may retry that code within a bounded startup wait. HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. Retry loop: a 503 is transient (sandbox_not_ready means the command arrived before the live run's command channel came up; agent_session_not_ready means an approval was rejected before execution while the agent starts) — retry it until the request you are answering expires. A 502 (agent server unreachable) or 504 (agent server timed out) means delivery is unknown; retry only when the command method is safe to retry. A 409 run_ended is final: the run is over and its sandbox is gone. HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (

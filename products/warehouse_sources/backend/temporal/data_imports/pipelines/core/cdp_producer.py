@@ -180,8 +180,10 @@ class CDPProducer:
                     id=self.table.id, team_id=self.team_id
                 )
 
-            schema = ExternalDataSchema.objects.get(id=self.table.id, team_id=self.team_id)
-            raw_table_name = build_table_name(schema.source, schema.name)
+            schema = ExternalDataSchema.objects.select_related("source", "table").get(
+                id=self.table.id, team_id=self.team_id
+            )
+            raw_table_name = schema.table.name if schema.table else build_table_name(schema.source, schema.name)
             return get_data_warehouse_table_name(schema.source, raw_table_name)
 
         self._table_name_cache = await _resolve()
