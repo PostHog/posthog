@@ -260,6 +260,21 @@ class PromptJevBudget(TraversingVisitor):
     def __init__(self) -> None:
         self.decisions = 0
 
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        initial = node.initial_select_query
+        # A WITH clause on the first branch stays in scope for every later branch, so its CTEs are
+        # counted once across the whole set. Counting them per branch reserves nothing for a CTE
+        # that only a later branch reads, and the query then spends inference the budget never
+        # approved.
+        if not isinstance(initial, ast.SelectQuery) or not initial.ctes:
+            super().visit_select_set_query(node)
+            return
+        without_ctes = clone_expr(node)
+        cast(ast.SelectQuery, without_ctes.initial_select_query).ctes = None
+        for cte in _CTEReferences.used(without_ctes, initial.ctes).values():
+            self.visit(cte)
+        super().visit_select_set_query(without_ctes)
+
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         node = clone_expr(node)
         ctes = node.ctes or {}

@@ -50,6 +50,16 @@ class TestPromptJev(SimpleTestCase):
                 "WITH c AS (SELECT __preview_promptJev('a', 'q') AS p LIMIT 1000) SELECT a.p, b.p FROM c a CROSS JOIN c b",
                 1000,
             ),
+            (
+                "WITH c AS (SELECT __preview_promptJev('a', 'q') AS p LIMIT 600) "
+                "SELECT 0.0 AS p UNION ALL SELECT p FROM c",
+                600,
+            ),
+            (
+                "WITH c AS (SELECT __preview_promptJev('a', 'q') AS p LIMIT 600) "
+                "SELECT p FROM c UNION ALL SELECT p FROM c",
+                600,
+            ),
         ]
     )
     def test_query_budget_reservations(self, query: str, expected: int) -> None:
@@ -179,6 +189,10 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             ),
             (
                 "SELECT __preview_promptJev(toString(p), 'q') AS q FROM (SELECT __preview_promptJev('a', 'q') AS p LIMIT 501) LIMIT 500",
+            ),
+            (
+                "WITH c AS (SELECT __preview_promptJev(toString(number), 'first') AS p FROM numbers(1000) LIMIT 1000) "
+                "SELECT 0.0 AS p UNION ALL SELECT __preview_promptJev('refund', 'second') AS p FROM c LIMIT 1",
             ),
         ]
     )
