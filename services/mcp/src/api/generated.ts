@@ -29272,6 +29272,9 @@ export namespace Schemas {
      * * `Commslayer` - Commslayer
      * * `Sprinto` - Sprinto
      * * `Gem` - Gem
+     * * `AudioGO` - AudioGO
+     * * `ExactOnline` - ExactOnline
+     * * `LettrLabs` - LettrLabs
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -30627,6 +30630,9 @@ export namespace Schemas {
       Commslayer: 'Commslayer',
       Sprinto: 'Sprinto',
       Gem: 'Gem',
+      AudioGO: 'AudioGO',
+      ExactOnline: 'ExactOnline',
+      LettrLabs: 'LettrLabs',
     } as const;
 
     /**
@@ -31995,7 +32001,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -34576,7 +34585,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -45466,7 +45478,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -46855,7 +46870,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -91520,6 +91538,11 @@ export namespace Schemas {
       /** When generation was requested. */
       requested_at: string;
       /**
+         * Optional priorities supplied for this generation only.
+         * @maxLength 2000
+         */
+      context: string;
+      /**
          * When generation completed or failed.
          * @nullable
          */
@@ -91559,6 +91582,14 @@ export namespace Schemas {
       criteria: ScoutRubricCriterion[];
       /** Latest background generation, if any. */
       generation: ScoutRubricGeneration | null;
+    }
+
+    export interface ScoutRubricGenerate {
+      /**
+         * Optional priorities for this generation. Suggestions still cover the scout's full job.
+         * @maxLength 2000
+         */
+      context?: string;
     }
 
     export interface ScoutRubricSave {
@@ -95169,7 +95200,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -96574,7 +96608,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -97961,7 +97998,10 @@ export namespace Schemas {
        * * `PostNord` - PostNord
        * * `Commslayer` - Commslayer
        * * `Sprinto` - Sprinto
-       * * `Gem` - Gem */
+       * * `Gem` - Gem
+       * * `AudioGO` - AudioGO
+       * * `ExactOnline` - ExactOnline
+       * * `LettrLabs` - LettrLabs */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -101303,11 +101343,10 @@ export namespace Schemas {
     export type TaskRunResponseJsonSchema = { [key: string]: unknown } | null;
 
     /**
-     * Detail response for a task.
+     * The task ``run`` action's response: the refreshed task detail plus the run this call made.
      *
-     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+     * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
      */
     export interface TaskRunResponse {
       id: string;
@@ -101359,6 +101398,8 @@ export namespace Schemas {
       origin_key?: string | null;
       /** Error returned when the run could not start. */
       run_error?: string;
+      /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
+      run?: TaskRunDetailDTO | null;
     }
 
     export interface TaskRunStartRequest {
