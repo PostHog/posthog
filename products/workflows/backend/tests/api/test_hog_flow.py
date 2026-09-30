@@ -5218,6 +5218,7 @@ class TestHogFlowAPI(APIBaseTest):
         else:
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/bulk_delete", {"ids": [flow_id]})
             assert response.status_code == 200, response.json()
+            assert response.json()["deleted"] == 1
 
         assert not HogFlow.objects.filter(id=flow_id).exists()
         assert not HogFlowBatchJob.objects.filter(hog_flow_id=flow_id).exists()
