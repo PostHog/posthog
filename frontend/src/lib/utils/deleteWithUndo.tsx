@@ -13,12 +13,14 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     endpoint: string
     object: T
     idField?: keyof T
+    /** The request body besides `deleted`. Defaults to the whole `object`. */
+    payload?: Record<string, any>
     callback?: (undo: boolean, object: T) => void
 }): Promise<void> {
     try {
         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
         await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
-            ...props.object,
+            ...(props.payload ?? props.object),
             deleted: !undo,
         })
         props.callback?.(undo, props.object)

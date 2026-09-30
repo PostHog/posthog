@@ -4046,7 +4046,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
+                // `name` is the flag's description, so the key only labels the toast and is not sent.
                 object: { name: featureFlag.key, id: featureFlag.id },
+                payload: {},
                 callback: (undo) => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
                     if (undo) {
@@ -4064,6 +4066,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
+                payload: {},
                 undo: true,
                 callback: (undo) => {
                     if (undo) {

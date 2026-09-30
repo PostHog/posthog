@@ -4059,6 +4059,28 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flag.deleted is False
         assert flag.key == "undo-flag"
 
+    def test_soft_delete_and_restore_keep_the_description(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="checkout-redesign", name="The new checkout page"
+        )
+        for deleted in (True, False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": deleted}, format="json"
+            )
+            assert response.status_code == 200
+            stored = FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk)
+            assert (stored.deleted, stored.name) == (deleted, "The new checkout page")
+
+        entries = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="FeatureFlag", item_id=str(flag.id), activity__in=["deleted", "restored"]
+        )
+        assert sorted(entry.activity for entry in entries) == ["deleted", "restored"]
+        for entry in entries:
+            assert entry.detail is not None
+            assert {change["field"] for change in entry.detail["changes"]} == {"deleted", "version"}
+
     def test_soft_delete_undo_restores_renamed_key(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="renamed-flag")
         exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
