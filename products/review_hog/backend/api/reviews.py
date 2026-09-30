@@ -2,7 +2,6 @@ import uuid
 import logging
 from typing import Any, cast, get_args
 
-from django.conf import settings
 from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
@@ -20,6 +19,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
@@ -544,6 +544,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
     # UI access is unchanged; this only adds token access, gated by review_hog:read / review_hog:write.
     scope_object = "review_hog"
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewReport.objects.unscoped()
     serializer_class = ReviewRecentReviewSerializer
@@ -730,13 +732,6 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @action(methods=["POST"], detail=False, required_scopes=["review_hog:write"])
     def trigger(self, request: Request, **kwargs) -> Response:
         team_id = resolve_effective_team_id(self.team_id)
-        # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are
-        # expensive, so widening beyond it is a deliberate later decision, not a default.
-        if team_id not in settings.REVIEWHOG_TEAM_IDS:
-            return Response(
-                {"error": "PostHog Review can't start reviews from this project yet"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         serializer = ReviewTriggerRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:

@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -18,6 +19,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.url = f"/api/projects/{self.team.id}/review_hog/settings/"
 
     def test_get_creates_the_row_with_defaults(self) -> None:
@@ -35,7 +37,8 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             "review_authored_prs": False,
             "flash_reasoning_effort": "medium",
             "urgency_threshold": "consider",
-            "can_trigger_reviews": False,  # REVIEWHOG_TEAM_IDS is empty in tests
+            "can_trigger_reviews": True,
+            "show_internal_features": False,
             "stamphog_connected": False,  # no synced+enabled repo config in this project
         }
         assert ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == 1
@@ -96,9 +99,11 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             connected_by_user_id=connected_by_user_id,
         )
 
-        res = self.client.get(self.url)
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            res = self.client.get(self.url)
 
         assert res.status_code == 200
+        assert res.json()["show_internal_features"] is True
         assert res.json()["stamphog_connected"] is expected
 
     def test_patch_rejects_an_unknown_threshold(self) -> None:

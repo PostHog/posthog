@@ -79262,8 +79262,10 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
+      /** Whether reviews can be started from this project's Code review page. */
       readonly can_trigger_reviews?: boolean;
+      /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
+      readonly show_internal_features?: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected?: boolean;
     }
@@ -90765,8 +90767,10 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
+      /** Whether reviews can be started from this project's Code review page. */
       readonly can_trigger_reviews: boolean;
+      /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
+      readonly show_internal_features: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected: boolean;
     }
