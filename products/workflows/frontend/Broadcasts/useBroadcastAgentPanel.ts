@@ -7,7 +7,7 @@ import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 
 import { HogFunctionTemplateType } from '~/types'
 
-import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+import { resolveToolCall, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import type { HogFlow } from '../Workflows/hogflows/types'
@@ -89,12 +89,16 @@ export function useBroadcastAgentPanel(): void {
         autoOpen: currentStep === 'content',
     })
     // The edited-elsewhere stream can miss the agent's write, so reload after each edit it makes here.
-    useMcpToolApplyBack({
+    // A plain listener, not an apply-back: a composer run starts before this wizard mounts, and the
+    // reload is safe to repeat.
+    useToolStreamListener({
         tools: BROADCAST_EDIT_TOOLS,
-        targetKey: `broadcast:${broadcastId ?? 'unloaded'}`,
-        active: !!broadcastId,
-        onApply: (_event, { innerInput }) => {
-            if (innerInput?.id === broadcastId) {
+        onEvent: (event) => {
+            if (event.phase !== 'completed' || !broadcastId) {
+                return
+            }
+            const targetId = resolveToolCall(event.invocation).innerInput?.id
+            if (typeof targetId !== 'string' || targetId === broadcastId) {
                 loadExternalEdit()
             }
         },
