@@ -1093,6 +1093,7 @@ mod tests {
         ("1", Some(true)),
         ("0", Some(false)),
         ("0.0", Some(false)),
+        ("-0.0", Some(false)),
         ("1.5", Some(true)),
         ("42", Some(true)),
         ("-1", Some(true)),
