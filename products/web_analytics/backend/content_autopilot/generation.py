@@ -12,7 +12,7 @@ from posthog.dataclasses import frozen
 from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
 
 from products.web_analytics.backend.content_autopilot.edits import PageEdit, apply_edits, page_headings
-from products.web_analytics.backend.content_autopilot.llm import Effort, call_json
+from products.web_analytics.backend.content_autopilot.llm import ContentAutopilotLLMError, Effort, call_json
 from products.web_analytics.backend.content_autopilot.opportunities import engine_label, site_page_urls, top_site_pages
 from products.web_analytics.backend.content_autopilot.prompts import (
     BRIEF_SCHEMA,
@@ -27,7 +27,7 @@ from products.web_analytics.backend.content_autopilot.prompts import (
     bullet_list,
     tagged,
 )
-from products.web_analytics.backend.content_autopilot.research import ResearchBundle, SourceDocument
+from products.web_analytics.backend.content_autopilot.research import MAX_DOCUMENT_CHARS, ResearchBundle, SourceDocument
 from products.web_analytics.backend.content_autopilot.site_discovery import site_host
 from products.web_analytics.backend.content_autopilot.validation import (
     LINK_RE,
@@ -46,7 +46,7 @@ from products.web_analytics.backend.content_autopilot.validation import (
 )
 from products.web_analytics.backend.models import ContentAutopilotProposal, ContentAutopilotSiteProfile
 
-SAFETY_INPUT_CHARS = 20_000
+SAFETY_INPUT_CHARS = MAX_DOCUMENT_CHARS
 BRIEF_SITE_PAGE_CHARS = 8_000
 BRIEF_COMPETITOR_PAGE_CHARS = 6_000
 DRAFT_SITE_PAGE_CHARS = 12_000
@@ -106,7 +106,10 @@ def word_budget(proposal_type: str, original_markdown: str) -> int:
 
 
 def site_context(profile: ContentAutopilotSiteProfile, snapshot: object = None) -> SiteContext:
-    rules = snapshot.get("brand_rules", profile.brand_rules) if isinstance(snapshot, dict) else profile.brand_rules
+    saved = snapshot if isinstance(snapshot, dict) else {}
+    if saved.get("domain", profile.domain) != profile.domain:
+        raise ContentAutopilotLLMError("The site's domain changed after this run started. Draft it again.")
+    rules = saved.get("brand_rules", profile.brand_rules)
     site_urls = site_page_urls(profile)
     return SiteContext(
         name=profile.name,
@@ -421,7 +424,17 @@ def validate_draft(
         ),
         check_ledger_sources(list(draft.source_ledger), research, competitor_ledger=draft.competitor_ledger),
     ]
-    if draft.edits or not improving:
+    if improving and not draft.new_markdown.strip():
+        checks.append(
+            ValidationCheck(
+                check_key="changes",
+                label="Changes",
+                passed=False,
+                message="The draft doesn't change the page. Regenerate to try again.",
+                blocking=True,
+            )
+        )
+    else:
         checks.append(check_length(draft.new_markdown, budget=word_budget(proposal_type, original_markdown)))
     if draft.unplaced_edits:
         checks.append(check_edit_placement(draft.unplaced_edits))
@@ -441,7 +454,7 @@ def _internal_link_urls(markdown: str, origin: str) -> list[str]:
 
 
 def content_package(draft: Draft, *, origin: str, skipped: tuple[str, ...]) -> dict[str, Any]:
-    path = draft.url_path.strip("/") or "index"
+    path = "/".join(segment for segment in draft.url_path.split("/") if segment not in {"", ".", ".."}) or "index"
     return {
         "file_path": f"{path}.md",
         "title": draft.title,
@@ -460,16 +473,24 @@ def _without_kind(entry: dict[str, Any]) -> dict[str, str]:
     return {key: str(value) for key, value in entry.items() if key != "kind"}
 
 
+def _added_blocks(markdown: str, original: str) -> str:
+    existing = {block.strip() for block in original.split("\n\n")}
+    return "\n\n".join(block for block in markdown.split("\n\n") if block.strip() and block.strip() not in existing)
+
+
 def _draft_from_proposal(proposal: ContentAutopilotProposal) -> Draft:
     package = proposal.content_package if isinstance(proposal.content_package, dict) else {}
     file_path = str(package.get("file_path", ""))
     ledger = [entry for entry in proposal.source_ledger if isinstance(entry, dict)]
+    improving = _is_improvement(proposal.proposal_type, proposal.original_markdown)
     return Draft(
         title=str(package.get("title", proposal.title)),
         description=str(package.get("description", "")),
         url_path="/" + file_path.removesuffix(".md").removesuffix(".mdx"),
         markdown=proposal.proposed_markdown,
-        new_markdown=proposal.proposed_markdown,
+        new_markdown=_added_blocks(proposal.proposed_markdown, proposal.original_markdown)
+        if improving
+        else proposal.proposed_markdown,
         edits=(),
         unplaced_edits=(),
         json_ld=str(package.get("json_ld", "")),
