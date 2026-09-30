@@ -11,6 +11,8 @@ import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ObservationThumbnail } from '../components/ObservationThumbnail'
 import { RecordingExpiredTag } from '../components/RecordingExpiredTag'
@@ -164,16 +166,18 @@ function MatchSnippet({
 function SubjectLink({ observation }: { observation: ReplayObservationApi }): JSX.Element {
     const email = observation.recording_subject_email
     const subjectClass = clsx('text-xs truncate', !email && 'font-mono')
-    return observation.distinct_id ? (
-        <Link
-            to={urls.personByDistinctId(observation.distinct_id)}
-            className={clsx(subjectClass, 'text-primary')}
-            data-attr="vision-search-result-person"
-        >
-            {email ?? observation.distinct_id}
-        </Link>
-    ) : (
-        <span className={clsx(subjectClass, 'text-muted')}>{email ?? observation.session_id}</span>
+    if (!observation.distinct_id) {
+        return <span className={clsx(subjectClass, 'text-muted')}>{email ?? observation.session_id}</span>
+    }
+    return (
+        <span className={subjectClass} data-attr="vision-search-result-person">
+            <PersonDisplay
+                person={{ distinct_id: observation.distinct_id, properties: email ? { email } : {} }}
+                displayName={email ?? observation.distinct_id}
+                noEllipsis
+                inline
+            />
+        </span>
     )
 }
 
