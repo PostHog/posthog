@@ -1,4 +1,4 @@
-# The input auth_header of Webhook trigger is a secret. The file leaves it out, and applying the file keeps the stored value.
+# The input auth_header of "Webhook trigger" is a secret. The file leaves it out, and applying the file keeps the stored value.
 version: 1
 key: webhook-trigger
 name: Webhook trigger

@@ -15,6 +15,7 @@ from products.workflows.backend.utils.durations import (
 )
 
 KEY_PATTERN = r"^[A-Za-z0-9_-]{1,400}$"
+MAX_KEY_LENGTH = 400
 STEP_ID_PATTERN = r"^[A-Za-z0-9_-]{1,200}$"
 
 _NEXT_LARGER_UNIT = {"s": "m", "m": "h", "h": "d"}
@@ -85,6 +86,11 @@ def _duration_fix(value: str) -> str:
     return "Write the duration as a number and a unit, for example 30m or 3d."
 
 
+def key_from_name(name: str) -> str:
+    """A key made from a workflow name: lower case, other characters turned into -."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:MAX_KEY_LENGTH].strip("-") or "workflow"
+
+
 def _check_key(value: str) -> str:
     if re.fullmatch(KEY_PATTERN, value):
         return value
@@ -148,12 +154,38 @@ class Condition(_DocumentModel):
 
 
 class EventTrigger(_DocumentModel):
+    model_config = ConfigDict(
+        json_schema_extra={"oneOf": [{"required": ["event"]}, {"required": ["filters"]}]},
+    )
+
     type: Literal["event"] = Field(description="Starts a run each time the event is captured.")
     name: str = Field(default="Trigger", max_length=400, description="The trigger's name in the workflow editor.")
     description: str = Field(default="", description="An optional note about the trigger.")
-    event: str = Field(description="The event name, for example $pageview or trial started.")
+    event: str | None = Field(
+        default=None, description="The event name, for example $pageview or trial started. Set this or filters."
+    )
     properties: list[Condition] = Field(default_factory=list, description="Conditions the event must meet.")
     filter_test_accounts: bool = Field(default=False, description="Leave out events from test accounts.")
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="The trigger's filters as the workflows API takes them, for more than one event, actions or cohorts. Set this or event.",
+    )
+
+    @model_validator(mode="after")
+    def _event_or_filters(self) -> "EventTrigger":
+        if (self.event is None) == (self.filters is None):
+            raise document_error(
+                "An event trigger needs exactly one of event or filters.",
+                "event, properties and filter_test_accounts describe one event. filters holds any other trigger filter as the workflows API takes it.",
+                "Set event: to the event name, or move the whole filter into filters:.",
+            )
+        if self.filters is not None and (self.properties or self.filter_test_accounts):
+            raise document_error(
+                "properties and filter_test_accounts go with event, not with filters.",
+                "filters holds the whole trigger filter, so the conditions and the test account setting belong inside it.",
+                "Move the conditions into filters, or use event: in place of filters:.",
+            )
+        return self
 
 
 class ScheduleTrigger(_DocumentModel):

@@ -87,7 +87,33 @@ class TestWorkflowCodeRoundTrip(SimpleTestCase):
         assert _normalized(compiled, key) == _normalized(expected, expected["key"])
         assert rendered.content == (FIXTURES / f"{case}.yaml").read_text()
 
-    @parameterized.expand([("on",), ("no",), ("1.10",), ("012",), ("0o12",), ("null",), ("2026-09-30",), ("1:30",)])
+    def test_input_values_named_like_derived_keys_are_kept(self) -> None:
+        stored = json.loads((FIXTURES / "crm_follow_up.json").read_text())
+        body = {"order": 5, "source": "events", "bytecode": ["not", "derived"], "flags": {"secret": True}}
+        stored["actions"][1]["config"]["inputs"]["body"]["value"] = body
+
+        compiled, _key = _load(render_workflow(stored, key="crm-follow-up").content)
+
+        tell_the_crm = next(action for action in compiled["actions"] if action["id"] == "tell_the_crm")
+        assert tell_the_crm["config"]["inputs"]["body"] == {"value": body}
+
+    def test_a_trigger_the_typed_fields_cannot_say_keeps_its_whole_filter(self) -> None:
+        stored = json.loads((FIXTURES / "crm_follow_up.json").read_text())
+        filters = {
+            "events": [{"id": "checkout completed", "name": "checkout completed", "type": "events", "order": 0}],
+            "actions": [{"id": "7", "name": "Clicked buy", "type": "actions", "order": 1}],
+            "properties": [{"key": "id", "type": "cohort", "value": 5, "operator": "in"}],
+            "filter_test_accounts": True,
+        }
+        stored["actions"][0]["config"] = {"type": "event", "filters": filters}
+
+        compiled, _key = _load(render_workflow(stored, key="crm-follow-up").content)
+
+        assert compiled["actions"][0]["config"] == {"type": "event", "filters": filters}
+
+    @parameterized.expand(
+        [("on",), ("no",), ("1.10",), ("012",), ("0o12",), ("null",), ("2026-09-30",), ("1:30",), ("line\x85break",)]
+    )
     def test_text_that_yaml_reads_as_another_type_stays_text(self, text: str) -> None:
         stored = json.loads((FIXTURES / "welcome_series.json").read_text())
         stored["name"] = text

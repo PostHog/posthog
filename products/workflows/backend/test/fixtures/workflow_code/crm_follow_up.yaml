@@ -1,5 +1,5 @@
-# The input signing_secret of Tell the CRM is a secret. The file leaves it out, and applying the file keeps the stored value.
-# The input signing_secret of Tell the CRM is a secret. The file leaves it out, and applying the file keeps the stored value.
+# The input signing_secret of "Tell the CRM" is a secret. The file leaves it out, and applying the file keeps the stored value.
+# The input signing_secret of "Tell the CRM" is a secret. The file leaves it out, and applying the file keeps the stored value.
 version: 1
 key: crm-follow-up
 name: CRM follow up

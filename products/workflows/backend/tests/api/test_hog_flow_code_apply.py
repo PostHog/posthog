@@ -80,6 +80,9 @@ class TestHogFlowCodeApply(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         return response.json()
 
+    def _check_url(self) -> str:
+        return f"/api/projects/{self.team.id}/hog_flows/code_check/"
+
     def _workflow(self, key: str) -> HogFlow:
         return HogFlow.objects.get(team=self.team, key=key)
 
@@ -214,39 +217,48 @@ class TestHogFlowCodeApply(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("creates_an_active_workflow", None, _webhook_file(status="active")),
-            ("activates_a_draft_workflow", HogFlow.State.DRAFT, _webhook_file(status="active")),
-            ("disables_an_active_workflow", HogFlow.State.ACTIVE, _webhook_file(status="draft")),
+            ("creates_an_active_workflow", None, _webhook_file(status="active"), status.HTTP_201_CREATED),
+            ("activates_a_draft_workflow", HogFlow.State.DRAFT, _webhook_file(status="active"), status.HTTP_200_OK),
+            ("disables_an_active_workflow", HogFlow.State.ACTIVE, _webhook_file(status="draft"), status.HTTP_200_OK),
         ]
     )
     def test_a_status_change_through_mcp_is_refused_and_allowed_through_the_api(
-        self, _name: str, stored_status: Optional[str], content: str
+        self, _name: str, stored_status: Optional[str], content: str, api_status: int
     ) -> None:
         if stored_status is not None:
             self._applied(_webhook_file(), status.HTTP_201_CREATED)
             HogFlow.objects.filter(team=self.team, key="crm-sync").update(status=stored_status)
 
         refused = self._applied(content, status.HTTP_400_BAD_REQUEST, headers=MCP)
+        checked = self.client.post(self._check_url(), {"content": content}, format="json", headers=MCP)
 
         [error] = refused["errors"]
         assert (error["status"], error["path"], error["line"]) == ("status_change_not_allowed", "status", 4)
         assert "workflows-enable" in error["fix"]
+        assert checked.json() == refused
         assert HogFlow.objects.filter(team=self.team, key="crm-sync").count() == (stored_status is not None)
-        assert self._apply(content).status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED)
+        assert self._apply(content).status_code == api_status
 
     def test_a_content_change_to_an_active_workflow_through_mcp_is_staged_for_publish(self) -> None:
         self._applied(_webhook_file(), status.HTTP_201_CREATED)
         HogFlow.objects.filter(team=self.team, key="crm-sync").update(status=HogFlow.State.ACTIVE)
         live = self._workflow("crm-sync")
+        checked = self.client.post(
+            self._check_url(), {"content": _webhook_file(status="active", duration="2d")}, format="json", headers=MCP
+        )
 
         body = self._applied(_webhook_file(status="active", duration="2d"), headers=MCP)
 
+        assert checked.json()["plan"] == body["plan"]
         assert body["result"] == "staged"
         assert body["plan"]["result"] == "stage"
         assert body["plan"]["discards_draft"] is False
         staged = self._workflow("crm-sync")
         assert (staged.actions, staged.version) == (live.actions, live.version)
-        assert next(a for a in staged.draft["actions"] if a["id"] == "wait_a_day")["config"]["delay_duration"] == "2d"
+        assert (
+            next(a for a in (staged.draft or {})["actions"] if a["id"] == "wait_a_day")["config"]["delay_duration"]
+            == "2d"
+        )
 
         preview = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish/", {"confirm": False}, format="json"
@@ -311,6 +323,21 @@ class TestHogFlowCodeApply(APIBaseTest):
         after = self._workflow("crm-sync")
         assert {field: getattr(after, field) for field in stored} == stored
 
+    def test_a_request_with_more_than_the_file_is_refused(self) -> None:
+        self._applied(_webhook_file(), status.HTTP_201_CREATED)
+        HogFlow.objects.filter(team=self.team, key="crm-sync").update(status=HogFlow.State.ACTIVE)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/code_apply/",
+            {"content": _webhook_file(status="active", duration="2d"), "stage_draft": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "stage_draft" in str(response.json())
+        after = self._workflow("crm-sync")
+        assert next(a for a in after.actions if a["id"] == "wait_a_day")["config"]["delay_duration"] == "1d"
+
     def test_apply_needs_the_workflow_write_scope(self) -> None:
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -326,23 +353,29 @@ class TestHogFlowCodeApply(APIBaseTest):
 
 @pytest.mark.ee
 class TestHogFlowCodeApplyObjectAccess(APIBaseTest):
-    def test_apply_refuses_a_caller_below_editor_on_the_workflow_with_that_key(self) -> None:
+    def setUp(self) -> None:
+        super().setUp()
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
         _sync_templates()
-        workflow = _create_keyed_workflow(self.client, self.team, "trial-upgrade-nudge", SAMPLE_DEFINITION)
-        viewer = User.objects.create_and_join(self.organization, "viewer@example.com", "testtest")
+        self.workflow = _create_keyed_workflow(self.client, self.team, "trial-upgrade-nudge", SAMPLE_DEFINITION)
+        self.member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+
+    def _grant(self, access_level: str, resource_id: Optional[str]) -> None:
         AccessControl.objects.create(
             team=self.team,
             resource="hog_flow",
-            resource_id=str(workflow.id),
-            access_level="viewer",
-            organization_member=OrganizationMembership.objects.get(user=viewer, organization=self.organization),
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
         )
-        self.client.force_login(viewer)
+
+    def test_apply_refuses_a_caller_below_editor_on_the_workflow_with_that_key(self) -> None:
+        self._grant("viewer", str(self.workflow.id))
+        self.client.force_login(self.member)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/code_apply/",
@@ -351,5 +384,20 @@ class TestHogFlowCodeApplyObjectAccess(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        workflow.refresh_from_db()
-        assert next(a for a in workflow.actions if a["id"] == "wait_three_days")["config"]["delay_duration"] == "3d"
+        self.workflow.refresh_from_db()
+        delays = {a["id"]: a["config"].get("delay_duration") for a in self.workflow.actions}
+        assert delays["wait_three_days"] == "3d"
+
+    def test_apply_refuses_a_new_key_to_a_caller_who_edits_only_one_workflow(self) -> None:
+        self._grant("viewer", None)
+        self._grant("editor", str(self.workflow.id))
+        self.client.force_login(self.member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/code_apply/",
+            {"content": _webhook_file()},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not HogFlow.objects.filter(team=self.team, key="crm-sync").exists()

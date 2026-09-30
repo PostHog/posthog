@@ -1,6 +1,6 @@
-# The path after Nudge by email does not come back to the workflow, so the file leaves out the steps it leads to.
-# The path after Text them does not come back to the workflow, so the file leaves out the steps it leads to.
-# The email design of Nudge by email was made in the email editor, and a file builds the design from html. The file writes Nudge by email as type: step with its whole config, so the design stays.
+# The path after "Nudge by email" goes to the exit, which a file cannot place there. Applying the file sends people on this path to "Text them" instead.
+# The path after "Text them" goes to "Nudge by email", which a file cannot place there. Applying the file sends people on this path to the exit instead.
+# The email design of "Nudge by email" was made in the email editor, and a file builds the design from html. The file writes "Nudge by email" as type: step with its whole config, so the design stays.
 version: 1
 key: re-engagement
 name: Re-engagement

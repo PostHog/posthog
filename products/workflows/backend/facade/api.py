@@ -255,8 +255,11 @@ def workflow_writer(
     return WorkflowWriter(team=team, user=user, was_impersonated=was_impersonated, report_usage=report_usage)
 
 
-def comparable_workflow_contents(stored: dict[str, Any], proposed: dict[str, Any]) -> ComparableContents:
-    """Two workflow content snapshots as the revision history compares them, so equal means no new version.
+def comparable_workflow_contents(
+    workflow: HogFlow, validated_data: dict[str, Any], *, with_draft: bool
+) -> ComparableContents:
+    """The workflow's content and the content a validated payload would give it, as the revision history
+    compares them, so equal means no new version. With ``with_draft``, a staged draft counts as stored.
 
     For this product's own presentation layer only, for the same reason as ``workflow_writer``.
     """
@@ -264,7 +267,7 @@ def comparable_workflow_contents(stored: dict[str, Any], proposed: dict[str, Any
         comparable_contents,
     )
 
-    return comparable_contents(stored, proposed)
+    return comparable_contents(workflow, validated_data, with_draft=with_draft)
 
 
 def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str, str]:

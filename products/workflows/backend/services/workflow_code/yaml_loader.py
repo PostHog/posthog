@@ -64,27 +64,27 @@ class _CoreSchemaLoader(yaml.SafeLoader):
 class ImplicitResolver:
     tag: str
     pattern: re.Pattern[str]
-    first: list[str]
+    first: tuple[str, ...]
 
 
-CORE_SCHEMA_RESOLVERS = [
-    ImplicitResolver(tag=_BOOL_TAG, pattern=re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), first=list("tTfF")),
-    ImplicitResolver(tag=_NULL_TAG, pattern=re.compile(r"^(?:~|null|Null|NULL|)$"), first=["~", "n", "N", ""]),
+CORE_SCHEMA_RESOLVERS = (
+    ImplicitResolver(tag=_BOOL_TAG, pattern=re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), first=tuple("tTfF")),
+    ImplicitResolver(tag=_NULL_TAG, pattern=re.compile(r"^(?:~|null|Null|NULL|)$"), first=("~", "n", "N", "")),
     ImplicitResolver(
-        tag=_INT_TAG, pattern=re.compile(r"^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$"), first=list("-+0123456789")
+        tag=_INT_TAG, pattern=re.compile(r"^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$"), first=tuple("-+0123456789")
     ),
     ImplicitResolver(
         tag=_FLOAT_TAG,
         pattern=re.compile(
             r"^(?:[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$"
         ),
-        first=list("-+0123456789."),
+        first=tuple("-+0123456789."),
     ),
-]
+)
 """The YAML 1.2 core schema's implicit types."""
 
 for _resolver in CORE_SCHEMA_RESOLVERS:
-    _CoreSchemaLoader.add_implicit_resolver(_resolver.tag, _resolver.pattern, _resolver.first)
+    _CoreSchemaLoader.add_implicit_resolver(_resolver.tag, _resolver.pattern, list(_resolver.first))
 
 
 @frozen

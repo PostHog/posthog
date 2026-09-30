@@ -1,4 +1,4 @@
-# The file writes Send the welcome email as type: step with its whole config, because a step of type email cannot hold all of it.
+# The file writes "Send the welcome email" as type: step with its whole config, because a step of type email cannot hold all of it.
 version: 1
 key: welcome-series
 name: Welcome series

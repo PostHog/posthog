@@ -1,5 +1,5 @@
-# This workflow has no key, so the file uses welcome-email, made from its name. Applying the file creates a new workflow and leaves this one as it is.
-# The file writes Email as type: step with its whole config, because a step of type email cannot hold all of it.
+# This workflow has no key, so the file uses welcome-email, made from its name. Applying the file creates a workflow with this key, or updates the one that already has it. It never changes this workflow.
+# The file writes "Email" as type: step with its whole config, because a step of type email cannot hold all of it.
 # The workflow sets conversion, which a file does not carry. Applying the file keeps the stored value.
 version: 1
 key: welcome-email

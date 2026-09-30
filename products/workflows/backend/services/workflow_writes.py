@@ -71,8 +71,16 @@ def _without_bytecode_contracts(node: Any) -> Any:
     return node
 
 
-def comparable_contents(stored: dict[str, Any], proposed: dict[str, Any]) -> ComparableContents:
-    """Two content snapshots as the revision history compares them, without secret inputs or bytecode stamps."""
+def comparable_contents(
+    workflow: HogFlow, validated_data: dict[str, Any], *, with_draft: bool = False
+) -> ComparableContents:
+    """The workflow's content and the content a validated payload would give it, as the revision history
+    compares them. With `with_draft`, the stored content is the staged draft where one exists."""
+    stored = {**snapshot_flow_content(workflow), **((workflow.draft or {}) if with_draft else {})}
+    proposed = {**stored, **{field: validated_data[field] for field in DRAFT_CONTENT_FIELDS if field in validated_data}}
+    # Compare secret-free on both sides. `proposed` still carries the plaintext secrets validation recovered
+    # into `actions` (stripping happens later in save()), while the stored snapshot is already stripped;
+    # without this a secret-bearing flow would bump on every actions-carrying save.
     template_cache: TemplateCache = {}
     return ComparableContents(
         stored=_without_bytecode_contracts(strip_content_secrets(stored, template_cache)),
@@ -113,8 +121,8 @@ class WorkflowWriter:
     was_impersonated: bool
     report_usage: WorkflowUsageReporter
 
-    def create(self, validated: ValidatedWorkflow, **fields: Any) -> HogFlow:
-        workflow = validated.save(created_by=self.user, **fields)
+    def create(self, validated: ValidatedWorkflow, *, key: Optional[str] = None) -> HogFlow:
+        workflow = validated.save(created_by=self.user, **({"key": key} if key else {}))
         self._log_activity(workflow, "created", detail_type="standard")
         self.announce_edited(workflow)
         return workflow
@@ -215,7 +223,7 @@ class WorkflowWriter:
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before = HogFlow.objects.get(pk=instance.pk)
-            as_draft = stage_active and locked.status == HogFlow.State.ACTIVE
+            as_draft = self.stages_as_draft(locked, stage_active=stage_active)
             if not as_draft:
                 # Validation recovers omitted secrets from the row's stored maps, and the draft's map wins
                 # there. Live content that replaces the draft keeps the live secrets, so the draft's go first.
@@ -236,6 +244,11 @@ class WorkflowWriter:
         self._log_activity(locked, "updated", previous=before)
         self.announce_edited(locked)
         return locked
+
+    @staticmethod
+    def stages_as_draft(workflow: HogFlow, *, stage_active: bool) -> bool:
+        """Whether replace_content stages new content as a draft of `workflow` instead of writing it live."""
+        return stage_active and workflow.status == HogFlow.State.ACTIVE
 
     def check_fresh(self, locked: HogFlow, base_updated_at: Optional[str], *, stage_as_draft: bool) -> None:
         """Raise `StaleWorkflowWrite` when `locked` changed after the client loaded it at `base_updated_at`."""
@@ -288,15 +301,7 @@ class WorkflowWriter:
         # version lands in the same UPDATE (and worker reload) as the content it describes. The
         # serializer injects derived fields (trigger, billable_action_types) into every validated
         # payload, so a status/metadata-only write compares equal here and stays unversioned.
-        raw_old = snapshot_flow_content(before)
-        raw_new = {
-            **raw_old,
-            **{field: validated_data[field] for field in DRAFT_CONTENT_FIELDS if field in validated_data},
-        }
-        # Compare secret-free on both sides. `raw_new` still carries the plaintext secrets validation
-        # recovered into `actions` (stripping happens later in save()), while `before` is the persisted
-        # stripped snapshot; without this a secret-bearing flow would bump on every actions-carrying save.
-        compared = comparable_contents(raw_old, raw_new)
+        compared = comparable_contents(before, validated_data)
         if compared.stored == compared.proposed:
             return False
         instance.version = (before.version or 0) + 1

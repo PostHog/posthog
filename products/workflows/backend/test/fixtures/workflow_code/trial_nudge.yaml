@@ -1,5 +1,5 @@
-# This workflow has no key, so the file uses trial-nudge-v2, made from its name. Applying the file creates a new workflow and leaves this one as it is.
-# The file writes Send a nudge as type: step with its whole config, because a step of type email cannot hold all of it.
+# This workflow has no key, so the file uses trial-nudge-v2, made from its name. Applying the file creates a workflow with this key, or updates the one that already has it. It never changes this workflow.
+# The file writes "Send a nudge" as type: step with its whole config, because a step of type email cannot hold all of it.
 version: 1
 key: trial-nudge-v2
 name: Trial nudge (v2)

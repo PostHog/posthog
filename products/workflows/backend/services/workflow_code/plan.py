@@ -136,13 +136,13 @@ def plan_update(
     )
 
 
-def plan_stage(plan: CodePlan, staged: WorkflowState, proposed: WorkflowState) -> CodePlan:
+def plan_stage(plan: CodePlan, staged: WorkflowState, proposed: WorkflowState, *, has_draft: bool) -> CodePlan:
     """The plan for content staged as a draft over `staged`, the draft or the live content it replaces."""
     unchanged = _canonical(staged) == _canonical(proposed)
     return replace(
         plan,
         result=WorkflowCodePlanResult.UNCHANGED if unchanged else WorkflowCodePlanResult.STAGE,
-        discards_draft=False,
+        discards_draft=has_draft and not unchanged,
     )
 
 

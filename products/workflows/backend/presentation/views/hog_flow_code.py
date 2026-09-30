@@ -15,9 +15,9 @@ from rest_framework.response import Response
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, report_user_action
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.facade.api import comparable_workflow_contents
-from products.workflows.backend.facade.contracts import ComparableContents
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
@@ -65,6 +65,16 @@ class HogFlowCodeRequestSerializer(serializers.Serializer):
             f"At most {MAX_CONTENT_BYTES} bytes. Get its schema from code_schema."
         ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # The workflow serializer reads flags such as stage_draft from the raw request body, and a file is
+        # the whole request, so nothing else may ride along.
+        unknown = sorted(set(self.initial_data) - set(self.fields))
+        if unknown:
+            raise serializers.ValidationError(
+                dict.fromkeys(unknown, "Send only content. Everything about the workflow goes in the file.")
+            )
+        return attrs
 
 
 class HogFlowCodeErrorSerializer(serializers.Serializer):
@@ -340,6 +350,9 @@ def _apply(view: "HogFlowViewSet", loaded: LoadedContent) -> _Applied:
 
 
 def _create(view: "HogFlowViewSet", compiled: CompiledWorkflow, key: str) -> _Applied:
+    # The viewset's permission class checks the resource-level editor role only for its own create action.
+    if not view.user_access_control.check_access_level_for_resource("hog_flow", required_level="editor"):
+        raise exceptions.PermissionDenied("You don't have access to create workflows in this project.")
     serializer = _validate_definition(view, compiled, None)
     plan = plan_create(_state(serializer.validated_data, content=serializer.validated_data))
     _refuse_status_change_through_mcp(view, plan)
@@ -371,15 +384,18 @@ def _update(view: "HogFlowViewSet", compiled: CompiledWorkflow, key: str, workfl
         plans.append(plan)
         return None if plan.result == WorkflowCodePlanResult.UNCHANGED else serializer
 
-    written = view._workflow_writer().replace_content(
-        workflow, validate, stage_active=view._is_mcp_request(view.request)
-    )
+    try:
+        written = view._workflow_writer().replace_content(
+            workflow, validate, stage_active=view._is_mcp_request(view.request)
+        )
+    except HogFlow.DoesNotExist:
+        raise DocumentInvalid([_key_conflict(key)])
     [plan] = plans
     if written is None:
         return _Applied(result=WorkflowCodeApplyResult.UNCHANGED, key=key, workflow=workflow, plan=plan)
     if plan.result == WorkflowCodePlanResult.STAGE:
         return _Applied(result=WorkflowCodeApplyResult.STAGED, key=key, workflow=written, plan=plan)
-    if plan.status["from"] != HogFlow.State.ACTIVE and written.status == HogFlow.State.ACTIVE:
+    if plan.status["from"] == HogFlow.State.DRAFT and written.status == HogFlow.State.ACTIVE:
         view._report_workflow_action(
             "hog_flow_activated",
             written,
@@ -390,13 +406,13 @@ def _update(view: "HogFlowViewSet", compiled: CompiledWorkflow, key: str, workfl
 
 def _stages_active_content(view: "HogFlowViewSet", workflow: HogFlow) -> bool:
     # Through MCP, publish and its confirm token stay the only way content goes live on an active workflow.
-    return view._is_mcp_request(view.request) and workflow.status == HogFlow.State.ACTIVE
+    return view._workflow_writer().stages_as_draft(workflow, stage_active=view._is_mcp_request(view.request))
 
 
 def _plan_update(
     key: str, workflow: HogFlow, validated: dict[str, Any], counts: Optional[dict[str, Any]], *, staged: bool
 ) -> CodePlan:
-    live = _comparable_contents(workflow, validated, with_draft=False)
+    live = comparable_workflow_contents(workflow, validated, with_draft=False)
     plan = plan_update(
         workflow=_summary(workflow, key),
         stored=_stored_state(workflow, live.stored),
@@ -407,9 +423,12 @@ def _plan_update(
     )
     if not staged:
         return plan
-    target = _comparable_contents(workflow, validated, with_draft=True)
+    target = comparable_workflow_contents(workflow, validated, with_draft=True)
     return plan_stage(
-        plan, staged=_stored_state(workflow, target.stored), proposed=_state(validated, content=target.proposed)
+        plan,
+        staged=_stored_state(workflow, target.stored),
+        proposed=_state(validated, content=target.proposed),
+        has_draft=workflow.draft is not None,
     )
 
 
@@ -438,11 +457,14 @@ def _status_change_not_allowed(stored: Optional[str], proposed: Optional[str]) -
     if stored is None:
         message = "status is active, and a file sent through MCP cannot create an active workflow."
         fix = "Set status to draft and apply the file. Then turn the workflow on with workflows-enable."
-    else:
+    elif stored in (HogFlow.State.DRAFT, HogFlow.State.ACTIVE):
         message = (
             f"status is {proposed}, and the workflow is {stored}. A file sent through MCP cannot change the status."
         )
         fix = f"Set status to {stored} in the file. To turn the workflow on or off, use workflows-enable or workflows-disable."
+    else:
+        message = f"The workflow is {stored}, and a file sent through MCP cannot change the status."
+        fix = "Ask a person to restore the workflow in PostHog first, then apply the file again."
     return DocumentError(
         status=WorkflowCodeErrorStatus.STATUS_CHANGE_NOT_ALLOWED,
         message=message,
@@ -458,8 +480,8 @@ _KEY_CONSTRAINT = "unique_key_for_team"
 def _key_conflict(key: str) -> DocumentError:
     return DocumentError(
         status=WorkflowCodeErrorStatus.CONFLICT,
-        message=f"Another request created a workflow with the key {key} while this file was applied.",
-        why="A key names one workflow in the project, so PostHog kept that workflow and wrote nothing from this file.",
+        message=f"Another request created or deleted the workflow with the key {key} while this file was applied.",
+        why="A key names one workflow in the project, and it changed hands during the apply, so PostHog wrote nothing from this file.",
         fix="Apply the file again. PostHog then updates the workflow with this key.",
         path=("key",),
     )
@@ -492,7 +514,7 @@ def _get_template(template_id: str) -> Optional[FunctionTemplate]:
     return HogFunctionTemplate.get_template(template_id)
 
 
-def _find_workflow(view: "HogFlowViewSet", key: str, *, required_level: str) -> Optional[HogFlow]:
+def _find_workflow(view: "HogFlowViewSet", key: str, *, required_level: AccessControlLevel) -> Optional[HogFlow]:
     workflow = HogFlow.objects.filter(team_id=view.team_id, key=key).first()
     # The viewset's access filter applies to list only, so a lookup by key checks the object itself.
     if workflow is not None and not view.user_access_control.check_access_level_for_object(
@@ -518,23 +540,6 @@ def _validate_definition(
     except serializers.ValidationError as error:
         raise DocumentInvalid(definition_errors(error.detail, compiled))
     return serializer
-
-
-def _comparable_contents(workflow: HogFlow, validated: dict[str, Any], *, with_draft: bool) -> ComparableContents:
-    """The stored content and the content the file would store, normalized as _stage_revision_bump does.
-
-    Stored bytecode, secrets and the wrapped email design then compare equal, so a matching file is unchanged.
-    With `with_draft`, the stored content is the staged draft where one exists.
-    """
-    # hog_flow.py imports this module for the viewset's base class, so its helpers are imported at call time.
-    from products.workflows.backend.presentation.views.hog_flow import (  # noqa: PLC0415
-        DRAFT_CONTENT_FIELDS,
-        snapshot_flow_content,
-    )
-
-    stored = {**snapshot_flow_content(workflow), **((workflow.draft or {}) if with_draft else {})}
-    proposed = {**stored, **{field: validated[field] for field in DRAFT_CONTENT_FIELDS if field in validated}}
-    return comparable_workflow_contents(stored, proposed)
 
 
 def _publish_impact(workflow: HogFlow, validated: dict[str, Any], counts: Optional[dict[str, Any]]) -> dict[str, Any]:

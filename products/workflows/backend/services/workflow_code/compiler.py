@@ -311,6 +311,8 @@ class _Compiler:
 def trigger_config(trigger: DocumentTrigger) -> dict[str, Any]:
     """The trigger action's config for a document trigger."""
     match trigger:
+        case EventTrigger() if trigger.filters is not None:
+            return {"type": "event", "filters": dict(trigger.filters)}
         case EventTrigger():
             return {
                 "type": "event",

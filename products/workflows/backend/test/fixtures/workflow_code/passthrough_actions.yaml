@@ -1,4 +1,4 @@
-# Branch 1 of Split traffic has no edge. Applying the file connects it to the step after Split traffic.
+# Branch 2 of "Split traffic" has no edge. Applying the file connects it to the exit.
 version: 1
 key: passthrough-actions
 name: Pass-through actions
