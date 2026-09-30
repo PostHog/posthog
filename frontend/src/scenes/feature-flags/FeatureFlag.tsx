@@ -83,7 +83,11 @@ import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products
 
 import { featureFlagContextItems } from './featureFlagAiContext'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
-import { ARCHIVE_UNAVAILABLE_DISABLED_REASON, featureFlagConfigFormatLabel } from './featureFlagConfigFormat'
+import {
+    ARCHIVE_UNAVAILABLE_DISABLED_REASON,
+    RESTORE_UNAVAILABLE_DISABLED_REASON,
+    featureFlagConfigFormatLabel,
+} from './featureFlagConfigFormat'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
@@ -141,6 +145,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         configFormat,
     } = useValues(featureFlagLogic)
     const isV1Config = configFormat === 'v1'
+    const restoreUnavailable = !!featureFlag.deleted && !isV1Config
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
@@ -431,7 +436,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 )}
                             </AccessControlAction>
                         )}
-                        {isV1Config && (
+                        {configFormat !== 'unsupported' && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -457,6 +462,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         disabledReasons={{
                                             "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                                 !featureFlag.can_edit,
+                                            [RESTORE_UNAVAILABLE_DISABLED_REASON]: restoreUnavailable,
                                         }}
                                     >
                                         {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
@@ -538,7 +544,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </SceneMenuBarSubMenu>
                                 <SceneMenuBarSeparator />
                                 <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                                {isV1Config && (
+                                {configFormat !== 'unsupported' && (
                                     <>
                                         <SceneMenuBarSeparator />
                                         <AccessControlAction
@@ -548,7 +554,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             {({ disabledReason }) => (
                                                 <SceneMenuBarItem
                                                     variant="destructive"
-                                                    disabled={!!disabledReason}
+                                                    disabled={!!disabledReason || restoreUnavailable}
+                                                    tooltip={
+                                                        restoreUnavailable
+                                                            ? RESTORE_UNAVAILABLE_DISABLED_REASON
+                                                            : undefined
+                                                    }
                                                     data-attr={
                                                         featureFlag.deleted
                                                             ? `${RESOURCE_TYPE}-menubar-restore`

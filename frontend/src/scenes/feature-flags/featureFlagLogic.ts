@@ -131,8 +131,8 @@ import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureF
 import {
     FeatureFlagConfigFormat,
     featureFlagConfigFormat,
-    isStaleRowVersionError,
     isV1FeatureFlagConfig,
+    reloadIfStaleRowVersion,
     rowVersionToken,
 } from './featureFlagConfigFormat'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
@@ -833,16 +833,6 @@ export const getRecordingFilterForFlagVariant = (
             ],
         },
     }
-}
-
-// The conflicting write may have replaced the whole document, so a stale row version reloads the flag.
-function reloadIfStaleRowVersion(token: { version?: number }, error: any, reload: () => void): boolean {
-    if (!isStaleRowVersionError(token, error)) {
-        return false
-    }
-    lemonToast.error(error?.detail || 'This flag changed elsewhere and has been reloaded.')
-    reload()
-    return true
 }
 
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
@@ -4119,11 +4109,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
+            const versioned = rowVersionToken(featureFlag)
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 // `name` is the flag's description, so the key only labels the toast and is not sent.
                 object: { name: featureFlag.key, id: featureFlag.id },
-                payload: {},
+                payload: versioned,
+                // The server refuses to restore a row in another config version, so there is nothing to undo.
+                undoable: isV1FeatureFlagConfig(featureFlag.filters),
+                onError: (error) => reloadIfStaleRowVersion(versioned, error, actions.refreshFeatureFlag),
                 callback: (undo) => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
                     if (undo) {
@@ -4138,10 +4132,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             })
         },
         restoreFeatureFlag: async ({ featureFlag }) => {
+            const versioned = rowVersionToken(featureFlag)
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
-                payload: {},
+                payload: versioned,
+                onError: (error) => reloadIfStaleRowVersion(versioned, error, actions.refreshFeatureFlag),
                 undo: true,
                 callback: (undo) => {
                     if (undo) {
