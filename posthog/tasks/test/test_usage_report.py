@@ -3415,7 +3415,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             records,
         )
         with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both"):
-            plan = UsageCounterService().resolve_plan(period, caller="daily_report")
+            plan = UsageCounterService().resolve_plan(period, caller="daily_report", complete=True)
         counter_report = UsageCounterService().fetch_report(period, plan=plan)
         assert counter_report.counter_comparisons is not None
         assert counter_report.counter_comparisons["cdp_billable_invocations_in_period"].realtime_by_org == {

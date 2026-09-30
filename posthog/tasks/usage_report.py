@@ -3688,7 +3688,7 @@ def send_all_org_usage_reports(
     query_time_start = datetime.now()
 
     service = UsageCounterService()
-    plan = service.resolve_plan(period, caller="daily_report")
+    plan = service.resolve_plan(period, caller="daily_report", complete=True)
     counter_report = service.fetch_report(period, plan=plan)
     org_reports = _get_all_org_reports(period=period, counter_report=counter_report)
 

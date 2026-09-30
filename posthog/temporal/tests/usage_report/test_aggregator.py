@@ -170,6 +170,7 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
             ctx.usage_counter_plan = UsageCounterService().resolve_plan(
                 DayRange(start=ctx.period_start, end=ctx.period_end),
                 caller="usage_reports_v2",
+                complete=ctx.report_completeness == "complete",
             )
     result = RunQueryToS3Result(query_name="usage_counters", s3_key="shadow.json", duration_ms=1)
     payload = json.dumps(

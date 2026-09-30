@@ -1199,6 +1199,7 @@ def update_all_orgs_billing_quotas(
     plan = service.resolve_plan(
         period,
         caller="quota_limiting",
+        complete=False,
         counters=(
             UsageCounter.EVENTS,
             UsageCounter.EXCEPTIONS,

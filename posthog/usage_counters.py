@@ -137,6 +137,8 @@ class UsageCounterPlan:
     period: DayRange
     caller: UsageCounterCaller
     modes: dict[UsageCounter, UsageCounterMode]
+    # True when the period is a past day. Temporal decodes a plan without this field as a partial day.
+    complete: bool = False
 
     def __post_init__(self) -> None:
         validate_usage_record_window(self.period)
@@ -269,13 +271,19 @@ class UsageCounterService:
         self._records_query = usage_report.get_usage_records_in_period
 
     def resolve_plan(
-        self, period: DayRange, *, caller: UsageCounterCaller, counters: Collection[UsageCounter] | None = None
+        self,
+        period: DayRange,
+        *,
+        caller: UsageCounterCaller,
+        complete: bool,
+        counters: Collection[UsageCounter] | None = None,
     ) -> UsageCounterPlan:
         modes = resolve_modes(caller)
         return UsageCounterPlan(
             period=period,
             caller=caller,
             modes={counter: mode for counter, mode in modes.items() if counters is None or counter in counters},
+            complete=complete,
         )
 
     def get_legacy(
@@ -308,8 +316,8 @@ class UsageCounterService:
                         for tier, rows in self._logs_retention_query(plan.period.start, plan.period.end).items()
                     }
                 )
-            elif mode == UsageCounterMode.REALTIME and plan.caller != "daily_report":
-                # A realtime counter reads legacy only for the daily comparison, so frequent runs skip it.
+            elif mode == UsageCounterMode.REALTIME and not plan.complete:
+                # A realtime counter reads legacy only to compare a complete day, so partial-day runs skip it.
                 continue
             else:
                 try:
@@ -329,6 +337,7 @@ class UsageCounterService:
                 period=period,
                 caller="daily_report",
                 modes=dict.fromkeys(UsageCounter, UsageCounterMode.LEGACY),
+                complete=True,
             )
         if plan.period != period:
             raise ValueError("A usage counter plan cannot be shared across periods")

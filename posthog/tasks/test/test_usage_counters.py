@@ -139,7 +139,7 @@ class TestUsageCounterReport(SimpleTestCase):
             "posthoganalytics.get_feature_flag",
             side_effect=lambda name, distinct_id: "both" if name.endswith("cdp-invocations") else "legacy",
         ) as flag:
-            plan = service.resolve_plan(period, caller="daily_report")
+            plan = service.resolve_plan(period, caller="daily_report", complete=True)
             flag.side_effect = None
             flag.return_value = "legacy"
             report = service.fetch_report(period, plan=plan)
@@ -194,7 +194,7 @@ class TestUsageCounterReport(SimpleTestCase):
             self.settings(USAGE_COUNTER_REALTIME_MODES=f"cdp-invocations:{mode}"),
             patch("posthoganalytics.get_feature_flag", return_value="legacy"),
         ):
-            plan = service.resolve_plan(period, caller="daily_report")
+            plan = service.resolve_plan(period, caller="daily_report", complete=True)
         with self.assertRaisesRegex(RuntimeError, "legacy unavailable"):
             service.fetch_report(period, plan=plan)
 
@@ -229,7 +229,7 @@ class TestUsageCounterReport(SimpleTestCase):
         ) as flag:
             if isinstance(flag_value, Exception):
                 flag.side_effect = flag_value
-            plan = service.resolve_plan(period, caller="daily_report")
+            plan = service.resolve_plan(period, caller="daily_report", complete=True)
             report = service.fetch_report(period, plan=plan)
             assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [(1, 9 if flag_value == "realtime" else 12)]
             assert (report.counter_comparisons is not None) == (flag_value in ("both", "realtime"))
@@ -244,7 +244,7 @@ class TestUsageCounterReport(SimpleTestCase):
             self.settings(USAGE_COUNTER_REALTIME_MODES=f"cdp-invocations:{mode}"),
             patch("posthoganalytics.get_feature_flag") as flag,
         ):
-            plan = service.resolve_plan(period, caller="daily_report")
+            plan = service.resolve_plan(period, caller="daily_report", complete=True)
             assert (service.fetch_report(period, plan=plan).counter_comparisons is not None) == enabled
             assert all(call.args[0] != "usage-counter-realtime-cdp-invocations" for call in flag.call_args_list)
 
@@ -268,13 +268,13 @@ class TestUsageCounterReport(SimpleTestCase):
             self.settings(USAGE_COUNTER_REALTIME_MODES=f"cdp-invocations:{mode}"),
             patch("posthoganalytics.get_feature_flag", return_value="legacy"),
         ):
-            plan = service.resolve_plan(period, caller=caller)
+            plan = service.resolve_plan(period, caller=caller, complete=days_ago > 0)
         report = service.fetch_report(period, plan=plan)
         assert set(report.counts) == {counter.value for counter in UsageCounter}
         assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [
             (1, 9 if mode == UsageCounterMode.REALTIME else 12)
         ]
-        compares = mode == UsageCounterMode.BOTH or (mode == UsageCounterMode.REALTIME and caller == "daily_report")
+        compares = mode == UsageCounterMode.BOTH or (mode == UsageCounterMode.REALTIME and days_ago > 0)
         assert legacy.call_count == int(mode != UsageCounterMode.REALTIME or compares)
         assert records.call_count == int(mode != UsageCounterMode.LEGACY)
         assert report.counter_comparisons == (
@@ -304,7 +304,7 @@ class TestUsageCounterReport(SimpleTestCase):
                 counter: UsageCounterMode.BOTH if counter in COUNTER_FLAG_NAMES else UsageCounterMode.LEGACY
                 for counter in UsageCounter
             }
-            plan = service.resolve_plan(period, caller="daily_report")
+            plan = service.resolve_plan(period, caller="daily_report", complete=True)
             flag.return_value = "realtime"
             assert resolve_modes("usage_reports_v2") == modes
             assert resolve_modes("quota_limiting") == modes
@@ -345,7 +345,7 @@ class TestUsageCounterReport(SimpleTestCase):
             self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both,workflow-emails:realtime"),
             patch("posthoganalytics.get_feature_flag", return_value="legacy"),
         ):
-            plan = service.resolve_plan(period, caller="daily_report")
+            plan = service.resolve_plan(period, caller="daily_report", complete=True)
         if failure == "records":
             with self.assertRaisesRegex(RuntimeError, "records unavailable"):
                 service.fetch_report(period, plan=plan)
@@ -391,7 +391,7 @@ class TestUsageCounterReport(SimpleTestCase):
         ]
         with patch("posthoganalytics.get_feature_flag", return_value=mode):
             service = UsageCounterService()
-            plan = service.resolve_plan(period, caller="daily_report", counters=tuple(counter_keys))
+            plan = service.resolve_plan(period, caller="daily_report", complete=True, counters=tuple(counter_keys))
         report = service.fetch_report(period, plan=plan)
 
         for index, (counter, (_, quantity)) in enumerate(counter_keys.items()):
@@ -425,6 +425,7 @@ class TestUsageCounterReport(SimpleTestCase):
             plan = service.resolve_plan(
                 period,
                 caller="daily_report",
+                complete=True,
                 counters=(UsageCounter.MOBILE_RECORDINGS, UsageCounter.MOBILE_BILLABLE_RECORDINGS),
             )
         report = service.fetch_report(period, plan=plan)
@@ -456,7 +457,7 @@ class TestUsageCounterReport(SimpleTestCase):
         self.legacy[UsageCounter.EVENTS].return_value = [(1, 7)]
         with patch("posthoganalytics.get_feature_flag", return_value="legacy"):
             service = UsageCounterService()
-            plan = service.resolve_plan(period, caller=caller, counters=(UsageCounter.EVENTS,))
+            plan = service.resolve_plan(period, caller=caller, complete=True, counters=(UsageCounter.EVENTS,))
         assert service.fetch_report(period, plan=plan).counts == {UsageCounter.EVENTS: [(1, 7)]}
         self.events.assert_called_once_with(period.start, period.end, count_distinct=count_distinct)
         self.exceptions.assert_not_called()
@@ -471,7 +472,9 @@ class TestUsageCounterReport(SimpleTestCase):
         ]
         with patch("posthoganalytics.get_feature_flag", return_value="realtime"):
             service = UsageCounterService()
-            plan = service.resolve_plan(period, caller=caller, counters=(UsageCounter.EXCEPTIONS,))
+            plan = service.resolve_plan(
+                period, caller=caller, complete=caller == "daily_report", counters=(UsageCounter.EXCEPTIONS,)
+            )
         self.exceptions.side_effect = RuntimeError("legacy unavailable") if fails else None
         self.exceptions.return_value = ({"web": [(1, 3)]}, [(1, 3)])
         if fails and caller != "quota_limiting":
@@ -529,7 +532,7 @@ class TestUsageCounterReport(SimpleTestCase):
         )
         with patch("posthoganalytics.get_feature_flag", return_value=flag_mode) as flag:
             service = UsageCounterService()
-            plan = service.resolve_plan(period, caller="daily_report", counters=counters)
+            plan = service.resolve_plan(period, caller="daily_report", complete=True, counters=counters)
         report = service.fetch_report(period, plan=plan)
 
         assert plan.modes == dict.fromkeys(counters, UsageCounterMode.LEGACY)
