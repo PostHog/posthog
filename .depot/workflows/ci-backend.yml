@@ -52,14 +52,11 @@
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
 #   The shadow routes cache writes to Depot Cache, so it must not fill the GitHub
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
-# - Superseded-run cancel: the GitHub Actions workflow's concurrency group spans the PR, and
-#   GitHub Actions keeps the run it created last. Depot's policy keeps the workflow it created
-#   last, but Depot creates a workflow some time after its run, so it can keep an older event
-#   and cancel the event that GitHub Actions handed off. Here the group is unique per event,
-#   and the `cancel-superseded-runs` job cancels every run of the PR that Depot created before
-#   this one, whether or not GitHub Actions hands this event off, because GitHub Actions cancels
-#   the older run either way. An `opened` event has no older run, so the job skips it.
-#   See "Superseded runs" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
+# - Superseded-run cancel: Depot's concurrency policy keeps the workflow it created last, which
+#   can be an older event than the one GitHub Actions handed off. So the group is unique per
+#   event, and `cancel-superseded-runs` cancels the PR's runs that Depot created earlier, handed
+#   off or not, as GitHub Actions does. See "Superseded runs" in
+#   .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 # - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
 #   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
 # - calculate-running-time: canonical's PostHog/posthog-github-action reads the run from the
