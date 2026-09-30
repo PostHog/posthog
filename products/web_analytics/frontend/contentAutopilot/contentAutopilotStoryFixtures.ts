@@ -71,7 +71,7 @@ export const EXAMPLE_PROPOSAL: ContentAutopilotProposalApi = {
         ],
     },
     content_package: {
-        file_path: 'contents/docs/web-analytics.mdx',
+        file_path: 'docs/web-analytics.md',
         title: 'Web analytics',
         description: 'Understand web traffic, behavior, and conversion with privacy-friendly analytics.',
         slug: 'web-analytics',

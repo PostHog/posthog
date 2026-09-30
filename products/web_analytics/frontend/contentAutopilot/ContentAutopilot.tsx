@@ -13,10 +13,12 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { pluralize } from 'lib/utils/strings'
+
+import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
-import { ContentAutopilotProposalSection } from './ContentAutopilotProposalSection'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 
 export const ContentAutopilot = (): JSX.Element => {
@@ -24,9 +26,9 @@ export const ContentAutopilot = (): JSX.Element => {
         profile,
         activeRun,
         siteRuns,
-        siteProposals,
-        newContentProposals,
-        pageImprovementProposals,
+        reviewQueue,
+        readyDraftCount,
+        failedDraftCount,
         workspaceTab,
         onboardingOpen,
         siteProfiles,
@@ -40,7 +42,7 @@ export const ContentAutopilot = (): JSX.Element => {
         profileDataLoaded,
         visibleOpportunities,
     } = useValues(contentAutopilotLogic)
-    const { beginOnboarding, cancelRun, selectProfile, selectProposal, loadWorkspace, setWorkspaceTab } =
+    const { beginOnboarding, cancelRun, selectProfile, loadWorkspace, setWorkspaceTab } =
         useActions(contentAutopilotLogic)
     const loading = siteProfilesLoading || runsLoading || proposalsLoading
     const lastRun = siteRuns[0]
@@ -132,6 +134,18 @@ export const ContentAutopilot = (): JSX.Element => {
                                         Stop drafting
                                     </LemonButton>
                                 </LemonCard>
+                            ) : lastRun?.run_status === 'failed' && failedDraftCount > 0 ? (
+                                <LemonBanner
+                                    type="error"
+                                    action={
+                                        workspaceTab === 'drafts'
+                                            ? undefined
+                                            : { children: 'View drafts', onClick: () => setWorkspaceTab('drafts') }
+                                    }
+                                >
+                                    {pluralize(failedDraftCount, 'draft')} from the latest run didn't pass. Open a draft
+                                    to see what to fix, or regenerate it.
+                                </LemonBanner>
                             ) : lastRun?.run_status === 'failed' ? (
                                 <LemonBanner type="error">
                                     The latest run failed.{' '}
@@ -152,40 +166,10 @@ export const ContentAutopilot = (): JSX.Element => {
                                     },
                                     {
                                         key: 'drafts',
-                                        label: `Drafts (${siteProposals.length})`,
-                                        content:
-                                            siteProposals.length === 0 ? (
-                                                <LemonCard hoverEffect={false} className="p-8 text-center">
-                                                    <h3 className="m-0">No drafts yet</h3>
-                                                    <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                                                        Pick questions on the Opportunities tab and draft them. Drafts
-                                                        show up here for review.
-                                                    </p>
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        className="mt-4 mx-auto"
-                                                        onClick={() => setWorkspaceTab('opportunities')}
-                                                        data-attr="content-autopilot-drafts-empty-opportunities"
-                                                    >
-                                                        Go to opportunities
-                                                    </LemonButton>
-                                                </LemonCard>
-                                            ) : (
-                                                <>
-                                                    <ContentAutopilotProposalSection
-                                                        title="New content"
-                                                        description="Original articles for topics people search for that do not have a dedicated page."
-                                                        proposals={newContentProposals}
-                                                        onReview={selectProposal}
-                                                    />
-                                                    <ContentAutopilotProposalSection
-                                                        title="Page improvements"
-                                                        description="Focused metadata, linking, and content changes."
-                                                        proposals={pageImprovementProposals}
-                                                        onReview={selectProposal}
-                                                    />
-                                                </>
-                                            ),
+                                        label: readyDraftCount
+                                            ? `Drafts (${readyDraftCount} ready to review)`
+                                            : `Drafts (${reviewQueue.length})`,
+                                        content: <ContentAutopilotDrafts />,
                                     },
                                 ]}
                             />
