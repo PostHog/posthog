@@ -152,7 +152,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
             { persist: true },
             {
                 setSidebarOpen: (_, { open }) => open,
-                pickPane: () => true,
             },
         ],
         mobileSidebarOpen: [
@@ -227,6 +226,8 @@ export const todayShellLogic = kea<todayShellLogicType>([
             }
             if (values.mobileLayout) {
                 actions.setMobileSidebarOpen(true)
+            } else {
+                actions.setSidebarOpen(true)
             }
         },
     })),

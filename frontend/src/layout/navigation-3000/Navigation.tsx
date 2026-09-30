@@ -50,7 +50,12 @@ export function Navigation({
     const { scenePanelIsPresent, scenePanelOpenManual, sceneTakeoverActive } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
-    const { leftNavWidth: todayLeftNavWidth, todayRailEnabled: todayRail } = useValues(todayShellLogic)
+    const {
+        leftNavWidth: todayLeftNavWidth,
+        todayRailEnabled: todayRail,
+        sidebarVisible: todaySidebarVisible,
+    } = useValues(todayShellLogic)
+    const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
@@ -186,6 +191,7 @@ export function Navigation({
                                 'rounded-r-none': sidePanelOpen,
                             }
                         )}
+                        {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
                         <main
                             ref={mainRef}

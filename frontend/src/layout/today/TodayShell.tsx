@@ -27,6 +27,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, sidebarVisible, sidebarWidth } = useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     const sidebarRef = useRef<HTMLDivElement | null>(null)
+    const drawerRef = useRef<HTMLElement | null>(null)
+    const returnFocusRef = useRef<HTMLElement | null>(null)
 
     const resizerLogicProps: ResizerLogicProps = {
         // pinned: storage key for the persisted width. Renaming it resets everyone's sidebar width.
@@ -44,6 +46,21 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     useEffect(() => {
         setSidebarWidth(clampSidebarWidth(desiredSize))
     }, [desiredSize, setSidebarWidth])
+
+    useEffect(() => {
+        if (!mobileLayout) {
+            return
+        }
+        if (sidebarVisible) {
+            returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+            drawerRef.current?.focus()
+        } else if (returnFocusRef.current) {
+            if (returnFocusRef.current.isConnected) {
+                returnFocusRef.current.focus()
+            }
+            returnFocusRef.current = null
+        }
+    }, [mobileLayout, sidebarVisible])
 
     const pane = (
         <div className="TodayShell__pane">
@@ -76,7 +93,9 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             onClick={() => setMobileSidebarOpen(false)}
                         />
                         <aside
-                            className="TodayShell__sidebar TodayShell__drawer"
+                            ref={drawerRef}
+                            tabIndex={-1}
+                            className="TodayShell__sidebar TodayShell__drawer outline-none"
                             data-open={sidebarVisible}
                             aria-label={PANE_LABELS[activePane]}
                             aria-hidden={!sidebarVisible}

@@ -80,8 +80,10 @@ describe('todayShellLogic', () => {
             expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
             expect(logic.values.sidebarVisible).toBe(false)
 
+            logic.actions.setSidebarOpen(false)
             logic.actions.pickPane('library')
             expect(logic.values.sidebarVisible).toBe(true)
+            expect(logic.values.sidebarOpen).toBe(false)
             expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
 
             router.actions.push('/project/1/insights/abc')
