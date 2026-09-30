@@ -2,9 +2,9 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any, Final, Optional
 
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.request import Request
 
+from posthog.auth import SessionAuthentication
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source
 
