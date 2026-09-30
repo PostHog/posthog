@@ -191,7 +191,7 @@ class KafkaClientTestCase(TestCase):
         self, _name: str, env_var: str, mock_producer_class: MagicMock
     ) -> None:
         mock_producer_class.return_value = MagicMock()
-        with patch.dict(os.environ, {env_var: "1000", "KAFKA_PRODUCER_LINGER_MS": "100"}):
+        with patch.dict(os.environ, {env_var: "1000", "KAFKA_PRODUCER_LINGER_MS": "100"}, clear=True):
             producer_settings = _resolve_producer_settings("default")
         with override_settings(KAFKA_PROFILES=_make_profiles(producer_settings=producer_settings)):
             _KafkaProducer(test=False)
