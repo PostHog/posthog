@@ -11,6 +11,8 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { cn } from 'lib/utils/css-classes'
 import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
 
+import { NewSpaceDialog } from 'products/tasks/frontend/spaces/NewSpaceDialog'
+
 import { TodayLibrarySidebar } from './TodayLibrarySidebar'
 import { TodayRail } from './TodayRail'
 import { TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
@@ -70,6 +72,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         <Resizer {...resizerLogicProps} className="z-2" offset={0} />
                     </aside>
                 )}
+                {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
+                <NewSpaceDialog />
             </div>
         </ToastProvider>
     )

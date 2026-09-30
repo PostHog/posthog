@@ -10,6 +10,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
+    BreakdownAttributionType,
     Experiment,
     ExperimentMetricMathType,
     FeatureFlagBucketingIdentifier,
@@ -22,6 +23,7 @@ import {
 import { filterToMetricConfig } from './metricQueryUtils'
 import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
+    type ExperimentSavedMetric,
     FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
     FUNNEL_SERVER_SIDE_COMPLETION_REASON,
     NOT_A_FUNNEL_REASON,
@@ -39,6 +41,7 @@ import {
     isLegacyExperimentQuery,
     metricResults,
     percentageDistribution,
+    resolveSharedMetric,
     toConcurrencyPayload,
     toExperimentWritePayload,
     withoutProjectedFlagConfig,
@@ -967,6 +970,103 @@ describe('getOrderedMetricsWithResults', () => {
 
             expect(secondaryOrdered).toHaveLength(1)
             expect(secondaryOrdered[0].metric.uuid).toBe('secondary-uuid')
+        })
+
+        // Same cases as test_saved_metric_override_precedence in the backend resolver tests.
+        const funnelWithSavedOverrides = {
+            uuid: 'saved-funnel',
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [],
+            breakdownAttributionType: BreakdownAttributionType.Step,
+            breakdownAttributionValue: 2,
+            breakdownFilter: { breakdown_limit: 5, breakdowns: [{ property: '$os', type: 'event' }] },
+        } as ExperimentMetric
+        const savedMean = {
+            uuid: 'saved-mean',
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: { kind: NodeKind.EventsNode, event: 'test' },
+        } as ExperimentMetric
+
+        it.each([
+            [
+                'omitted overrides keep saved values but not saved breakdowns',
+                funnelWithSavedOverrides,
+                {},
+                { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 2 },
+                { breakdown_limit: 5, breakdowns: [] },
+            ],
+            [
+                'null overrides count as omitted',
+                funnelWithSavedOverrides,
+                { breakdownAttributionType: null, breakdownAttributionValue: null, breakdown_limit: null },
+                { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 2 },
+                { breakdown_limit: 5, breakdowns: [] },
+            ],
+            [
+                'link values replace saved values',
+                funnelWithSavedOverrides,
+                {
+                    breakdownAttributionType: BreakdownAttributionType.LastTouch,
+                    breakdown_limit: 20,
+                    breakdowns: [{ property: '$browser', type: 'event' }],
+                },
+                { breakdownAttributionType: BreakdownAttributionType.LastTouch },
+                { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
+            ],
+            [
+                'attribution step zero is explicit',
+                funnelWithSavedOverrides,
+                {
+                    breakdownAttributionType: BreakdownAttributionType.Step,
+                    breakdownAttributionValue: 0,
+                    breakdowns: [{ property: '$browser', type: 'event' }],
+                },
+                { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 0 },
+                { breakdown_limit: 5, breakdowns: [{ property: '$browser', type: 'event' }] },
+            ],
+            [
+                'attribution on a mean metric is ignored',
+                savedMean,
+                {
+                    breakdownAttributionType: BreakdownAttributionType.LastTouch,
+                    breakdownAttributionValue: 1,
+                    breakdowns: [{ property: '$browser', type: 'event' }],
+                },
+                {},
+                { breakdowns: [{ property: '$browser', type: 'event' }] },
+            ],
+            [
+                'limit and attribution without link breakdowns are ignored',
+                funnelWithSavedOverrides,
+                { breakdownAttributionType: BreakdownAttributionType.LastTouch, breakdown_limit: 20, breakdowns: [] },
+                { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 2 },
+                { breakdown_limit: 5, breakdowns: [] },
+            ],
+            [
+                'a link whose query has not loaded resolves without its saved values',
+                undefined as unknown as ExperimentMetric,
+                { breakdowns: [{ property: '$browser', type: 'event' }], breakdown_limit: 20 },
+                {},
+                { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
+            ],
+        ])('resolves link overrides: %s', (_name, query, overrides, expectedAttribution, expectedBreakdownFilter) => {
+            const resolved: Record<string, unknown> = {
+                ...resolveSharedMetric({
+                    query,
+                    metadata: { type: 'primary', ...overrides } as ExperimentSavedMetric['metadata'],
+                }),
+            }
+
+            const attribution = Object.fromEntries(
+                ['breakdownAttributionType', 'breakdownAttributionValue']
+                    .filter((key) => resolved[key] !== undefined)
+                    .map((key) => [key, resolved[key]])
+            )
+            expect(attribution).toEqual(expectedAttribution)
+            expect(resolved.breakdownFilter).toEqual(expectedBreakdownFilter)
+            expect(resolved.uuid).toBe(query?.uuid)
         })
     })
 

@@ -1,7 +1,20 @@
 import { useValues } from 'kea'
 
 import { IconGitBranch } from '@posthog/icons'
-import { Avatar, AvatarFallback, Badge, Card, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import {
+    Avatar,
+    AvatarFallback,
+    Badge,
+    Button,
+    Card,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+    Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -11,11 +24,13 @@ import { TodaySessionMenu } from '~/layout/today/TodaySessionMenu'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { TodaySessionStatusIcon } from '~/layout/today/TodaySessionStatusIcon'
-import { analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
+import { activeCloudRunId, analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
 import { spaceFeedPreview } from './spaceFeedPreview'
 import { spaceFeedStatus } from './spaceFeedStatus'
+import { TaskPullRequestChip } from './TaskPullRequestChip'
+import { pullRequestLabel, splitPullRequests } from './taskPullRequests'
 
 interface SpaceFeedCardProps {
     task: TaskListItemApi
@@ -27,6 +42,7 @@ export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element
     const { user } = useValues(userLogic)
     const item = sessionItem(task)
     const status = spaceFeedStatus(task.latest_run)
+    const pullRequests = splitPullRequests(item.pullRequests)
     const preview = spaceFeedPreview('description_preview' in task ? task.description_preview : task.description)
     const author = task.created_by
     const authorName = author ? [author.first_name, author.last_name].filter(Boolean).join(' ') || author.email : null
@@ -66,11 +82,13 @@ export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element
                     {status && <Badge variant={status.variant}>{status.label}</Badge>}
                     <TodaySessionMenu
                         sessionId={task.id}
+                        title={item.title}
                         pinned={pinned}
                         spaceId={item.channel}
                         surface="feed"
                         canHandOff={canHandOff(item, user?.id)}
                         analysisRunId={analysisRunId(item)}
+                        activeRunId={activeCloudRunId(item)}
                     />
                 </div>
             </div>
@@ -79,7 +97,7 @@ export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element
                     {preview}
                 </Text>
             )}
-            {(task.repository || author) && (
+            {(task.repository || author || item.pullRequests.length > 0) && (
                 <div className="flex min-w-0 items-center gap-2 pt-1">
                     {task.repository && (
                         <Text
@@ -91,6 +109,40 @@ export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element
                             <IconGitBranch className="shrink-0" />
                             <span className="truncate">{task.repository}</span>
                         </Text>
+                    )}
+                    {pullRequests.visible.map((pullRequest) => (
+                        <TaskPullRequestChip
+                            key={pullRequest.url}
+                            pullRequest={pullRequest}
+                            label={pullRequestLabel(pullRequest, task.repository)}
+                            dataAttr="today-pr-chip-feed"
+                        />
+                    ))}
+                    {pullRequests.overflow.length > 0 && (
+                        <Popover>
+                            <PopoverTrigger
+                                render={
+                                    <Button
+                                        size="xs"
+                                        variant="outline"
+                                        className="relative shrink-0"
+                                        data-attr="today-pr-chip-overflow"
+                                    />
+                                }
+                            >
+                                {`+${pullRequests.overflow.length} ${pullRequests.overflow.length === 1 ? 'PR' : 'PRs'}`}
+                            </PopoverTrigger>
+                            <PopoverContent align="start" className="flex max-w-72 flex-col items-start gap-1">
+                                {pullRequests.overflow.map((pullRequest) => (
+                                    <TaskPullRequestChip
+                                        key={pullRequest.url}
+                                        pullRequest={pullRequest}
+                                        label={pullRequestLabel(pullRequest, task.repository)}
+                                        dataAttr="today-pr-chip-feed"
+                                    />
+                                ))}
+                            </PopoverContent>
+                        </Popover>
                     )}
                     {authorName && (
                         <Tooltip>
