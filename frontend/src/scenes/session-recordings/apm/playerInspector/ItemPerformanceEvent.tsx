@@ -317,7 +317,6 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
             <LemonDivider dashed />
 
             <LemonTabs
-                data-attr="network-event-detail-tabs"
                 size="small"
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
@@ -325,6 +324,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
                     {
                         key: 'timings',
                         label: 'Timings',
+                        'data-attr': 'network-event-detail-tab-timings',
                         content: (
                             <>
                                 <SimpleKeyValueList item={sanitizedProps} />
@@ -337,6 +337,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
                         ? {
                               key: 'headers',
                               label: 'Headers',
+                              'data-attr': 'network-event-detail-tab-headers',
                               content: (
                                   <HeadersDisplay
                                       request={item.request_headers}
@@ -352,6 +353,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
                         ? {
                               key: 'payload',
                               label: 'Payload',
+                              'data-attr': 'network-event-detail-tab-payload',
                               content: (
                                   <BodyDisplay
                                       content={item.request_body}
@@ -365,6 +367,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
                         ? {
                               key: 'response_body',
                               label: 'Response',
+                              'data-attr': 'network-event-detail-tab-response',
                               content: (
                                   <BodyDisplay
                                       content={item.response_body}
@@ -377,6 +380,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
                     {
                         key: 'raw',
                         label: 'Json',
+                        'data-attr': 'network-event-detail-tab-json',
                         content: (
                             <CodeSnippet language={Language.JSON} wrap thing="performance event">
                                 {JSON.stringify(item.raw || 'no item to display', null, 2)}
