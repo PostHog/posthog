@@ -30,8 +30,6 @@ def tagged_http_client(
     *,
     pin: tuple[str, ResolvedIPs] | None = None,
     follow_redirects: bool = True,
-    total_timeout: float | None = None,
-    max_response_bytes: int = 1_048_576,
 ) -> httpx.Client:
     """An httpx client that tags provider responses.
 
@@ -47,8 +45,6 @@ def tagged_http_client(
         "timeout": timeout if timeout is not None else httpx.Timeout(connect=5.0, read=600, write=600, pool=600),
     }
     if pin is None:
-        if total_timeout is not None:
-            raise ValueError("Bounded provider requests require a validated endpoint.")
         return httpx.Client(**kwargs)
     url, pinned_ips = pin
-    return pinned_client(url, pinned_ips, total_timeout=total_timeout, max_response_bytes=max_response_bytes, **kwargs)
+    return pinned_client(url, pinned_ips, **kwargs)

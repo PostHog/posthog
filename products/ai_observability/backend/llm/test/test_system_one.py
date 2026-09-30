@@ -83,14 +83,18 @@ def test_system_one_key_validation(status: int, expected_state: str) -> None:
             "usage": {"input_tokens": 12, "output_tokens": 0},
         },
     )
+    response.headers["x-request-id"] = "example-request-id"
     with (
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
+        patch("posthoganalytics.tag") as tag,
     ):
         state, message = Client.validate_key(
             "system_one", "example-token", base_url="https://decisions.example.com/v1", model="custom-model"
         )
 
     assert state == expected_state
+    tag.assert_any_call("provider.last_status", status)
+    tag.assert_any_call("provider.last_request_id", "example-request-id")
     assert (message is None) == (expected_state == "ok")
     assert str(request.call_args.args[0].url) == "https://decisions.example.com/v1/systemone"
     assert request.call_args.args[0].headers["Authorization"] == "Bearer example-token"
