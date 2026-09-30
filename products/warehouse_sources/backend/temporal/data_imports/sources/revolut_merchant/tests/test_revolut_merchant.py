@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Any, cast
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -29,6 +32,10 @@ def source(endpoint: str, resume_manager: MagicMock) -> SourceResponse:
     )
 
 
+def items(response: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], response.items())
+
+
 @pytest.mark.parametrize(
     "endpoint,path,terminal",
     [
@@ -48,7 +55,7 @@ def test_cursor_pages_and_checkpoint_after_yield(
         ],
     )
     resume_manager = manager()
-    pages = iter(source(endpoint, resume_manager).items())
+    pages = iter(items(source(endpoint, resume_manager)))
     assert next(pages) == [{"id": "first"}]
     resume_manager.save_state.assert_not_called()
     assert next(pages) == [{"id": "second"}]
@@ -57,8 +64,10 @@ def test_cursor_pages_and_checkpoint_after_yield(
     assert requests_mock.call_count == 2
     assert requests_mock.request_history[0].qs == {"limit": ["500"]}
     assert requests_mock.request_history[1].qs == {"limit": ["500"], "page_token": ["cursor+/="]}
-    assert requests_mock.last_request.headers["Authorization"] == "Bearer test-secret-key"
-    assert requests_mock.last_request.headers["Revolut-Api-Version"] == "2026-08-17"
+    last_request = requests_mock.last_request
+    assert last_request is not None
+    assert last_request.headers["Authorization"] == "Bearer test-secret-key"
+    assert last_request.headers["Revolut-Api-Version"] == "2026-08-17"
 
 
 @pytest.mark.parametrize(
@@ -72,8 +81,10 @@ def test_resume_cursor_is_applied_to_first_request(
     requests_mock: requests_mock.Mocker, endpoint: str, path: str, body: dict | list, query: dict
 ) -> None:
     requests_mock.get(f"{BASE_URL}/{path}", json=body)
-    assert list(source(endpoint, manager({"cursor": "saved-token"})).items()) == []
-    assert requests_mock.last_request.qs == query
+    assert list(items(source(endpoint, manager({"cursor": "saved-token"})))) == []
+    last_request = requests_mock.last_request
+    assert last_request is not None
+    assert last_request.qs == query
 
 
 def test_orders_continue_from_last_creation_time_until_empty(requests_mock: requests_mock.Mocker) -> None:
@@ -85,7 +96,7 @@ def test_orders_continue_from_last_creation_time_until_empty(requests_mock: requ
             {"json": []},
         ],
     )
-    rows = [row for page in source("orders", manager()).items() for row in page]
+    rows = [row for page in items(source("orders", manager())) for row in page]
     assert [row["id"] for row in rows] == ["order-new", "order-old"]
     assert requests_mock.request_history[0].qs == {"limit": ["1000"]}
     assert requests_mock.request_history[1].qs["created_before"] == ["2026-01-02t10:00:00.123456z"]
@@ -110,15 +121,18 @@ def test_payments_keep_parent_keys_and_resume_completed_orders(
         {"completed": ["/orders/order-a/payments"], "current": None, "child_state": None} if resume else None
     )
     result = source("payments", resume_manager)
-    rows = [row for page in result.items() for row in page]
+    rows = [row for page in items(result) for row in page]
     expected = [{"id": "payment-1", "order_id": "order-b"}]
     if not resume:
         expected.insert(0, {"id": "payment-1", "order_id": "order-a"})
     assert rows == expected
+    assert result.primary_keys is not None
     assert len({tuple(row[key] for key in result.primary_keys) for row in rows}) == len(expected)
     assert first_payment.call_count == (0 if resume else 1)
     assert second_payment.call_count == 1
-    assert second_payment.last_request.qs == {}
+    second_payment_request = second_payment.last_request
+    assert second_payment_request is not None
+    assert second_payment_request.qs == {}
     assert resume_manager.save_state.call_args.args[0].paginator_state["completed"] == [
         "/orders/order-a/payments",
         "/orders/order-b/payments",
@@ -131,7 +145,7 @@ def test_changed_response_shape_fails_instead_of_replacing_with_empty_table(
 ) -> None:
     requests_mock.get(f"{BASE_URL}/{path}", json={"unexpected": []})
     with pytest.raises(ValueError):
-        list(source(endpoint, manager()).items())
+        list(items(source(endpoint, manager())))
 
 
 @pytest.mark.parametrize(
@@ -150,7 +164,10 @@ def test_credential_probe_status_mapping(
     requests_mock.get(f"{BASE_URL}/customers", status_code=status, json={"customers": []})
     result, error = validate_credentials("test-secret-key", "production", API_VERSION, schema_name)
     assert result is valid
-    assert message in error if message and error else error is message
+    if message:
+        assert error is not None and message in error
+    else:
+        assert error is None
     assert requests_mock.call_count == 1
 
 
@@ -184,7 +201,7 @@ def test_transient_statuses_retry_without_advancing_cursor(requests_mock: reques
             {"json": {"customers": [{"id": "customer-1"}]}},
         ],
     )
-    assert list(source("customers", manager()).items()) == [[{"id": "customer-1"}]]
+    assert list(items(source("customers", manager()))) == [[{"id": "customer-1"}]]
     assert requests_mock.call_count == 2
     assert requests_mock.request_history[0].qs == requests_mock.request_history[1].qs
 

@@ -82,7 +82,7 @@ def revolut_merchant_source(
     resumable_source_manager: ResumableSourceManager[RevolutMerchantResumeConfig],
 ) -> SourceResponse:
     endpoint_config = schema_for_resource(ENDPOINTS, endpoint)
-    resources = [get_resource(endpoint)]
+    resources: list[str | EndpointResource] = [get_resource(endpoint)]
     if endpoint_config.parent:
         resources.insert(0, get_resource(endpoint_config.parent))
     config: RESTAPIConfig = {
@@ -134,6 +134,9 @@ def validate_credentials(
         return False, "Enter a Revolut Merchant Secret API key without spaces or unsupported characters."
     selected_endpoint = schema_for_resource(ENDPOINTS, schema_name or "customers")
     endpoint = ENDPOINTS[selected_endpoint.parent] if selected_endpoint.parent else selected_endpoint
+    path = endpoint.endpoint.get("path")
+    if path is None:
+        raise ValueError("Revolut Merchant endpoint is missing a path.")
     config = client_config(api_key, environment, api_version)
     client = RESTClient(
         base_url=config["base_url"],
@@ -146,7 +149,7 @@ def validate_credentials(
     try:
         page = next(
             client.paginate(
-                path=endpoint.endpoint["path"],
+                path=path,
                 params={"limit": 1},
                 paginator=SinglePagePaginator(),
                 data_selector=endpoint.endpoint["data_selector"],
