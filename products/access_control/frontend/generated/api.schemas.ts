@@ -137,6 +137,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `stamphog` - stamphog
  * * `streamlit_app` - streamlit_app
  * * `subscription` - subscription
+ * * `support_ticket` - support_ticket
  * * `survey` - survey
  * * `tagger` - tagger
  * * `ticket` - ticket
@@ -254,6 +255,7 @@ export const ScopeObjectEnumApi = {
     Stamphog: 'stamphog',
     StreamlitApp: 'streamlit_app',
     Subscription: 'subscription',
+    SupportTicket: 'support_ticket',
     Survey: 'survey',
     Tagger: 'tagger',
     Ticket: 'ticket',
@@ -394,6 +396,7 @@ export interface ProjectAccessSourceApi {
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
+     * * `support_ticket` - support_ticket
      * * `survey` - survey
      * * `tagger` - tagger
      * * `ticket` - ticket
@@ -554,6 +557,7 @@ export interface AccessControlObjectRuleApi {
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
+     * * `support_ticket` - support_ticket
      * * `survey` - survey
      * * `tagger` - tagger
      * * `ticket` - ticket
@@ -936,6 +940,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
+     * * `support_ticket` - support_ticket
      * * `survey` - survey
      * * `tagger` - tagger
      * * `ticket` - ticket
@@ -1198,6 +1203,7 @@ export interface ResolvedAccessApi {
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
+     * * `support_ticket` - support_ticket
      * * `survey` - survey
      * * `tagger` - tagger
      * * `ticket` - ticket

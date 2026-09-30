@@ -3522,14 +3522,14 @@ Note: Fetched the Swagger 2.0 spec behind the Apiary docs (api.aptrinsic.com). P
 
 ## Gerrit — gaps
 
-Today (4): `accounts`, `changes`, `groups`, `projects`
+Today (8): `accounts`, `change_comments`, `change_files`, `changes`, `group_members`, `groups`, `project_branches`, `projects`
 
 Diffed against: <https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html>
 
-- [ ] `changes/{change-id}/comments` — inline review comments per change — the core code-review signal, not covered by the MESSAGES option (high)
-- [ ] `groups/{group-id}/members` — join table resolving accounts to the groups we already sync (high)
-- [ ] `changes/{change-id}/revisions/{revision-id}/files` — per-file insertions/deletions for code churn and review-size analysis (high)
-- [ ] `projects/{project-name}/branches` — lookup resolving the branch string carried on every change (medium)
+- [x] `changes/{change-id}/comments` — inline review comments per change — the core code-review signal, not covered by the MESSAGES option (high)
+- [x] `groups/{group-id}/members` — join table resolving accounts to the groups we already sync (high)
+- [x] `changes/{change-id}/revisions/{revision-id}/files` — per-file insertions/deletions for code churn and review-size analysis (high)
+- [x] `projects/{project-name}/branches` — lookup resolving the branch string carried on every change (medium)
 - [ ] `changes/{change-id}/reviewers` — explicit reviewer and CC list per change, including reviewers who never voted (medium)
 - [ ] `projects/{project-name}/labels` — label definitions that resolve the label names appearing in change votes (medium)
 - [ ] `projects/{project-name}/tags` — release tags per project for cut-to-ship analysis (medium)
@@ -3537,7 +3537,7 @@ Diffed against: <https://gerrit-review.googlesource.com/Documentation/rest-api-c
 - [ ] `groups/{group-id}/groups` — included subgroups, needed to expand nested group membership (low)
 - [ ] `groups/{group-id}/log.audit` — membership change history over time (low)
 
-Note: Not dynamic — settings.py hardcodes 4 endpoints. The changes stream requests o=MESSAGES/DETAILED_LABELS/CURRENT_REVISION/DETAILED_ACCOUNTS, so review messages and label votes already ride inside the change row; inline comments and per-file stats do not. Also checked rest-api-projects.html, rest-api-accounts.html, rest-api-groups.html.
+Note: Not dynamic — settings.py hardcodes 8 endpoints. The changes stream requests o=MESSAGES/DETAILED_LABELS/CURRENT_REVISION/DETAILED_ACCOUNTS, so review messages and label votes already ride inside the change row; inline comments come from change_comments and current-revision per-file stats from change_files. Also checked rest-api-projects.html, rest-api-accounts.html, rest-api-groups.html.
 
 ## Giphy — gaps
 
