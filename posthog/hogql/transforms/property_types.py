@@ -370,10 +370,8 @@ class PropertySwapper(CloningVisitor):
         ):
             first_key = self._json_extract_first_key(node)
             if first_key is None:
-                # A key computed per row can name any property, so the call reads the whole document, which the
-                # printer serializes without restricted keys. Property resolution points it at `temporary_properties`
-                # for a moved key. The native document stores `$feature/<key>` in the `$feature_flags` map, so a
-                # runtime key that names a flag reads as missing.
+                # A key computed per row can name any property, so the call keeps the whole document. The native
+                # document stores `$feature/<key>` in the `$feature_flags` map, so a key naming a flag reads as missing.
                 return None
             return self._json_extract_subcolumn_expr(node, field_arg, field_type, first_key)
 

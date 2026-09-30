@@ -668,7 +668,6 @@ _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS = frozenset(
     }
 )
 
-# Every JSON function whose second argument is the first key of a path into the document.
 _JSON_KEY_PATH_FUNCTIONS = _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS | {
     "JSONExtract",
     "JSONExtractBool",
@@ -1411,7 +1410,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
             return None
         if not isinstance(node.args[1], ast.Constant):
-            # `_rewrite_json_function_with_runtime_key` handles a key computed per row.
             return None
         first_key = node.args[1].value
         if not isinstance(first_key, str) or not is_temporary_event_property(first_key):
