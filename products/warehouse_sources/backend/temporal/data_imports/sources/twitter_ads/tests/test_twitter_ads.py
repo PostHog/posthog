@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from datetime import (
     UTC,
     date,
@@ -6,6 +7,7 @@ from datetime import (
     timedelta,
     timezone as fixed_timezone,
 )
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
@@ -20,6 +22,7 @@ from requests_oauthlib import OAuth1
 
 from posthog.models.integration.model import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.settings import PLACEMENTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.twitter_ads import (
     TwitterAdsClient,
@@ -53,6 +56,15 @@ def response(payload: dict) -> requests.Response:
     return result
 
 
+def sync_items(resource: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], resource.items())
+
+
+def request_url(request: requests.PreparedRequest) -> str:
+    assert isinstance(request.url, str)
+    return request.url
+
+
 def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicMock) -> None:
     with patch.object(
         client.session,
@@ -63,21 +75,21 @@ def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicM
         ],
     ) as send:
         resource = twitter_ads_source(client, "account", "campaigns", manager, None)
-        assert list(resource.items()) == [[{"id": "one"}], [{"id": "two", "deleted": True}]]
+        assert list(sync_items(resource)) == [[{"id": "one"}], [{"id": "two", "deleted": True}]]
     requests_sent = [call.args[0] for call in send.call_args_list]
     assert isinstance(client.session.auth, OAuth1)
     assert all(b"oauth_signature=" in request.headers["Authorization"] for request in requests_sent)
-    assert all(parse_qs(urlparse(request.url).query)["with_deleted"] == ["true"] for request in requests_sent)
-    assert parse_qs(urlparse(requests_sent[1].url).query)["cursor"] == ["next-page"]
+    assert all(parse_qs(urlparse(request_url(request)).query)["with_deleted"] == ["true"] for request in requests_sent)
+    assert parse_qs(urlparse(request_url(requests_sent[1])).query)["cursor"] == ["next-page"]
     assert manager.save_state.call_args_list[0].args[0] == TwitterAdsResumeConfig(cursor="next-page")
     assert manager.save_state.call_args_list[1].args[0].complete
     manager.load_state.return_value = TwitterAdsResumeConfig(cursor="saved-page")
     with patch.object(client.session, "send", return_value=response({"data": [], "next_cursor": None})) as send:
-        list(resource.items())
-    assert parse_qs(urlparse(send.call_args.args[0].url).query)["cursor"] == ["saved-page"]
+        list(sync_items(resource))
+    assert parse_qs(urlparse(request_url(send.call_args.args[0])).query)["cursor"] == ["saved-page"]
     manager.load_state.return_value = TwitterAdsResumeConfig(complete=True)
     with patch.object(client.session, "send") as send:
-        assert list(resource.items()) == []
+        assert list(sync_items(resource)) == []
     send.assert_not_called()
 
 
@@ -93,8 +105,9 @@ def test_stats_limits_daily_rows_currency_and_dst(
     line_items = [{"id": f"line-{i:02}", "campaign_id": campaign["id"]} for i, campaign in enumerate(campaigns)]
 
     def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
-        params = parse_qs(urlparse(request.url).query)
-        path = urlparse(request.url).path
+        url = request_url(request)
+        params = parse_qs(urlparse(url).query)
+        path = urlparse(url).path
         if path.endswith("/funding_instruments"):
             return response({"data": [{"id": "funding", "currency": "EUR"}]})
         if path.endswith("/campaigns"):
@@ -143,7 +156,7 @@ def test_stats_limits_daily_rows_currency_and_dst(
         patch.object(client.session, "send", side_effect=send),
     ):
         resource = twitter_ads_source(client, "account", table, manager, incremental_since)
-        rows = [row for page in resource.items() for row in page]
+        rows = [row for page in sync_items(resource) for row in page]
     start = incremental_since or date(2025, 10, 25)
     assert len(rows) == 21 * (date(2025, 11, 10) - start).days * len(PLACEMENTS)
     assert len({(row["entity_id"], row["date"], row["placement"]) for row in rows}) == len(rows)
@@ -164,7 +177,7 @@ def test_stats_limits_daily_rows_currency_and_dst(
         time_machine.travel("2025-11-15T20:00:00Z", tick=False),
         patch.object(client.session, "send", side_effect=send),
     ):
-        resumed = [row for page in resource.items() for row in page]
+        resumed = [row for page in sync_items(resource) for row in page]
     assert min(row["date"] for row in resumed) == date.fromisoformat(first_checkpoint.next_date)
     assert max(row["date"] for row in resumed) == date(2025, 11, 9)
 

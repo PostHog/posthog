@@ -1510,9 +1510,14 @@ class IntegrationViewSet(
         token = os.urandom(33).hex()
 
         if kind == "twitter-ads":
-            response = redirect(TwitterAdsIntegration.authorize_url(self.team_id, request.user.id, next))
+            response = redirect(TwitterAdsIntegration.authorize_url(self.team_id, cast(User, request.user).id, next))
             response.set_cookie(
-                "ph_twitter_ads_team_id", str(self.team_id), max_age=600, samesite="Lax", secure=request.is_secure()
+                "ph_twitter_ads_team_id",
+                str(self.team_id),
+                max_age=600,
+                samesite="Lax",
+                secure=request.is_secure(),
+                httponly=False,
             )
             return response
 

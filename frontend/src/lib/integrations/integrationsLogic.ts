@@ -118,7 +118,6 @@ export interface integrationsLogicValues {
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
-            | 'twitter-ads'
             | 's3-compatible'
             | 'salesforce'
             | 'slack'
@@ -127,6 +126,7 @@ export interface integrationsLogicValues {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         )[]
@@ -230,7 +230,6 @@ export interface integrationsLogicActions {
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
-            | 'twitter-ads'
             | 's3-compatible'
             | 'salesforce'
             | 'slack'
@@ -239,6 +238,7 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         searchParams: any
@@ -366,7 +366,6 @@ export interface integrationsLogicActions {
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
-                | 'twitter-ads'
                 | 's3-compatible'
                 | 'salesforce'
                 | 'slack'
@@ -375,6 +374,7 @@ export interface integrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
         }[],
@@ -430,7 +430,6 @@ export interface integrationsLogicActions {
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
-                | 'twitter-ads'
                 | 's3-compatible'
                 | 'salesforce'
                 | 'slack'
@@ -439,6 +438,7 @@ export interface integrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
         }[]
@@ -488,7 +488,6 @@ export interface integrationsLogicActions {
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
-            | 'twitter-ads'
             | 's3-compatible'
             | 'salesforce'
             | 'slack'
@@ -497,6 +496,7 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
     }
@@ -553,7 +553,6 @@ export interface integrationsLogicActions {
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
-            | 'twitter-ads'
             | 's3-compatible'
             | 'salesforce'
             | 'slack'
@@ -562,6 +561,7 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics',
         payload?: {
@@ -603,7 +603,6 @@ export interface integrationsLogicActions {
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
-            | 'twitter-ads'
             | 's3-compatible'
             | 'salesforce'
             | 'slack'
@@ -612,6 +611,7 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         payload?: {
@@ -699,7 +699,6 @@ export interface integrationsLogicMeta {
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
-                | 'twitter-ads'
                 | 's3-compatible'
                 | 'salesforce'
                 | 'slack'
@@ -708,6 +707,7 @@ export interface integrationsLogicMeta {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
             )[]
