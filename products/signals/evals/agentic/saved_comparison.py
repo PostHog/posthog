@@ -58,6 +58,8 @@ from products.signals.evals.saved_scout import private_backend_gateway
 from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from temporalio.client import Client
 
     from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -126,6 +128,15 @@ class SavedComparisonSuite:
         user = User.objects.get(id=context.user_id)
         return ScoutTrialComparisons(config, user)
 
+    @staticmethod
+    def _run_for_launch(plan: TrialComparisonPlan, launch_id: UUID) -> SignalScoutRun | None:
+        return (
+            SignalScoutRun.objects.for_team(plan.team_id)
+            .select_related("task_run")
+            .filter(scout_config_id=plan.config_id, metadata__scout_trial__launch_id=str(launch_id))
+            .first()
+        )
+
     async def _export_runs(self, plan: TrialComparisonPlan, directory: Path, ctx: EvalContext) -> None:
         client = await async_connect()
         failures: list[str] = []
@@ -140,12 +151,7 @@ class SavedComparisonSuite:
                         write_private_json(target / "launch.json", launch.model_dump(mode="json"))
                     except Exception as error:
                         errors.append(f"launch: {error}")
-                    run = await (
-                        SignalScoutRun.objects.for_team(plan.team_id)
-                        .select_related("task_run")
-                        .filter(scout_config_id=plan.config_id, metadata__scout_trial__launch_id=str(launch_id))
-                        .afirst()
-                    )
+                    run = await asyncio.to_thread(self._run_for_launch, plan, launch_id)
                     if run is None:
                         raise RuntimeError("The trial did not create a scout run")
                     await self._export_task(run, target, ctx, client, errors)

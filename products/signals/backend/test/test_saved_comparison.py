@@ -14,6 +14,7 @@ from uuid import uuid4
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.test import SimpleTestCase, override_settings
+from django.utils.asyncio import async_unsafe
 
 from parameterized import parameterized
 
@@ -155,7 +156,13 @@ class TestSavedComparison(SimpleTestCase):
                 arefresh_from_db=AsyncMock(),
             )
         queryset = Mock()
-        queryset.select_related.return_value.filter.return_value.afirst = AsyncMock(side_effect=runs)
+        queryset.select_related.return_value.filter.return_value.first.side_effect = runs
+
+        @async_unsafe
+        def for_team(team_id: int) -> Mock:
+            self.assertEqual(team_id, self.plan.team_id)
+            return queryset
+
         raw_log = '{"message":"Invented delivery evidence é\\n"}\n' * 10_000
 
         def log_head(key: str) -> dict[str, str | int] | None:
@@ -170,7 +177,7 @@ class TestSavedComparison(SimpleTestCase):
         if failure == "cleanup":
             self.ctx.provider_strategy.cleanup_case.side_effect = [RuntimeError("cleanup unavailable"), None]
         with (
-            patch(f"{MODULE}.SignalScoutRun.objects.for_team", return_value=queryset),
+            patch(f"{MODULE}.SignalScoutRun.objects.for_team", side_effect=for_team),
             patch(f"{MODULE}.read_trial_launch", return_value=SimpleNamespace(model_dump=Mock(return_value={}))),
             patch(
                 f"{MODULE}.tasks_facade.read_task_run_logs",
