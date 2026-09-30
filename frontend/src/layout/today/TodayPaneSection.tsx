@@ -12,6 +12,8 @@ export interface TodayPaneSectionProps {
     count: number
     onToggle: () => void
     actions?: JSX.Element | null
+    /** Replaces the label while set, for example with a search field. */
+    heading?: JSX.Element | null
     divider?: boolean
     dataAttr: string
     height: number
@@ -28,6 +30,7 @@ export function TodayPaneSection({
     count,
     onToggle,
     actions,
+    heading,
     divider = false,
     dataAttr,
     height,
@@ -47,17 +50,19 @@ export function TodayPaneSection({
                 )}
             >
                 {resizer && <TodayPaneSectionResizeHandle label={label} active={resizing} resizer={resizer} />}
-                <MenuLabel
-                    render={<button type="button" />}
-                    aria-expanded={open}
-                    data-attr={dataAttr}
-                    onClick={onToggle}
-                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-sm text-left"
-                >
-                    <span>{label}</span>
-                    <Caret className="size-3" />
-                    {!open && count > 0 && <span className="tabular-nums">{count}</span>}
-                </MenuLabel>
+                {heading ?? (
+                    <MenuLabel
+                        render={<button type="button" />}
+                        aria-expanded={open}
+                        data-attr={dataAttr}
+                        onClick={onToggle}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-sm text-left"
+                    >
+                        <span>{label}</span>
+                        <Caret className="size-3" />
+                        {!open && count > 0 && <span className="tabular-nums">{count}</span>}
+                    </MenuLabel>
+                )}
                 {open && actions && <div className="flex shrink-0 items-center">{actions}</div>}
             </div>
             <div

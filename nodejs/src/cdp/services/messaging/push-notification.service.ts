@@ -16,7 +16,7 @@ import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, I
 import { createAddLogFunction } from '../../utils'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { getDevicePushSubscriptionToken } from '../../utils/push-subscription-utils'
+import { DeviceSubscription, getDevicePushSubscriptions } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { MessageAssetsService } from './message-assets.service'
 import {
@@ -141,6 +141,32 @@ function pushCorrelationData(invocation: CyclotronJobInvocationHogFunction): Rec
         correlation.parent_run_id = invocation.parentRunId
     }
     return { [PUSH_CORRELATION_KEY]: JSON.stringify(correlation) }
+}
+
+// The retriable failure that stands for a person's devices: the one asking for the longest wait. Only
+// one error per channel reaches the reschedule, so the delay every other device asked for is gone by
+// then — keeping the earliest would retry inside a window a later device's provider asked us to sit
+// out. A failure carrying no Retry-After counts as zero, which is what the backoff already assumes.
+function longestRetriableFailure(current: PushSendError | undefined, candidate: Error): PushSendError | undefined {
+    if (!(candidate instanceof PushSendError) || !candidate.retriable) {
+        return current
+    }
+    if (!current) {
+        return candidate
+    }
+    return (candidate.retryAfterMs ?? 0) > (current.retryAfterMs ?? 0) ? candidate : current
+}
+
+// The devices that failed inside a channel that still delivered to another one. That channel reports
+// success, so these never reach the outer catch that logs and counts a whole-channel failure, and a
+// device failing for good — a token registered against the wrong app, a rejected payload — would be
+// left with only a debug-level line. Counting here cannot double-count: a channel that delivered is
+// never rescheduled, so no later attempt sees these devices again.
+function reportPartialDeviceFailures(failures: PushSendError[], addLog: ReturnType<typeof createAddLogFunction>): void {
+    for (const failure of failures) {
+        pushNotificationFailedCounter.labels({ platform: failure.platform, reason: failure.reason }).inc()
+        addLog(failure.level, failure.message)
+    }
 }
 
 function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAfterMs?: number): PushSendError {
@@ -379,7 +405,6 @@ export class PushNotificationService {
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<boolean> {
         const addLog = createAddLogFunction(result.logs)
-        const payload = params.payload
 
         const projectId = integration.config.project_id
         const accessToken = integration.sensitive_config.access_token
@@ -388,9 +413,9 @@ export class PushNotificationService {
         }
 
         const personProperties = invocation.state.globals.person?.properties
-        const token = getDevicePushSubscriptionToken(personProperties, projectId, this.encryptedFields)
+        const subscriptions = getDevicePushSubscriptions(personProperties, projectId, this.encryptedFields)
 
-        if (!token) {
+        if (subscriptions.length === 0) {
             addLog('warn', `No active FCM device token found for distinct_id: ${params.distinctId}`)
             pushNotificationSkippedCounter.labels({ platform: 'fcm', reason: 'no_token' }).inc()
             return false
@@ -399,15 +424,60 @@ export class PushNotificationService {
         const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
         const templateId = result.invocation.hogFunction.template_id ?? 'unknown'
 
-        const fcmMessage = this.buildFcmMessage(token, payload)
+        let delivered = 0
+        // A terminal failure on one device must not mask a retriable one on another: whether the step
+        // is worth re-running depends on any device being retriable, not on which failed last.
+        let retriableFailure: PushSendError | undefined
+        const failures: PushSendError[] = []
 
+        for (const subscription of subscriptions) {
+            const outcome = await this.sendOneFcm(result, params, subscription, url, accessToken, templateId, addLog)
+            if (outcome.sent) {
+                delivered++
+            } else if (outcome.unregistered) {
+                this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'fcm')
+                addLog('warn', `FCM: ${outcome.message}`)
+            } else if (outcome.error) {
+                failures.push(outcome.error)
+                retriableFailure = longestRetriableFailure(retriableFailure, outcome.error)
+            }
+        }
+
+        if (delivered > 0) {
+            addLog('info', `Push notification accepted by FCM for ${delivered} of ${subscriptions.length} device(s).`)
+            reportPartialDeviceFailures(failures, addLog)
+            // A throw here would re-run the step and push again to every device already delivered to.
+            // A device that failed retryably loses this one notification instead, which is the better
+            // of the two: a missed push on one device rather than a duplicate on the others.
+            return true
+        }
+
+        const failure = retriableFailure ?? failures.at(-1)
+        if (failure) {
+            throw failure
+        }
+
+        return false
+    }
+
+    /** One FCM send. Reports the outcome rather than throwing, so the caller can weigh it against the
+     * other devices of the same person before deciding to retry the step. */
+    private async sendOneFcm(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersSendPushNotificationType,
+        subscription: DeviceSubscription,
+        url: string,
+        accessToken: string,
+        templateId: string,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: PushSendError }> {
         const fetchParams: FetchOptions = {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(fcmMessage),
+            body: JSON.stringify(this.buildFcmMessage(subscription.token, params.payload)),
         }
 
         if (params.timeoutMs !== undefined) {
@@ -449,16 +519,13 @@ export class PushNotificationService {
             // clutter the workflow log — the user-facing explanation is the normalized message below.
             addLog('debug', `FCM response ${status ?? '(none)'}: ${stringifyBody(body)}`)
             if (err.unregistered) {
-                this.pruneDeviceToken(result, invocation, params.distinctId, projectId, 'fcm')
-                addLog('warn', `FCM: ${err.message}`)
-                return false
+                return { sent: false, unregistered: true, message: err.message }
             }
-            throw pushSendError('fcm', err, parseRetryAfterMs(fetchResponse))
+            return { sent: false, error: pushSendError('fcm', err, parseRetryAfterMs(fetchResponse)) }
         }
 
         pushNotificationSentCounter.labels({ platform: 'fcm' }).inc()
-        addLog('info', 'Push notification accepted by FCM.')
-        return true
+        return { sent: true }
     }
 
     /** Returns true if a notification was handed off to APNS, false if skipped (no device token). */
@@ -469,7 +536,6 @@ export class PushNotificationService {
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<boolean> {
         const addLog = createAddLogFunction(result.logs)
-        const payload = params.payload
 
         const signingKey = integration.sensitive_config.signing_key
         const keyId = integration.config.key_id
@@ -480,24 +546,73 @@ export class PushNotificationService {
         }
 
         const personProperties = invocation.state.globals.person?.properties
-        const token = getDevicePushSubscriptionToken(personProperties, bundleId, this.encryptedFields)
+        const subscriptions = getDevicePushSubscriptions(personProperties, bundleId, this.encryptedFields)
 
-        if (!token) {
+        if (subscriptions.length === 0) {
             addLog('warn', `No active APNS device token found for distinct_id: ${params.distinctId}`)
             pushNotificationSkippedCounter.labels({ platform: 'apns', reason: 'no_token' }).inc()
             return false
         }
 
         const jwt = await this.generateApnsJwt(appleTeamId, keyId, signingKey)
-
-        const apnsPayload = this.buildApnsPayload(payload)
         const apnsHost =
             integration.config.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com'
-        const url = `https://${apnsHost}/3/device/${token}`
+        const templateId = result.invocation.hogFunction.template_id ?? 'unknown'
 
+        let delivered = 0
+        // A terminal failure on one device must not mask a retriable one on another: whether the step
+        // is worth re-running depends on any device being retriable, not on which failed last.
+        let retriableFailure: PushSendError | undefined
+        const failures: PushSendError[] = []
+
+        for (const subscription of subscriptions) {
+            const outcome = await this.sendOneApns(
+                result,
+                params,
+                subscription,
+                { apnsHost, bundleId, jwt, templateId },
+                addLog
+            )
+            if (outcome.sent) {
+                delivered++
+            } else if (outcome.unregistered) {
+                this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'apns')
+                addLog('warn', `APNs: ${outcome.message}`)
+            } else if (outcome.error) {
+                failures.push(outcome.error)
+                retriableFailure = longestRetriableFailure(retriableFailure, outcome.error)
+            }
+        }
+
+        if (delivered > 0) {
+            addLog('info', `Push notification accepted by APNs for ${delivered} of ${subscriptions.length} device(s).`)
+            reportPartialDeviceFailures(failures, addLog)
+            // See executeFcm: retrying after a partial success would push again to the devices already
+            // delivered to.
+            return true
+        }
+
+        const failure = retriableFailure ?? failures.at(-1)
+        if (failure) {
+            throw failure
+        }
+
+        return false
+    }
+
+    /** One APNs send. Reports the outcome rather than throwing, so the caller can weigh it against the
+     * other devices of the same person before deciding to retry the step. */
+    private async sendOneApns(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersSendPushNotificationType,
+        subscription: DeviceSubscription,
+        apns: { apnsHost: string; bundleId: string; jwt: string; templateId: string },
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: PushSendError }> {
+        const payload = params.payload
         const headers: Record<string, string> = {
-            Authorization: `bearer ${jwt}`,
-            'apns-topic': bundleId,
+            Authorization: `bearer ${apns.jwt}`,
+            'apns-topic': apns.bundleId,
             'apns-push-type': 'alert',
         }
         if (payload.collapseKey) {
@@ -513,7 +628,7 @@ export class PushNotificationService {
         const fetchParams: FetchOptions = {
             method: 'POST',
             headers,
-            body: JSON.stringify(apnsPayload),
+            body: JSON.stringify(this.buildApnsPayload(payload)),
             // APNs requires HTTP/2
             allowH2: true,
             http2IdleTimeoutMs: APNS_IDLE_TIMEOUT_MS,
@@ -523,12 +638,10 @@ export class PushNotificationService {
             fetchParams.timeoutMs = Math.min(params.timeoutMs, this.fetchUtils.maxFetchTimeoutMs)
         }
 
-        const templateId = result.invocation.hogFunction.template_id ?? 'unknown'
-
         const { fetchError, fetchResponse, fetchDuration } = await this.fetchUtils.trackedFetch({
-            url,
+            url: `https://${apns.apnsHost}/3/device/${subscription.token}`,
             fetchParams,
-            templateId,
+            templateId: apns.templateId,
             teamId: result.invocation.teamId,
         })
 
@@ -560,16 +673,13 @@ export class PushNotificationService {
             // Apple signals a dead token with 410 / reason "Unregistered". Prune it and skip rather than
             // retrying a token that will never work; other reasons are surfaced as failures.
             if (err.unregistered) {
-                this.pruneDeviceToken(result, invocation, params.distinctId, bundleId, 'apns')
-                addLog('warn', `APNs: ${err.message}`)
-                return false
+                return { sent: false, unregistered: true, message: err.message }
             }
-            throw pushSendError('apns', err, parseRetryAfterMs(fetchResponse))
+            return { sent: false, error: pushSendError('apns', err, parseRetryAfterMs(fetchResponse)) }
         }
 
         pushNotificationSentCounter.labels({ platform: 'apns' }).inc()
-        addLog('info', 'Push notification accepted by APNs.')
-        return true
+        return { sent: true }
     }
 
     private async generateApnsJwt(teamId: string, keyId: string, signingKey: string): Promise<string> {
@@ -691,16 +801,30 @@ export class PushNotificationService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         invocation: CyclotronJobInvocationHogFunction,
         distinctId: string,
-        appIdentifier: string,
+        propertyKeys: string[],
         platform: 'fcm' | 'apns'
     ): void {
+        // Only the keys holding this device's token. Unsetting the app's whole subscription here would
+        // take every other device of the person with it.
         result.capturedPostHogEvents.push({
             team_id: invocation.teamId,
             event: '$set',
             distinct_id: distinctId,
             timestamp: new Date().toISOString(),
-            properties: { $unset: [`$device_push_subscription_${appIdentifier}`] },
+            properties: { $unset: propertyKeys },
         })
+        // Drop the keys from this invocation's own snapshot too. A reschedule carries `state` forward
+        // unchanged, so a retry would read the same dead token, send to it again and queue the $unset
+        // again. `person` is replaced rather than edited in place because the object can be shared with
+        // the sibling invocations built from the same event.
+        const globals = result.invocation.state.globals
+        if (globals.person?.properties) {
+            const properties = { ...globals.person.properties }
+            for (const propertyKey of propertyKeys) {
+                delete properties[propertyKey]
+            }
+            globals.person = { ...globals.person, properties }
+        }
         pushNotificationTokenPrunedCounter.labels({ platform }).inc()
         // A dead token is a non-delivery, not a failure to fix. Record it in the reason-labeled skip
         // series too (not just the token-removal counter) so the skip metric accounts for it.
