@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
@@ -8,6 +9,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
 
 from products.metrics.backend.facade.api import list_metric_picker_names
 from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
@@ -51,6 +55,21 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_returns_empty_for_no_data(self):
         runner = MetricNamesQueryRunner(team=self.team)
         self.assertEqual(runner.run(), [])
+
+    @parameterized.expand(
+        [
+            ("unscoped", {}),
+            ("search", {"search": "http"}),
+            ("scoped", {"services": ["web"]}),
+            ("catalog_batch", {"names": ["m1", "m2"]}),
+        ]
+    )
+    def test_names_query_does_not_scan_the_series_hour_table(self, _name: str, kwargs: dict[str, Any]):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(
+            MetricNamesQueryRunner(team=self.team, **kwargs)._build_query(), context, "clickhouse"
+        )
+        self.assertNotIn("metrics4_series", sql)
 
     def test_returns_distinct_names_with_metric_type(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)

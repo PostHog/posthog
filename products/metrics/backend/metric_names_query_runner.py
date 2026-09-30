@@ -1,5 +1,9 @@
 """Distinct metric names for a team's picker UI.
 
+When the lookback starts after the metrics4 cut-over, the names come from tables
+sorted by hour; see `_build_recent_names_query`. Before that, the query reads
+`metric_series` as described below.
+
 Reads `metric_series` (one row per metric + label-set) rather than the raw
 `metrics` datapoint table. Both are fed from the same Kafka Avro stream, so
 they carry the same names, but the series table holds one row per series
@@ -29,7 +33,7 @@ from django.core.cache import cache
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -111,6 +115,9 @@ class MetricNamesQueryRunner:
         self.names = tuple(sorted(set(names)))
 
     def _build_query(self) -> ast.SelectQuery:
+        if reads_metrics4_only(dt.datetime.now(dt.UTC) - self.lookback):
+            return self._build_recent_names_query()
+
         # The alias is `last_seen_at`, not `last_seen`: HogQL registers select
         # aliases before it resolves WHERE and prefers an alias over a table
         # column, so `max(last_seen) AS last_seen` would put an aggregate in the
@@ -177,51 +184,95 @@ class MetricNamesQueryRunner:
                 ]
             )
 
-        # `metric_names` has one row per name and hour, sorted by hour, so it finds
-        # the recent names without a read of every series. It has no service column.
-        if not self.services and reads_metrics4_only(dt.datetime.now(dt.UTC) - self.lookback):
-            query.where = ast.And(
-                exprs=[
-                    query.where,
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["metric_name"]),
-                        right=self._recent_names_subquery(),
-                    ),
-                ]
-            )
-
         # Appended to the parsed tree rather than written into both SQL variants
         # above, so the scoped and unscoped pickers stay one query definition.
         # `service_name` is the only filterable column with its own skip index
         # (`idx_service_set`), which is what keeps a type-ahead affordable —
         # attribute predicates read the label maps and belong in the chart query.
         if self.services:
-            query.where = ast.And(
-                exprs=[
-                    query.where,
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["service_name"]),
-                        right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
-                    ),
-                ]
-            )
+            query.where = ast.And(exprs=[query.where, *self._scope_filters()])
         return query
 
-    def _recent_names_subquery(self) -> ast.SelectQuery:
+    def _build_recent_names_query(self) -> ast.SelectQuery:
+        """Find the recent names in a table sorted by hour, then read details for those names only.
+
+        `metric_series` has one row per series and hour, sorted by name and series, so a lookback
+        over it reads every row the team has. `metric_names` is sorted by hour first. It has no
+        service column, so a service scope reads the row columns of `metric_samples` instead,
+        which is sorted by name and then hour.
+        """
         lookback = ast.Call(name="toIntervalSecond", args=[ast.Constant(value=int(self.lookback.total_seconds()))])
-        subquery = parse_select(
+        candidates = parse_select(
             """
-                SELECT metric_name
-                FROM posthog.metric_names
+                SELECT metric_name AS metric_name, max(time_bucket) AS last_hour
+                FROM {source}
                 WHERE time_bucket >= toStartOfHour(now() - {lookback})
                 GROUP BY metric_name
+                ORDER BY last_hour DESC, metric_name ASC
+                LIMIT {limit}
             """,
-            placeholders={"lookback": lookback},
+            placeholders={
+                "source": ast.Field(chain=["posthog", "metric_samples" if self.services else "metric_names"]),
+                "lookback": lookback,
+                "limit": ast.Constant(value=self.limit),
+            },
         )
-        assert isinstance(subquery, ast.SelectQuery)
-        return subquery
+        assert isinstance(candidates, ast.SelectQuery) and candidates.where is not None
+        candidate_filters: list[ast.Expr] = [candidates.where, *self._scope_filters()]
+        if self.search:
+            candidate_filters.append(
+                parse_expr(
+                    "metric_name ILIKE {search_pattern}",
+                    placeholders={"search_pattern": ast.Constant(value=ilike_pattern(self.search))},
+                )
+            )
+        if self.names:
+            candidate_filters.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["metric_name"]),
+                    right=ast.Tuple(exprs=[ast.Constant(value=name) for name in self.names]),
+                )
+            )
+        candidates.where = ast.And(exprs=candidate_filters)
+
+        # Each name's last point is in its last hour, so the details read one hour per name.
+        # The candidates appear once: HogQL inlines a CTE, so each reference would scan again.
+        query = parse_select(
+            """
+                SELECT
+                    metric_name AS name,
+                    any(metric_type) AS metric_type,
+                    any(unit) AS unit,
+                    max(timestamp_max) AS last_seen_at
+                FROM posthog.metric_samples
+                WHERE (metric_name, time_bucket) IN {candidates}
+                GROUP BY metric_name
+                ORDER BY last_seen_at DESC, metric_name ASC
+            """,
+            placeholders={"candidates": candidates},
+        )
+        assert isinstance(query, ast.SelectQuery) and query.where is not None
+        query.where = ast.And(exprs=[query.where, *self._scope_filters()])
+        if self.search:
+            for select in (candidates, query):
+                assert select.order_by is not None
+                exact_first = parse_expr(
+                    "lower(metric_name) = lower({exact})", placeholders={"exact": ast.Constant(value=self.search)}
+                )
+                select.order_by.insert(0, ast.OrderExpr(expr=exact_first, order="DESC"))
+        return query
+
+    def _scope_filters(self) -> list[ast.Expr]:
+        if not self.services:
+            return []
+        return [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["service_name"]),
+                right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
+            )
+        ]
 
     def run(self) -> list[dict[str, Any]]:
         response = execute_hogql_query(
@@ -288,17 +339,9 @@ class MetricNamesQueryRunner:
                     date_from=window_start,
                     date_to=window_start + SPARKLINE_WINDOW,
                     timezone=self.team.timezone,
-                    # A sample carries no service column; its series_fingerprint is
-                    # the link back to the series row that does. Without this scope,
-                    # two services emitting one metric name share a card and a scoped
-                    # catalog draws a shape blended across services.
-                    row_filters=(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.In,
-                            left=ast.Field(chain=["series_fingerprint"]),
-                            right=self._series_scope_subquery(names),
-                        ),
-                    ),
+                    # Without this scope, two services emitting one metric name share
+                    # a card and a scoped catalog draws a shape blended across services.
+                    row_filters=self._scope_filters(),
                 ),
             },
         )
@@ -316,41 +359,6 @@ class MetricNamesQueryRunner:
         for name, _bucket_start, bucket_value in response.results:
             sparklines.setdefault(name, []).append(float(bucket_value))
         return sparklines
-
-    def _series_scope_subquery(self, names: Sequence[str]) -> ast.SelectQuery:
-        """The series fingerprints, for these names, owned by the scoped services.
-
-        Built as its own parsed query so the service predicate is attached with an
-        explicit And the way `_build_query` does, not spliced into the SQL text.
-        """
-        lookback = ast.Call(name="toIntervalSecond", args=[ast.Constant(value=int(self.lookback.total_seconds()))])
-        subquery = parse_select(
-            """
-                SELECT series_fingerprint
-                FROM posthog.metric_series
-                WHERE last_seen > now() - {lookback}
-                  AND metric_name IN {names}
-                GROUP BY series_fingerprint
-            """,
-            placeholders={
-                "lookback": lookback,
-                "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
-            },
-        )
-        assert isinstance(subquery, ast.SelectQuery)
-        assert subquery.where is not None
-        if self.services:
-            subquery.where = ast.And(
-                exprs=[
-                    subquery.where,
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["service_name"]),
-                        right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
-                    ),
-                ]
-            )
-        return subquery
 
 
 def cached_metric_names(
