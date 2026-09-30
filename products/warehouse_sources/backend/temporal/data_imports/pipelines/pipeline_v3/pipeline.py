@@ -556,9 +556,6 @@ class PipelineV3(Generic[ResumableData]):
                 safe_point_scope.close()
 
             await stage_remaining_rows()
-            if self._resource.on_complete is not None:
-                await asyncio.to_thread(self._resource.on_complete)
-
             await self._finalize(row_count=row_count)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
@@ -566,10 +563,13 @@ class PipelineV3(Generic[ResumableData]):
             # See the PipelineResult docstring for the full ownership contract.
             consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 
-            return {
+            result = {
                 "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),
                 "consumer_manages_job_status": consumer_will_hear_about_this_run,
             }
+            if self._resource.on_complete is not None:
+                await asyncio.to_thread(self._resource.on_complete)
+            return result
         except Exception:
             status = "error"
             self._logger.exception("V3 Pipeline: Extraction failed")
