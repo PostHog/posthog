@@ -41,6 +41,7 @@ from products.surveys.backend.api.survey import (
     get_surveys_response,
     nh3_clean_with_allow_list,
 )
+from products.surveys.backend.global_cooldown import sync_survey_wait_period_flags
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
 
 
@@ -8258,3 +8259,101 @@ class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+class TestGlobalSurveyCooldown(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _create_survey(self, conditions: dict | None = None, **extra: object) -> Survey:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": f"Survey {uuid.uuid4()}",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "start_date": datetime.now(UTC).isoformat(),
+                **({"conditions": conditions} if conditions is not None else {}),
+                **extra,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return Survey.objects.get(id=response.json()["id"])
+
+    def _flag_wait_period(self, survey: Survey) -> str | None:
+        survey.refresh_from_db()
+        assert survey.internal_targeting_flag is not None
+        survey.internal_targeting_flag.refresh_from_db()
+        for group in survey.internal_targeting_flag.filters["groups"]:
+            for prop in group["properties"]:
+                if prop["key"] == "$last_seen_survey_date" and prop["operator"] == "is_date_before":
+                    return prop["value"]
+        return None
+
+    @parameterized.expand(
+        [
+            ("survey_only", None, 7, 7),
+            ("global_only", 14, None, 14),
+            ("global_longer", 14, 7, 14),
+            ("survey_longer", 7, 14, 14),
+            ("both_off", 0, 0, None),
+        ]
+    )
+    def test_effective_wait_period_uses_the_longer_value(
+        self, _name: str, global_days: int | None, survey_days: int | None, expected: int | None
+    ) -> None:
+        self.team.survey_config = {"seenSurveyWaitPeriodInDays": global_days}
+        self.team.save()
+
+        survey = self._create_survey({"seenSurveyWaitPeriodInDays": survey_days})
+
+        assert self._flag_wait_period(survey) == (f"{expected}d" if expected else None)
+
+    def _patch_survey_config(self, path: str, survey_config: dict) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/{path}/{self.team.id}/", data={"survey_config": survey_config}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.team.refresh_from_db()
+
+    def test_changing_global_wait_period_resyncs_existing_surveys(self) -> None:
+        running = self._create_survey()
+        archived = self._create_survey()
+        archived.archived = True
+        archived.save()
+        assert self._flag_wait_period(running) is None
+
+        self._patch_survey_config("projects", {"seenSurveyWaitPeriodInDays": 10})
+        assert self._flag_wait_period(running) == "10d"
+        assert self._flag_wait_period(archived) is None
+
+        self._patch_survey_config("projects", {"appearance": {"backgroundColor": "#eeeded"}})
+        assert self.team.survey_config["seenSurveyWaitPeriodInDays"] == 10
+        assert self._flag_wait_period(running) == "10d"
+
+        self._patch_survey_config("environments", {"seenSurveyWaitPeriodInDays": None})
+        assert self._flag_wait_period(running) is None
+
+    def test_resync_ends_on_the_value_saved_during_the_sync(self) -> None:
+        survey = self._create_survey()
+        stale_team = Team.objects.get(id=self.team.id)
+        stale_team.survey_config = {"seenSurveyWaitPeriodInDays": 10}
+        self.team.survey_config = {"seenSurveyWaitPeriodInDays": 20}
+        self.team.save()
+
+        sync_survey_wait_period_flags(stale_team)
+
+        assert self._flag_wait_period(survey) == "20d"
+
+    @parameterized.expand([("negative", -1), ("too_long", 366), ("string", "7"), ("boolean", True)])
+    def test_rejects_invalid_global_wait_period(self, _name: str, value: object) -> None:
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/",
+            data={"survey_config": {"seenSurveyWaitPeriodInDays": value}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

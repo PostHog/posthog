@@ -4165,7 +4165,9 @@
             ]
         },
         "session_replay_config": {},
-        "survey_config": {},
+        "survey_config": {
+            "description": "Project-wide survey settings. `appearance` sets the default look of new surveys. `seenSurveyWaitPeriodInDays` (0-365) is the minimum number of days between surveys for one user; a survey's own wait period applies only when it is longer."
+        },
         "surveys_opt_in": {
             "anyOf": [
                 {
