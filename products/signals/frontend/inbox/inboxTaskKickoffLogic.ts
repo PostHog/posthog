@@ -307,7 +307,8 @@ async function createReportTask(
             (options) => tasksRunCreate(projectId, task.id, runOptions, options),
             disposables
         )
-        run = running.latest_run ?? null
+        // `?? latest_run` covers the deploy skew window where this bundle outruns the backend.
+        run = running.run ?? running.latest_run ?? null
     }
     if (!run) {
         throw new Error('The task has no run. Open the task list to check its status.')
@@ -732,10 +733,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 return
             }
             try {
-                const prompt = wrapWithPosthogContext(
-                    buildDiscussReportPrompt(currentReport, reportUrl, agentQuestion ?? question, intent),
-                    contextItems
+                const discussPrompt = buildDiscussReportPrompt(
+                    currentReport,
+                    reportUrl,
+                    agentQuestion ?? question,
+                    intent
                 )
+                const prompt = wrapWithPosthogContext(discussPrompt, contextItems)
                 const warmLease = values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null
                 if (warmLease) {
                     actions.setReportWarmLease(null)
@@ -763,7 +767,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
                         pauseOnPageHidden: false,
                     })
-                    stream.actions.startOptimisticRun(question)
+                    // The thread pairs this with its wire echo by message text, so it has to be the
+                    // prompt that was sent rather than the question inside it.
+                    stream.actions.startOptimisticRun(discussPrompt)
                     actions.openReportTask(report, taskId, runId, streamKey)
                 }
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })

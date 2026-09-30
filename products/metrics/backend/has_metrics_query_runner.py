@@ -10,6 +10,8 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.errors import CHQueryErrorUnknownTable
 from posthog.models import Team
 
+from products.metrics.backend.metrics4_samples import METRICS_RETENTION, reads_metrics4_only
+
 HAS_METRICS_CACHE_TTL = int(dt.timedelta(days=7).total_seconds())
 
 # Negative results are cached too, but only briefly. The activation check
@@ -30,7 +32,11 @@ class HasMetricsQueryRunner:
         # `metrics` is only registered under the `posthog.` HogQL namespace
         # (posthog/hogql/database/database.py), so unlike `logs` it must be
         # referenced fully qualified.
-        query = parse_select("SELECT 1 FROM posthog.metrics LIMIT 1")
+        # Before the `metrics2` data leaves retention, only the `metrics` view reads all of it.
+        if reads_metrics4_only(dt.datetime.now(dt.UTC) - METRICS_RETENTION):
+            query = parse_select("SELECT 1 FROM posthog.metric_samples LIMIT 1")
+        else:
+            query = parse_select("SELECT 1 FROM posthog.metrics LIMIT 1")
         assert isinstance(query, ast.SelectQuery)
 
         try:

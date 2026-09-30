@@ -312,6 +312,13 @@ class TestPlanSuggestionRuns(BaseTest):
         unapproved = self._team("unapproved", approved=False)
         self._enable_scout(unapproved, engaged=True)
         self._team("no-signals-setup")
+        background_only = self._team("background-only")
+        SignalScoutConfig.objects.create(
+            team=background_only,
+            skill_name="signals-scout-general",
+            enabled=True,
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+        )
 
         SignalScoutSuggestionSet.all_teams.create(team=engaged_fresh, last_requested_at=self.now - timedelta(days=1))
         SignalScoutSuggestionSet.all_teams.create(team=engaged_overdue, last_requested_at=self.now - timedelta(days=30))

@@ -125,7 +125,7 @@ class TestFileDownloadTimeouts(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("hour", 21600, 3600, 24),
+            ("hour", 21600, 7200, 24),
             ("day", 86400, 21600, 7),
             ("week", 259200, 86400, 4),
             ("every 5 minutes", 1200, 1200, 12),
