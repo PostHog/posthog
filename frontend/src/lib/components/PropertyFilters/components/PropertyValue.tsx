@@ -289,7 +289,7 @@ export function PropertyValue({
         for (const option of displayOptions) {
             offeredValues.current.add(toString(option.name))
         }
-    }, [displayOptions])
+    }, [displayOptions, propertyKey])
 
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()
