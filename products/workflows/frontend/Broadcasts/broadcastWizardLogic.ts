@@ -290,6 +290,9 @@ export interface broadcastWizardLogicActions {
         broadcast: HogFlowApi | null
         payload?: any
     }
+    loadExternalEdit: () => {
+        value: true
+    }
     moveToDraft: () => {
         value: true
     }
@@ -297,9 +300,6 @@ export interface broadcastWizardLogicActions {
         value: true
     }
     nextStep: () => {
-        value: true
-    }
-    loadExternalEdit: () => {
         value: true
     }
     prevStep: () => {
