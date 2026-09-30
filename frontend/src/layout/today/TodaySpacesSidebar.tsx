@@ -184,6 +184,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         {group.label && (
                                             <Text
                                                 size="xs"
+                                                weight="medium"
                                                 variant="muted"
                                                 className={cn('block px-2 pb-1', index === 0 ? 'pt-1' : 'pt-3')}
                                             >
