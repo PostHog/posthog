@@ -96,6 +96,7 @@ export interface spaceSceneLogicActions {
         payload?: any
         spaces: ChannelDTOApi[]
     } // todaySpacesLogic
+    loadTaskActivity: (_?: void | undefined) => void // todaySpacesLogic
     deleteSpace: () => {
         value: true
     }
@@ -226,7 +227,12 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
     key((props) => props.id),
     connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
-        actions: [todaySessionMenuLogic, ['sessionUpdated'], todaySpacesLogic, ['loadSpaces', 'loadSpacesSuccess']],
+        actions: [
+            todaySessionMenuLogic,
+            ['sessionUpdated'],
+            todaySpacesLogic,
+            ['loadSpaces', 'loadSpacesSuccess', 'loadTaskActivity'],
+        ],
     })),
     actions({
         updateSpace: (patch: PatchedChannelUpdateApi) => ({ patch }),
@@ -393,6 +399,9 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         ],
     }),
     listeners(({ actions, props, values }) => ({
+        loadSessions: () => {
+            actions.loadTaskActivity()
+        },
         sessionUpdated: () => {
             actions.loadSessions()
         },

@@ -18,9 +18,10 @@ interface TodaySessionRowProps {
     pinned: boolean
     dataAttr: string
     surface: TodaySessionSurface
+    unread: boolean
 }
 
-export function TodaySessionRow({ item, pinned, dataAttr, surface }: TodaySessionRowProps): JSX.Element {
+export function TodaySessionRow({ item, pinned, dataAttr, surface, unread }: TodaySessionRowProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
     const { location, searchParams } = useValues(router)
     const { user } = useValues(userLogic)
@@ -46,6 +47,7 @@ export function TodaySessionRow({ item, pinned, dataAttr, surface }: TodaySessio
                     />
                 ) : null
             }
+            unread={unread}
             action={
                 <TodaySessionMenu
                     sessionId={item.id}
