@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { initKeaTests } from '~/test/init'
 
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_MAX_WIDTH, railPaneForPath, todayShellLogic } from './todayShellLogic'
+import { toolHrefForPath } from './todayToolsLogic'
 
 describe('todayShellLogic', () => {
     beforeEach(() => {
@@ -20,10 +21,22 @@ describe('todayShellLogic', () => {
         ['/project/1/feature_flags/920847', 'library'],
         ['/project/1/insights/abc', 'library'],
         ['/project/1/feature_flags', null],
+        ['/project/1/data-management/destinations', 'tools'],
+        ['/project/1/sql', 'tools'],
         ['/project/1/airplane', null],
         ['/project/1/homework', null],
     ])('puts %s under %s', (pathname, pane) => {
         expect(railPaneForPath(pathname)).toBe(pane)
+    })
+
+    test.each([
+        ['/data-management/destinations', '/data-management/destinations?tab=all'],
+        ['/data-management/destinations/abc', '/data-management/destinations?tab=all'],
+        ['/data-management/events', '/data-management'],
+        ['/data-management-old', null],
+    ])('selects the tool for %s', (path, href) => {
+        const tools = [{ href: '/data-management' }, { href: '/data-management/destinations?tab=all' }]
+        expect(toolHrefForPath(path, tools)).toBe(href)
     })
 
     it('keeps the last pane open on pages that belong to no pane', () => {
@@ -31,7 +44,7 @@ describe('todayShellLogic', () => {
         logic.mount()
 
         logic.actions.pickPane('tools')
-        router.actions.push('/project/1/feature_flags')
+        router.actions.push('/project/1/airplane')
         expect(logic.values.activePane).toBe('tools')
 
         router.actions.push('/project/1/ai')

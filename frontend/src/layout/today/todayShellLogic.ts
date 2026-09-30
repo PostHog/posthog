@@ -7,6 +7,8 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
 import { urls } from 'scenes/urls'
 
+import { toolHrefForPath } from './todayToolsLogic'
+
 export type TodayRailPane = 'home' | 'spaces' | 'library' | 'tools'
 
 export const TODAY_RAIL_WIDTH = 56
@@ -38,6 +40,9 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     }
     if (isUnder(path, urls.library()) || libraryTypeForPath(path)) {
         return 'library'
+    }
+    if (toolHrefForPath(path)) {
+        return 'tools'
     }
     return null
 }
