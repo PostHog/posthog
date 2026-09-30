@@ -24,6 +24,9 @@ def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
     schema.cdc_mode = overrides.get("cdc_mode", "streaming")
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
+    # Explicit: an unset MagicMock attribute is truthy, which would send the snapshot path into the
+    # xmin cursor branch and fail on the missing cursor manager.
+    schema.is_xmin = overrides.get("is_xmin", False)
     schema.sync_type_config = {}
     schema.schema_metadata = {}
     schema.resolved_s3_folder_name = None

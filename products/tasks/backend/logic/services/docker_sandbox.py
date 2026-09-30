@@ -983,6 +983,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token_file: str | None = None,
+        sandbox_runtime: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -992,6 +993,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             interaction_origin=interaction_origin,
             agent_runtime=agent_runtime,
             sandbox_id=self.id,
+            sandbox_runtime=sandbox_runtime,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
@@ -1085,6 +1087,9 @@ class DockerSandbox(AgentServerLaunchMixin):
 
     def _agent_server_reuse_enabled(self) -> bool:
         return False
+
+    def _sandbox_runtime(self) -> str | None:
+        return "docker"
 
     def _install_agent_server_launch_files(self) -> tuple[str, ...]:
         return ()

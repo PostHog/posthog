@@ -599,28 +599,6 @@ CREATE TABLE posthog.kafka_message_assets (
   is_deleted UInt8,
   html String
 ) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_message_assets', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_message_assets';
-CREATE TABLE posthog.kafka_metrics_avro (
-  uuid String,
-  trace_id String,
-  span_id String,
-  trace_flags Nullable(Int32),
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  service_name Nullable(String),
-  metric_name Nullable(String),
-  metric_type Nullable(String),
-  value Nullable(Float64),
-  count Nullable(Int64),
-  histogram_bounds Array(Float64),
-  histogram_counts Array(Int64),
-  unit Nullable(String),
-  aggregation_temporality Nullable(String),
-  is_monotonic Nullable(UInt8),
-  resource_attributes Map(String, String),
-  instrumentation_scope Nullable(String),
-  attributes Map(String, String),
-  series_fingerprint Nullable(Int64)
-) ENGINE = Kafka(warpstream_metrics) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro-new', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
 CREATE TABLE posthog.kafka_metrics_avro2 (
   uuid String,
   trace_id String,
@@ -757,11 +735,6 @@ CREATE TABLE posthog.kafka_person_overrides (
   oldest_event DateTime64(6, 'UTC'),
   version Int32
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'kafka:9092', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-person-overrides', kafka_topic_list = 'clickhouse_person_override';
-CREATE TABLE posthog.kafka_person_property_mutation_log (
-  team_id Int64,
-  uuid UUID,
-  properties String
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.kafka_plugin_log_entries (
   id UUID,
   team_id Int64,
@@ -1776,12 +1749,6 @@ CREATE TABLE posthog.person_overrides (
   created_at DateTime64(6, 'UTC') DEFAULT now(),
   version Int32
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_overrides', '{replica}-{shard}', version) ORDER BY (team_id, old_person_id) PARTITION BY toYYYYMM(oldest_event) SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.person_property_mutation_log_data (
-  team_id Int64,
-  event_uuid UUID,
-  properties String,
-  ingested_at DateTime('UTC')
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at) ORDER BY (team_id, event_uuid) PARTITION BY toDate(ingested_at) TTL ingested_at + toIntervalDay(30) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.person_static_cohort (
   id UUID,
   person_id UUID,
@@ -2464,6 +2431,28 @@ CREATE TABLE posthog.sharded_performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.performance_events', '{replica}') ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalWeek(3) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_platform_alert_events (
+  team_id Int64,
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  episode_started_at Nullable(DateTime64(6, 'UTC')),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  expires_at Date DEFAULT today() + toIntervalDay(90)
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.platform_alert_events', '{replica}-{shard}') PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at) ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key) PARTITION BY toYYYYMM(occurred_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_posthog_document_embeddings_buffer (
   team_id Int64,
   product LowCardinality(String),
@@ -5065,17 +5054,6 @@ WHERE kafka_metrics_avro4.series_fingerprint IS NOT NULL
 SETTINGS
   min_insert_block_size_rows = 0,
   min_insert_block_size_bytes = 0;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro_kafka_metrics_mv TO posthog.metrics_kafka_metrics (_partition UInt64, _topic LowCardinality(String), max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
-  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-  maxSimpleState(timestamp) AS max_timestamp,
-  maxSimpleState(now()) AS max_created_at,
-  maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.kafka_metrics_avro
-GROUP BY
-  _partition, _topic;
 CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.trace_spans (uuid String, trace_id String, span_id String, parent_span_id String, trace_state String, name String, kind Int8, flags UInt32, timestamp DateTime64(6), end_time DateTime64(6), observed_timestamp DateTime64(6), service_name String, resource_attributes Map(LowCardinality(String), String), instrumentation_scope String, attributes_map_str Map(LowCardinality(String), String), dropped_attributes_count UInt32, events Array(String), dropped_events_count UInt32, links Array(String), dropped_links_count UInt32, status_code Int16, team_id Int32, original_expiry_timestamp DateTime64(6)) AS SELECT
   uuid,
   trace_id,
@@ -7139,12 +7117,28 @@ CREATE TABLE posthog.performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_performance_events', sipHash64(session_id));
-CREATE TABLE posthog.person_property_mutation_log (
+CREATE TABLE posthog.platform_alert_events (
   team_id Int64,
-  event_uuid UUID,
-  properties String,
-  ingested_at DateTime('UTC')
-) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  episode_started_at Nullable(DateTime64(6, 'UTC')),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  expires_at Date DEFAULT today() + toIntervalDay(90)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_platform_alert_events', cityHash64(team_id));
 CREATE TABLE posthog.preaggregation_results (
   team_id Int64,
   job_id UUID,
@@ -7699,31 +7693,6 @@ CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_mv TO posthog.writable_qu
   ProfileEvents
 FROM system.query_log
 WHERE type != 'QueryStart';
-CREATE MATERIALIZED VIEW posthog.person_property_mutation_log_mv TO posthog.person_property_mutation_log (team_id Int64, event_uuid UUID, properties String, ingested_at DateTime('UTC')) AS SELECT
-  team_id,
-  uuid AS event_uuid,
-  concat(
-    '{',
-    arrayStringConcat(
-      arrayMap(
-        property -> concat(toJSONString(property.1), ':', property.2),
-        arrayFilter(
-          property -> property.1 IN ('$set', '$set_once', '$unset'),
-          JSONExtractKeysAndValuesRaw(source.properties)
-        )
-      ),
-      ','
-    ),
-    '}'
-  ) AS properties,
-  toDateTime(_timestamp, 'UTC') AS ingested_at
-FROM kafka_person_property_mutation_log AS source
-WHERE
-  JSONHas(source.properties, '$set')
-OR
-  JSONHas(source.properties, '$set_once')
-OR
-  JSONHas(source.properties, '$unset');
 CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value)
 FROM posthog.custom_metrics_test
 UNION ALL

@@ -11,8 +11,8 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
-from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, ScannerSnapshot
