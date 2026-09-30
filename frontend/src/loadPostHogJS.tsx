@@ -19,6 +19,50 @@ export function isInDeferredInitSample(sessionId: string): boolean {
     return Math.abs(hash) % 100 < 50
 }
 
+const LAST_SEEN_FEATURE_FLAGS_KEY = 'posthog-app-last-seen-feature-flags'
+
+export interface LastSeenFeatureFlags {
+    distinctId: string
+    featureFlags: Record<string, boolean | string>
+}
+
+type UserIdentityWithFlags = NonNullable<Window['POSTHOG_USER_IDENTITY_WITH_FLAGS']>
+
+/**
+ * The Django bootstrap leaves out every flag it cannot evaluate locally, for example a flag whose
+ * cohort reads a person property that Django does not send. posthog-js treats a flag that is not in
+ * the bootstrap as off until /flags responds, so the first render drops those flags and then shows
+ * them again. This fills only the missing keys from the last flags this same user saw, so server
+ * values still win and a different user on the same browser never gets them.
+ */
+export function withLastSeenFeatureFlags(
+    bootstrap: UserIdentityWithFlags,
+    lastSeen: LastSeenFeatureFlags | null
+): UserIdentityWithFlags {
+    // An empty bootstrap makes posthog-js use its own persisted flags, which are already complete.
+    if (!lastSeen || lastSeen.distinctId !== bootstrap.distinctID || !Object.keys(bootstrap.featureFlags).length) {
+        return bootstrap
+    }
+    return { ...bootstrap, featureFlags: { ...lastSeen.featureFlags, ...bootstrap.featureFlags } }
+}
+
+function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
+    try {
+        const stored = window.localStorage.getItem(LAST_SEEN_FEATURE_FLAGS_KEY)
+        return stored ? JSON.parse(stored) : null
+    } catch {
+        return null
+    }
+}
+
+function writeLastSeenFeatureFlags(lastSeen: LastSeenFeatureFlags): void {
+    try {
+        window.localStorage.setItem(LAST_SEEN_FEATURE_FLAGS_KEY, JSON.stringify(lastSeen))
+    } catch {
+        // Storage can be full or blocked. The cache only smooths the first render, so skip it.
+    }
+}
+
 export interface LoadPostHogJSOptions {
     /**
      * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
@@ -51,7 +95,9 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed
             ],
-            bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
+            bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS
+                ? withLastSeenFeatureFlags(window.POSTHOG_USER_IDENTITY_WITH_FLAGS, readLastSeenFeatureFlags())
+                : {},
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: true,
@@ -176,7 +222,11 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             identity_hash: window.JS_POSTHOG_IDENTITY_HASH,
         })
 
-        posthog.onFeatureFlags((_flags, _variants, context) => {
+        posthog.onFeatureFlags((_flags, variants, context) => {
+            if (!context?.errorsLoading) {
+                writeLastSeenFeatureFlags({ distinctId: posthog.get_distinct_id(), featureFlags: variants })
+            }
+
             if (inStorybook() || inStorybookTestRunner() || !context?.errorsLoading) {
                 return
             }
