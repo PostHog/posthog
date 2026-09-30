@@ -37,7 +37,6 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
         └── (opportunities) AccountOpportunitiesExpansion            (accountOpportunitiesLogic, keyed by accountId — DWH Salesforce opportunities)
         └── (conversations) AccountConversationsExpansion             (accountConversationsLogic, keyed by accountId — combines email threads, accessible Support tickets, and Slack summaries; one failed source leaves the other sources usable; email and Slack counts expose a Load older conversations action; expansions paginate email messages, show the Support thread, and keep Slack message links collapsed by default)
         └── (meetings)      AccountMeetingsExpansion                 (accountMeetingsLogic, keyed by accountId; synced Google Calendar meetings plus optional Gong call links from the Gong warehouse source, and the matching editor; flag-gated tab, CUSTOMER_ANALYTICS_CSP)
-        └── (event_stream)  AccountEventStreamToggle (`../EventStream/`)   flag-gated tab (CUSTOMER_ANALYTICS_CSP); membership toggle for the Slack event stream
 ```
 
 ### Logics and what each owns
