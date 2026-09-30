@@ -1,19 +1,26 @@
 import json
 import datetime as dt
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
 import pytest
+import time_machine
 from unittest import mock
 
-from requests import Response
+from requests import HTTPError, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import (
     DEPOT_CI_SERVICE_URL,
     depot_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.depot.source import (
+    DepotReconciliationCursor,
+    DepotSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.depot import DepotSourceConfig
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot"
 REPOSITORY = "example-org/example-repo"
@@ -110,41 +117,15 @@ TERMINAL_RUNS = [
 ]
 # Between r3 and r2, so no run can tie it.
 WATERMARK = NOW - dt.timedelta(hours=3, minutes=30)
-RECENT_IN_FLIGHT = {**_run("in-flight", dt.timedelta(minutes=90)), "status": "queued"}
-QUEUED_PAST_CUTOFF = {**_run("queued-7h", dt.timedelta(hours=7)), "status": "queued"}
-LONG_RUNNING = {**_run("long", dt.timedelta(minutes=150)), "status": "running"}
-RUNNING_INSIDE_CUTOFF = {**_run("running-23h", dt.timedelta(hours=23)), "status": "running"}
-RUNNING_PAST_CUTOFF = {**_run("running-25h", dt.timedelta(hours=25)), "status": "running"}
 
 
 class TestDepotSource:
-    @pytest.mark.parametrize(
-        "in_flight_runs, expected_run_ids",
-        [
-            ([], ["r3", "r4", "r5", "r6"]),
-            ([RECENT_IN_FLIGHT], ["r3", "r4"]),
-            ([QUEUED_PAST_CUTOFF], ["r3", "r4", "r5", "r6"]),
-            ([RECENT_IN_FLIGHT, QUEUED_PAST_CUTOFF], ["r3", "r4"]),
-            ([LONG_RUNNING], ["r3"]),
-            ([RUNNING_INSIDE_CUTOFF], []),
-            ([RUNNING_PAST_CUTOFF], ["r3", "r4", "r5", "r6"]),
-        ],
-    )
-    def test_syncs_only_runs_created_before_the_oldest_recent_in_flight_run(
-        self, in_flight_runs: list[dict[str, Any]], expected_run_ids: list[str]
-    ) -> None:
-        session = _fake_session(TERMINAL_RUNS, in_flight_runs)
-
-        rows = _synced_rows(session, WATERMARK)
-
-        assert [row["run_id"] for row in rows] == expected_run_ids
-
-    def test_a_stuck_run_with_workflows_still_holds_the_horizon(self) -> None:
+    def test_in_flight_runs_do_not_block_terminal_runs(self) -> None:
         stuck = {**_run("stuck", dt.timedelta(days=30)), "status": "running"}
         workflows = {run["runId"]: [_single_attempt_workflow(run)] for run in [*TERMINAL_RUNS, stuck]}
         session = _fake_session(TERMINAL_RUNS, [stuck], workflows_by_run=workflows)
 
-        assert _synced_rows(session, WATERMARK) == []
+        assert [row["run_id"] for row in _synced_rows(session, WATERMARK)] == ["r3", "r4", "r5", "r6"]
 
     @pytest.mark.parametrize(
         "created_after, expected_run_ids, expected_terminal_pages",
@@ -206,14 +187,13 @@ class TestDepotSource:
         assert API_TOKEN in make_session.call_args.kwargs["redact_values"]
         # Every Depot RPC is a POST, which the shared retry leaves out, so a 429 must still retry.
         assert make_session.call_args.kwargs["retry"].is_retry("POST", 429)
-        assert _requests(session)[:5] == [
-            ("ListRuns", {"repo": REPOSITORY, "status": IN_FLIGHT, "pageSize": 2}),
+        assert _requests(session)[:4] == [
             ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 2}),
             ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 2, "pageToken": "2"}),
             ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 3}),
             ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 3, "pageToken": "3"}),
         ]
-        assert _requests(session)[5:7] == [("GetRunStatus", {"runId": "r3"}), ("GetWorkflow", {"workflowId": "r3-wf"})]
+        assert _requests(session)[4:6] == [("GetRunStatus", {"runId": "r3"}), ("GetWorkflow", {"workflowId": "r3-wf"})]
 
     def test_flattens_one_row_per_attempt_of_every_workflow_in_the_run(self) -> None:
         run = _run("run-1", dt.timedelta(hours=1))
@@ -306,6 +286,84 @@ class TestDepotSource:
             "attempt_finished_at": "2026-01-01T00:04:00Z",
             "sandbox_id": "sandbox-1",
         }
+
+
+class TestDepotReconciliation:
+    @pytest.mark.parametrize(
+        "reconciled_days_ago, history_days, has_watermark, expected_runs",
+        [
+            (None, 30, True, ["old", "recent"]),
+            (1, 30, True, ["recent"]),
+            (7, 30, True, ["old", "recent"]),
+            (1, 30, False, ["old", "recent"]),
+            (None, None, True, ["outside", "old", "recent"]),
+            (1, 1, True, []),
+        ],
+    )
+    def test_replays_retries_and_reconciles_retained_history(
+        self, reconciled_days_ago: int | None, history_days: int | None, has_watermark: bool, expected_runs: list[str]
+    ) -> None:
+        source = DepotSource()
+        cursor = (
+            DepotReconciliationCursor(reconciled_at=_iso(NOW - dt.timedelta(days=reconciled_days_ago)))
+            if reconciled_days_ago is not None
+            else None
+        )
+        manager = SourceCursorManager(source.cursor_class(), cursor, source)
+        inputs = mock.MagicMock(
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=_iso(NOW - dt.timedelta(minutes=10)) if has_watermark else None,
+            history_start=NOW - dt.timedelta(days=history_days) if history_days is not None else None,
+            source_cursor=manager,
+        )
+        runs = [
+            _run("recent", dt.timedelta(days=2)),
+            _run("old", dt.timedelta(days=14)),
+            _run("outside", dt.timedelta(days=40)),
+        ]
+        workflows = {run["runId"]: [_single_attempt_workflow(run)] for run in runs}
+        for run_workflows in workflows.values():
+            job = run_workflows[0]["jobs"][0]
+            job["attempts"].append({"attemptId": f"{job['jobId']}-retry", "attempt": 2})
+        session = _fake_session(runs, workflows_by_run=workflows)
+
+        with time_machine.travel(NOW, tick=False), mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            response = source.source_for_pipeline(DepotSourceConfig(api_token=API_TOKEN, repository=REPOSITORY), inputs)
+            assert manager.staged is None
+            rows = [row for batch in _batches(response) for row in batch]
+
+        assert [row["run_id"] for row in rows if row["attempt"] == 2] == expected_runs
+        if reconciled_days_ago in (None, 7) or not has_watermark:
+            assert manager.staged is not None
+        else:
+            assert manager.staged is None
+
+    @pytest.mark.parametrize("fail", [False, True])
+    def test_incomplete_reconciliation_does_not_advance_the_cursor(self, fail: bool) -> None:
+        source = DepotSource()
+        manager = SourceCursorManager(source.cursor_class(), None, source)
+        inputs = mock.MagicMock(should_use_incremental_field=False, history_start=None, source_cursor=manager)
+        runs = [_run("recent", dt.timedelta(days=2)), _run("old", dt.timedelta(days=14))]
+        session = _fake_session(runs)
+        post = session.post.side_effect
+
+        def interrupted_post(url: str, json: dict[str, Any], timeout: float) -> Response:
+            if fail and url.endswith("/GetWorkflow") and json["workflowId"] == "recent-wf":
+                return _response(500, {}, "GetWorkflow")
+            return cast(Response, post(url, json=json, timeout=timeout))
+
+        session.post.side_effect = interrupted_post
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            response = source.source_for_pipeline(DepotSourceConfig(api_token=API_TOKEN, repository=REPOSITORY), inputs)
+            batches = cast(Iterator[list[dict[str, Any]]], response.items())
+            assert next(batches)[0]["run_id"] == "old"
+            assert manager.staged is None
+            if fail:
+                with pytest.raises(HTTPError, match="500 Server Error"):
+                    list(batches)
+            else:
+                del batches
+            assert manager.staged is None
 
 
 class TestValidateCredentials:
