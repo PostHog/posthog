@@ -17,6 +17,7 @@ import {
     convertUsageToAmount,
     formatDisplayUsage,
     formatProductNames,
+    formatTierPrice,
     formatWithDecimals,
     getMinimumBillingAccessLevel,
     getMinimumUsageSpendReadAccessLevel,
@@ -357,6 +358,16 @@ describe('formatWithDecimals', () => {
 
         // Negative numbers
         expect(formatWithDecimals(-0.000000625)).toEqual('-0.000000625')
+    })
+})
+
+describe('formatTierPrice', () => {
+    it.each([
+        ['a per-MB-day price scaled to GB-month', '0.00000166666667', { display_divisor: 30000 }, '$0.05'],
+        ['a per-MB price scaled to GB', '0.00005', { display_divisor: 1000 }, '$0.05'],
+        ['an unscaled price at full precision', '0.000000625', {}, '$0.000000625'],
+    ])('formats %s', (_name, unitAmountUsd, product, expected) => {
+        expect(formatTierPrice(unitAmountUsd, product as any)).toEqual(expected)
     })
 })
 
