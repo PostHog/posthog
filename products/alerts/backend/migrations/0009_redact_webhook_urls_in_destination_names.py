@@ -51,9 +51,7 @@ def redact_webhook_urls_in_destination_names(apps, schema_editor):
             team_id=destination.team_id, type=_FILE_SYSTEM_TYPE, ref=str(destination.id)
         ).only("id", "path"):
             if entry.path.endswith(old_segment):
-                FileSystem.objects.filter(id=entry.id).update(
-                    path=entry.path[: -len(old_segment)] + new_segment
-                )
+                FileSystem.objects.filter(id=entry.id).update(path=entry.path[: -len(old_segment)] + new_segment)
 
 
 class Migration(migrations.Migration):
