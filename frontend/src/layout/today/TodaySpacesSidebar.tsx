@@ -5,6 +5,7 @@ import { Fragment } from 'react'
 import { IconChat, IconList, IconLock, IconPlus } from '@posthog/icons'
 import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
@@ -17,7 +18,6 @@ import { useTodaySectionLayout } from './useTodaySectionLayout'
 export function TodaySpacesSidebar(): JSX.Element {
     const {
         visibleSpaces,
-        browsingSpaces,
         spacesLoading,
         spacesUnavailable,
         pinnedItems,
@@ -27,9 +27,10 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentTasksUnavailable,
         collapsedSections,
     } = useValues(todaySpacesLogic)
-    const { loadSpaces, loadRecentTasks, toggleSection, setBrowsingSpaces } = useActions(todaySpacesLogic)
+    const { loadSpaces, loadRecentTasks, toggleSection } = useActions(todaySpacesLogic)
     const { location, searchParams } = useValues(router)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
+    const browsingSpaces = location.pathname.endsWith(urls.taskSpaces())
 
     const renderItem = (item: TodayWorkItem, dataAttr: string): JSX.Element =>
         item.kind === 'session' ? (
@@ -173,21 +174,17 @@ export function TodaySpacesSidebar(): JSX.Element {
                                     render={
                                         <Button
                                             size="icon-sm"
-                                            aria-pressed={browsingSpaces}
+                                            render={<LinkPrimitive to={urls.taskSpaces()} />}
+                                            aria-current={browsingSpaces ? 'page' : undefined}
                                             className={cn(browsingSpaces && 'bg-fill-selected')}
-                                            onClick={() => setBrowsingSpaces(!browsingSpaces)}
-                                            aria-label={
-                                                browsingSpaces ? 'Show starred spaces only' : 'Browse all spaces'
-                                            }
+                                            aria-label="Browse spaces"
                                             data-attr="today-spaces-browse"
                                         />
                                     }
                                 >
                                     <IconList />
                                 </TooltipTrigger>
-                                <TooltipContent>
-                                    {browsingSpaces ? 'Show starred spaces only' : 'Browse all spaces'}
-                                </TooltipContent>
+                                <TooltipContent>Browse spaces</TooltipContent>
                             </Tooltip>
                         }
                     >
@@ -195,10 +192,6 @@ export function TodaySpacesSidebar(): JSX.Element {
                             loadingRows
                         ) : spacesUnavailable ? (
                             loadError('Spaces didn’t load.', loadSpaces, 'today-spaces-retry')
-                        ) : !visibleSpaces.length && browsingSpaces ? (
-                            <Text size="xs" variant="muted" className="px-2 py-1">
-                                Spaces group the sessions you and your agents work on. Create one from PostHog Desktop.
-                            </Text>
                         ) : (
                             <>
                                 {visibleSpaces.map((space) => (
@@ -219,13 +212,13 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         dataAttr="today-space-row"
                                     />
                                 ))}
-                                {!browsingSpaces && visibleSpaces.length <= 1 && (
+                                {visibleSpaces.length <= 1 && (
                                     <Button
                                         variant="outline"
                                         size="sm"
                                         className="mt-1 self-start"
                                         data-attr="today-spaces-add"
-                                        onClick={() => setBrowsingSpaces(true)}
+                                        render={<LinkPrimitive to={urls.taskSpaces()} />}
                                     >
                                         <IconPlus />
                                         Add the spaces you work in
