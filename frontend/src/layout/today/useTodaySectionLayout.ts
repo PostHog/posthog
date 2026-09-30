@@ -18,6 +18,7 @@ export interface TodaySectionResizer {
     onPointerDown: (event: PointerEvent<HTMLElement>) => void
     onPointerMove: (event: PointerEvent<HTMLElement>) => void
     onPointerUp: (event: PointerEvent<HTMLElement>) => void
+    onPointerCancel: () => void
     onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
     onDoubleClick: () => void
 }
@@ -135,6 +136,7 @@ export function useTodaySectionLayout(sections: readonly { id: TodayWorkSectionI
                 }
                 setDrag(null)
             },
+            onPointerCancel: () => setDrag(null),
             onKeyDown: (event) => {
                 if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') {
                     return
