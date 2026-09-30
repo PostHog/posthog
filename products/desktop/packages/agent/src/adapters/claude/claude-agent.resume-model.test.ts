@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
@@ -73,6 +79,7 @@ vi.mock("../../gateway-models", async (importOriginal) => {
 
 vi.mock("./mcp/tool-metadata", () => ({
   fetchMcpToolMetadata: vi.fn().mockResolvedValue(undefined),
+  getCachedMcpTools: vi.fn().mockReturnValue([]),
   getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
   setMcpToolApprovalStates: vi.fn(),
   getMcpToolApprovalState: vi.fn().mockReturnValue("approved"),
@@ -784,4 +791,148 @@ describe("ClaudeAcpAgent session creation", () => {
     }
     await vi.waitFor(() => expect(extNotification).toHaveBeenCalledTimes(2));
   });
+
+  it.skipIf(process.platform === "win32")(
+    "detects the traceparent hook inside a pinned gateway settings file",
+    async () => {
+      const client = {
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AgentSideConnection;
+      const agent = new ClaudeAcpAgent(client, {
+        gatewayEnv: {
+          anthropicBaseUrl: "http://127.0.0.1:1",
+          anthropicAuthToken: "tok",
+          openaiBaseUrl: "http://127.0.0.1:1/v1",
+          openaiApiKey: "tok",
+        },
+      });
+
+      await agent.newSession({ cwd, mcpServers: [] });
+
+      const settings = createdQueryOptions[0]?.extraArgs?.settings;
+      expect(settings?.startsWith(configDir)).toBe(true);
+      expect(
+        (agent as unknown as { session: { traceparentHookInstalled: boolean } })
+          .session.traceparentHookInstalled,
+      ).toBe(true);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "removes pinned settings on replacement and close, keeping a shared file",
+    async () => {
+      const client = {
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AgentSideConnection;
+      const agent = new ClaudeAcpAgent(client, {
+        gatewayEnv: {
+          anthropicBaseUrl: "http://127.0.0.1:1",
+          anthropicAuthToken: "tok",
+          openaiBaseUrl: "http://127.0.0.1:1/v1",
+          openaiApiKey: "tok",
+        },
+      });
+      const settingsOf = (index: number) =>
+        String(createdQueryOptions[index]?.extraArgs?.settings);
+
+      const { sessionId } = await agent.newSession({ cwd, mcpServers: [] });
+      // Detach the live id so the resume rebuilds the same session.
+      const live = agent as unknown as {
+        sessionId: string;
+        session: { sdkSessionId: string };
+      };
+      live.sessionId = "detached";
+      live.session.sdkSessionId = "detached";
+      await agent.resumeSession({ sessionId, cwd, mcpServers: [] });
+      expect(settingsOf(1)).toBe(settingsOf(0));
+      expect(existsSync(settingsOf(0))).toBe(true);
+
+      await agent.newSession({ cwd, mcpServers: [] });
+      expect(existsSync(settingsOf(0))).toBe(false);
+      expect(existsSync(settingsOf(2))).toBe(true);
+
+      await agent.closeSession();
+      await agent.closeSession();
+      expect(existsSync(settingsOf(2))).toBe(false);
+    },
+  );
+
+  it.skipIf(process.platform === "win32").each(["new", "resume"] as const)(
+    "removes pinned settings when %s session init fails",
+    async (kind) => {
+      let rejectInit!: (error: Error) => void;
+      nextInitPromise = new Promise((_, reject) => {
+        rejectInit = reject;
+      });
+      const client = {
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AgentSideConnection;
+      const agent = new ClaudeAcpAgent(client, {
+        gatewayEnv: {
+          anthropicBaseUrl: "http://127.0.0.1:1",
+          anthropicAuthToken: "tok",
+          openaiBaseUrl: "http://127.0.0.1:1/v1",
+          openaiApiKey: "tok",
+        },
+      });
+      const params = {
+        sessionId: "0197a000-0000-7000-8000-0000000000fc",
+        cwd,
+        mcpServers: [],
+      };
+
+      const promise =
+        kind === "new" ? agent.newSession(params) : agent.resumeSession(params);
+      const rejection = expect(promise).rejects.toBeInstanceOf(Error);
+      await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+      const settings = String(createdQueryOptions[0]?.extraArgs?.settings);
+      expect(settings.startsWith(configDir)).toBe(true);
+      expect(existsSync(settings)).toBe(true);
+      rejectInit(new Error("init boom"));
+      await rejection;
+
+      expect(existsSync(settings)).toBe(false);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "removes pinned settings when startup configuration fails after init",
+    async () => {
+      let rejectSetModel!: (error: Error) => void;
+      nextSetModel = () =>
+        new Promise((_, reject) => {
+          rejectSetModel = reject;
+        });
+      const client = {
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AgentSideConnection;
+      const agent = new ClaudeAcpAgent(client, {
+        gatewayEnv: {
+          anthropicBaseUrl: "http://127.0.0.1:1",
+          anthropicAuthToken: "tok",
+          openaiBaseUrl: "http://127.0.0.1:1/v1",
+          openaiApiKey: "tok",
+        },
+      });
+
+      const promise = agent.newSession({ cwd, mcpServers: [] });
+      const rejection = expect(promise).rejects.toThrow(
+        "Session model switch failed",
+      );
+      await vi.waitFor(() =>
+        expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1),
+      );
+      const settings = String(createdQueryOptions[0]?.extraArgs?.settings);
+      expect(settings.startsWith(configDir)).toBe(true);
+      expect(existsSync(settings)).toBe(true);
+      rejectSetModel(new Error("set model boom"));
+      await rejection;
+
+      expect(existsSync(settings)).toBe(false);
+    },
+  );
 });

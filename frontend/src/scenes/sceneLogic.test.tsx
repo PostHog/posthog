@@ -42,6 +42,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
+    [Scene.AIObservabilityEvaluations]: sceneImport,
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
@@ -281,6 +282,31 @@ describe('sceneLogic', () => {
             [Scene.DataManagement]: expectedAnnotation,
             [Scene.Settings]: expectedSettings,
         })
+    })
+
+    it.each([
+        [AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
+        [AccessControlLevel.None, Scene.ErrorAccessDenied],
+    ])('gates the combined evaluations entry with scorer access %s', async (scorerAccess, expectedScene) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                effective_resource_access_control: {
+                    ...priorAppContext?.effective_resource_access_control,
+                    [AccessControlResourceType.Evaluation]: AccessControlLevel.None,
+                    [AccessControlResourceType.LlmAnalytics]: scorerAccess,
+                },
+            } as AppContext
+            logic.actions.setScene(Scene.AIObservabilityEvaluations, 'aiObservabilityEvaluations', {
+                params: {},
+                searchParams: {},
+                hashParams: {},
+            })
+            await expectLogic(logic).toMatchValues({ activeSceneId: expectedScene })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
     })
 
     it('does not blanket deny the combined alerts scene without insight access', async () => {
