@@ -4,7 +4,7 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -179,6 +179,39 @@ class TestAccountViews(APIBaseTest):
 
         deleted = self.client.delete(f"{self.endpoint}{view['id']}/?version={made_private.json()['version']}")
         self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_environment_only_admin_cannot_change_parent_project_views(self) -> None:
+        view = self._publish(self._create())
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+        environment_admin = User.objects.create_and_join(self.organization, "environment-admin@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=environment_admin, organization=self.organization)
+        AccessControl.objects.create(
+            team=environment,
+            resource="project",
+            resource_id=str(environment.id),
+            organization_member=membership,
+            access_level="admin",
+        )
+        AccessControl.objects.create(
+            team=environment,
+            resource="customer_analytics",
+            access_level="editor",
+            organization_member=membership,
+        )
+        self._set_access(environment_admin, "viewer")
+        environment_view_endpoint = f"/api/projects/{environment.id}/account_views/{view['id']}/"
+
+        self.client.force_login(environment_admin)
+        renamed = self.client.patch(
+            environment_view_endpoint, {"name": "Renamed", "version": view["version"]}, format="json"
+        )
+        deleted = self.client.delete(f"{environment_view_endpoint}?version={view['version']}")
+
+        self.assertEqual(renamed.status_code, status.HTTP_403_FORBIDDEN, renamed.json())
+        self.assertEqual(deleted.status_code, status.HTTP_403_FORBIDDEN, deleted.json())
+        preserved = AccountView.objects.for_team(self.team.id).get(id=view["id"])
+        self.assertEqual(preserved.name, view["name"])
+        self.assertIsNone(preserved.deleted_at)
 
     def test_account_specific_editor_cannot_edit_team_views_but_can_edit_own_private_views(self) -> None:
         team_view = self._publish(self._create())
