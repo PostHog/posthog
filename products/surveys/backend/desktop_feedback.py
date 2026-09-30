@@ -18,6 +18,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri, get_instance_region
 
 from products.conversations.backend.facade.api import create_desktop_feedback_ticket
+from products.conversations.backend.facade.types import DesktopFeedbackContext
 
 FEEDBACK_SURVEY_ID = "019ee235-2e3b-0000-64b3-5f2efa487452"
 FEEDBACK_SURVEY_QUESTION_ID = "68648b23-caaf-4080-ae5f-051513d3097f"
@@ -212,16 +213,19 @@ def submit_desktop_feedback(
 
     try:
         if _use_feedback_tickets(user):
-            context = {
-                "feedback_source": data["source"],
-                "feedback_view": data["feedback_view"],
-                **{key: value for key, value in optional_properties.items() if value and key != "feedback_app_logs"},
-            }
             return create_desktop_feedback_ticket(
                 team_id=_feedback_media_team().id,
                 user_id=user.id,
                 content=data["response"],
-                context=context,
+                context=DesktopFeedbackContext(
+                    feedback_source=data["source"],
+                    feedback_view=data["feedback_view"],
+                    feedback_type=data.get("feedback_type"),
+                    feedback_task_id=data.get("feedback_task_id"),
+                    feedback_folder_id=data.get("feedback_folder_id"),
+                    app_version=data.get("app_version"),
+                    session_id=str(data["session_id"]) if data.get("session_id") else None,
+                ),
                 image_urls=list(media_properties.values()),
                 app_logs=data.get("feedback_app_logs"),
             )

@@ -8,9 +8,21 @@ yet. Rename it once the product meets the strict structure rules.
 """
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+
+@dataclass(frozen=True, kw_only=True)
+class DesktopFeedbackContext:
+    feedback_source: Literal["Generic (Leave feedback button)", "Visiting PostHog web"]
+    feedback_view: str
+    feedback_type: Literal["bug", "feature", "general"] | None = None
+    feedback_task_id: str | None = None
+    feedback_folder_id: str | None = None
+    app_version: str | None = None
+    session_id: str | None = None
 
 
 @dataclass(frozen=True)
