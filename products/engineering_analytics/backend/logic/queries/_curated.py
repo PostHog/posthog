@@ -664,11 +664,9 @@ class CuratedGitHubSource:
 
 
 class ConcurrentReads:
-    """Reads collected by ``CuratedGitHubSource.concurrent_reads``.
-
-    The shared helper copies the caller's context and query tags into each worker and re-raises a
+    """The shared helper copies the caller's context and query tags into each worker and re-raises a
     failed read in the caller. A worker thread opens its own Postgres connection, so the read closes
-    it; under TEST the reads run inline, because that connection cannot see the test transaction.
+    it. Under TEST the reads run inline, because a worker's connection cannot see the test transaction.
     """
 
     def __init__(self) -> None:
