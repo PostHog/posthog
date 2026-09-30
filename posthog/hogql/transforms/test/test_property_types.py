@@ -55,6 +55,7 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.type_system import ComparisonCompatibility
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import ExposedCHQueryError
 from posthog.models import PropertyDefinition, Team
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.group.util import create_group
@@ -65,8 +66,6 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-
-from ee.clickhouse.materialized_columns.columns import materialize
 
 
 @dataclass
@@ -172,20 +171,37 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         )
         assert rows == [(None, 1, 0), (None, 1, 0), ("null", 0, 1), ("Chrome", 0, 1), ("[]", 0, 1), ("{}", 0, 1)]
 
-    @parameterized.expand([("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")])
-    def test_numeric_casts_preserve_mixed_native_types(self, _name: str, json_type: str) -> None:
+    @parameterized.expand(
+        [
+            (
+                name,
+                json_type,
+                "toFloat(properties.$screen_height), toFloat(properties.custom), toFloat(properties.nested.score)",
+                3,
+                True,
+            )
+            for name, json_type in (("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON"))
+        ]
+        + [
+            (
+                f"{name}_indexed",
+                json_type,
+                "toFloat(properties.numbers[1]), toFloat(properties.objects[1].score)",
+                2,
+                False,
+            )
+            for name, json_type in (("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON"))
+        ]
+    )
+    def test_numeric_casts_preserve_mixed_native_types(
+        self, _name: str, json_type: str, select: str, width: int, reads_subcolumn_directly: bool
+    ) -> None:
         context = self._context()
         with patch("posthog.hogql.printer.utils.build_property_swapper"):
-            printed, _ = prepare_and_print_ast(
-                parse_select(
-                    "SELECT toFloat(properties.$screen_height), toFloat(properties.custom), "
-                    "toFloat(properties.nested.score) FROM events"
-                ),
-                context,
-                "clickhouse",
-            )
-        for unwanted in ("dynamicElement", "JSONExtract", "replaceRegexpAll", "toJSONString"):
-            assert unwanted not in printed, printed
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {select} FROM events"), context, "clickhouse")
+        if reads_subcolumn_directly:
+            for unwanted in ("dynamicElement", "JSONExtract", "replaceRegexpAll", "toJSONString"):
+                assert unwanted not in printed, printed
         values = [42, 2**63, 2.5, "3.75", "invalid", None, ""]
         rows = sync_execute(
             "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) "
@@ -194,19 +210,27 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 **context.values,
                 "json_type": json_type,
                 "documents": [
-                    json.dumps({"$screen_height": value, "custom": value, "nested": {"score": value}})
+                    json.dumps(
+                        {
+                            "$screen_height": value,
+                            "custom": value,
+                            "nested": {"score": value},
+                            "numbers": [value],
+                            "objects": [{"score": value}],
+                        }
+                    )
                     for value in values
                 ],
             },
         )
         assert rows == [
-            (42.0,) * 3,
-            (float(2**63),) * 3,
-            (2.5,) * 3,
-            (3.75,) * 3,
-            (None,) * 3,
-            (None,) * 3,
-            (None,) * 3,
+            (42.0,) * width,
+            (float(2**63),) * width,
+            (2.5,) * width,
+            (3.75,) * width,
+            (None,) * width,
+            (None,) * width,
+            (None,) * width,
         ]
 
     def test_negative_multi_icontains_array_property_stays_optimized(self) -> None:
@@ -1788,6 +1812,33 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
             )
             assert restricted.results == [expected], restricted_name
 
+    def test_computed_feature_flag_key_fails_on_the_native_table(self) -> None:
+        _create_event(
+            team=self.team,
+            distinct_id="computed-flag-key",
+            event="computed-flag-key",
+            properties={"$feature/checkout": "control", "$active_feature_flags": ["checkout"]},
+        )
+        flush_persons_and_events()
+        query = (
+            "SELECT JSONExtractString(properties, concat('$feature/', 'checkout')) "
+            "FROM events WHERE event = 'computed-flag-key'"
+        )
+
+        legacy = execute_hogql_query(
+            query,
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=False),
+        )
+        assert legacy.results == [("control",)]
+
+        with pytest.raises(ExposedCHQueryError, match="can't be read through a key computed per row"):
+            execute_hogql_query(
+                query,
+                team=self.team,
+                context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
+            )
+
     @parameterized.expand(
         [
             (
@@ -1822,6 +1873,13 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                     ("s2", 1, "String", '"s2"', ["3", "s2"], "", "", 0, 0),
                     ("", 0, "Null", "", ["", ""], "", "", 0, 0),
                 ],
+            ),
+            (
+                "moved_key_read_as_a_deeper_key",
+                "SELECT JSONExtractString(properties, 'by_tier', JSONExtractString(properties, '$set_once', 'tier'))",
+                None,
+                None,
+                [("ok",), ("",), ("",)],
             ),
             (
                 "array_index_over_mixed_types",
@@ -1867,7 +1925,9 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                     "nested_arr": [[1, 2], [3]],
                     "arr_obj": [{"id": 1}],
                     "completion%": "50",
+                    "by_tier": {"gold": "ok"},
                     "$set": {"email": "user@example.com"},
+                    "$set_once": {"tier": "gold"},
                 },
                 {"name": "Org One"},
             ),
@@ -1884,7 +1944,10 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
             )
         flush_persons_and_events()
         if materialized_group_property is not None:
-            materialize("events", materialized_group_property, table_column=cast(TableColumn, "group0_properties"))
+            columns = pytest.importorskip("ee.clickhouse.materialized_columns.columns")
+            columns.materialize(
+                "events", materialized_group_property, table_column=cast(TableColumn, "group0_properties")
+            )
             self.addCleanup(cleanup_materialized_columns)
 
         for use_new_events_schema in (False, True):

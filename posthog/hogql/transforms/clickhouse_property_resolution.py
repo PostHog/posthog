@@ -696,6 +696,30 @@ def _names_temporary_event_property(key: ast.Expr) -> ast.Expr:
     )
 
 
+RUNTIME_FEATURE_FLAG_KEY_ERROR = (
+    "A feature flag property can't be read through a key computed per row. "
+    "Use a constant key instead, for example properties.`$feature/my-flag`."
+)
+
+
+def _names_feature_flag_property(key: ast.Expr) -> ast.Expr:
+    """Whether a key that is computed per row names `$feature/<key>` or `$active_feature_flags`."""
+    name = _call("toString", [key])
+    return _call(
+        "ifNull",
+        [
+            _call(
+                "or",
+                [
+                    _call("startsWith", [name, _const(FEATURE_FLAG_PROPERTY_PREFIX)]),
+                    _call("equals", [clone_expr(name), _const("$active_feature_flags")]),
+                ],
+            ),
+            _const(0),
+        ],
+    )
+
+
 _JSON_PATH_FIRST_MEMBER = re.compile(
     r"""^\$(?:\.(?:"(?P<dot_quoted>[^"]*)"|(?P<dot>[^.\[]+))|\[(?:"(?P<bracket_double>[^"]*)"|'(?P<bracket_single>[^']*)')\])"""
 )
@@ -1446,7 +1470,8 @@ class ClickHousePropertyResolver(CloningVisitor):
         """`f(properties, <key computed per row>, ...)` on native events, reading the document that holds the key.
 
         The serialized `properties` document has no moved keys, so a row whose key names one reads the serialized
-        `temporary_properties` document instead. The printer drops restricted keys from both documents.
+        `temporary_properties` document instead. The printer drops restricted keys from both documents. Neither
+        document holds `$feature/<key>`, so a row whose key names a flag fails the query instead of reading as missing.
         """
         if (
             not self.context.uses_new_events_schema()
@@ -1460,8 +1485,12 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         key = self.visit(node.args[1])
         document = ast.Call(
-            name="if",
+            name="multiIf",
             args=[
+                _call(
+                    "throwIf", [_names_feature_flag_property(clone_expr(key)), _const(RUNTIME_FEATURE_FLAG_KEY_ERROR)]
+                ),
+                _const(""),
                 _names_temporary_event_property(clone_expr(key)),
                 _temporary_properties_document(field_type),
                 self.visit(node.args[0]),
