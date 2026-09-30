@@ -24,6 +24,7 @@ import {
 } from '~/types'
 
 import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
+import { isMessagingDestinationTemplate } from 'products/workflows/frontend/Workflows/fromDestination/messagingDestinationTemplates'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { AvailableFeature } from '../../../types'
@@ -97,6 +98,7 @@ export interface hogFunctionTemplateListLogicValues {
     loading: boolean
     rawTemplates: HogFunctionTemplateType[]
     rawTemplatesLoading: boolean
+    routesToWorkflows: (template: HogFunctionTemplateWithSubTemplateType) => boolean
     templates: HogFunctionTemplateWithSubTemplateType[]
     templatesFuse: Fuse
     urlForTemplate: (template: HogFunctionTemplateWithSubTemplateType) => string | null
@@ -120,6 +122,9 @@ export interface hogFunctionTemplateListLogicActions {
         payload?: any
     }
     registerInterest: (template: HogFunctionTemplateType) => {
+        template: HogFunctionTemplateType
+    }
+    reportMessagingTemplateRedirect: (template: HogFunctionTemplateType) => {
         template: HogFunctionTemplateType
     }
     resetFilters: () => {
@@ -155,7 +160,13 @@ export interface hogFunctionTemplateListLogicMeta {
             arg: any,
             arg2: any
         ) => HogFunctionTemplateType[]
-        urlForTemplate: (arg: any) => (template: HogFunctionTemplateWithSubTemplateType) => string | null
+        routesToWorkflows: (
+            featureFlags: FeatureFlagsSet
+        ) => (template: HogFunctionTemplateWithSubTemplateType) => boolean
+        urlForTemplate: (
+            routesToWorkflows: any,
+            arg: any
+        ) => (template: HogFunctionTemplateWithSubTemplateType) => string | null
     }
 }
 
@@ -182,6 +193,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['user', 'hasAvailableFeature']],
     })),
     actions({
+        reportMessagingTemplateRedirect: (template: HogFunctionTemplateType) => ({ template }),
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
         resetFilters: true,
         registerInterest: (template: HogFunctionTemplateType) => ({ template }),
@@ -350,12 +362,21 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             },
         ],
 
+        // Messaging templates (Slack, Discord, ...) are created as workflows while the flag is on.
+        routesToWorkflows: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): ((template: HogFunctionTemplateWithSubTemplateType) => boolean) =>
+                (template) =>
+                    !!featureFlags[FEATURE_FLAGS.WORKFLOWS_MESSAGING_DESTINATIONS] &&
+                    isMessagingDestinationTemplate(template),
+        ],
+
         urlForTemplate: [
-            () => [(_, props) => props],
-            ({
-                getConfigurationOverrides,
-                queryParams,
-            }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
+            (s) => [s.routesToWorkflows, (_, props) => props],
+            (
+                routesToWorkflows,
+                { getConfigurationOverrides, queryParams }
+            ): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
                     if (template.status === 'coming_soon') {
                         // "Coming soon" sources don't have docs yet
@@ -374,6 +395,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                     if (template.id.startsWith('batch-export-')) {
                         return urls.batchExportNew(template.id.replace('batch-export-', ''))
+                    }
+
+                    if (routesToWorkflows(template)) {
+                        return urls.workflowNewFromDestination(template.id)
                     }
 
                     const subTemplate = template.sub_template_id
@@ -407,6 +432,12 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
     }),
 
     listeners(({ values }) => ({
+        reportMessagingTemplateRedirect: ({ template }) => {
+            posthog.capture('messaging_destination_redirected_to_workflows', {
+                template_id: template.id,
+                source: 'destinations_list',
+            })
+        },
         registerInterest: ({ template }) => {
             posthog.capture('notify_me_pipeline', {
                 name: template.name,

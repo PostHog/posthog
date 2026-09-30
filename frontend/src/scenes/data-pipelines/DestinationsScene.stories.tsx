@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -79,6 +80,13 @@ type Story = StoryObj<{}>
 
 export const Realtime: Story = {
     parameters: { pageUrl: urls.destinations() },
+}
+
+export const RealtimeWithMessagingRoutedToWorkflows: Story = {
+    parameters: {
+        pageUrl: urls.destinations(),
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_MESSAGING_DESTINATIONS],
+    },
 }
 
 export const BatchExports: Story = {

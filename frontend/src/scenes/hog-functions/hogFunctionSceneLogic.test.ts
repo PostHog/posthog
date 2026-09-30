@@ -2,10 +2,13 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
-import { Breadcrumb, HogFunctionType } from '~/types'
+import { Breadcrumb, HogFunctionTemplateType, HogFunctionType } from '~/types'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -36,6 +39,17 @@ const LOG_TRANSFORMATION: HogFunctionType = {
     template: null,
     status: { state: 1, tokens: 0 } as any,
 } as unknown as HogFunctionType
+
+const SLACK_TEMPLATE = {
+    id: 'template-slack',
+    type: 'destination',
+    name: 'Slack',
+    status: 'stable',
+    free: true,
+    code: 'return event',
+    code_language: 'hog',
+    inputs_schema: [],
+} as unknown as HogFunctionTemplateType
 
 const makeNotification = (eventId: string, alertId?: string): HogFunctionType =>
     ({
@@ -84,5 +98,43 @@ describe('hogFunctionSceneLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
         expect(logic.values.currentTab).toBe('configuration')
+    })
+
+    it.each([
+        [
+            'a messaging template',
+            { templateId: 'template-slack' },
+            true,
+            urls.workflowNewFromDestination('template-slack'),
+        ],
+        [
+            'an alert sub-template of a messaging template',
+            { templateId: 'template-slack', subTemplateId: 'insight-alert-firing' as const },
+            true,
+            urls.hogFunctionNew('template-slack'),
+        ],
+        [
+            'a messaging template while the flag is off',
+            { templateId: 'template-slack' },
+            false,
+            urls.hogFunctionNew('template-slack'),
+        ],
+        ['a non-messaging template', { templateId: 'template-webhook' }, true, urls.hogFunctionNew('template-webhook')],
+    ])('opening the new destination form for %s', (_, props, flagOn, expectedPath) => {
+        initKeaTests()
+        const { hogFunctionSceneLogic } = require('./HogFunctionScene')
+        mockApi.getTemplate.mockResolvedValue({ ...SLACK_TEMPLATE, id: props.templateId })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(
+            flagOn ? [FEATURE_FLAGS.WORKFLOWS_MESSAGING_DESTINATIONS] : [],
+            flagOn ? { [FEATURE_FLAGS.WORKFLOWS_MESSAGING_DESTINATIONS]: true } : {}
+        )
+
+        router.actions.push(urls.hogFunctionNew(props.templateId))
+        const logic = hogFunctionSceneLogic(props)
+        logic.mount()
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPath)
+        logic.unmount()
     })
 })

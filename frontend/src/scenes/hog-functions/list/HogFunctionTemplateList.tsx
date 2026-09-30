@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -23,12 +23,17 @@ export function HogFunctionTemplateList({
     hideFeedback = false,
     ...props
 }: HogFunctionTemplateListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { loading, filteredTemplates, filters, templates, urlForTemplate, hasMultipleDeliveryTypes } = useValues(
-        hogFunctionTemplateListLogic(props)
-    )
-    const { loadHogFunctionTemplates, setFilters, resetFilters, registerInterest } = useActions(
-        hogFunctionTemplateListLogic(props)
-    )
+    const {
+        loading,
+        filteredTemplates,
+        filters,
+        templates,
+        urlForTemplate,
+        routesToWorkflows,
+        hasMultipleDeliveryTypes,
+    } = useValues(hogFunctionTemplateListLogic(props))
+    const { loadHogFunctionTemplates, setFilters, resetFilters, registerInterest, reportMessagingTemplateRedirect } =
+        useActions(hogFunctionTemplateListLogic(props))
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     useEffect(() => {
@@ -97,10 +102,20 @@ export function HogFunctionTemplateList({
                             return (
                                 <LemonTableLink
                                     to={hasAccess ? (urlForTemplate(template) ?? undefined) : undefined}
+                                    onClick={
+                                        routesToWorkflows(template)
+                                            ? () => reportMessagingTemplateRedirect(template)
+                                            : undefined
+                                    }
                                     title={
                                         <>
                                             {template.name}
                                             {template.status && <HogFunctionStatusTag status={template.status} />}
+                                            {routesToWorkflows(template) && (
+                                                <Tooltip title="Created as a workflow with the same trigger and message.">
+                                                    <LemonTag type="highlight">Workflow</LemonTag>
+                                                </Tooltip>
+                                            )}
                                             {template.releaseStatus && (
                                                 <SourceReleaseTag releaseStatus={template.releaseStatus} />
                                             )}
@@ -154,6 +169,11 @@ export function HogFunctionTemplateList({
                                     icon={<IconPlusSmall />}
                                     className="whitespace-nowrap"
                                     to={urlForTemplate(template) ?? undefined}
+                                    onClick={
+                                        routesToWorkflows(template)
+                                            ? () => reportMessagingTemplateRedirect(template)
+                                            : undefined
+                                    }
                                     disabledReason={dataWarehouseSourceAccessDisabledReason ?? undefined}
                                 >
                                     Create

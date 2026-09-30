@@ -28,6 +28,12 @@ tools:
             cdp-functions-invocations-create, then enable with cdp-functions-partial-update once the config looks right.
             (Other types, like internal_destination below, create as sent.)
 
+            Messaging destinations are workflows, not functions: with type=destination, template-slack,
+            template-discord, template-microsoft-teams, template-whatsapp, template-mailgun-send-email and
+            template-kudosity-sms are rejected here. Call workflows-create instead with an event trigger, one function
+            action carrying that template_id and its inputs, and an exit (see the building-workflows skill). The
+            internal_destination alert recipe below still uses template-slack and template-discord.
+
             Recipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create /
             alert-update point here):
 

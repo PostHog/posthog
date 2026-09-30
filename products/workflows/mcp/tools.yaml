@@ -188,7 +188,10 @@ tools:
         description: >
             Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run
             first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real
-            people, and further content edits stage as a draft you must publish (workflows-publish) to take effect.
+            people, and further content edits stage as a draft you must publish (workflows-publish) to take effect. This
+            is also how a Slack, Discord, Microsoft Teams, WhatsApp, Mailgun or Kudosity SMS message gets sent when an
+            event happens: an event trigger, one 'function' action whose config.template_id is the destination template
+            id (for example template-slack) with its inputs, and an exit; cdp-functions-create rejects those templates.
             Provide an actions array with exactly one type='trigger' (config.type:
             event|webhook|manual|batch|schedule|tracking_pixel) plus action nodes
             (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...)
