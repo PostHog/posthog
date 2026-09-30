@@ -367,6 +367,50 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "template_id"
         assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
 
+    @parameterized.expand(
+        [
+            ("mcp_destination", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, "destination", "template-slack", True, 400),
+            ("api_destination", {}, "destination", "template-slack", True, 201),
+            (
+                "mcp_alert_notification",
+                {"HTTP_X_POSTHOG_CLIENT": "mcp"},
+                "internal_destination",
+                "template-slack",
+                True,
+                201,
+            ),
+            (
+                "mcp_non_messaging_template",
+                {"HTTP_X_POSTHOG_CLIENT": "mcp"},
+                "destination",
+                "template-webhook",
+                True,
+                201,
+            ),
+            ("mcp_flag_off", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, "destination", "template-slack", False, 201),
+        ]
+    )
+    def test_messaging_template_over_mcp_is_routed_to_workflows(
+        self, _name, headers, function_type, template_id, flag_on, expected_status
+    ):
+        inputs = (
+            {"url": {"value": "https://example.com"}}
+            if template_id == "template-webhook"
+            else {"slack_workspace": {"value": 1}, "channel": {"value": "#general"}}
+        )
+        data: dict = {"type": function_type, "name": "X", "template_id": template_id, "inputs": inputs}
+        if function_type == "internal_destination":
+            data["filters"] = {"events": [{"id": "$activity_log_entry_created", "type": "events"}]}
+
+        with patch("products.cdp.backend.api.hog_function.gated_template_enabled", return_value=flag_on):
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=data, **headers)
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "template_id"
+            assert "workflows-create" in response.json()["detail"]
+            assert not HogFunction.objects.filter(template_id=template_id).exists()
+
     def test_create_from_deprecated_template_is_allowed(self):
         # Deprecated templates are hidden from the listing but stay resolvable by id, so the API must
         # keep creating from them - integrations reference legacy plugin template ids directly.

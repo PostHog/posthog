@@ -134,6 +134,48 @@ The snapshot is one-way: editing the library template later does not change step
 
 Always give templates a real plain-text `text` alongside the design: clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes.
 
+## Message a channel when an event happens
+
+Slack, Discord, Microsoft Teams, WhatsApp, Mailgun and Kudosity SMS are workflows, not destinations: `cdp-functions-create` rejects their templates (`template-slack`, `template-discord`, `template-microsoft-teams`, `template-whatsapp`, `template-mailgun-send-email`, `template-kudosity-sms`) with `type=destination`. Build the same thing as the smallest workflow: an event trigger, one `function` action with that `template_id`, and the exit.
+
+1. Read the template's inputs with `cdp-function-templates-retrieve` and build `config.inputs` from its `inputs_schema`. Slack needs the `slack_workspace` integration id from `integrations-list` and a channel from `integrations-channels-retrieve`.
+2. Create the draft with `workflows-create`:
+
+```json
+{
+  "name": "Slack notification",
+  "exit_condition": "exit_only_at_end",
+  "actions": [
+    {
+      "id": "trigger_node",
+      "name": "Trigger",
+      "type": "trigger",
+      "config": { "type": "event", "filters": { "events": [{ "id": "user signed up", "type": "events" }] } }
+    },
+    {
+      "id": "slack_1",
+      "name": "Slack",
+      "type": "function",
+      "config": {
+        "template_id": "template-slack",
+        "inputs": {
+          "slack_workspace": { "value": 123 },
+          "channel": { "value": "C0123ABC" },
+          "text": { "value": "*{person.name}* signed up" }
+        }
+      }
+    },
+    { "id": "exit_node", "name": "Exit", "type": "exit", "config": { "reason": "Done" } }
+  ],
+  "edges": [
+    { "from": "trigger_node", "to": "slack_1", "type": "continue" },
+    { "from": "slack_1", "to": "exit_node", "type": "continue" }
+  ]
+}
+```
+
+3. Test it with `workflows-test-run`, then enable only with the user's explicit approval, as with every workflow.
+
 ## Hard rules to surface to the user, not work around
 
 - **Behavioral targeting is unsupported.** "Did event X at least N times over the last M days" can't be expressed as a trigger or a batch/schedule audience. If asked, reject it and explain; don't approximate it with a broken filter. (The backend rejects behavioral cohorts in batch audiences outright.)

@@ -24,7 +24,9 @@ tools:
             List available function templates. Templates are pre-built function configurations for common integrations
             (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination,
             site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by
-            popularity (number of active functions using each template).
+            popularity (number of active functions using each template). Messaging templates (Slack, Discord,
+            Microsoft Teams, WhatsApp, Mailgun, Kudosity SMS) are created as workflows with workflows-create, not with
+            cdp-functions-create.
         response:
             include:
                 - id

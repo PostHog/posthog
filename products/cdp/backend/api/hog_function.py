@@ -28,6 +28,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
+from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
@@ -41,7 +42,7 @@ from posthog.cdp.validation import (
     masked_secret_input_keys,
     reserved_functions_used,
 )
-from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source
+from posthog.event_usage import AGENT_EVENT_SOURCES, MCP_TRANSPORT_EVENT_SOURCES, get_event_source
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -56,6 +57,11 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
+from products.cdp.backend.messaging_destination_templates import (
+    MESSAGING_DESTINATION_TEMPLATE_IDS,
+    MESSAGING_DESTINATIONS_FLAG_KEY,
+    messaging_destination_guidance,
+)
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_THAT_CAN_RERUN,
@@ -467,6 +473,19 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 }
             )
 
+    def _validate_template_not_routed_to_workflows(self, template: HogFunctionTemplate, data: dict) -> None:
+        # Messaging destinations are built as workflows. Only MCP callers are turned away: the raw API keeps
+        # creating hog functions, and the web UI never reaches this path because the frontend sends the user
+        # to the workflow wizard. Alert notifications (internal_destination) keep using these templates.
+        if data.get("type") != "destination" or template.template_id not in MESSAGING_DESTINATION_TEMPLATE_IDS:
+            return
+        request = self.context.get("request")
+        if request is None or get_event_source(request) not in MCP_TRANSPORT_EVENT_SOURCES:
+            return
+        if not gated_template_enabled(MESSAGING_DESTINATIONS_FLAG_KEY, self.context["get_team"]()):
+            return
+        raise serializers.ValidationError({"template_id": messaging_destination_guidance(template.template_id)})
+
     def _validate_hidden_template_not_enabled(self, attrs: dict, is_create: bool) -> None:
         # Creating from a hidden template is already blocked outright. For an existing function built from
         # one (the unsupported standalone destinations this PR is about), allow disabling and deleting so it
@@ -587,6 +606,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 template = HogFunctionTemplate.objects.get(template_id=data["template_id"])
                 if template:
                     self._validate_template_is_creatable(template)
+                    self._validate_template_not_routed_to_workflows(template, data)
                     data["hog"] = data.get("hog") or template.code
                     data["inputs_schema"] = data.get("inputs_schema") or template.inputs_schema
                     data["inputs"] = data.get("inputs") or {}
