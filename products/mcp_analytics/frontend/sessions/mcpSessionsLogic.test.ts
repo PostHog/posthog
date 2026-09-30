@@ -89,7 +89,7 @@ describe('mcpSessionsLogic', () => {
         expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ has_errors: undefined }))
     })
 
-    it('deep-links a session through search and clears the filter', async () => {
+    it('deep-links a session through search', async () => {
         listMock.mockResolvedValue({
             results: [{ session_id: 'linked-session', session_start: '2026-01-01T00:00:00Z' }],
             has_next: false,
@@ -106,13 +106,6 @@ describe('mcpSessionsLogic', () => {
             expect.anything(),
             expect.objectContaining({ search: 'linked-session' })
         )
-
-        await expectLogic(logic, () => logic.actions.setFilters({ search: '' })).toDispatchActions([
-            'loadSessionsSuccess',
-        ])
-
-        expect(router.values.searchParams).not.toHaveProperty('search')
-        expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ search: undefined }))
     })
 
     it.each([

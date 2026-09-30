@@ -196,18 +196,6 @@ function SessionsListPanel(): JSX.Element {
                             </SelectContent>
                         </Select>
                     </div>
-                    {filters.search ? (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="self-start"
-                            data-attr="mcp-sessions-clear-search"
-                            title={`Clear session filter: ${filters.search}`}
-                            onClick={() => setFilters({ search: '' })}
-                        >
-                            Clear session filter
-                        </Button>
-                    ) : null}
                 </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto" data-attr="mcp-sessions-list">
