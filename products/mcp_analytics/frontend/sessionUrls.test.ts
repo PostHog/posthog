@@ -4,9 +4,9 @@ import { urls } from 'scenes/urls'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { sessionsUrl } from './NotableSessionsTable'
+import { mcpSessionUrl, mcpSessionsUrl } from './sessionUrls'
 
-describe('sessionsUrl', () => {
+describe('MCP session URLs', () => {
     const toolFilter: AnyPropertyFilter = {
         key: '$mcp_tool_name',
         value: ['create_insight'],
@@ -25,8 +25,8 @@ describe('sessionsUrl', () => {
         properties: [toolFilter, sessionFilter('old-session')],
     }
 
-    it('links a notable session through the shared property filters', () => {
-        expect(sessionsUrl({ ...sharedParams, search: 'old-session' }, 'linked-session')).toBe(
+    it('links a session through the shared property filters', () => {
+        expect(mcpSessionUrl('linked-session', { ...sharedParams, search: 'old-session' })).toBe(
             combineUrl(urls.mcpAnalyticsSessions(), {
                 ...sharedParams,
                 properties: [toolFilter, sessionFilter('linked-session')],
@@ -35,7 +35,7 @@ describe('sessionsUrl', () => {
     })
 
     it('opens the full session list without stale session filters', () => {
-        expect(sessionsUrl({ ...sharedParams, search: 'old-session' })).toBe(
+        expect(mcpSessionsUrl({ ...sharedParams, search: 'old-session' })).toBe(
             combineUrl(urls.mcpAnalyticsSessions(), { ...sharedParams, properties: [toolFilter] }).url
         )
     })

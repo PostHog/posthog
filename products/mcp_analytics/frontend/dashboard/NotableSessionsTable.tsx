@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { Link } from '@posthog/lemon-ui'
 import {
@@ -19,35 +19,10 @@ import {
 } from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
-
-import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
+import { mcpSessionUrl, mcpSessionsUrl } from '../sessionUrls'
 import { formatDuration, truncateSessionId } from './formatters'
-
-export function sessionsUrl(searchParams: Record<string, any>, sessionId?: string): string {
-    const { search: _search, properties, ...rest } = searchParams
-    const otherProperties = Array.isArray(properties)
-        ? properties.filter((filter) => filter?.key !== '$session_id')
-        : []
-    const nextProperties = sessionId
-        ? [
-              ...otherProperties,
-              {
-                  key: '$session_id',
-                  value: [sessionId],
-                  operator: PropertyOperator.Exact,
-                  type: PropertyFilterType.Event,
-              },
-          ]
-        : otherProperties
-
-    return combineUrl(urls.mcpAnalyticsSessions(), {
-        ...rest,
-        ...(nextProperties.length > 0 ? { properties: nextProperties } : {}),
-    }).url
-}
 
 const DESTRUCTIVE_ERROR_PCT = 5
 const WARNING_ERROR_PCT = 1
@@ -104,7 +79,7 @@ function SessionRows({
                 <TableRow key={entry.session.session_id}>
                     <TableCell className="whitespace-nowrap">
                         <Link
-                            to={sessionsUrl(searchParams, entry.session.session_id)}
+                            to={mcpSessionUrl(entry.session.session_id, searchParams)}
                             className="font-mono"
                             title={entry.session.session_id}
                         >
@@ -151,7 +126,7 @@ export function NotableSessionsTable({
                 <SessionRows sessions={sessions} loading={loading} searchParams={searchParams} />
             </Table>
             <CardFooter className="justify-end">
-                <Link to={sessionsUrl(searchParams)} className="text-[10px]">
+                <Link to={mcpSessionsUrl(searchParams)} className="text-[10px]">
                     Open in Sessions tab ↗
                 </Link>
             </CardFooter>
