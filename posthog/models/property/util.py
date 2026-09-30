@@ -125,6 +125,17 @@ def _chain_escaped_value(value: str) -> str:
     return value.replace(r"\"", '"').replace('"', r"\"")
 
 
+# Custom attributes sort under attr__<key> in the chain (see elements_to_string), and the
+# regex has to name them in chain order to match.
+_UNPREFIXED_CHAIN_ATTRIBUTES = {"attr_id", "href", "text", "nth-child", "nth-of-type"}
+# A `;` inside a quoted value, like style="a: b; c: d", does not end the element.
+_WITHIN_ELEMENT = r'(?:[^;"]|"(?:\\.|[^"\\])*")*?'
+
+
+def _chain_attribute_order(key: str) -> str:
+    return key if key in _UNPREFIXED_CHAIN_ATTRIBUTES else f"attr__{key}"
+
+
 def build_selector_regex(selector: Selector) -> str:
     regex = r""
     for tag in selector.parts:
@@ -134,9 +145,13 @@ def build_selector_regex(selector: Selector) -> str:
         if tag.data.get("attr_class__contains"):
             regex += r".*?\." + r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])])
         if tag.ch_attributes:
-            regex += r".*?"
-            for key, value in sorted(tag.ch_attributes.items()):
-                regex += rf'{re.escape(key)}="{re.escape(_chain_escaped_value(str(value)))}".*?'
+            # Attributes parsed from [a="1"][b="2"] must all be on one element.
+            separator = _WITHIN_ELEMENT if tag.confine_to_element else r".*?"
+            regex += separator
+            for key, value in sorted(tag.ch_attributes.items(), key=lambda kv: _chain_attribute_order(kv[0])):
+                # The full chain key stops [foo="1"] from matching inside attr__data-foo="1".
+                name = _chain_attribute_order(key) if tag.confine_to_element else key
+                regex += rf'{re.escape(name)}="{re.escape(_chain_escaped_value(str(value)))}"' + separator
         # The rest of the element can carry characters an allowlist cannot
         # anticipate (classes like w-1/2 or !mt-0), so skip anything up to the
         # `;` element separator.

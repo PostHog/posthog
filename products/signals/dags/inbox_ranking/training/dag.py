@@ -48,7 +48,7 @@ import json
 import datetime
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import dagster
@@ -89,6 +89,7 @@ from products.signals.dags.inbox_ranking.common import (
     partition_object_key,
     read_parquet_if_exists,
     s3_client,
+    serving_mirror_storage,
     skip_unconfigured,
     snapshot_bounds,
     write_parquet,
@@ -160,6 +161,9 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     unseen_pool,
     with_model_names,
 )
+
+if TYPE_CHECKING:
+    from posthog.storage.object_storage import ObjectStorageClient
 
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
 MODELS_TABLE = "inbox_ranking_models"
@@ -812,6 +816,12 @@ def _decide_champion(
 SERVING_MANIFEST_ASSET = "inbox_ranking_serving_manifest"
 
 
+@frozen
+class _ServingStore:
+    storage: "ObjectStorageClient"
+    bucket: str
+
+
 @dagster.asset(name=SERVING_MANIFEST_ASSET, deps=["inbox_ranking_model_champion"], **COMMON_ASSET_KWARGS)
 def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> None:
     """Publish the models the scoring sweep serves, and the manifest naming them.
@@ -865,13 +875,10 @@ def _publish_manifest(
 
     manifest = decision.manifest
     manifest_key = serving_manifest_key(prefix)
-    publication = publish_serving_models(context, client, bucket, prefix, manifest)
-    object_storage.write(
-        manifest_key,
-        manifest.model_dump_json(indent=2),
-        extras={"ContentType": "application/json"},
-    )
+    primary = _ServingStore(storage=object_storage.object_storage_client(), bucket=settings.OBJECT_STORAGE_BUCKET)
+    publication = publish_serving_models(context, client, bucket, prefix, manifest, primary)
     context.log.info(f"published serving manifest {manifest.manifest_version} serving {manifest.served.key}")
+    mirror_published = _publish_mirror(context, client, bucket, prefix, manifest)
     capture_training_events(
         context,
         partition_key,
@@ -885,8 +892,12 @@ def _publish_manifest(
                 copied_keys=publication.copied,
                 present_keys=publication.present,
                 bytes_copied=publication.bytes_copied,
+                mirror_published=mirror_published,
             )
         ],
+    )
+    mirror_metadata = (
+        {} if mirror_published is None else {"mirror_published": dagster.MetadataValue.bool(mirror_published)}
     )
     return {
         "published": dagster.MetadataValue.bool(True),
@@ -899,7 +910,29 @@ def _publish_manifest(
         "entries_copied": dagster.MetadataValue.int(len(publication.copied)),
         "entries_already_present": dagster.MetadataValue.int(len(publication.present)),
         "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied),
+        **mirror_metadata,
     }
+
+
+def _publish_mirror(
+    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, manifest: ServingManifest
+) -> bool | None:
+    """Copy the same publish into the mirror store, if one is set. Returns None when no mirror is
+    set, otherwise whether the mirror now serves this manifest.
+
+    The primary publish has already succeeded, so a mirror failure only logs: the region that
+    trains keeps serving, and the mirror keeps its previous manifest and models.
+    """
+    if not settings.INBOX_RANKING_SERVING_MIRROR_BUCKET:
+        return None
+    try:
+        mirror = _ServingStore(storage=serving_mirror_storage(), bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET)
+        publish_serving_models(context, client, bucket, prefix, manifest, mirror)
+    except Exception as error:
+        context.log.exception(f"serving manifest {manifest.manifest_version} not mirrored: {error!r}")
+        return False
+    context.log.info(f"mirrored serving manifest {manifest.manifest_version} to {mirror.bucket}")
+    return True
 
 
 @frozen
@@ -915,12 +948,14 @@ def publish_serving_models(
     bucket: str,
     prefix: str,
     manifest: ServingManifest,
+    target: _ServingStore,
 ) -> _ModelPublication:
-    """Copy every model the manifest names from the dataset bucket into the app object store.
+    """Copy every model the manifest names from the dataset bucket into `target`, then write the
+    manifest there.
 
     Returns the keys copied, the keys already there, and the bytes moved. A missing source object
-    fails the asset before the manifest is written, so the manifest can never name a model the
-    sweep cannot load.
+    fails before the manifest is written, so the manifest can never name a model the sweep cannot
+    load.
     """
     copied: list[str] = []
     present: list[str] = []
@@ -929,7 +964,7 @@ def publish_serving_models(
         target_metadata = f"{entry.prefix}/{METADATA_FILE}"
         # A version is immutable, so its metadata record standing in for the whole prefix is safe
         # and saves re-reading a 1536-column booster every day.
-        if object_storage.head_object(target_metadata) is not None:
+        if target.storage.head_object(bucket=target.bucket, file_key=target_metadata) is not None:
             present.append(entry.key)
             continue
         # Metadata marks a complete copy, so write it after every booster to make retries safe.
@@ -939,10 +974,16 @@ def publish_serving_models(
             )
             if body is None:
                 raise dagster.Failure(f"{entry.key} is missing {name} in the dataset bucket; manifest not written")
-            object_storage.write(f"{entry.prefix}/{name}", body)
+            target.storage.write(bucket=target.bucket, key=f"{entry.prefix}/{name}", content=body, extras=None)
             bytes_copied += len(body)
         copied.append(entry.key)
-        context.log.info(f"copied {entry.key} to {entry.prefix}")
+        context.log.info(f"copied {entry.key} to {target.bucket}/{entry.prefix}")
+    target.storage.write(
+        bucket=target.bucket,
+        key=serving_manifest_key(prefix),
+        content=manifest.model_dump_json(indent=2),
+        extras={"ContentType": "application/json"},
+    )
     return _ModelPublication(copied=copied, present=present, bytes_copied=bytes_copied)
 
 

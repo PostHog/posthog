@@ -46,13 +46,13 @@ class TestPickInterval:
         ]
     )
     def test_pick_interval(self, _name: str, delta: dt.timedelta, expected: str) -> None:
-        start = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+        start = dt.datetime(2026, 9, 15, 0, 0, 0, tzinfo=dt.UTC)
         assert _pick_interval(start, start + delta) == expected
 
 
 class TestActiveSinceExpr:
     def test_keeps_series_within_the_last_seen_buffer(self) -> None:
-        date_from = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
+        date_from = dt.datetime(2026, 9, 15, 12, tzinfo=dt.UTC)
 
         expr = _active_since_expr(date_from)
 
@@ -287,7 +287,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # In a half-hour time zone, a UTC floor can drop the first bucket.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
-        bucket_start = dt.datetime(2026, 3, 17, 7, 30, tzinfo=dt.UTC)
+        bucket_start = dt.datetime(2026, 9, 17, 7, 30, tzinfo=dt.UTC)
         seed_metric(
             team_id=self.team.id,
             metric_name="m1",
