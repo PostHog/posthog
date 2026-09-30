@@ -331,13 +331,14 @@ The follow-up is bounded to 240,000 serialized bytes; an oversized request fails
 Only the validated final suggestions are stored on the scout config; a failed generation preserves the saved rubric.
 Late failure callbacks preserve results from generations that already completed or failed.
 The worker ends the session after success or failure.
-A note below Generate suggestions says that generation takes a few minutes.
+The generation panel explains that suggestions take a few minutes and shows elapsed time while the agent works.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
 Save includes checked suggestions and shows the number of new criteria it will add.
-Add selected is optional; it moves suggestions into the editable list without saving them.
-Suggested and saved criteria show their title and description first. Show details reveals the passing rules and when they apply.
-Editing a criterion shows all its fields.
+Suggestions appear above the criteria and start unselected. Owners can select them individually or select all.
+Suggested and saved criteria show their title and description first. Expanding a row reveals the passing rules and when they apply.
+Editing a suggestion selects it and keeps its edits in the suggestions list until Save rubrics.
+Editing a criterion shows all its fields. Done editing closes the form without saving; Save rubrics saves the full draft.
 Save rubric edits before generating suggestions; generation uses the saved criteria.
 Every save must retain the shared default criteria, which owners can edit or disable.
 Edits to shared defaults apply only to that scout. Custom criteria appear above the shared defaults in the editor.

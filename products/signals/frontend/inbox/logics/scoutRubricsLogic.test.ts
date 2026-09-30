@@ -100,8 +100,30 @@ describe('scoutRubricsLogic', () => {
         expect(logic.values.hasUnsavedChanges).toBe(true)
     })
 
-    it.each([false, true])('saves selected suggestions with an optional add step (%s)', async (addBeforeSaving) => {
+    it('shows elapsed time from the saved request while generation is active', async () => {
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        try {
+            jest.setSystemTime(new Date('2026-09-01T10:01:24Z'))
+            logic.actions.loadRubricsSuccess(makeDocument({ generation: makeGeneration('running') }))
+            expect(logic.values.generationElapsedLabel).toBe('1:24')
+
+            jest.advanceTimersByTime(1000)
+            expect(logic.values.generationElapsedLabel).toBe('1:25')
+
+            logic.actions.loadRubricsSuccess(makeDocument({ generation: makeGeneration('completed') }))
+            expect(logic.values.generationElapsedLabel).toBe(null)
+        } finally {
+            logic.actions.loadRubricsSuccess(makeDocument())
+            jest.useRealTimers()
+        }
+    })
+
+    it('keeps suggestion edits inline through polling and saves only selected suggestions', async () => {
         const unselectedSuggestion = { ...suggestion, id: 'custom-other' }
+        const editedSuggestion = { ...suggestion, title: 'Check the complete requested period' }
+        const editedUnselectedSuggestion = { ...unselectedSuggestion, title: 'Keep this for later' }
         const generation = { ...makeGeneration('completed'), suggestions: [suggestion, unselectedSuggestion] }
         document = makeDocument({ revision: 3, generation })
         let submitted: unknown
@@ -119,7 +141,7 @@ describe('scoutRubricsLogic', () => {
                     document = makeDocument({
                         revision: 4,
                         generation,
-                        criteria: [{ ...criterion, enabled: false }, suggestion],
+                        criteria: [{ ...criterion, enabled: false }, editedSuggestion],
                     })
                     return [200, document]
                 },
@@ -130,6 +152,13 @@ describe('scoutRubricsLogic', () => {
 
         expect(logic.values.hasUnsavedChanges).toBe(false)
         expect(logic.values.newCriteriaCount).toBe(0)
+        expect(logic.values.allSuggestionsSelected).toBe(false)
+        logic.actions.toggleAllSuggestions(true)
+        expect(logic.values.allSuggestionsSelected).toBe(true)
+        expect(logic.values.newCriteriaCount).toBe(2)
+        logic.actions.toggleAllSuggestions(false)
+        expect(logic.values.allSuggestionsSelected).toBe(false)
+        expect(logic.values.hasUnsavedChanges).toBe(false)
         logic.actions.toggleSuggestion(suggestion.id, true)
         expect(logic.values.hasUnsavedChanges).toBe(true)
         expect(logic.values.newCriteriaCount).toBe(1)
@@ -138,16 +167,13 @@ describe('scoutRubricsLogic', () => {
         expect(logic.values.newCriteriaCount).toBe(0)
         logic.actions.updateCriterion(criterion.id, { enabled: false })
         expect(logic.values.newCriteriaCount).toBe(0)
-        logic.actions.toggleSuggestion(suggestion.id, true)
-        if (addBeforeSaving) {
-            logic.actions.addSelectedSuggestions()
-            logic.actions.addSelectedSuggestions()
-            expect(logic.values.newCriteriaCount).toBe(1)
-            logic.actions.removeCriterion(suggestion.id)
-            expect(logic.values.newCriteriaCount).toBe(0)
-            logic.actions.toggleSuggestion(suggestion.id, true)
-            logic.actions.addSelectedSuggestions()
-        }
+        logic.actions.updateSuggestion(suggestion.id, { title: editedSuggestion.title })
+        expect(logic.values.selectedSuggestionIds).toEqual([suggestion.id])
+        logic.actions.updateSuggestion(unselectedSuggestion.id, { title: editedUnselectedSuggestion.title })
+        logic.actions.toggleSuggestion(unselectedSuggestion.id, false)
+        await expectLogic(logic, () => logic.actions.loadRubrics()).toFinishAllListeners()
+        expect(logic.values.availableSuggestions).toEqual([editedSuggestion, editedUnselectedSuggestion])
+        expect(logic.values.draftCriteria).toEqual([{ ...criterion, enabled: false }])
         expect(logic.values.newCriteriaCount).toBe(1)
         logic.actions.addCriterion()
         expect(logic.values.newCriteriaCount).toBe(2)
@@ -158,21 +184,27 @@ describe('scoutRubricsLogic', () => {
 
         await expectLogic(logic, () => logic.actions.saveRubrics()).toFinishAllListeners()
 
-        expect(submitted).toEqual({ revision: 3, criteria: [{ ...criterion, enabled: false }, suggestion] })
+        expect(submitted).toEqual({ revision: 3, criteria: [{ ...criterion, enabled: false }, editedSuggestion] })
         expect(logic.values.draftRevision).toBe(4)
         expect(logic.values.hasUnsavedChanges).toBe(false)
         expect(logic.values.newCriteriaCount).toBe(0)
         expect(logic.values.selectedSuggestionIds).toEqual([])
-        expect(logic.values.availableSuggestions).toEqual([unselectedSuggestion])
-        expect(logic.values.sortedCriteria).toEqual([suggestion, { ...criterion, enabled: false }])
+        expect(logic.values.availableSuggestions).toEqual([editedUnselectedSuggestion])
+        expect(logic.values.customCriteria).toEqual([editedSuggestion])
+        expect(logic.values.sharedCriteria).toEqual([{ ...criterion, enabled: false }])
 
         await expectLogic(logic, () => logic.actions.loadRubrics({ resetDraft: true })).toFinishAllListeners()
-        expect(logic.values.draftCriteria).toEqual([{ ...criterion, enabled: false }, suggestion])
-        expect(logic.values.availableSuggestions).toEqual([unselectedSuggestion])
+        expect(logic.values.draftCriteria).toEqual([{ ...criterion, enabled: false }, editedSuggestion])
+        expect(logic.values.availableSuggestions).toEqual([editedUnselectedSuggestion])
 
         await expectLogic(logic, () => logic.actions.generateSuggestions()).toFinishAllListeners()
         expect(starts).toBe(1)
         expect(logic.values.generationActive).toBe(true)
+
+        document = { ...document, generation: { ...generation, id: 'next-generation' } }
+        await expectLogic(logic, () => logic.actions.loadRubrics()).toFinishAllListeners()
+        expect(logic.values.availableSuggestions).toEqual([unselectedSuggestion])
+        expect(logic.values.selectedSuggestionIds).toEqual([])
     })
 
     it.each([409, 503])('preserves edits after a %s save failure and recovers explicitly', async (status) => {
@@ -181,11 +213,11 @@ describe('scoutRubricsLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.updateCriterion(criterion.id, { title: 'Keep this edit' })
-        logic.actions.toggleSuggestion(suggestion.id, true)
+        logic.actions.updateSuggestion(suggestion.id, { title: 'Keep this suggestion edit' })
 
         await expectLogic(logic, () => logic.actions.saveRubrics()).toFinishAllListeners()
         expect(logic.values.draftCriteria[0].title).toBe('Keep this edit')
-        expect(logic.values.selectedSuggestions).toEqual([suggestion])
+        expect(logic.values.selectedSuggestions).toEqual([{ ...suggestion, title: 'Keep this suggestion edit' }])
         expect(logic.values.newCriteriaCount).toBe(1)
         expect(logic.values.saving).toBe(false)
         expect(logic.values.saveConflict).toBe(status === 409)
@@ -284,7 +316,7 @@ describe('scoutRubricsLogic', () => {
         expect(logic.values.generationActive).toBe(true)
     })
 
-    it.each(['an incomplete manual criterion', 'too many selected criteria'])(
+    it.each(['an incomplete manual criterion', 'an incomplete edited suggestion', 'too many selected criteria'])(
         'blocks saving %s',
         async (invalidInput) => {
             if (invalidInput === 'too many selected criteria') {
@@ -299,6 +331,8 @@ describe('scoutRubricsLogic', () => {
                     ),
                     generation: makeGeneration('completed'),
                 })
+            } else if (invalidInput === 'an incomplete edited suggestion') {
+                document = makeDocument({ generation: makeGeneration('completed') })
             }
             let saves = 0
             useMocks({
@@ -314,6 +348,8 @@ describe('scoutRubricsLogic', () => {
             if (invalidInput === 'an incomplete manual criterion') {
                 logic.actions.addCriterion()
                 expect(logic.values.expandedCriterionId).toBe(logic.values.draftCriteria[1].id)
+            } else if (invalidInput === 'an incomplete edited suggestion') {
+                logic.actions.updateSuggestion(suggestion.id, { pass_condition: '' })
             } else {
                 logic.actions.toggleSuggestion(suggestion.id, true)
             }
