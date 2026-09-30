@@ -34,7 +34,7 @@ def _month_starts(window_start: datetime, window_end: datetime) -> list[datetime
 
 def _team_counts_in_partition(
     table: str, partition_id: str, lower: Optional[datetime], upper: Optional[datetime]
-) -> list[tuple[int, int]]:
+) -> dict[int, int]:
     predicates = ["_partition_id = %(partition_id)s"]
     params: dict[str, Any] = {"partition_id": partition_id}
     if lower is not None:
@@ -43,7 +43,7 @@ def _team_counts_in_partition(
     if upper is not None:
         predicates.append("timestamp <= %(upper)s")
         params["upper"] = upper
-    return sync_execute(
+    rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit - table is events_read_table() output and the predicates are literals; every value is parameterized
         f"""
         SELECT team_id, count() AS events
         FROM {table}
@@ -53,6 +53,7 @@ def _team_counts_in_partition(
         params,
         workload=Workload.OFFLINE,
     )
+    return dict(rows)
 
 
 @shared_task(
@@ -70,14 +71,14 @@ def update_team_event_volumes() -> None:
     months = _month_starts(window_start, computed_at)
     counts: Counter[int] = Counter()
     for index, month in enumerate(months):
-        rows = _team_counts_in_partition(
-            table,
-            month.strftime("%Y%m"),
-            window_start if index == 0 else None,
-            computed_at if index == len(months) - 1 else None,
+        counts.update(
+            _team_counts_in_partition(
+                table,
+                month.strftime("%Y%m"),
+                window_start if index == 0 else None,
+                computed_at if index == len(months) - 1 else None,
+            )
         )
-        for team_id, events in rows:
-            counts[team_id] += events
 
     team_ids = set(Team.objects.values_list("id", flat=True))
     volumes = [
