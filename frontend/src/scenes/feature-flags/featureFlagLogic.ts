@@ -1091,6 +1091,7 @@ export interface featureFlagLogicActions {
     updateFlag: (flag: FeatureFlagType) => {
         flag: FeatureFlagType
     } // featureFlagsLogic
+    loadFeatureFlags: (_: void) => void // featureFlagsLogic
     closeSidePanel: (tab?: SidePanelTab | undefined) => {
         tab: SidePanelTab | undefined
     } // sidePanelStateLogic
@@ -2174,7 +2175,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         actions: [
             featureFlagsLogic,
-            ['updateFlag', 'deleteFlag'],
+            ['updateFlag', 'deleteFlag', 'loadFeatureFlags'],
             sidePanelStateLogic,
             ['closeSidePanel'],
             teamLogic,
@@ -4061,10 +4062,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 object: { id: featureFlag.id },
                 label: featureFlag.key,
                 callback: (undo) => {
-                    featureFlag.id && actions.deleteFlag(featureFlag.id)
                     if (undo) {
                         refreshTreeItem('feature_flag', String(featureFlag.id))
+                        // The delete removed the flag from the loaded list, so the list has to load it again.
+                        actions.loadFeatureFlags()
                     } else {
+                        featureFlag.id && actions.deleteFlag(featureFlag.id)
                         deleteFromTree('feature_flag', String(featureFlag.id))
                     }
                     // Load latest change so a backwards navigation shows the flag as deleted
@@ -4080,6 +4083,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     `api/projects/${values.currentProjectId}/feature_flags/${featureFlag.id}`,
                     { deleted: false }
                 )
+                // Restore gives the flag a new tree entry. A delete from another tab or the API leaves the old entry in this tab's tree.
+                deleteFromTree('feature_flag', String(featureFlag.id))
                 refreshTreeItem('feature_flag', String(featureFlag.id))
                 actions.loadFeatureFlag()
                 // The flag is no longer deleted, so its real verdict may differ from the retained
