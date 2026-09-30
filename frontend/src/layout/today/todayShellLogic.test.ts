@@ -16,6 +16,7 @@ describe('todayShellLogic', () => {
         ['/project/1/library/feature_flag', 'library'],
         ['/project/1/ai', 'spaces'],
         ['/project/1/ai/history', 'spaces'],
+        ['/project/1/spaces/abc', 'spaces'],
         ['/project/1/insights/abc', null],
         ['/project/1/airplane', null],
         ['/project/1/homework', null],

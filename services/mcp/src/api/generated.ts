@@ -39153,6 +39153,7 @@ export namespace Schemas {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
+     * * `system_one` - System One
      * * `openai_compatible` - OpenAI-compatible
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
@@ -39168,6 +39169,7 @@ export namespace Schemas {
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
       Zeabur: 'zeabur',
+      SystemOne: 'system_one',
       OpenaiCompatible: 'openai_compatible',
     } as const;
 
@@ -39382,6 +39384,23 @@ export namespace Schemas {
       readonly error_message: string | null;
       api_key?: string;
       readonly api_key_masked: string;
+      /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+      base_url?: string;
+      /**
+         * Model ID served by the System One endpoint.
+         * @maxLength 100
+         */
+      system_one_model?: string;
+      /**
+         * Configured provider base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display: string | null;
+      /**
+         * Configured System One model ID.
+         * @nullable
+         */
+      readonly system_one_model_display: string | null;
       /** Azure OpenAI endpoint URL */
       azure_endpoint?: string;
       /**
@@ -39399,13 +39418,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display: string | null;
-      /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
-      base_url?: string;
-      /**
-         * OpenAI-compatible base URL (read-only, for display)
-         * @nullable
-         */
-      readonly base_url_display: string | null;
       set_as_active?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -56190,6 +56202,34 @@ export namespace Schemas {
       createdAt: string | null;
     }
 
+    /**
+     * * `openai` - Openai
+     * * `anthropic` - Anthropic
+     * * `gemini` - Gemini
+     * * `openrouter` - Openrouter
+     * * `fireworks` - Fireworks
+     * * `azure_openai` - Azure OpenAI
+     * * `together_ai` - Together AI
+     * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub
+     * * `openai_compatible` - OpenAI-compatible
+     */
+    export type LLMCompletionProviderEnum = typeof LLMCompletionProviderEnum[keyof typeof LLMCompletionProviderEnum];
+
+
+    export const LLMCompletionProviderEnum = {
+      Openai: 'openai',
+      Anthropic: 'anthropic',
+      Gemini: 'gemini',
+      Openrouter: 'openrouter',
+      Fireworks: 'fireworks',
+      AzureOpenai: 'azure_openai',
+      TogetherAi: 'together_ai',
+      Minimax: 'minimax',
+      Zeabur: 'zeabur',
+      OpenaiCompatible: 'openai_compatible',
+    } as const;
+
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
@@ -69530,7 +69570,7 @@ export namespace Schemas {
        * * `minimax` - MiniMax
        * * `zeabur` - Zeabur AI Hub
        * * `openai_compatible` - OpenAI-compatible */
-      provider: LLMProviderEnum;
+      provider: LLMCompletionProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
          * @maxLength 100
@@ -76001,6 +76041,23 @@ export namespace Schemas {
       readonly error_message?: string | null;
       api_key?: string;
       readonly api_key_masked?: string;
+      /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+      base_url?: string;
+      /**
+         * Model ID served by the System One endpoint.
+         * @maxLength 100
+         */
+      system_one_model?: string;
+      /**
+         * Configured provider base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display?: string | null;
+      /**
+         * Configured System One model ID.
+         * @nullable
+         */
+      readonly system_one_model_display?: string | null;
       /** Azure OpenAI endpoint URL */
       azure_endpoint?: string;
       /**
@@ -76018,13 +76075,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display?: string | null;
-      /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
-      base_url?: string;
-      /**
-         * OpenAI-compatible base URL (read-only, for display)
-         * @nullable
-         */
-      readonly base_url_display?: string | null;
       set_as_active?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -79794,7 +79844,7 @@ export namespace Schemas {
        * * `minimax` - MiniMax
        * * `zeabur` - Zeabur AI Hub
        * * `openai_compatible` - OpenAI-compatible */
-      provider: LLMProviderEnum;
+      provider: LLMCompletionProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
          * @maxLength 100
@@ -116347,6 +116397,7 @@ export namespace Schemas {
       Openai: 'openai',
       OpenaiCompatible: 'openai_compatible',
       Openrouter: 'openrouter',
+      SystemOne: 'system_one',
       TogetherAi: 'together_ai',
       Zeabur: 'zeabur',
     } as const;
