@@ -29,6 +29,8 @@ import {
     AlertEvaluationThreshold,
 } from './AlertEvaluationHistoryChart'
 import {
+    ALERT_PAGERDUTY_REGION_OPTIONS,
+    ALERT_PAGERDUTY_SEVERITY_OPTIONS,
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
     AlertPagerDutyRegion,
@@ -185,19 +187,33 @@ function NotificationsStory({ initialType = 'webhook' }: { initialType?: StoryNo
         },
     ])
 
-    const addDestination = (): void => {
-        if (selectedType !== 'webhook' || !urlValue) {
-            return
-        }
+    const addPending = (title: string, detail: string): void => {
         setPendingDestinations((destinations) => [
             ...destinations,
             {
                 key: `pending-${destinations.length}`,
-                title: 'Webhook',
-                detail: urlValue,
+                title,
+                detail,
                 onRemove: () => setPendingDestinations([]),
             },
         ])
+    }
+
+    const addDestination = (): void => {
+        if (selectedType === 'pagerduty') {
+            if (!routingKey) {
+                return
+            }
+            const severityLabel = ALERT_PAGERDUTY_SEVERITY_OPTIONS.find((option) => option.value === severity)?.label
+            const regionLabel = ALERT_PAGERDUTY_REGION_OPTIONS.find((option) => option.value === region)?.label
+            addPending('PagerDuty', `${severityLabel} \u00b7 ${regionLabel} region`)
+            setRoutingKey('')
+            return
+        }
+        if (selectedType !== 'webhook' || !urlValue) {
+            return
+        }
+        addPending('Webhook', urlValue)
         setUrlValue('')
     }
 
