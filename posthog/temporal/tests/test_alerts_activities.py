@@ -47,6 +47,7 @@ from posthog.tasks.alerts.utils import (
     send_notifications_for_errors,
 )
 from posthog.temporal.alerts.activities import (
+    ALERT_CREATOR_NOT_MEMBER_MESSAGE,
     _evaluation_inputs_match,
     _load_alert_for_evaluation,
     _lock_evaluation_alert,
@@ -74,6 +75,7 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
+from products.access_control.backend.facade.api import UserNotOrganizationMemberError
 from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.facade.api import (
@@ -1061,6 +1063,25 @@ class TestEvaluateAlert:
         mock_capture.assert_not_called()
         mock_notify.assert_not_called()
 
+    async def test_creator_without_membership_records_error_without_capturing(self, alert_with_user) -> None:
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=UserNotOrganizationMemberError(),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.temporal.alerts.activities.report_creator_access_revoked") as mock_report,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id))
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error == {"message": ALERT_CREATOR_NOT_MEMBER_MESSAGE}
+        mock_capture.assert_not_called()
+        mock_report.assert_called_once()
+
     @pytest.mark.parametrize(
         "rows,has_more,sql_limit,expected_error,expect_disabled",
         [
@@ -1124,7 +1145,6 @@ class TestEvaluateAlert:
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_configuration_error(
         self, alert_with_user, error_type
     ) -> None:
-
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
