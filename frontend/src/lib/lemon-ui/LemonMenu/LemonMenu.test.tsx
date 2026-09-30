@@ -152,10 +152,13 @@ describe('LemonMenu', () => {
             </LemonMenu>
         )
 
-        await userEvent.click(screen.getByText('Open'))
+        const trigger = screen.getByText('Open')
+        await userEvent.click(trigger)
         const first = (await screen.findByText('First')).closest('button')
         await userEvent.keyboard('{ArrowDown}')
         expect(first).toHaveFocus()
+        await userEvent.keyboard('{ArrowUp}')
+        expect(trigger).toHaveFocus()
     })
 
     it('navigates portal items inside a shadow root', async () => {

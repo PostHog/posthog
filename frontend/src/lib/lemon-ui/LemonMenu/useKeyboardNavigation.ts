@@ -15,8 +15,13 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
     function focus(itemIndex: number): void {
         if (itemIndex > -1) {
             itemsRef.current[itemIndex].current?.focus()
-        } else {
-            referenceRef.current?.focus()
+            return
+        }
+        const trigger = referenceRef.current
+        trigger?.focus()
+        // A wrapper trigger cannot take focus, so focus the element inside it that can.
+        if (trigger && (trigger.getRootNode() as Document | ShadowRoot).activeElement !== trigger) {
+            trigger.querySelector<HTMLElement>('button, [href], input, [tabindex]')?.focus()
         }
     }
 
