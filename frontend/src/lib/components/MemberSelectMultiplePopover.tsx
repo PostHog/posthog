@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonDropdown } from '@posthog/lemon-ui'
@@ -33,6 +34,7 @@ export function MemberSelectMultiplePopover({
 }: MemberSelectMultiplePopoverProps): JSX.Element {
     const { me } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
+    const [selectedAtOpen, setSelectedAtOpen] = useState<number[]>([])
 
     const hasSelection = value.length > 0
     const isFilteredToCurrentUser = hasSelection && value.length === 1 && value[0] === me?.user.id
@@ -45,11 +47,12 @@ export function MemberSelectMultiplePopover({
             actionable
             onVisibilityChange={(visible) => {
                 if (visible) {
+                    setSelectedAtOpen(value)
                     ensureAllMembersLoaded()
                     setSearch('')
                 }
             }}
-            overlay={<MemberSelectMultipleOptions value={value} onChange={onChange} />}
+            overlay={<MemberSelectMultipleOptions value={value} onChange={onChange} selectedAtOpen={selectedAtOpen} />}
         >
             <LemonButton
                 size="small"

@@ -31,6 +31,7 @@ export function MemberMultiSelect({
     const { meFirstMembers } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
+    const [selectedAtOpen, setSelectedAtOpen] = useState<number[]>([])
 
     const selectedMembersAsUsers = useMemo(() => {
         if (!value || value.length === 0) {
@@ -46,6 +47,7 @@ export function MemberMultiSelect({
     const handleVisibilityChange = (visible: boolean): void => {
         setShowPopover(visible)
         if (visible) {
+            setSelectedAtOpen(value || [])
             ensureAllMembersLoaded()
             setSearch('')
         }
@@ -84,6 +86,7 @@ export function MemberMultiSelect({
                 <MemberSelectMultipleOptions
                     value={value || []}
                     onChange={_onChange}
+                    selectedAtOpen={selectedAtOpen}
                     excludedMembers={excludedMembers}
                 />
             }

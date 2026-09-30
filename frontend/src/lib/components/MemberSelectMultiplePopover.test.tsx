@@ -94,68 +94,58 @@ describe('multi-select member pickers', () => {
         expect(firstRow.compareDocumentPosition(secondRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     }
 
-    it('keeps each selected member in its original place', async () => {
-        renderPicker(MemberSelectMultiplePopover)
-        await userEvent.click(screen.getByText('Created by'))
-        const members = await screen.findByRole('list', { name: 'Members' })
-        await within(members).findByText('Rose')
-        expectListedInOrder(members, 'John', 'Rose')
+    it.each([
+        {
+            picker: 'MemberSelectMultiplePopover',
+            Picker: MemberSelectMultiplePopover,
+            initialLabel: 'Created by (1)',
+            reopenLabel: 'Created by (1)',
+        },
+        {
+            picker: 'MemberMultiSelect',
+            Picker: MemberMultiSelect,
+            initialLabel: 'Rose',
+            reopenLabel: 'Alice',
+        },
+    ])(
+        '$picker moves selected members to the top only after reopening',
+        async ({ Picker, initialLabel, reopenLabel }) => {
+            renderPicker(Picker, [MOCK_SECOND_BASIC_USER.id])
+            await userEvent.click(await screen.findByText(initialLabel))
+            const members = await screen.findByRole('list', { name: /^Members$/ })
+            await within(members).findByText('Alice')
+            expectListedInOrder(members, 'Rose', 'John')
 
-        await userEvent.click(within(members).getByText('Rose'))
-        await userEvent.click(within(members).getByText('John'))
-        expectListedInOrder(members, 'John', 'Rose')
-        expect(screen.getAllByText('Rose')).toHaveLength(1)
-        expect(screen.getAllByText('John')).toHaveLength(1)
-        expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
-        await userEvent.click(within(members).getByText('Rose'))
-        expect(within(members).getByText('Rose').closest('[role="menuitemcheckbox"]')).toHaveAttribute(
-            'aria-checked',
-            'false'
-        )
-    })
+            await userEvent.click(within(members).getByText('Alice'))
+            expectListedInOrder(members, 'John', 'Alice')
+            await userEvent.click(within(members).getByText('Rose'))
+            expectListedInOrder(members, 'Rose', 'John')
+            expect(within(members).getByText('Rose').closest('[role="menuitemcheckbox"]')).toHaveAttribute(
+                'aria-checked',
+                'false'
+            )
 
-    it('docks an offscreen selection outside the scrollable list without covering its rows', async () => {
-        renderPicker(MemberSelectMultiplePopover, [MOCK_SECOND_BASIC_USER.id])
-        await userEvent.click(screen.getByText('Created by (1)'))
-        const members = await screen.findByRole('list', { name: 'Members' })
-        await within(members).findByText('Rose')
-        const scrollArea = members.parentElement!
-        const rowHeight = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(32)
-        try {
-            Object.defineProperty(members, 'scrollHeight', { configurable: true, value: 400 })
-            Object.defineProperty(scrollArea, 'clientHeight', { configurable: true, value: 160 })
-            Object.defineProperty(scrollArea.parentElement!, 'clientHeight', { configurable: true, value: 320 })
-
-            scrollArea.scrollTop = 160
-            fireEvent.scroll(scrollArea)
-            const dock = screen.getByRole('list', { name: 'Selected members above' })
-            const selectedRow = within(dock).getByText('Rose')
-            expect(scrollArea.contains(selectedRow)).toBe(false)
-            expect(within(members).queryByText('Rose')).not.toBeInTheDocument()
-            expect(members.children).toHaveLength(5)
-            expect(screen.getAllByText('Rose')).toHaveLength(1)
-
-            await userEvent.click(selectedRow)
-            expect(selectedRow.closest('[role="menuitemcheckbox"]')).toHaveAttribute('aria-checked', 'false')
-
-            scrollArea.scrollTop = 0
-            fireEvent.scroll(scrollArea)
-            expect(screen.queryByRole('list', { name: 'Selected members above' })).not.toBeInTheDocument()
-            expect(within(members).getByText('Rose')).toBeInTheDocument()
-        } finally {
-            rowHeight.mockRestore()
+            await userEvent.click(screen.getByText('Outside'))
+            await userEvent.click(screen.getByRole('button', { name: reopenLabel }))
+            const reopenedMembers = await screen.findByRole('list', { name: /^Members$/ })
+            expectListedInOrder(reopenedMembers, 'Alice', 'John')
+            expectListedInOrder(reopenedMembers, 'John', 'Rose')
+            expect(within(reopenedMembers).getByText('Alice').closest('[role="menuitemcheckbox"]')).toHaveAttribute(
+                'aria-checked',
+                'true'
+            )
+            expect(within(reopenedMembers).getAllByText('Alice')).toHaveLength(1)
         }
-    })
+    )
 
-    it('keeps three adjacent members in place while the pointer stays on the list', async () => {
+    it('keeps three adjacent members in place while selecting them', async () => {
         renderPicker(MemberSelectMultiplePopover)
         await userEvent.click(screen.getByText('Created by'))
-        const members = await screen.findByRole('list', { name: 'Members' })
+        const members = await screen.findByRole('list', { name: /^Members$/ })
         await within(members).findByText('Chloe')
 
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate'] })
         try {
-            fireEvent.mouseEnter(members.parentElement!)
             for (const name of ['Alice', 'Ben', 'Chloe']) {
                 fireEvent.click(within(members).getByText(name))
                 await act(async () => jest.advanceTimersByTime(720))
@@ -169,31 +159,25 @@ describe('multi-select member pickers', () => {
                     'true'
                 )
             }
-
-            fireEvent.mouseLeave(members.parentElement!)
-            await act(async () => jest.advanceTimersByTime(0))
-            expect(within(members).getAllByRole('menuitemcheckbox')).toHaveLength(5)
-            expectListedInOrder(members, 'Alice', 'Ben')
-            expectListedInOrder(members, 'Ben', 'Chloe')
         } finally {
             jest.useRealTimers()
         }
     })
 
-    it('does not dock selected members in a short list or during search', async () => {
+    it('shows a selected member only once during search', async () => {
         renderPicker(MemberSelectMultiplePopover, [MOCK_SECOND_BASIC_USER.id])
         await userEvent.click(screen.getByText('Created by (1)'))
-        const members = await screen.findByRole('list', { name: 'Members' })
+        const members = await screen.findByRole('list', { name: /^Members$/ })
         await within(members).findByText('Rose')
-        expect(screen.getAllByText('Rose')).toHaveLength(1)
-        expect(screen.queryByRole('list', { name: 'Selected members above' })).not.toBeInTheDocument()
-        expect(screen.queryByRole('list', { name: 'Selected members below' })).not.toBeInTheDocument()
-        expectListedInOrder(members, 'John', 'Rose')
+        expectListedInOrder(members, 'Rose', 'John')
 
         fireEvent.change(screen.getByPlaceholderText('Search'), { target: { value: 'Rose' } })
         await within(members).findByText('Rose')
-        expect(screen.queryByRole('list', { name: 'Selected members above' })).not.toBeInTheDocument()
-        expect(screen.queryByRole('list', { name: 'Selected members below' })).not.toBeInTheDocument()
+        expect(within(members).getByText('Rose').closest('[role="menuitemcheckbox"]')).toHaveAttribute(
+            'aria-checked',
+            'true'
+        )
+        expect(screen.getAllByText('Rose')).toHaveLength(1)
     })
 
     it.each([

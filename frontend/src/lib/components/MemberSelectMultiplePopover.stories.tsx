@@ -85,7 +85,7 @@ export const NothingSelected: Story = {
     },
 }
 
-export const SelectedMembersAtEdges: Story = {
+export const SelectedMembersOnOpen: Story = {
     args: { initialValue: SELECTED_IDS },
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByText('Created by (2)'))
