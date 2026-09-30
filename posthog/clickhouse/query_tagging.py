@@ -289,6 +289,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         case (
             NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
             | NodeKind.MCP_MODEL_BREAKDOWN_QUERY
+            | NodeKind.MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALLS_AND_ERRORS_QUERY
             | NodeKind.MCP_TOOL_TOP_USERS_QUERY
@@ -540,6 +541,14 @@ class QueryTags(BaseModel):
 
     hogql_features: Optional[HogQLFeatures] = None
 
+    # Structural hash of the HogQL AST with literals stripped (posthog/hogql/cost/fingerprint.py), so
+    # query_log can group actual cost by plan shape and join it to the estimate recorded below.
+    plan_fingerprint: Optional[str] = None
+    # Set by the HogQL cost planner before execution and compared against read_rows / read_bytes in
+    # query_log to calibrate it. None until the estimator runs.
+    estimated_rows: Optional[int] = None
+    estimated_bytes: Optional[int] = None
+
     modifiers: Optional[object] = None
     number_of_entities: Optional[int] = None
     person_on_events_mode: Optional[str] = None  # PersonsOnEventsMode
@@ -554,6 +563,7 @@ class QueryTags(BaseModel):
     user_email: Optional[str] = None
 
     is_impersonated: Optional[bool] = None
+    is_scout_experiment: Optional[bool] = None
 
     # request source and MCP metadata
     source: Optional[str] = None
@@ -881,6 +891,12 @@ def tags_context(**tags_to_set: Any) -> Generator[None]:
     finally:
         if tags_copy:
             query_tags.set(tags_copy)
+
+
+@contextmanager
+def private_capture_context() -> Generator[None]:
+    with tags_context(is_scout_experiment=True):
+        yield
 
 
 # Stack inspection for source_file / source_line tagging

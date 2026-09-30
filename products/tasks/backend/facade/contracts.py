@@ -55,6 +55,16 @@ class TaskDTO:
     slug: str = ""
 
 
+@dataclass(frozen=True, kw_only=True)
+class AgentTaskRunDTO:
+    """Identity and workflow handle for a newly dispatched agent task."""
+
+    task_id: UUID
+    run_id: UUID
+    team_id: int
+    workflow_id: str
+
+
 @dataclass(frozen=True)
 class StreamNotificationDelivery:
     """Where a server-originated stream notification landed.
@@ -332,7 +342,7 @@ class TaskActivityDTO:
     """
 
     id: UUID
-    task_id: UUID
+    task_id: UUID | None
     task_title: str
     channel_id: UUID | None
     channel_name: str | None

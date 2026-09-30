@@ -22,6 +22,7 @@ from llm_gateway.request_context import (
     get_request_id,
     get_time_to_first_token,
     get_traceparent_trace_id,
+    is_private_scout_request,
 )
 
 logger = structlog.get_logger(__name__)
@@ -207,6 +208,8 @@ class PostHogCallback(InstrumentedCallback):
     async def _on_success(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
     ) -> None:
+        if is_private_scout_request(get_auth_user(), get_product()):
+            return
         standard_logging_object = kwargs.get("standard_logging_object", {})
         metadata = self._extract_metadata(kwargs)
         auth_user = get_auth_user()
@@ -343,6 +346,8 @@ class PostHogCallback(InstrumentedCallback):
     async def _on_failure(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
     ) -> None:
+        if is_private_scout_request(get_auth_user(), get_product()):
+            return
         standard_logging_object = kwargs.get("standard_logging_object", {})
         metadata = self._extract_metadata(kwargs)
         auth_user = get_auth_user()

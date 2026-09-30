@@ -2,7 +2,7 @@ import os
 import re
 import json
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
@@ -45,6 +45,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
@@ -219,6 +220,7 @@ from products.tasks.backend.presentation.serializers import (
     WarmTaskResumeResponseSerializer,
     WizardCloudRunSerializer,
 )
+from products.tasks.backend.presentation.task_review_serializers import TaskReviewQuerySerializer, TaskReviewSerializer
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -470,6 +472,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskSerializer
 
+    def initial(self, request: Request, *args: object, **kwargs: object) -> None:
+        super().initial(request, *args, **kwargs)
+        task_id = self.kwargs.get("pk")
+        if task_id is not None:
+            _ensure_scout_trial_visible(request, self.team_id, task_id)
+
     def get_throttles(self) -> list[BaseThrottle]:
         throttles = super().get_throttles()
         action = getattr(self, "action", None)
@@ -537,7 +545,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         bypass_visibility = all_team_tasks and _can_bypass_visibility(request, self.team_id)
         tasks = tasks_facade._list_tasks_queryset(
             self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility
-        )
+        ).exclude(id__in=_hidden_scout_trial_task_ids(request, self.team_id))
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
         # Description bodies dominate the list payload. A summary surface asks for basic=true
@@ -569,8 +577,22 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             query,
             limit=limit,
             bypass_visibility=_can_bypass_visibility(request, self.team_id),
+            exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id),
         )
         return Response(TaskSearchResultSerializer(results, many=True).data)
+
+    @validated_request(
+        query_serializer=TaskReviewQuerySerializer, responses={200: OpenApiResponse(response=TaskReviewSerializer)}
+    )
+    @action(detail=True, methods=["get"], required_scopes=["task:read"])
+    def review(self, request, pk=None, **kwargs):
+        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        if task is None:
+            raise NotFound()
+        result = tasks_facade.task_review(
+            self.team_id, str(task.id), request.user.id, request.validated_query_data["page"]
+        )
+        return Response(TaskReviewSerializer(result).data)
 
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
@@ -632,6 +654,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             page = tasks_facade.list_task_comments(
                 team_id=self.team_id,
                 task_id=task_id,
+                user_id=self._user_id(),
                 artifact_id=params.validated_data.get("artifact_id"),
                 include_resolved=params.validated_data["include_resolved"],
                 limit=params.validated_data["limit"],
@@ -662,6 +685,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             comment = tasks_facade.retrieve_task_comment(
                 team_id=self.team_id,
                 task_id=task_id,
+                user_id=self._user_id(),
                 comment_id=parsed_comment_id,
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),
@@ -936,7 +960,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filter_backends=[],
     )
     def repositories(self, request, **kwargs):
-        repositories = tasks_facade.list_task_repositories(self.team_id, self._user_id())
+        repositories = tasks_facade.list_task_repositories(
+            self.team_id, self._user_id(), exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id)
+        )
         serializer = TaskRepositoriesResponseSerializer({"repositories": repositories})
         return Response(serializer.data)
 
@@ -950,7 +976,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user_id = self._user_id()
         if user_id is None:
             raise NotFound()
-        return Response({"task_ids": tasks_facade.list_pinned_task_ids(self.team_id, user_id)})
+        return Response(
+            PinnedTaskIdsResponseSerializer(
+                {
+                    "task_ids": tasks_facade.list_pinned_task_ids(
+                        self.team_id, user_id, exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id)
+                    )
+                }
+            ).data
+        )
 
     @extend_schema(
         responses={200: ModelCatalogueResponseSerializer},
@@ -1085,7 +1119,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = paginator.get_limit(request)
         offset = paginator.get_offset(request)
         summaries, count = tasks_facade.get_task_summaries(
-            self.team_id, self._user_id(), ids=ids, limit=limit, offset=offset
+            self.team_id,
+            self._user_id(),
+            ids=ids,
+            limit=limit,
+            offset=offset,
+            exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id),
         )
         paginator.set_count(count)
         page = self.paginate_queryset(summaries)
@@ -1344,7 +1383,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 pk,
                 self.team_id,
                 self._user_id(),
-                validated_data=dict(request.validated_data),
+                validated_data={
+                    **request.validated_data,
+                    "client_platform": "mobile"
+                    if request.headers.get("X-PostHog-Client-Platform") == "mobile"
+                    else None,
+                },
                 **(
                     {"warm_retry_token": request.headers["X-PostHog-Warm-Retry"]}
                     if "X-PostHog-Warm-Retry" in request.headers
@@ -1591,6 +1635,23 @@ def _sandbox_bound_task_id(request) -> UUID | None:
     return request.successful_authenticator.access_token.sandbox_task_id
 
 
+def _hidden_scout_trial_task_ids(request: Request, team_id: int) -> Iterable[UUID]:
+    if is_sandbox_oauth_request(request):
+        return tasks_facade.scout_trial_task_ids(team_id, visible_task_id=_sandbox_bound_task_id(request))
+    return tasks_facade.scout_trial_task_ids(team_id, visible_user_id=request.user.pk)
+
+
+def _ensure_scout_trial_visible(request: Request, team_id: int, task_id: str) -> None:
+    if not tasks_facade.is_scout_trial_task(task_id, team_id):
+        return
+    tag_queries(is_scout_experiment=True)
+    if is_sandbox_oauth_request(request):
+        if _sandbox_bound_task_id(request) != UUID(task_id):
+            raise NotFound("Task not found")
+    elif not tasks_facade.task_visible(task_id, team_id, request.user.pk):
+        raise NotFound("Task not found")
+
+
 def is_sandbox_agent_request(request, task_id: str) -> bool:
     """True only for the task-bound sandbox OAuth identity, never a human session or key."""
     return _sandbox_bound_task_id(request) == UUID(task_id)
@@ -1618,6 +1679,50 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
+
+    def initial(self, request: Request, *args: object, **kwargs: object) -> None:
+        super().initial(request, *args, **kwargs)
+        _ensure_scout_trial_visible(request, self.team_id, self._task_id())
+
+    @staticmethod
+    def _is_trial_lifecycle_update(payload: object) -> bool:
+        if not isinstance(payload, dict) or not payload or set(payload) - {"status", "error_message", "state"}:
+            return False
+        if "status" in payload and (
+            not isinstance(payload["status"], str) or payload["status"] not in {"in_progress", "completed", "failed"}
+        ):
+            return False
+        if "state" in payload:
+            state = payload["state"]
+            if not isinstance(state, dict) or set(state) - {
+                "token_usage",
+                "budget_guard",
+                "benjamin_version",
+                "agent_version",
+            }:
+                return False
+        return True
+
+    def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
+        if self.action not in {"append_log", "set_summary", "update", "partial_update"}:
+            return None
+        scopes = get_authenticator_scopes(request.successful_authenticator) or []
+        if {"task:read", "scout_experiment_internal:read"}.issubset(scopes) and (
+            self.action in {"append_log", "set_summary"} or self._is_trial_lifecycle_update(request.data)
+        ):
+            task_id = self._task_id()
+            if _sandbox_bound_task_id(request) == UUID(task_id):
+                try:
+                    run_id = UUID(self.kwargs["pk"])
+                except (ValueError, TypeError, KeyError):
+                    raise NotFound("Task run not found")
+                from products.signals.backend.facade.api import (
+                    is_scout_trial_task_run,  # noqa: PLC0415 -- keeps the scout workflow graph off ordinary API startup
+                )
+
+                if is_scout_trial_task_run(team_id=self.team_id, task_id=UUID(task_id), task_run_id=run_id):
+                    return ["task:read", "scout_experiment_internal:read"]
+        return ["task:write"]
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
@@ -1701,6 +1806,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._user_id(),
             bypass_visibility=bypass_visibility,
             for_control=not (is_read_only or is_visibility_only),
+            sandbox_task_id=_sandbox_bound_task_id(self.request),
         ):
             raise NotFound("Task not found")
         run_id = self.kwargs.get("pk")
@@ -2056,7 +2162,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["patch"],
         url_path="set_summary",
-        required_scopes=["task:write"],
     )
     def set_summary(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -2091,7 +2196,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="append_log",
-        required_scopes=["task:write"],
     )
     def append_log(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -4096,6 +4200,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     # request/response schema via @validated_request.
     serializer_class = TaskRunLivingArtifactResponseSerializer
 
+    def initial(self, request: Request, *args: object, **kwargs: object) -> None:
+        super().initial(request, *args, **kwargs)
+        _ensure_scout_trial_visible(request, self.team_id, self._task_id())
+
     def _task_id(self) -> str:
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
@@ -4127,6 +4235,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             getattr(self.request.user, "id", None),
             bypass_visibility=bypass_visibility,
             for_control=not is_read,
+            sandbox_task_id=_sandbox_bound_task_id(self.request),
         ):
             raise NotFound("Task not found")
         if not is_read and not tasks_facade.task_run_matches_current_ownership(self._run_id(), task_id, self.team_id):

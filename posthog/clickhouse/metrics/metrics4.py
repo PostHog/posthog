@@ -48,6 +48,11 @@ WRITABLE_METRICS4_SERIES_TABLE_NAME = "writable_metrics4_series"
 WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
 METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
+METRICS4_VIEW_NAME = "metrics4_view"
+# metrics2 serves the hours before the cut-over. metrics4_samples serves the cut-over hour and later.
+# The view is temporary. After 2026-10-14, the 30-day retention removes all metrics2 data.
+METRICS4_VIEW_METRICS2_START = "2026-08-25 00:00:00"
+METRICS4_VIEW_CUTOVER = "2026-09-14 00:00:00"
 
 # Each tuple maps an input column to its metrics4 array element type.
 METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -461,3 +466,75 @@ def METRICS4_INPUT_TO_METRICS4_RESOURCE_ATTRIBUTES_MV() -> str:
     return _metrics4_attributes_mv(
         "metrics4_resource_attributes", "resource_attributes", "resource", filter_long_pairs=False
     )
+
+
+def METRICS4_VIEW_SQL() -> str:
+    # The view gives the metrics2 row shape. ARRAY JOIN makes one row for each point.
+    # Partial rows of one series-hour hold different points, so no FINAL is necessary.
+    db = _db()
+    return f"""
+CREATE OR REPLACE VIEW {db}.{METRICS4_VIEW_NAME} AS
+SELECT
+    team_id,
+    metric_name,
+    time_bucket,
+    series_fingerprint,
+    resource_fingerprint,
+    timestamp,
+    observed_timestamp,
+    original_expiry_timestamp,
+    service_name,
+    metric_type,
+    value,
+    count,
+    histogram_bounds,
+    histogram_counts,
+    trace_id,
+    span_id,
+    trace_flags,
+    has_labels,
+    unit,
+    aggregation_temporality,
+    is_monotonic,
+    instrumentation_scope
+FROM {db}.metrics2
+WHERE time_bucket > toDateTime('{METRICS4_VIEW_METRICS2_START}')
+    AND time_bucket < toDateTime('{METRICS4_VIEW_CUTOVER}')
+    AND timestamp > toDateTime('{METRICS4_VIEW_METRICS2_START}')
+    AND timestamp < toDateTime('{METRICS4_VIEW_CUTOVER}')
+UNION ALL
+SELECT
+    team_id,
+    metric_name,
+    time_bucket,
+    series_fingerprint,
+    resource_fingerprint,
+    point_timestamp AS timestamp,
+    point_observed_timestamp AS observed_timestamp,
+    toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
+    service_name,
+    metric_type,
+    point_value AS value,
+    point_count AS count,
+    histogram_bounds,
+    point_histogram_counts AS histogram_counts,
+    point_trace_id AS trace_id,
+    point_span_id AS span_id,
+    point_trace_flags AS trace_flags,
+    toBool(has_labels) AS has_labels,
+    unit,
+    aggregation_temporality,
+    toBool(is_monotonic) AS is_monotonic,
+    instrumentation_scope
+FROM {db}.{METRICS4_SAMPLES_TABLE_NAME}
+ARRAY JOIN
+    timestamp_arr AS point_timestamp,
+    observed_timestamp_arr AS point_observed_timestamp,
+    value_arr AS point_value,
+    count_arr AS point_count,
+    histogram_counts_arr AS point_histogram_counts,
+    trace_id_arr AS point_trace_id,
+    span_id_arr AS point_span_id,
+    trace_flags_arr AS point_trace_flags
+WHERE time_bucket >= toDateTime('{METRICS4_VIEW_CUTOVER}')
+"""

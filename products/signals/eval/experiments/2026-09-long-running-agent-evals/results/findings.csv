@@ -1,0 +1,7 @@
+report_id,copy,endpoint,defect_kind,P1,P2,O1,O2,O3,O4,O5,skeptic
+b5-r1,b5,GET /api/projects/{project_id}/managed_migrations/,pagination,yes,yes,yes,yes,yes,yes,yes,held
+b7-r1,b7,POST /api/environments/{team_id}/health_issues/{id}/resolve,scope,yes,yes,yes,yes,yes,yes,yes,held
+b9-r1,b9,GET /api/projects/{project_id}/managed_migrations/ (BatchImportViewSet.list),pagination,yes,yes,yes,yes,yes,yes,yes,held
+b10-r1,b10,GET /api/projects/{project_id}/managed_migrations/ (BatchImportViewSet.list),pagination,yes,yes,yes,yes,yes,no,yes,held
+b11-r1,b11,GET /api/organizations/{organization_id}/domains/{id}/scim/logs/ (OrganizationDomainViewse,pagination,yes,yes,no,no,no,no,yes,n/a
+b1-trial2-r1,b1,GET /api/organizations/{organization_id}/role_external_references/,pagination,yes,yes,yes,yes,yes,no,yes,held

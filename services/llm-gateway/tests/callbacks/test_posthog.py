@@ -13,7 +13,8 @@ from llm_gateway.callbacks.posthog import (
     _replace_binary_content,
     _truncate_for_capture,
 )
-from llm_gateway.request_context import RequestContext, set_request_context
+from llm_gateway.products.config import SIGNALS_DEV_APP_ID
+from llm_gateway.request_context import RequestContext, auth_user_var, request_context_var, set_request_context
 
 
 def _is_uuid(value: str) -> bool:
@@ -30,6 +31,116 @@ def _run_sync(executor, fn, *args):
 
 
 class TestPostHogCallback:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("event_method", ["async_log_success_event", "async_log_failure_event"])
+    @pytest.mark.parametrize(
+        "auth_method,application_id,task_id,scopes,product,team_id,expected_captures",
+        [
+            (
+                "oauth_access_token",
+                SIGNALS_DEV_APP_ID,
+                "task",
+                ["internal_run:read", "scout_experiment_internal:read"],
+                "signals",
+                456,
+                0,
+            ),
+            ("oauth_access_token", SIGNALS_DEV_APP_ID, "task", ["internal_run:read"], "signals", 456, 2),
+            ("oauth_access_token", SIGNALS_DEV_APP_ID, "task", ["scout_experiment_internal:read"], "signals", 456, 2),
+            (
+                "oauth_access_token",
+                SIGNALS_DEV_APP_ID,
+                None,
+                ["internal_run:read", "scout_experiment_internal:read"],
+                "signals",
+                456,
+                2,
+            ),
+            (
+                "oauth_access_token",
+                "other-app",
+                "task",
+                ["internal_run:read", "scout_experiment_internal:read"],
+                "signals",
+                456,
+                2,
+            ),
+            (
+                "personal_api_key",
+                SIGNALS_DEV_APP_ID,
+                "task",
+                ["internal_run:read", "scout_experiment_internal:read"],
+                "signals",
+                456,
+                2,
+            ),
+            (
+                "oauth_access_token",
+                SIGNALS_DEV_APP_ID,
+                "task",
+                ["internal_run:read", "scout_experiment_internal:read"],
+                "posthog_code",
+                456,
+                2,
+            ),
+            (
+                "oauth_access_token",
+                SIGNALS_DEV_APP_ID,
+                "task",
+                ["internal_run:read", "scout_experiment_internal:read"],
+                "signals",
+                None,
+                2,
+            ),
+        ],
+    )
+    async def test_private_capture_requires_trusted_scout_identity(
+        self,
+        standard_logging_object: dict[str, object],
+        mock_posthog_client: tuple[MagicMock, MagicMock],
+        event_method: str,
+        auth_method: str,
+        application_id: str,
+        task_id: str | None,
+        scopes: list[str],
+        product: str,
+        team_id: int | None,
+        expected_captures: int,
+    ) -> None:
+        mock_cls, mock_client = mock_posthog_client
+        callback = PostHogCallback(
+            api_key="test-key",
+            host="https://primary.example.com",
+            secondary_api_key="secondary-key",
+            secondary_host="https://secondary.example.com",
+        )
+        user_token = auth_user_var.set(
+            AuthenticatedUser(
+                user_id=123,
+                team_id=team_id,
+                auth_method=auth_method,
+                distinct_id="test-user",
+                application_id=application_id,
+                sandbox_task_id=task_id,
+                scopes=scopes,
+            )
+        )
+        context_token = request_context_var.set(
+            RequestContext(
+                request_id="test-request",
+                product=product,
+                posthog_properties={"scout_experiment_internal": "true", "private_capture": "true"},
+            )
+        )
+        try:
+            await getattr(callback, event_method)({"standard_logging_object": standard_logging_object}, None, 0.0, 1.0)
+        finally:
+            auth_user_var.reset(user_token)
+            request_context_var.reset(context_token)
+
+        assert mock_cls.call_count == expected_captures
+        assert mock_client.capture.call_count == expected_captures
+
     @pytest.fixture
     def callback(self):
         return PostHogCallback(api_key="test-key", host="https://test.posthog.com")

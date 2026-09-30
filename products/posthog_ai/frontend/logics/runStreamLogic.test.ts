@@ -1206,6 +1206,47 @@ describe('runStreamLogic', () => {
             ).toEqual(['still here', '10', 'answer to 10', '11'])
         })
 
+        it('stops sinking a send the agent never took up once two turns closed over it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('never echoed')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'first' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm2', content: { text: 'second' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['never echoed', 'first', 'second'])
+        })
+
+        it('still takes up a send that settled when its echo finally arrives', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('late echo')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'first' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'late echo' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm2', content: { text: 'at last' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['first', 'late echo', 'at last'])
+        })
+
         it('leaves a send typed mid-answer below the text already streaming', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))

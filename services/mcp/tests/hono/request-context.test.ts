@@ -75,33 +75,45 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 }
 
 describe('RequestContext', () => {
-    it.each([true, false, undefined])('passes cached impersonation=%s to captured events', async (impersonated) => {
-        mockCapture.mockClear()
-        const ctx = new RequestContext(fakeRedis(), env, makeProps())
-        if (impersonated !== undefined) {
-            await ctx.tokenCache.set('apiKey', {
-                scopes: [],
-                scoped_teams: [],
-                scoped_organizations: [],
-                is_impersonated: impersonated,
-            })
+    it.each([
+        { impersonated: true, apiToken: 'phx_test', suppressed: true },
+        { impersonated: false, apiToken: 'phx_test', suppressed: false },
+        { impersonated: undefined, apiToken: 'phx_test', suppressed: false },
+        { impersonated: undefined, apiToken: 'pha_test', suppressed: true },
+    ])(
+        'passes trusted capture policy=$suppressed to captured events',
+        async ({ impersonated, apiToken, suppressed }) => {
+            mockCapture.mockClear()
+            const ctx = new RequestContext(fakeRedis(), env, makeProps({ apiToken }))
+            if (impersonated !== undefined) {
+                await ctx.tokenCache.set('apiKey', {
+                    scopes: [],
+                    scoped_teams: [],
+                    scoped_organizations: [],
+                    is_impersonated: impersonated,
+                    suppress_analytics: impersonated,
+                })
+            }
+
+            await ctx.trackEvent(
+                AnalyticsEvent.MCP_FEEDBACK_SUBMITTED,
+                { is_impersonated: !impersonated, suppress_analytics: !impersonated },
+                undefined,
+                undefined,
+                'user-123'
+            )
+
+            expect(mockCapture).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    event: AnalyticsEvent.MCP_FEEDBACK_SUBMITTED,
+                    properties: expect.objectContaining({
+                        is_impersonated: impersonated === true,
+                        suppress_analytics: suppressed,
+                    }),
+                })
+            )
         }
-
-        await ctx.trackEvent(
-            AnalyticsEvent.MCP_FEEDBACK_SUBMITTED,
-            { is_impersonated: !impersonated },
-            undefined,
-            undefined,
-            'user-123'
-        )
-
-        expect(mockCapture).toHaveBeenCalledWith(
-            expect.objectContaining({
-                event: AnalyticsEvent.MCP_FEEDBACK_SUBMITTED,
-                properties: expect.objectContaining({ is_impersonated: impersonated === true }),
-            })
-        )
-    })
+    )
 
     describe('ApiClient construction', () => {
         const originalEnv = { ...process.env }

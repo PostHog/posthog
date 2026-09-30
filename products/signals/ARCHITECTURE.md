@@ -482,7 +482,7 @@ The activity log shows PR references as title links with repository, number, and
 | `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                                                                                                                                                                     |
 | `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                                                                                                                                                                    |
 | `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                                                                                                                                                                        |
-| `check_result`           | `{"check_id": "...", "kind": "...", "title": "...", "outcome": "passed"\|"failed"\|"errored", "explanation": "...", "observed_value"?, "baseline_value"?, "threshold"?, "run_id"?}` — one run of a report check                                                                                                |
+| `check_result`           | `{"check_id": "...", "kind": "...", "title": "...", "outcome": "passed"\|"failed"\|"errored"\|"inconclusive", "explanation": "...", "reason"?, "observed_value"?, "baseline_value"?, "threshold"?, "run_id"?}` — one run of a report check                                                                     |
 | `report_link`            | `{"kind": "depends_on"\|"part_of"\|"follow_up_of"\|"duplicate_of"\|"recurrence_of", "report_id": "...", "reason"?: "..."}` — a typed, directed link to another report in the same project (see Typed report links)                                                                                             |
 | `autostart_skip`         | `{"skip_reason": "duplicate_of"\|"blocked_by_dependency"\|"plan_parent", "linked_report_id"?: "...", "detail": "..."}` — a link gate held automatic implementation back (see Typed report links)                                                                                                               |
 
@@ -680,9 +680,12 @@ These are definitions for later evaluations; saving them does not score runs or 
 The rubric editor and `/api/projects/{team_id}/signals/scout/rubrics/{config_id}/` endpoints require a staff user in project 2.
 The API lives in `backend/presentation/scout_rubrics.py` and calls `backend/facade/rubrics.py`; rubric persistence and generation dispatch stay in `backend/scout_harness/rubrics.py`.
 `PUT` replaces the criteria only when the supplied revision matches, returning `409` for stale edits.
+Its optional `adopt_generation_id` adopts that completed generation's governing reference context for the whole saved rubric. The generation identifier must still match, even when the rubric revision has not changed.
+Ordinary criterion edits preserve the saved reference. Skill edits and later generations never update it automatically.
 Every save must include all shared defaults. Owners can edit or disable them, but cannot remove them.
 `POST .../generate/` queues the `generate-scout-rubrics` Temporal workflow and returns the active request when one already exists.
 The backend supplies current instructions, bounded reference text from the exact skill version and recent run summaries to a background session.
+It captures the exact governing description, instructions, report rules and reference texts before the session starts, including clipping and omission metadata. This context is immutable within a generation and is reused if that attempt resumes. Historical summaries and saved criteria remain generation inputs rather than governing instructions.
 The session requests no project-read MCP scopes because that context is supplied up front. The shared sandbox's internal credentials and tool access remain an accepted limitation of the staff-only v0.
 The first request drafts complete criteria using effective defaults and disabled choices. A second request supplies the complete saved rubric and selects whole draft items by index, without rewriting them.
 One conditional format correction is shared across both steps. The generator does not inspect historical transcripts or full reports.
@@ -690,6 +693,7 @@ Criteria explain the required result in plain language, with specific source ref
 The generation prompt ends with writing guidance and a short example for the scout's owner. The selection step also writes an owner-facing summary; it cannot change the selected criteria.
 Its task identifiers, status, and validated result persist on the config so the user can leave the page and return later.
 Completion preserves saved criteria, rejects results from replaced requests, and requires explicit user selection and saving to adopt suggestions.
+The saved reference context and its generation identifier survive replacement of the latest suggestions. Legacy rubrics without a captured reference remain readable; reading or editing them does not invent provenance.
 Expired or terminal requests reject late worker updates. An update to an expired request records the failure and completion time.
 A request that cannot start, because of the daily limit or a dispatch failure, restores the last completed suggestions.
 

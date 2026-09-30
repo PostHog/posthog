@@ -243,6 +243,142 @@ eval caller's temporary authentication exception, not a separate production gate
 Both backend and sandbox Go-routing settings are suppressed inside the private context and restored afterward.
 Gateway accounting remains enabled.
 
+## Live scout comparisons
+
+For a synthetic local environment, follow the [devbox setup and quality iteration handoff](scout-online-evals-devbox.md).
+
+Live scout trials use the production scout harness and live project reads, with private memory changes and captured reports.
+They do not use the offline evaluation reporter or its `no_send_logs` switch.
+Launches are disabled unless `SCOUT_LIVE_TRIALS_ENABLED` and `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` are enabled.
+Trials use the existing Python model gateway through the normal `LLM_GATEWAY_URL` and `SANDBOX_LLM_GATEWAY_URL` settings.
+No additional gateway service or capture destination is required.
+The gateway identifies trial requests from server-minted, task-bound Signals OAuth credentials and suppresses their generation, exception, and rate-limit denial events.
+Backend report validation and comparison judging use short-lived credentials with only gateway access and the experiment identity; each credential is revoked after the operation.
+Ordinary gateway requests keep their capture behavior, and trial requests retain cost and rate-limit checks.
+
+Deploy the gateway change before enabling trials on the backend and workers.
+`SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` attests that the deployed gateway supports this policy and that query/task telemetry and warehouse replicas do not expose trial content to the project the scouts inspect.
+This setting does not configure or detect gateway support automatically.
+Trials keep the Python route and reject subscription credentials; the Go migration requires the same capture policy and support for the selected models.
+Shared generation events cannot supply trial costs when capture is suppressed.
+Results report unknown cost as null and retain runtime token counts when available.
+Trial credentials can upload logs and update the summary, status, usage and agent version of their own verified run without general task-write access.
+Failure callbacks can record the error and agent version together; they cannot change protected state or another run.
+Operator trial MCP tools also omit analytics payloads.
+Task content retrieval tools retain call metrics but omit content spans and free-text intent, so viewing a private transcript does not publish it through MCP analytics.
+
+Private trial tasks, logs, artifacts, and controls are available only to the launching operator or the sandbox bound to that task.
+Other project members do not discover them through ordinary task lists or searches, and trial ownership cannot be transferred.
+Polling preserves the runner's saved completion outcome, including cancellation, and reports the underlying task status separately.
+A trial stopped through the task controls records cancellation even when the agent has no final message or only an earlier partial response.
+A poll can recover a missing export without replacing an existing result.
+
+Trials cannot create or cancel report follow-up checks, or record their results. Check lists are unavailable for newly emitted private reports; the API returns an explicit capability error without invalidating the trial. Existing checks on live reports remain readable, including when the trial has privately edited that report. The trial prompt directs planned follow-up to private scratchpad entries.
+Private report writes must omit typed report links. Nonempty `links` on either an emit or edit are rejected before target lookup or judging and make the run ineligible for comparison. Ordinary report emissions retain link persistence and autostart gating.
+Private inbox lists support `count_only` and `include_source_metadata` like ordinary inbox lists. Opting out of source metadata applies to live reports, private edits and newly emitted private reports without invalidating the trial.
+
+Individual skill reads and markdown downloads serve the run's pinned candidate.
+Trial sandboxes can use stub skill bundles, which fetch each skill through those reads.
+Full-content bundles are rejected because they cannot apply the run's private candidate; ZIP exports remain unavailable to scoped trial credentials.
+
+The [live comparison plan and script](../../products/signals/eval/experiments/2026-09-long-running-agent-evals/PLAN.md#live-trial-operator-script) describe launch inputs, stored results, and supported scout capabilities.
+Keep downloaded prompts, memory, reports, and transcripts outside version control.
+
+### Reviewed scout rubrics
+
+New comparisons use `rubric_source: saved` and read the scout's reviewed rubric through the existing team-scoped rubric service.
+Generate suggestions in the rubric editor, review the proposed checks and their reference instructions, and explicitly save the selection before scoring.
+Revision zero contains unsaved defaults and cannot be scored, even when suggestion generation has completed.
+Only enabled saved `criteria` are judged; `generation.suggestions` remain drafts until selected and saved.
+Scoring never generates a rubric or falls back to the mock fixture.
+
+The saved rubric binds its criteria to the reference instructions, description, report rules and reference files captured during generation.
+Editing the scout, its references or a comparison candidate does not change that checklist.
+Only an explicit saved rubric update changes what future evaluations use.
+Rubrics without saved references, or with omitted or truncated reference content, must be regenerated, reviewed and saved before scoring.
+
+Starting a comparison freezes the full rubric document, enabled criteria, saved revision and governing references before launching scouts, so every variant uses the same requirements.
+Editing the saved rubric while a comparison runs does not change its grading checklist.
+The report and JSON export retain the frozen references and their generation identity for inspection.
+The [mock fixture reader](../../products/signals/backend/scout_harness/trial_rubrics.py) remains available for offline development.
+Existing mock snapshots and reports remain readable, and exact-ID retries reuse their saved request; a new evaluation ID requires the saved rubric.
+
+### Saved scoring and reports
+
+Starting a comparison includes scout execution and automatic judging, both of which incur model charges.
+The server waits until all selected runs reach a known terminal state before judging their saved evidence.
+The separate scoring endpoint remains available for existing runs and deliberate new scoring attempts.
+The request names a baseline and variant groups, with at most 20 distinct launches from the same scout, operator and saved starting context.
+Runs within a variant must use the same instructions, note, model, runtime, reasoning effort and service tier.
+The server freezes the rubric, bounded evidence, judge model and prompt version before dispatching the judge.
+Evidence includes instructions, starting history, captured reports, memory changes, summaries and available tool calls and results.
+Missing or truncated evidence is recorded as a limitation; private thoughts and reasoning are excluded from the extracted trace.
+Session titles and other recognized metadata updates are not tool evidence; unknown event formats still produce coverage limitations.
+Trace extraction removes exact repeated updates and duplicate output content, then shares the available evidence budget across the retained tool events in their original order. Verbose early output cannot consume the space reserved for later results; source-count and size limits remain explicit limitations.
+Tool trace fields use labelled text blocks that preserve string values, including quotes, line breaks and literal backslashes. This lets the judge quote returned prose without copying an extra layer of JSON escaping. Call identity, status, errors and inputs remain part of the same bounded source.
+
+The judge receives criteria, the fixed reference context and run evidence without variant labels or scout model settings.
+Candidate instructions and starting-context notes cannot remove or relax the saved rubric's requirements.
+Editable launch notes are instructions, so quoting their claims alone cannot prove execution. Saved starting history can establish applicability, but cannot prove actions taken in the evaluated run.
+Reference instructions define the requirements but cannot serve as evidence that the scout performed them.
+The complete judge input must fit the existing 120,000-character limit before dispatch; scoring rejects oversized inputs with an actionable error instead of truncating governing requirements or starting a paid call.
+It returns one verdict per criterion: pass, fail, unknown or not applicable.
+Pass, fail and not applicable require source references and exact quotations from the saved evidence.
+Unverifiable citations become unknown, and quoting an instruction alone cannot prove it was followed.
+When validation makes a verdict unknown, it replaces the model's summary with a notice to review the criterion results and validated evidence.
+Versions 6 through 8 distinguish missing source IDs, blank or mismatched quotations, instruction-only evidence and missing citations in the normalized reason. These reasons contain no rejected quotations or raw model output.
+New evaluations record judge version 8. A pass needs evidence for every applicable mandatory requirement and material claim. Explicit scope violations fail even when the returned counts look plausible; missing proof produces unknown. Lower confidence or a causal disclaimer cannot substitute for that proof. Supported composite record descriptions can identify sources, and incidental details do not defeat a criterion about material claims.
+Count claims must follow the query and observed identifiers: an aggregate alias or a distinct count of placeholder identifiers does not establish real users or entities. Citations must use the envelope's source IDs and exact text, decoding only the outer input envelope when copying embedded JSON or escaped strings.
+Version 8 uses high reasoning effort, at most 24,000 completion tokens per run, and a 240-second request timeout. It disables retries both in the caller and in the gateway's native OpenAI provider transport. Version 7 retains its 16,000-token limit and versions 1 through 6 retain their 8,000-token limit. Limit failures retain usage but no partial verdicts; versions 7 and 8 explain that the rubric size may need review. The 64,000-character verdict-document limit is unchanged.
+Pending versions 1 through 7 retain their original prompts, evidence envelopes, citation normalization and request limits. Versions 5 through 7 continue to use their separate, fixed reference context; previously saved snapshots and reports remain unchanged.
+Missing evidence is unknown; not applicable means the criterion does not apply to that run.
+The judge assesses the saved text and does not independently verify external sources or measure recall.
+
+A run's score is `pass / (pass + fail)`, or null when it has no decisive verdicts.
+A variant's score is the equal mean of its non-null run scores.
+Coverage is `(pass + fail) / (pass + fail + unknown)`; not applicable is excluded from both score and coverage denominators.
+Execution exclusions and judge errors have no quality score and are counted separately.
+A scout runner failure remains an execution exclusion even if its sandbox task completed; the saved trial outcome records the runner failure.
+Reports retain each run's verdicts, reasons, quotations and evidence limitations alongside aggregate counts.
+Baseline differences are withheld unless all selected runs were judged with complete, comparable verdicts.
+New reports include a best variant, a tie, or an inconclusive result, with an explanation.
+The best variant passes the most rubric checks across repeated runs. Each check has equal weight; cost and speed do not affect the result.
+A winner requires at least two variants, equal repeat counts, and complete judgments on the same applicable checks.
+Unknown verdicts, excluded runs, judge errors or different applicability make the conclusion inconclusive, even when a displayed pass rate is high.
+These conclusions describe the captured runs; they do not establish statistical significance or guarantee results on other data.
+Historical reports without a saved conclusion remain readable without inventing one.
+Shared starting history does not freeze the live project data read during each run.
+
+Start a comparison with `POST /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_comparison/`.
+Under the same scout URL, `trial_comparison_result/` reads its status and report, and `trial_comparison_history/` lists the operator's saved comparisons.
+`POST trial_comparison_resume/` recovers the same saved work without creating fresh scout runs or repeating claimed judge calls.
+Separate scoring of existing runs uses `POST /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_evaluation/`.
+Read the saved outcome with `GET /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_evaluation_result/?evaluation_id=...`.
+Reuse an evaluation ID only for the same request; a different request with that ID is rejected.
+Retries reuse saved work and do not repeat an attempted judge call automatically.
+Rate-limited judge calls retain an error with guidance to wait or check usage limits before starting a new evaluation. Scoring credentials remain bound to the scout task, so repeated evaluations also consume that task's gateway allowance.
+Polling reads the saved status or report without starting model calls.
+Every read remains restricted to the operator's current project and skill access.
+
+### Internal comparison UI
+
+Staff members in project 2 can open **Scouts > Compare scouts** to choose a scout, add prompt/model/effort variants, and set the number of runs per variant.
+The page submits one comparison containing at most 20 runs and shows deployment or scout compatibility blockers before launch.
+The server saves the variants, reviewed rubric and shared starting history before dispatch. Each run keeps its own private writable state.
+Once the comparison is accepted, execution and judging continue after the page closes.
+Progress distinguishes starting, running scouts, judging and completed results. Reloading reads saved state without starting another paid attempt.
+
+The current comparison is separate from the operator's run history. Active runs can be stopped; captured reports, memory changes and available usage can be exported as JSON.
+The report leads with the comparison conclusion and variant results. It shows average pass rates and counts of passed checks, failed checks and checks without enough evidence.
+Counts across repeated runs count each execution's checks, rather than distinct rubric definitions. Not-applicable checks remain separate.
+Individual runs are grouped by variant. Each run has compact criterion name/status rows; expand a criterion to read its explanation and supporting quotations.
+Saved rubric definitions, captured reference instructions and raw evidence remain available as supporting details.
+An explicit new judging attempt can reuse completed scout runs with the current saved rubric while keeping the old report available. It may charge for judging every run again.
+Browser storage keeps only scout, comparison, variant, baseline and launch IDs, scoped to the project and operator; prompts, labels, evidence and reports stay out of browser storage.
+Unsubmitted prompt edits are lost on reload. Accepted comparison plans and their status are recovered from the server.
+The setup, history and scoring endpoints enforce the staff/project restriction on the server, in addition to existing scout permissions.
+Shared instructions guide investigations but do not enforce date or file access limits.
+
 ## Postgres experiment ingestion
 
 The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.

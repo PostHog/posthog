@@ -23,6 +23,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
+import { isPrivateScoutTrialTool, isTaskContentReadTool } from '@/lib/tool-privacy'
 import {
     createExecTool,
     describeApiValidationError,
@@ -517,7 +518,13 @@ export class ToolExecutor {
             }
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
-            return handleToolError(error, tool.name, state.distinctId, sessionUuid)
+            return handleToolError(
+                error,
+                tool.name,
+                state.distinctId,
+                sessionUuid,
+                state.suppressAnalytics || isPrivateScoutTrialTool(tool.name) || isTaskContentReadTool(tool.name)
+            )
         }
     }
 
@@ -636,7 +643,17 @@ export class ToolExecutor {
             // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
             // exception fingerprint point at the real source instead of collapsing every
             // exec-routed failure into one opaque `exec` bucket.
-            return handleToolError(error, metricTool, state.distinctId, sessionUuid)
+            return handleToolError(
+                error,
+                metricTool,
+                state.distinctId,
+                sessionUuid,
+                state.suppressAnalytics ||
+                    isPrivateScoutTrialTool(metricTool) ||
+                    isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool) ||
+                    isTaskContentReadTool(metricTool) ||
+                    isTaskContentReadTool(execShape.$mcp_exec_target_tool)
+            )
         }
     }
 
@@ -812,7 +829,7 @@ export class ToolExecutor {
                 analyticsMeta
             )
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
-            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid)
+            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid, state.suppressAnalytics)
         }
     }
 }

@@ -77,6 +77,9 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                         stateManager.getAnalyticsContext().catch(() => undefined),
                         stateManager.getApiKey().catch(() => undefined),
                     ])
+                    if (!apiKey && config.apiKey?.startsWith('pha_')) {
+                        return
+                    }
                     const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}
 
                     getPostHogClient().capture({
@@ -96,6 +99,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                             $session_id: await sessionManager.getSessionUuid(sessionId),
                             ...properties,
                             is_impersonated: apiKey?.is_impersonated === true,
+                            suppress_analytics: apiKey?.suppress_analytics === true,
                         },
                     })
                 } catch {}
