@@ -299,7 +299,7 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == expected
 
     def test_web_via_session_authentication(self):
-        from rest_framework.authentication import SessionAuthentication
+        from posthog.auth import SessionAuthentication
 
         request = SimpleNamespace(META={}, headers={}, successful_authenticator=SessionAuthentication())
         assert get_event_source(request) == EventSource.WEB

@@ -5,14 +5,14 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
-from rest_framework.authentication import SessionAuthentication
+from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, TeamMemberStrictManagementPermission
 
@@ -24,7 +24,11 @@ from products.tasks.backend.presentation.serializers import (
     TasksUserConfigResponseSerializer,
 )
 
-_AUTH_CLASSES = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+_AUTH_CLASSES: list[type[BaseAuthentication]] = [
+    SessionAuthentication,
+    PersonalAPIKeyAuthentication,
+    OAuthAccessTokenAuthentication,
+]
 
 
 def _user_id(request: Request) -> int:

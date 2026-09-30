@@ -372,6 +372,32 @@ describe("RunBudgetGuard", () => {
     }
   });
 
+  test("denies every tool and fires the stop once, before the cap", async () => {
+    const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
+    const hook = guard.preToolUseHook();
+    guard.recordAssistantMessage(opusCall("m1", 1_700_000));
+    expect(guard.currentStage).toBe("critical");
+    expect(guard.exhausted).toBe(false);
+    expect(guard.takeStop()).toBe(false);
+    expect(await hook(spawn("Bash"), undefined, hookOptions())).toEqual({
+      continue: true,
+    });
+    guard.recordAssistantMessage(opusCall("m2", 100_000));
+    expect(guard.exhausted).toBe(true);
+    expect(guard.spentUsd).toBeLessThan(guard.capUsd);
+    expect(guard.takeStop()).toBe(true);
+    expect(guard.takeStop()).toBe(false);
+    for (const tool of [
+      "Bash",
+      "Edit",
+      "mcp__posthog-code-tools__git_signed_commit",
+    ]) {
+      expect(await hook(spawn(tool), undefined, hookOptions())).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" },
+      });
+    }
+  });
+
   test("leaves enough of the cap for the finishing work at critical", () => {
     const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
     guard.recordAssistantMessage(opusCall("m1", 1_400_000));

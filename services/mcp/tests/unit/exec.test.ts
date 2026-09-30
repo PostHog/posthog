@@ -11,10 +11,12 @@ import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     createExecTool,
     describeApiValidationError,
     describeExecCommand,
+    describeInputShape,
     describeValidationError,
     type ExecCommandMeta,
     type ExecInnerCallProperties,
@@ -56,6 +58,7 @@ function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObje
 
 const mockContext = {
     getDistinctId: async () => 'test-distinct-id',
+    api: { config: { apiToken: 'phx_test' } },
 } as unknown as Context
 
 function createExec(
@@ -1381,6 +1384,35 @@ describe('exec tool', () => {
             expect(parsed.properties.name.hint).toBeUndefined()
         })
 
+        // The 2026-08 rejections on over-long experiment descriptions came from
+        // exec-mode agents that had no way to see the 3,000-character cap: the
+        // generated schema carries `max(3000)`, but the summary the bare `schema`
+        // view always returns dropped every scalar constraint.
+        it.each(['experiment-create', 'experiment-update'])(
+            'keeps the description cap in the bare schema view and in info for %s',
+            async (name) => {
+                const base = GENERATED_TOOL_MAP[name]!()
+                const exec = createExec([makeMockTool({ name, schema: base.schema })])
+
+                const bare = JSON.parse((await exec.handler(mockContext, { command: `schema ${name}` })) as string)
+                expect(bare.properties.description).toMatchObject({ type: 'string', maxLength: 3000 })
+
+                // `info` summarizes only because these schemas overflow TOKEN_CHAR_LIMIT;
+                // the raw schema would carry `$schema` and nest the cap inside `anyOf`.
+                const info = JSON.parse((await exec.handler(mockContext, { command: `info --json ${name}` })) as string)
+                expect(info.inputSchema.$schema).toBeUndefined()
+                expect(info.inputSchema.properties.description).toMatchObject({ maxLength: 3000 })
+            }
+        )
+
+        // The cap is also stated in prose on all three description-taking tools, so an
+        // agent that reads only the tool description learns it without opening the
+        // schema. Pinned on `experiment-create-from-prompt`, the one whose schema the
+        // constraint assertions above do not cover.
+        it('states the description cap in prose for experiment-create-from-prompt', () => {
+            expect(getToolDefinition('experiment-create-from-prompt').description).toContain('3,000 characters')
+        })
+
         it('does not attach a drill-down directive when no field carries a hint', async () => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), count: z.number() }),
@@ -1824,8 +1856,41 @@ describe('exec tool', () => {
                 ])
 
                 await expect(exec.handler(mockContext, { command })).rejects.toThrow(
-                    /exists[\s\S]*endpoint:write[\s\S]*reauthorize[\s\S]*browser does not update MCP permissions/i
+                    /exists[\s\S]*endpoint:write[\s\S]*browser does not update MCP permissions/i
                 )
+            }
+        )
+
+        it.each([
+            { apiToken: 'pha_test', recovery: 'Reauthorize the PostHog MCP connection and approve these scopes.' },
+            {
+                apiToken: 'phx_test',
+                recovery:
+                    'Add these scopes to the personal API key. The change reaches this connection within 2 minutes, and reconnecting the client does not make it faster.',
+            },
+            {
+                apiToken: 'unrecognized-token',
+                recovery: 'Reauthorize the PostHog MCP connection, or add these scopes to the personal API key.',
+            },
+        ])(
+            'gives the scope recovery step for the connection credential ($apiToken)',
+            async ({ apiToken, recovery }) => {
+                const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
+                const scopeGated = [
+                    {
+                        name: 'endpoint-create',
+                        title: 'Create endpoint',
+                        description: 'Create a new endpoint',
+                        missingScopes: ['endpoint:write'],
+                    },
+                ]
+                const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, scopeGated)
+
+                await expect(exec.handler(context, { command: 'call endpoint-create {}' })).rejects.toThrow(recovery)
+                const search = JSON.parse(
+                    (await exec.handler(context, { command: 'search endpoint-create' })) as string
+                )
+                expect(search.hint).toContain(recovery)
             }
         )
 
@@ -2025,29 +2090,108 @@ describe('exec tool', () => {
         })
     })
 
-    describe('describeValidationError', () => {
-        it('surfaces the unaccepted top-level key on a union rejection without leaking values', () => {
-            // The switch-organization regression shape: a union rejection carries an
-            // empty issue path, so `inputKeys` is what makes the wrong alias diagnosable.
-            const schema = z.union([z.object({ orgId: z.string() }), z.object({ id: z.string() })])
-            const input = { organizationId: 'super-secret-org-uuid' }
-            const result = schema.safeParse(input, { reportInput: true })
-            expect(result.success).toBe(false)
+    describe('describeInputShape', () => {
+        const inputKeys = (input: unknown, schema?: z.ZodType): unknown =>
+            describeInputShape(input, schema).$mcp_input_keys
 
-            const detail = describeValidationError(result.error!, input, schema)
+        it('lists the top-level keys sorted, without values', () => {
+            const schema = z.object({ zeta: z.string(), alpha: z.number(), mid: z.object({ nested: z.string() }) })
+            const keys = inputKeys({ zeta: 'secret-value', alpha: 1, mid: { nested: 'also-secret' } }, schema)
 
-            expect(detail.inputKeys).toEqual(['organizationId'])
-            // Never record input values — the raw uuid must not appear anywhere.
-            expect(JSON.stringify(detail)).not.toContain('super-secret-org-uuid')
+            expect(keys).toEqual(['alpha', 'mid', 'zeta'])
+            expect(JSON.stringify(keys)).not.toContain('secret')
         })
 
+        it('caps the count at 20 and masks a key longer than 64 characters', () => {
+            const wide = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${String(i).padStart(2, '0')}`, i]))
+            const schema = z.object(Object.fromEntries(Object.keys(wide).map((key) => [key, z.number()])))
+            expect(inputKeys(wide, schema)).toHaveLength(20)
+
+            // A 100-character key is not a parameter spelling; it is recorded as masked, not truncated.
+            const long = 'x'.repeat(100)
+            expect(inputKeys({ [long]: 1 })).toEqual(['[redacted]'])
+        })
+
+        // `params.arguments` is an unvalidated cast until the schema runs; a string or
+        // array there is not an argument object, and walking one builds an entry per
+        // character or element.
+        it('records nothing for input that is not a plain object', () => {
+            expect(inputKeys('a'.repeat(1000))).toBeUndefined()
+            expect(inputKeys(['a', 'b'])).toBeUndefined()
+            expect(inputKeys(null)).toBeUndefined()
+        })
+
+        it('drops SDK-injected keys and masks a key that is not identifier-shaped', () => {
+            expect(
+                inputKeys({ context: {}, llm_model: 'x', conversation_id: 'c', id: 1 }, z.object({ id: z.number() }))
+            ).toEqual(['id'])
+            expect(inputKeys({ context: {}, id: 1 }, z.object({ context: z.string(), id: z.number() }))).toEqual([
+                'context',
+                'id',
+            ])
+            // Free text in a key name is caller text; the property records names only.
+            expect(inputKeys({ 'drop table users; --': 1, ok_key: 2 }, z.object({ ok_key: z.number() }))).toEqual([
+                'ok_key',
+                '[redacted]',
+            ])
+        })
+
+        it('records declared names before misspelled ones when the limit is reached', () => {
+            const declared = Object.fromEntries(
+                Array.from({ length: 20 }, (_, i) => [`d${String(i).padStart(2, '0')}`, i])
+            )
+            const schema = z.preprocess(
+                (value) => value,
+                z.object(Object.fromEntries(Object.keys(declared).map((key) => [key, z.number()])))
+            )
+            const keys = inputKeys({ aaa_misspelled: 1, ...declared }, schema)
+            expect(keys).toEqual(Object.keys(declared))
+        })
+
+        describe('aliases', () => {
+            const schema = z.preprocess(
+                normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+                z.preprocess(normalizeParamAliases({ key: ['flagKey'] }), z.object({ id: z.number(), key: z.string() }))
+            )
+
+            it('records each alias the normaliser relied on, from every alias layer', () => {
+                expect(describeInputShape({ flagKey: 'k', experimentId: 1 }, schema)).toEqual({
+                    $mcp_input_keys: ['experimentId', 'flagKey'],
+                    $mcp_input_aliases_used: ['experimentId:id', 'flagKey:key'],
+                })
+            })
+
+            // Mirrors the normaliser: a canonical the input already carries is never filled
+            // from an alias, and only the first alias in map order fills it. Recording the
+            // rest would count rescues that never happened.
+            it('records only the alias the normaliser relied on', () => {
+                expect(describeInputShape({ id: 5, experimentId: 5 }, schema)).not.toHaveProperty(
+                    '$mcp_input_aliases_used'
+                )
+                expect(describeInputShape({ experimentId: 1, experiment_id: 2 }, schema)).toMatchObject({
+                    $mcp_input_aliases_used: ['experimentId:id'],
+                })
+                expect(describeInputShape({ experimentId: 1 }, z.object({ id: z.number() }))).toEqual({
+                    $mcp_input_keys: ['[redacted]'],
+                })
+            })
+
+            it('never includes input values', () => {
+                expect(JSON.stringify(describeInputShape({ experimentId: 'secret-value' }, schema))).not.toContain(
+                    'secret-value'
+                )
+            })
+        })
+    })
+
+    describe('describeValidationError', () => {
         it('records field path + issue code for a wrong-typed field, still without values', () => {
             const schema = z.object({ projectId: z.number() })
             const input = { projectId: 'not-a-number' }
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input, schema)
+            const detail = describeValidationError(result.error!, schema)
 
             expect(detail.fields).toContain('projectId:invalid_type:string')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
@@ -2068,9 +2212,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input as Record<string, unknown>, schema).fields).toEqual([
-                expected,
-            ])
+            expect(describeValidationError(result.error!, schema).fields).toEqual([expected])
         })
 
         // The received type is only meaningful for the type-shaped codes; appending it
@@ -2081,7 +2223,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['description:too_big'])
+            expect(describeValidationError(result.error!, schema).fields).toEqual(['description:too_big'])
         })
 
         // A malformed array produces one issue per element. Collapsing indices keeps
@@ -2100,7 +2242,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const { fields } = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+            const { fields } = describeValidationError(result.error!, schema)
 
             expect(fields).toEqual(['series.N.event:invalid_type:number', 'dateRange:invalid_type:number'])
         })
@@ -2118,7 +2260,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+            const detail = describeValidationError(result.error!, schema)
 
             expect(detail.fields).toEqual(['params.*:invalid_type:number'])
             expect(JSON.stringify(detail)).not.toContain('sk-live-abc123')
@@ -2133,7 +2275,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['query.kind:invalid_value'])
+            expect(describeValidationError(result.error!, schema).fields).toEqual(['query.kind:invalid_value'])
         })
     })
 

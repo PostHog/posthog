@@ -1,5 +1,6 @@
 import json
 import threading
+from datetime import datetime, timedelta
 from io import StringIO
 from typing import Any
 
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -72,13 +74,19 @@ class _BatchCommandTestCase(BaseTest):
         return EnrichmentPromptConfig.objects.create(**params)
 
     def _fetch(
-        self, organization: Organization | None = None, payload: dict[str, Any] | list[Any] | None = None
+        self,
+        organization: Organization | None = None,
+        payload: dict[str, Any] | list[Any] | None = None,
+        fetched_at: datetime | None = None,
     ) -> OrganizationEnrichmentFetch:
-        return OrganizationEnrichmentFetch.objects.create(
+        fetch = OrganizationEnrichmentFetch.objects.create(
             organization=organization or self.organization,
             provider="harmonic",
             payload=payload if payload is not None else {"name": "Acme"},
         )
+        if fetched_at is not None:
+            OrganizationEnrichmentFetch.objects.filter(id=fetch.id).update(fetched_at=fetched_at)
+        return fetch
 
 
 class TestGatewayRetryBudget(_BatchCommandTestCase):
@@ -198,7 +206,7 @@ class TestKeysetPagination(_BatchCommandTestCase):
                 output={"is_ai": True},
             )
         fresh_org = Organization.objects.create(name="fresh")
-        self._fetch(organization=fresh_org)
+        self._fetch(organization=fresh_org, fetched_at=timezone.now() - timedelta(days=1))
         client = _mock_llm_client()
         out = StringIO()
 
@@ -211,6 +219,32 @@ class TestKeysetPagination(_BatchCommandTestCase):
 
         assert "attempted 1" in out.getvalue()
         assert EnrichmentLabelResult.objects.filter(organization=fresh_org).exists()
+
+    @parameterized.expand(
+        [
+            ("newest_first_under_a_limit", [5, 4, 3, 2, 1], {"limit": 3}, [2, 3, 4]),
+            ("ties_across_a_page_boundary", [1, 1, 1, 1, 1], {}, [0, 1, 2, 3, 4]),
+            ("older_than_the_lookback", [1, 15], {"lookback_days": 14}, [0]),
+        ]
+    )
+    def test_walks_candidates_newest_first_within_the_lookback(
+        self, _name: str, ages_in_days: list[int], options: dict[str, int], labeled_indexes: list[int]
+    ) -> None:
+        self._config()
+        now = timezone.now()
+        orgs = [Organization.objects.create(name=f"org-{i}") for i in range(len(ages_in_days))]
+        for org, age_days in zip(orgs, ages_in_days):
+            self._fetch(organization=org, fetched_at=now - timedelta(days=age_days))
+        client = _mock_llm_client()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}._ID_BATCH_SIZE", 2),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, **options)
+
+        labeled = set(EnrichmentLabelResult.objects.values_list("organization_id", flat=True))
+        assert labeled == {orgs[i].id for i in labeled_indexes}
 
 
 class TestAdvisoryLock(_BatchCommandTestCase):
@@ -707,7 +741,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         first_org = self.organization
         second_org = Organization.objects.create(name="Second")
         self._fetch(organization=first_org)
-        self._fetch(organization=second_org)
+        self._fetch(organization=second_org, fetched_at=timezone.now() - timedelta(days=1))
         client = _mock_llm_client()
 
         def _revoke_after_first(*args: Any, **kwargs: Any):
@@ -751,18 +785,17 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         # Regression: --limit used to count a declined org as "attempted" the moment it was
         # enumerated, before the consent check (which only ran later, at spend-time inside
         # _process). A declined org costs nothing, so with --limit 1 and a declined org sorting
-        # first by organization_id, the run used to exhaust its whole budget on that one free
+        # first, the run used to exhaust its whole budget on that one free
         # skip and never even enumerate the approved org behind it - zero verdicts, yet the
         # command still exited 0 (tried == 0 skips the "every attempted org failed" check). A
         # consent-filtered candidate count downstream can't tell that apart from a real failure.
         self._config()
-        org_x = Organization.objects.create(name="x")
-        org_y = Organization.objects.create(name="y")
-        declined_org, approved_org = sorted([org_x, org_y], key=lambda org: str(org.id))
+        declined_org = Organization.objects.create(name="declined")
+        approved_org = Organization.objects.create(name="approved")
         declined_org.is_ai_data_processing_approved = False
         declined_org.save(update_fields=["is_ai_data_processing_approved"])
         self._fetch(organization=declined_org)
-        self._fetch(organization=approved_org)
+        self._fetch(organization=approved_org, fetched_at=timezone.now() - timedelta(days=1))
         client = _mock_llm_client()
         out = StringIO()
 

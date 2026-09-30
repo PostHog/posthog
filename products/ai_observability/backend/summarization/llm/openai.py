@@ -4,12 +4,14 @@ when configured, else the Python LLM gateway."""
 from typing import Any, Literal
 
 import structlog
-from openai import APIError, Omit, OpenAI, omit
+from openai import APIConnectionError, APIError, Omit, OpenAI, omit
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from rest_framework import exceptions
 
+from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import build_openai_client, team_distinct_id
 from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
+from posthog.temporal.common.errors import NonReportableError
 
 from ..constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
 from ..models import OpenAIModel, SummarizationMode
@@ -19,8 +21,26 @@ from .schema import SummarizationResponse
 logger = structlog.get_logger(__name__)
 
 
+class SummarizationFailedError(exceptions.APIException, NonReportableError):
+    pass
+
+
 def _is_gpt5_model(model: OpenAIModel) -> bool:
     return str(model).startswith("gpt-5")
+
+
+def _provider_status(error: Exception) -> int | None:
+    status_code = getattr(error, "status_code", None)
+    return status_code if isinstance(status_code, int) else None
+
+
+def _failure_reason(error: Exception, status_code: int | None) -> str:
+    """A short reason a user can read and quote to support. Empty when we have nothing to add."""
+    if status_code is not None:
+        return f" (the model provider returned {status_code})"
+    if isinstance(error, APIConnectionError):
+        return " (we could not reach the model provider)"
+    return ""
 
 
 # Strict json_schema keeps the model's output parseable by SummarizationResponse without a
@@ -120,5 +140,30 @@ def summarize_with_openai(
     except exceptions.ValidationError:
         raise
     except Exception as e:
-        logger.exception("OpenAI API call failed", error=str(e), team_id=team_id, model=model)
-        raise exceptions.APIException("Failed to generate summary")
+        status_code = _provider_status(e)
+        reason = _failure_reason(e, status_code)
+        logger.exception(
+            "OpenAI API call failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            provider_status=status_code,
+            team_id=team_id,
+            model=model,
+            flex=flex,
+        )
+        # Capture here because no caller reports the raised exception: the exceptions-hog handler
+        # skips DRF APIExceptions, and the activity interceptor skips NonReportableError. The
+        # fingerprint gives a capacity refusal, a malformed request and a provider outage each
+        # their own issue.
+        capture_exception(
+            e,
+            additional_properties={
+                "$exception_fingerprint": f"aio_summarization.{type(e).__name__}"
+                + (f".{status_code}" if status_code is not None else ""),
+                "team_id": team_id,
+                "model": str(model),
+                "provider_status": status_code,
+                "flex": flex,
+            },
+        )
+        raise SummarizationFailedError(f"Failed to generate summary{reason}")
