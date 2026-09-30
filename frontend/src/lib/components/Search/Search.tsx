@@ -928,9 +928,6 @@ function SearchResults({
                                                                 // Plain clicks only. LinkPrimitive returns early on
                                                                 // metaKey/ctrlKey, so modifier clicks never get here and
                                                                 // are handled in the capture phase below instead.
-                                                                if (isFromPortal(e)) {
-                                                                    return
-                                                                }
                                                                 e.preventDefault()
                                                                 handleItemClick(item)
                                                             }}
@@ -955,10 +952,13 @@ function SearchResults({
                                                                             // new-tab behave identically: the palette
                                                                             // closes, the selection is captured, and
                                                                             // action items stay inert.
-                                                                            if (
-                                                                                (e.metaKey || e.ctrlKey) &&
-                                                                                !isFromPortal(e)
-                                                                            ) {
+                                                                            if (isFromPortal(e)) {
+                                                                                // Stop here, before the row's Link, so the
+                                                                                // portaled link keeps its own default action.
+                                                                                e.stopPropagation()
+                                                                                return
+                                                                            }
+                                                                            if (e.metaKey || e.ctrlKey) {
                                                                                 e.preventDefault()
                                                                                 handleItemClick(item, true)
                                                                             }
