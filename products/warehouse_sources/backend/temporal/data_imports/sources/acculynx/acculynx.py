@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterator
 from dataclasses import field
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import Any
 
 from requests import Response
@@ -166,7 +167,7 @@ def _job_pages(
             None,
             resume_hook=checkpoint,
             initial_paginator_state=initial_state,
-        ).add_filter(lambda row, current=window: _in_job_window(row, current))
+        ).add_filter(partial(_in_job_window, window=window))
         try:
             yield from resource
         except JobWindowTooLarge:

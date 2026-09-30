@@ -1,6 +1,6 @@
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from datetime import date
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -19,14 +19,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.acculynx.a
 from products.warehouse_sources.backend.temporal.data_imports.sources.acculynx.source import AcculynxSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+
+
+class SyncSourceResponse(Protocol):
+    primary_keys: list[str] | None
+
+    def items(self) -> Generator[list[dict[str, Any]], None, None]: ...
 
 
 @pytest.mark.parametrize("name, offset_param", [("contacts", "pageStartIndex"), ("lead_sources", "recordStartIndex")])
 def test_pagination_advances_by_returned_rows_and_stops_at_count(
     name: str,
     offset_param: str,
-    pipeline: Callable[..., SourceResponse],
+    pipeline: Callable[..., SyncSourceResponse],
     http_send: MagicMock,
     response: Callable[..., Response],
 ) -> None:
@@ -62,7 +67,7 @@ def test_empty_ranges_and_bad_envelopes_do_not_create_garbage_rows(
     body: dict[str, Any],
     status: int,
     error: str | None,
-    pipeline: Callable[..., SourceResponse],
+    pipeline: Callable[..., SyncSourceResponse],
     http_send: MagicMock,
     response: Callable[..., Response],
 ) -> None:
@@ -75,7 +80,7 @@ def test_empty_ranges_and_bad_envelopes_do_not_create_garbage_rows(
 
 
 def test_resume_stages_after_yield_and_replays_only_uncommitted_pages(
-    pipeline: Callable[..., SourceResponse],
+    pipeline: Callable[..., SyncSourceResponse],
     manager: ResumableSourceManager[AcculynxResumeConfig],
     http_send: MagicMock,
     response: Callable[..., Response],
@@ -100,7 +105,7 @@ def test_resume_stages_after_yield_and_replays_only_uncommitted_pages(
 
 
 def test_jobs_split_before_offset_cap_without_duplicate_boundary_rows(
-    pipeline: Callable[..., SourceResponse],
+    pipeline: Callable[..., SyncSourceResponse],
     manager: ResumableSourceManager[AcculynxResumeConfig],
     http_send: MagicMock,
     response: Callable[..., Response],
@@ -132,7 +137,7 @@ def test_jobs_split_before_offset_cap_without_duplicate_boundary_rows(
 
 
 def test_unsplittable_job_day_fails_instead_of_truncating(
-    pipeline: Callable[..., SourceResponse],
+    pipeline: Callable[..., SyncSourceResponse],
     manager: ResumableSourceManager[AcculynxResumeConfig],
     http_send: MagicMock,
     response: Callable[..., Response],
@@ -171,7 +176,7 @@ def test_child_rows_have_parent_keys_and_use_documented_selectors(
     parent: str,
     child: str,
     data: dict[str, Any],
-    pipeline: Callable[..., SourceResponse],
+    pipeline: Callable[..., SyncSourceResponse],
     http_send: MagicMock,
     response: Callable[..., Response],
 ) -> None:
@@ -202,7 +207,7 @@ def test_child_rows_have_parent_keys_and_use_documented_selectors(
 
 
 def test_payments_explode_each_group_without_parent_key_collisions(
-    pipeline: Callable[..., SourceResponse],
+    pipeline: Callable[..., SyncSourceResponse],
     http_send: MagicMock,
     response: Callable[..., Response],
 ) -> None:
@@ -238,7 +243,7 @@ def test_payments_explode_each_group_without_parent_key_collisions(
 
 
 def test_fanout_resume_skips_completed_parents_and_keeps_the_current_parent(
-    pipeline: Callable[..., SourceResponse],
+    pipeline: Callable[..., SyncSourceResponse],
     manager: ResumableSourceManager[AcculynxResumeConfig],
     http_send: MagicMock,
     response: Callable[..., Response],
@@ -275,7 +280,7 @@ def test_fanout_resume_skips_completed_parents_and_keeps_the_current_parent(
 @pytest.mark.parametrize("status", [404, 416])
 def test_missing_job_children_do_not_prevent_other_jobs_from_syncing(
     status: int,
-    pipeline: Callable[..., SourceResponse],
+    pipeline: Callable[..., SyncSourceResponse],
     http_send: MagicMock,
     response: Callable[..., Response],
 ) -> None:
@@ -300,7 +305,7 @@ def test_missing_job_children_do_not_prevent_other_jobs_from_syncing(
 
 
 def test_appointments_walk_bounded_date_windows_for_every_calendar(
-    pipeline: Callable[..., SourceResponse],
+    pipeline: Callable[..., SyncSourceResponse],
     http_send: MagicMock,
     response: Callable[..., Response],
 ) -> None:
@@ -333,8 +338,8 @@ def test_transport_retries_transient_statuses_and_classifies_auth_failures(
     http_send: MagicMock,
     response: Callable[..., Response],
 ) -> None:
-    delays = []
-    monkeypatch.setattr(RESTClient._send_request.retry, "sleep", delays.append)
+    delays: list[float] = []
+    monkeypatch.setattr(RESTClient._send_request.retry, "sleep", delays.append)  # type: ignore[attr-defined]
     attempts = 0
 
     def send(request: PreparedRequest, **_: Any) -> Response:
