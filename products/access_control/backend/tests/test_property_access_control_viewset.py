@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from posthog.test.base import APIBaseTest
 
 from django.test import SimpleTestCase
@@ -9,6 +11,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.serializers import PropertyAccessControlUpdateSerializer
 from products.access_control.backend.property_access_control import PropertyAccessLevel, get_restricted_property_names
 
@@ -227,6 +230,52 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["access_level"] == PropertyAccessLevel.READ.value
         assert str(response.json()["role"]) == str(role.id)
+
+    @parameterized.expand([("default",), ("member",), ("role",)])
+    def test_shared_ai_rule_remains_visible_in_settings(self, scope: str) -> None:
+        sibling = Team.objects.create(organization=self.organization, project_id=self.team.project_id)
+        definition = PropertyDefinition.objects.create(
+            team=sibling,
+            project_id=self.team.project_id,
+            name="$ai_input",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        sibling_rule = PropertyAccessControl.objects.create(
+            team=sibling, property_definition=definition, access_level="read"
+        )
+        subject: dict[str, str] = {}
+        query: dict[str, str] = {}
+        if scope == "member":
+            subject["organization_member"] = str(self.organization_membership.id)
+            query["member_id"] = str(self.organization_membership.id)
+        elif scope == "role":
+            self._grant_role_based_access()
+            role = Role.objects.create(name="Analyst", organization=self.organization)
+            subject["role"] = str(role.id)
+            query["role_id"] = str(role.id)
+
+        response = self.client.post(
+            self.url, {"ai_property": "$ai_input", "access_level": "none", **subject}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        settings_url = f"/api/projects/{self.team.project_id}/access_control_{scope}_properties/"
+        listed = self.client.get(settings_url, query)
+        assert listed.status_code == status.HTTP_200_OK
+        assert listed.json()["results"] == [
+            {
+                "property_definition_id": str(definition.id),
+                "property": "$ai_input",
+                "property_type": "event",
+                "access_level": "none",
+            }
+        ]
+
+        delete_query = urlencode({"property_definition_id": str(definition.id), **subject})
+        deleted = self.client.delete(f"{self.url}?{delete_query}")
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        assert self.client.get(settings_url, query).json()["results"] == []
+        sibling_rule.refresh_from_db()
+        assert sibling_rule.access_level == "read"
 
     def test_update_existing_rule(self):
         # create a rule
