@@ -193,6 +193,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
+    WorkflowFromDestination: () =>
+        import('../../products/workflows/frontend/Workflows/fromDestination/WorkflowFromDestinationScene'),
     Broadcasts: () => import('../../products/workflows/frontend/Broadcasts/BroadcastsScene'),
     Broadcast: () => import('../../products/workflows/frontend/Broadcasts/BroadcastScene'),
 }

@@ -11,7 +11,7 @@ import api from 'lib/api'
 import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
-import { getIntegrationNameFromKind } from 'lib/integrations/utils'
+import { IntegrationConnectSurface, getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +26,8 @@ export type IntegrationConfigureProps = {
     integration?: string
     beforeRedirect?: () => void
     allowClear?: boolean
+    /** Where the connect click started, for the integration connect funnel. */
+    connectSurface?: IntegrationConnectSurface
 }
 
 export function IntegrationChoice({
@@ -36,6 +38,7 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
     allowClear = true,
+    connectSurface = 'pipeline_config',
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind, newIntegrationModalId, slackAvailable } =
         useValues(integrationsLogic)
@@ -123,7 +126,7 @@ export function IntegrationChoice({
                 to: api.integrations.authorizeUrl({ kind, next: redirectUrl }),
                 disableClientSideRouting: true,
                 onClick: () => {
-                    reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
+                    reportIntegrationConnectClicked(kind, kind, connectSurface)
                     beforeRedirect?.()
                 },
                 label: integrationsOfKind?.length
