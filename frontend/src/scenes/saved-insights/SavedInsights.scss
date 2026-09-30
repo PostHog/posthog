@@ -38,9 +38,9 @@
                 padding-left: 1.5rem !important;
 
                 > :last-child {
-                    order: initial !important;
-                    align-self: center !important;
                     flex-wrap: nowrap !important;
+                    align-self: center !important;
+                    order: initial !important;
                     margin-left: 0 !important;
                 }
             }

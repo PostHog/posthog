@@ -34,4 +34,32 @@ describe('HomeTab', () => {
         render(<HomeTab />)
         expect(screen.getByText(expectedContent)).toBeInTheDocument()
     })
+
+    it('keeps the selected dashboard visible while team data refreshes', () => {
+        initKeaTests()
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            home_tab_dashboard: 42,
+        })
+        teamLogic.actions.loadCurrentTeam()
+        expect(teamLogic.values.currentTeamLoading).toBe(true)
+
+        render(<HomeTab />)
+
+        expect(screen.getByText('Home dashboard 42')).toBeInTheDocument()
+        expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    it('shows the initial loading state before a team is available', () => {
+        initKeaTests()
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+        teamLogic.actions.loadCurrentTeam()
+
+        render(<HomeTab />)
+
+        expect(screen.getByLabelText('Loading product analytics Home')).toBeInTheDocument()
+        expect(screen.queryByText('PostHog Home')).not.toBeInTheDocument()
+    })
 })

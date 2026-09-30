@@ -341,8 +341,11 @@ export function SavedInsights(): JSX.Element {
     }
 
     const createHomeDashboardWithAI = (): void => {
+        if (dashboardCreationLoading) {
+            return
+        }
         closeSceneDashboardChoiceModal()
-        setAsHomeTabDashboardAfterCreation(true)
+        setAsHomeTabDashboardAfterCreation(true, true)
         addDashboard({
             name: 'My product analytics dashboard',
             description: '',

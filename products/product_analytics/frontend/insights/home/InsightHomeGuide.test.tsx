@@ -26,9 +26,9 @@ describe('InsightHomeGuide', () => {
         const query = getDefaultQuery(InsightType.FUNNELS, false)
         const draft = JSON.stringify(query)
         router.actions.push('/insights/new', { homeGuide: InsightType.FUNNELS, foo: 'bar' }, { q: draft })
-        render(<InsightHomeGuide query={query} />)
+        const { container } = render(<InsightHomeGuide query={query} />)
 
-        fireEvent.click(screen.getByRole('button', { name: 'close' }))
+        fireEvent.click(container.querySelector('[data-attr="insight-home-guide-dismiss"]')!)
 
         expect(screen.queryByText('Build a funnel')).not.toBeInTheDocument()
         expect(router.values.searchParams).toEqual({ foo: 'bar' })
@@ -37,11 +37,11 @@ describe('InsightHomeGuide', () => {
 
     it('only renders a known guide for its matching query type', () => {
         router.actions.push('/insights/new', { homeGuide: InsightType.FUNNELS }, { insight: InsightType.FUNNELS })
-        const { rerender } = render(<InsightHomeGuide query={getDefaultQuery(InsightType.PATHS, false)} />)
-        expect(screen.queryByText('Build a funnel')).not.toBeInTheDocument()
+        const { container, rerender } = render(<InsightHomeGuide query={getDefaultQuery(InsightType.PATHS, false)} />)
+        expect(container).toBeEmptyDOMElement()
 
         router.actions.push('/insights/new', { homeGuide: 'toString' }, { insight: InsightType.FUNNELS })
         rerender(<InsightHomeGuide query={getDefaultQuery(InsightType.FUNNELS, false)} />)
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(container).toBeEmptyDOMElement()
     })
 })

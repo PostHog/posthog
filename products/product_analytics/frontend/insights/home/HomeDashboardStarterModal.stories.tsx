@@ -32,6 +32,7 @@ export const WithCustomDashboard: Story = {
 
 export const CreatingWithAI: Story = {
     args: { hasCustomDashboard: true, creatingWithAI: true },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const AIUnavailable: Story = {

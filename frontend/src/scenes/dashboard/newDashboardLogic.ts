@@ -20,9 +20,11 @@ import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     legacyEntityToNode,
@@ -38,6 +40,7 @@ import {
     DashboardTile,
     DashboardType,
     JsonType,
+    SidePanelTab,
 } from '~/types'
 
 import { WEBSITE_METRICS_METRIC_CARD_TILES } from 'products/dashboards/frontend/websiteMetricsMetricCardTemplate'
@@ -154,6 +157,7 @@ export interface newDashboardLogicValues {
     newDashboardTouched: boolean
     newDashboardTouches: Record<string, boolean>
     newDashboardValidationErrors: DeepPartialMap<NewDashboardForm, ValidationErrorType>
+    openAIAfterCreation: boolean
     redirectAfterCreation: boolean
     setAsHomeTabDashboardAfterCreation: boolean
     showNewDashboardErrors: boolean
@@ -188,7 +192,11 @@ export interface newDashboardLogicActions {
     setActiveDashboardTemplate: (template: DashboardTemplateType) => {
         template: DashboardTemplateType
     }
-    setAsHomeTabDashboardAfterCreation: (setAsHomeTabDashboard: boolean) => {
+    setAsHomeTabDashboardAfterCreation: (
+        setAsHomeTabDashboard: boolean,
+        openAI?: boolean
+    ) => {
+        openAI: boolean
         setAsHomeTabDashboard: boolean
     }
     setIsLoading: (isLoading: boolean) => {
@@ -235,8 +243,10 @@ export interface newDashboardLogicActions {
     submitNewDashboardSuccessWithResult: (
         result: DashboardType,
         variables?: DashboardTemplateVariableType[],
-        setAsHomeTabDashboard?: boolean
+        setAsHomeTabDashboard?: boolean,
+        openAI?: boolean
     ) => {
+        openAI: boolean | undefined
         result: DashboardType
         setAsHomeTabDashboard: boolean | undefined
         variables: DashboardTemplateVariableType[] | undefined
@@ -274,7 +284,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
         setRedirectAfterCreation: (redirect: boolean) => ({ redirect }),
-        setAsHomeTabDashboardAfterCreation: (setAsHomeTabDashboard: boolean) => ({ setAsHomeTabDashboard }),
+        setAsHomeTabDashboardAfterCreation: (setAsHomeTabDashboard: boolean, openAI: boolean = false) => ({
+            setAsHomeTabDashboard,
+            openAI,
+        }),
         createDashboardFromTemplate: (
             template: DashboardTemplateType,
             variables: DashboardTemplateVariableType[],
@@ -289,8 +302,9 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         submitNewDashboardSuccessWithResult: (
             result: DashboardType,
             variables?: DashboardTemplateVariableType[],
-            setAsHomeTabDashboard?: boolean
-        ) => ({ result, variables, setAsHomeTabDashboard }),
+            setAsHomeTabDashboard?: boolean,
+            openAI?: boolean
+        ) => ({ result, variables, setAsHomeTabDashboard, openAI }),
     }),
     reducers({
         isLoading: [
@@ -339,6 +353,13 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 hideNewDashboardModal: () => false,
             },
         ],
+        openAIAfterCreation: [
+            false,
+            {
+                setAsHomeTabDashboardAfterCreation: (_, { openAI }) => openAI,
+                hideNewDashboardModal: () => false,
+            },
+        ],
     }),
     forms(({ actions, props, values }) => ({
         newDashboard: {
@@ -354,6 +375,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 // would mislabel as "Could not create dashboard" even though creation succeeded.
                 const redirectAfterCreation = values.redirectAfterCreation
                 const setAsHomeTabDashboard = values.setAsHomeTabDashboardAfterCreation
+                const openAI = values.openAIAfterCreation
                 actions.setAsHomeTabDashboardAfterCreation(false)
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
@@ -371,7 +393,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     actions.resetNewDashboard()
                     const queryBasedDashboard = getQueryBasedDashboard(result)
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
-                    actions.submitNewDashboardSuccessWithResult(result, undefined, setAsHomeTabDashboard)
+                    actions.submitNewDashboardSuccessWithResult(result, undefined, setAsHomeTabDashboard, openAI)
                     tryShowMCPHint('dashboards.create', {
                         derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
                     })
@@ -408,9 +430,17 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         showVariableSelectModal: ({ template }) => {
             actions.setActiveDashboardTemplate(template)
         },
-        submitNewDashboardSuccessWithResult: ({ result, setAsHomeTabDashboard }) => {
+        submitNewDashboardSuccessWithResult: ({ result, setAsHomeTabDashboard, openAI }) => {
             if (setAsHomeTabDashboard) {
                 teamLogic.actions.updateCurrentTeam({ home_tab_dashboard: result.id })
+            }
+            if (openAI) {
+                sidePanelStateLogic.actions.openSidePanel(
+                    SidePanelTab.Max,
+                    autoRunMaxPrompt(
+                        `Help me build my product analytics Home dashboard (dashboard ID ${result.id}). Ask me what I want to track, then add relevant insights to this dashboard.`
+                    )
+                )
             }
         },
     })),

@@ -599,7 +599,13 @@ const TEAM_PROPERTIES_MAPPING: Record<
     },
     home_tab_dashboard: (change) => {
         if (!change.after) {
-            return null
+            return {
+                description: [
+                    <>
+                        reset the <em>Home tab dashboard</em> to the generic view
+                    </>,
+                ],
+            }
         }
 
         return {

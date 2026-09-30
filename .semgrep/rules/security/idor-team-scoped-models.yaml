@@ -139,6 +139,7 @@ rules:
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
+                              |TeamHomeTabDashboardConfig
                               |DataColorTheme
                               |DataModelingJob
                               |DataQualityCheck
@@ -580,6 +581,7 @@ rules:
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
+                        |TeamHomeTabDashboardConfig
                         |DataColorTheme
                         |DataModelingJob
                         |DataQualityCheck

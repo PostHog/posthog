@@ -1,5 +1,7 @@
 from django.db import models
 
+from posthog.models.scoping.manager import EnvironmentScopedManager
+
 
 class TeamHomeTabDashboardConfig(models.Model):
     """Per-team choice of which dashboard the product analytics Home tab shows. Lives on a Team
@@ -20,6 +22,8 @@ class TeamHomeTabDashboardConfig(models.Model):
         related_name="+",
         help_text="Dashboard shown on the product analytics Home tab. Null shows the built-in generic view.",
     )
+
+    objects = EnvironmentScopedManager()
 
     class Meta:
         app_label = "dashboards"

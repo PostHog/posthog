@@ -640,17 +640,15 @@ class Team(UUIDTClassicModel):
     def home_tab_dashboard(self) -> "Dashboard | None":
         from products.dashboards.backend.models import TeamHomeTabDashboardConfig
 
-        from .extensions import get_or_create_team_extension
-
-        return get_or_create_team_extension(self, TeamHomeTabDashboardConfig).dashboard
+        config = TeamHomeTabDashboardConfig.objects.for_team(self.pk).select_related("dashboard").first()
+        dashboard = config.dashboard if config else None
+        return dashboard if dashboard and not dashboard.deleted and dashboard.team_id == self.pk else None
 
     @home_tab_dashboard.setter
     def home_tab_dashboard(self, dashboard: "Dashboard | None") -> None:
         from products.dashboards.backend.models import TeamHomeTabDashboardConfig
 
-        from .extensions import get_or_create_team_extension
-
-        config = get_or_create_team_extension(self, TeamHomeTabDashboardConfig)
+        config, _ = TeamHomeTabDashboardConfig.objects.for_team(self.pk).get_or_create(team_id=self.pk)
         config.dashboard = dashboard
         config.save(update_fields=["dashboard"])
 
