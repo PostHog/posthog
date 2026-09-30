@@ -31,7 +31,7 @@ export interface ReportCheckRowData {
     cancellable: boolean
 }
 
-/** A soak window in the words the copy needs: "7 days", "36 hours", "90 minutes". */
+/** A soak window in the words the copy needs: "7 days", "1 day 12 hours", "2 hours", "45 minutes". */
 function soakLabel(minutes: number): string {
     const plural = (n: number, unit: string): string => `${n} ${n === 1 ? unit : `${unit}s`}`
     if (minutes < 60) {
