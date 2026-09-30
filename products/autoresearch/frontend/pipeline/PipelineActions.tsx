@@ -19,16 +19,18 @@ export function PipelineActions(): JSX.Element | null {
                     icon={<IconPlay />}
                     size="small"
                     onClick={() => resumePipeline()}
+                    data-attr="autoresearch-model-resume"
                     loading={pipelineLoading}
                 >
                     Resume
                 </LemonButton>
-            ) : pipeline.status === 'running' || pipeline.status === 'bootstrapping' ? (
+            ) : pipeline.status === 'running' ? (
                 <LemonButton
                     type="secondary"
                     icon={<IconPause />}
                     size="small"
                     onClick={() => pausePipeline()}
+                    data-attr="autoresearch-model-pause"
                     loading={pipelineLoading}
                 >
                     Pause

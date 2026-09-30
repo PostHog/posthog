@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonTab, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -29,6 +31,7 @@ export const scene: SceneExport = {
 export function AutoresearchPipelineScene(): JSX.Element {
     const { pipeline, pipelineLoading, activeTab } = useValues(autoresearchPipelineLogic)
     const { setActiveTab } = useActions(autoresearchPipelineLogic)
+    const isEnabled = useFeatureFlag('AUTORESEARCH')
 
     const tabs: LemonTab<AutoresearchPipelineTab>[] = [
         { key: 'overview', label: 'Overview', content: <OverviewTab /> },
@@ -40,6 +43,10 @@ export function AutoresearchPipelineScene(): JSX.Element {
 
     const heading = pipeline?.name ?? (pipelineLoading ? '' : 'Model')
     const subheading = pipeline ? `Predict ${pipeline.target_event} within ${pipeline.horizon_days ?? '?'}d` : undefined
+
+    if (!isEnabled) {
+        return <NotFound object="Autoresearch" caption="This feature is not enabled for your project." />
+    }
 
     return (
         <SceneContent>

@@ -19,6 +19,7 @@ export function TrainingTab(): JSX.Element {
                 <LemonButton
                     type="primary"
                     onClick={() => void startTraining()}
+                    data-attr="autoresearch-model-train"
                     loading={startTrainingResultLoading}
                     disabledReason={startTrainingResultLoading ? 'Starting…' : undefined}
                 >

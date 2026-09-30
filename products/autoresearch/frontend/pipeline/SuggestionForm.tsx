@@ -36,6 +36,7 @@ export function SuggestionForm(): JSX.Element {
                     type="primary"
                     size="small"
                     onClick={() => submitSuggestion()}
+                    data-attr="autoresearch-model-suggest"
                     loading={suggestionSubmitResultLoading}
                     disabledReason={!suggestionDraft.trim() ? 'Write a suggestion first' : undefined}
                 >

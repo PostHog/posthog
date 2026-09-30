@@ -20,6 +20,7 @@ export function ScoreNowButton(): JSX.Element | null {
             size="small"
             icon={<IconRefresh />}
             onClick={() => scoreNow()}
+            data-attr="autoresearch-model-score"
             loading={scoreResultLoading}
             disabledReason={hasChampion ? undefined : 'Train a champion model first'}
         >
