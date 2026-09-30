@@ -104,6 +104,7 @@ const generationStats = sampleStats({
     inputTokens: 2,
     outputTokens: 218,
     cacheReadTokens: 56210,
+    cacheWriteTokens: 1585,
     latencyMs: 3539,
 })
 
@@ -195,6 +196,7 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
         },
     },
     thread: {
+        status: 'ready',
         turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, messages: anthropicThinkingMessages, error: null }],
         activeTurnId: TRACE_ID,
     },
@@ -207,6 +209,7 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
                 depth: 0,
                 startMs: 0,
                 durationMs: 3539,
+                hasError: false,
             },
         ],
         totalMs: 3539,

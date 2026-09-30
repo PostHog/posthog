@@ -1,12 +1,15 @@
+import { cn } from 'lib/utils/css-classes'
+
 import { toDisplayText } from './jsonText'
 
 export interface KeyValueTableProps {
     entries: [string, unknown][]
+    className?: string
 }
 
-export function KeyValueTable({ entries }: KeyValueTableProps): JSX.Element {
+export function KeyValueTable({ entries, className }: KeyValueTableProps): JSX.Element {
     return (
-        <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
+        <dl className={cn('m-0 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm', className)}>
             {entries.map(([key, value]) => (
                 <div key={key} className="contents">
                     <dt className="font-mono text-xs text-[var(--data-color-1)]">{key}</dt>

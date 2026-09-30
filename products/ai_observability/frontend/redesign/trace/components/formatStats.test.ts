@@ -1,4 +1,12 @@
-import { compactStatParts, formatCostUsd, formatLatencyMs, formatTokenCounts, statParts } from './formatStats'
+import { NodeStats } from '../types'
+import {
+    compactStatParts,
+    formatCacheTokens,
+    formatCostUsd,
+    formatLatencyMs,
+    formatTokenCounts,
+    statParts,
+} from './formatStats'
 
 describe('formatStats', () => {
     it.each([
@@ -33,15 +41,43 @@ describe('formatStats', () => {
         expect(formatTokenCounts(inputTokens, outputTokens)).toBe(expected)
     })
 
-    it('omits unknown stats instead of rendering them as zero', () => {
-        expect(
-            statParts({ costUsd: null, inputTokens: null, outputTokens: null, cacheReadTokens: null, latencyMs: 90 })
-        ).toEqual(['90ms'])
-        expect(
-            statParts({ costUsd: 0, inputTokens: 10, outputTokens: 5, cacheReadTokens: 8, latencyMs: null })
-        ).toEqual(['$0', '10 in · 5 out', '8 cached'])
-        expect(
-            compactStatParts({ costUsd: 0, inputTokens: 10, outputTokens: 5, cacheReadTokens: 8, latencyMs: null })
-        ).toEqual(['15 tok'])
+    it.each([
+        [56210, 1585, '56,210 read · 1,585 write'],
+        [1024, null, '1,024 read'],
+        [null, 29, '29 write'],
+        [0, 0, null],
+        [null, null, null],
+    ])('formats %p cache reads and %p cache writes as %p', (readTokens, writeTokens, expected) => {
+        expect(formatCacheTokens(readTokens, writeTokens)).toBe(expected)
+    })
+
+    const unknownStats: NodeStats = {
+        costUsd: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+        latencyMs: null,
+    }
+
+    it.each<[string, Partial<NodeStats>, string[]]>([
+        ['latency only', { latencyMs: 90 }, ['90ms']],
+        [
+            'zero cost with cache reads and writes',
+            { costUsd: 0, inputTokens: 10, outputTokens: 5, cacheReadTokens: 8, cacheWriteTokens: 3 },
+            ['$0', '10 in · 5 out', '8 cache read', '3 cache write'],
+        ],
+        ['cache writes without reads', { cacheWriteTokens: 1585 }, ['1,585 cache write']],
+    ])('statParts omits unknown stats for %s', (_label, stats, expected) => {
+        expect(statParts({ ...unknownStats, ...stats })).toEqual(expected)
+    })
+
+    it.each<[string, Partial<NodeStats>, string[]]>([
+        ['both token sides', { inputTokens: 10, outputTokens: 5, cacheReadTokens: 8 }, ['15 tok']],
+        ['only input tokens', { inputTokens: 10 }, ['10 tok']],
+        ['only output tokens', { outputTokens: 5, latencyMs: 420 }, ['420ms', '5 tok']],
+        ['nothing known', {}, []],
+    ])('compactStatParts with %s', (_label, stats, expected) => {
+        expect(compactStatParts({ ...unknownStats, ...stats })).toEqual(expected)
     })
 })

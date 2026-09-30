@@ -17,6 +17,7 @@ export const FIXTURE_STATS: NodeStats = {
     inputTokens: 1840,
     outputTokens: 212,
     cacheReadTokens: 1024,
+    cacheWriteTokens: 312,
     latencyMs: 2310,
 }
 
@@ -25,6 +26,7 @@ const noStats: NodeStats = {
     inputTokens: null,
     outputTokens: null,
     cacheReadTokens: null,
+    cacheWriteTokens: null,
     latencyMs: null,
 }
 
@@ -75,6 +77,7 @@ export const FIXTURE_TREE: TraceTreeNode[] = [
                     inputTokens: 1822,
                     outputTokens: 212,
                     cacheReadTokens: 1024,
+                    cacheWriteTokens: 312,
                     latencyMs: 1880,
                 },
                 hasError: false,
@@ -165,8 +168,24 @@ export const FIXTURE_TURN: ConversationTurn = {
 }
 
 export const FIXTURE_TIMELINE_ROWS: TimelineRowData[] = [
-    { id: 'trace-1', kind: 'trace', name: 'answer-billing-question', depth: 0, startMs: 0, durationMs: 2310 },
-    { id: 'span-retrieve', kind: 'span', name: 'retrieve-context', depth: 1, startMs: 10, durationMs: 410 },
+    {
+        id: 'trace-1',
+        kind: 'trace',
+        name: 'answer-billing-question',
+        depth: 0,
+        startMs: 0,
+        durationMs: 2310,
+        hasError: false,
+    },
+    {
+        id: 'span-retrieve',
+        kind: 'span',
+        name: 'retrieve-context',
+        depth: 1,
+        startMs: 10,
+        durationMs: 410,
+        hasError: false,
+    },
     {
         id: 'embed-question',
         kind: 'embedding',
@@ -174,9 +193,26 @@ export const FIXTURE_TIMELINE_ROWS: TimelineRowData[] = [
         depth: 2,
         startMs: 20,
         durationMs: 120,
+        hasError: false,
     },
-    { id: 'span-search', kind: 'span', name: 'search-help-center', depth: 2, startMs: 150, durationMs: 260 },
-    { id: 'gen-answer', kind: 'generation', name: 'draft-answer', depth: 1, startMs: 430, durationMs: 1880 },
+    {
+        id: 'span-search',
+        kind: 'span',
+        name: 'search-help-center',
+        depth: 2,
+        startMs: 150,
+        durationMs: 260,
+        hasError: false,
+    },
+    {
+        id: 'gen-answer',
+        kind: 'generation',
+        name: 'draft-answer',
+        depth: 1,
+        startMs: 430,
+        durationMs: 1880,
+        hasError: false,
+    },
 ]
 
 const INLINE_CHART_SVG =
@@ -242,21 +278,103 @@ export const FIXTURE_ATTACHMENT_PARTS: MessagePart[] = [
     FIXTURE_ATTACHMENT_DATA_FILE,
 ]
 
+const EVAL_TIMESTAMP = '2026-09-01T10:16:40Z'
+
 export const FIXTURE_EVALS: EvalResult[] = [
     {
-        id: 'e1',
+        id: 'e-answers',
         name: 'Answers the question',
-        verdict: 'pass',
+        href: '/evaluations/answers-the-question',
+        outcome: 'pass',
+        label: 'True',
         reasoning: 'Explains the seat change directly.',
+        timestamp: EVAL_TIMESTAMP,
+        isBackfill: false,
+        target: null,
     },
     {
-        id: 'e2',
+        id: 'e-grounded',
         name: 'Grounded in articles',
-        verdict: 'fail',
+        href: '/evaluations/grounded-in-articles',
+        outcome: 'fail',
+        label: 'False',
         reasoning: 'Mentions a date not present in the context.',
+        timestamp: EVAL_TIMESTAMP,
+        isBackfill: false,
+        target: null,
     },
-    { id: 'e3', name: 'Refund policy', verdict: 'na', reasoning: null },
+    {
+        id: 'e-competitor',
+        name: 'Mentions a competitor',
+        href: '/evaluations/mentions-a-competitor',
+        outcome: 'pass',
+        label: 'False',
+        reasoning: 'No other product is named.',
+        timestamp: EVAL_TIMESTAMP,
+        isBackfill: true,
+        target: null,
+    },
+    {
+        id: 'e-helpfulness',
+        name: 'Helpfulness',
+        href: '/evaluations/helpfulness',
+        outcome: 'unrated',
+        label: '0.82',
+        reasoning: 'Clear and specific, but does not say how to reduce seats.',
+        timestamp: EVAL_TIMESTAMP,
+        isBackfill: false,
+        target: null,
+    },
+    {
+        id: 'e-sentiment',
+        name: 'User sentiment',
+        href: null,
+        outcome: 'pass',
+        label: 'Positive',
+        reasoning: null,
+        timestamp: EVAL_TIMESTAMP,
+        isBackfill: false,
+        target: null,
+    },
+    {
+        id: 'e-refund',
+        name: 'Refund policy',
+        href: '/evaluations/refund-policy',
+        outcome: 'inconclusive',
+        label: 'Skipped',
+        reasoning: 'The question is not about refunds.',
+        timestamp: EVAL_TIMESTAMP,
+        isBackfill: false,
+        target: null,
+    },
+    {
+        id: 'e-tone',
+        name: 'Tone',
+        href: '/evaluations/tone',
+        outcome: 'error',
+        label: 'Error',
+        reasoning: 'The judge model returned an empty response.',
+        timestamp: EVAL_TIMESTAMP,
+        isBackfill: false,
+        target: null,
+    },
+    {
+        id: 'e-policy',
+        name: 'Follows billing policy',
+        href: '/evaluations/follows-billing-policy',
+        outcome: 'pending',
+        label: 'Running',
+        reasoning: null,
+        timestamp: EVAL_TIMESTAMP,
+        isBackfill: false,
+        target: null,
+    },
 ]
+
+export const FIXTURE_TRACE_EVALS: EvalResult[] = FIXTURE_EVALS.map((result) => ({
+    ...result,
+    target: { label: 'draft-answer', nodeId: 'gen-answer' },
+}))
 
 const FIXTURE_SPAN_DETAIL: SampleNodeDetail = {
     content: { kind: 'io', input: { question: 'Why did my invoice go up?' }, output: { hits: 3 } },
@@ -283,7 +401,7 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
     tree: FIXTURE_TREE,
     initialNodeId: 'gen-answer',
     details: {
-        'trace-1': FIXTURE_SPAN_DETAIL,
+        'trace-1': { ...FIXTURE_SPAN_DETAIL, evals: { status: 'ready', results: FIXTURE_TRACE_EVALS } },
         'span-retrieve': FIXTURE_SPAN_DETAIL,
         'embed-question': FIXTURE_SPAN_DETAIL,
         'span-search': FIXTURE_SPAN_DETAIL,
@@ -295,7 +413,7 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
             raw: { event: '$ai_generation', id: 'gen-answer' },
         },
     },
-    thread: { turns: [FIXTURE_TURN], activeTurnId: FIXTURE_TURN.id },
+    thread: { status: 'ready', turns: [FIXTURE_TURN], activeTurnId: FIXTURE_TURN.id },
     timeline: { rows: FIXTURE_TIMELINE_ROWS, totalMs: 2310 },
 }
 

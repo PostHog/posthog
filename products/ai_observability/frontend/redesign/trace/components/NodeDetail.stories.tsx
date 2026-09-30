@@ -25,6 +25,7 @@ const base: Omit<NodeDetailProps, 'tab' | 'onTabChange'> = {
     evals: { status: 'ready', results: FIXTURE_EVALS },
     raw: { event: '$ai_generation', id: 'gen-answer' },
     onViewInThread: () => {},
+    onSelectNode: () => {},
 }
 
 const failedGeneration = langchainCerebrasImageError.tree[0].children[0].children[0]
@@ -56,7 +57,10 @@ export const GenerationDetailsTab: Story = { args: { ...base, initialTab: 'detai
 export const SpanDetailsTab: Story = {
     args: { ...base, node: span, properties: FIXTURE_SPAN_PROPERTIES, onViewInThread: null, initialTab: 'details' },
 }
-export const LoadingContent: Story = { args: { ...base, content: { kind: 'loading' } } }
+export const LoadingContent: Story = {
+    args: { ...base, content: { kind: 'loading' } },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 export const ContentLoadError: Story = {
     args: { ...base, content: { kind: 'error', message: 'This step could not be loaded. Try again later.' } },
 }
@@ -83,5 +87,6 @@ export const FailedGenerationWithImage: Story = {
         ...langchainCerebrasImageError.details[failedGeneration.id],
         node: failedGeneration,
         onViewInThread: () => {},
+        onSelectNode: () => {},
     },
 }

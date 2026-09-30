@@ -6,12 +6,13 @@ import { MessageList } from './MessageList'
 const meta: Meta<typeof MessageList> = {
     title: 'Scenes-App/AI observability/Trace view/Message list',
     component: MessageList,
-    args: { emptyText: 'No input captured.' },
+    args: { emptyText: 'No input captured.', defaultOpen: 'all' },
 }
 export default meta
 
 type Story = StoryObj<typeof MessageList>
 
 export const Generation: Story = { args: { messages: FIXTURE_GENERATION_MESSAGES } }
+export const LastOpen: Story = { args: { messages: FIXTURE_GENERATION_MESSAGES, defaultOpen: 'last' } }
 export const Empty: Story = { args: { messages: [] } }
 export const Narrow: Story = { args: { messages: FIXTURE_GENERATION_MESSAGES }, decorators: [withWidth(420)] }

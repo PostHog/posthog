@@ -182,12 +182,21 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
         },
     },
     thread: {
+        status: 'ready',
         turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, messages: cerebrasLabelMessages, error: ERROR_MESSAGE }],
         activeTurnId: TRACE_ID,
     },
     timeline: {
         rows: [
-            { id: SPAN_ID, kind: 'span', name: 'RunnableSequence', depth: 0, startMs: 0, durationMs: 2008 },
+            {
+                id: SPAN_ID,
+                kind: 'span',
+                name: 'RunnableSequence',
+                depth: 0,
+                startMs: 0,
+                durationMs: 2008,
+                hasError: true,
+            },
             {
                 id: GENERATION_ID,
                 kind: 'generation',
@@ -195,6 +204,7 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
                 depth: 1,
                 startMs: 3,
                 durationMs: 2004,
+                hasError: true,
             },
         ],
         totalMs: 2008,

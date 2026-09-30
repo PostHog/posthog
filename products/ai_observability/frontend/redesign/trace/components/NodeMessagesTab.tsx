@@ -22,8 +22,18 @@ export function NodeMessagesTab({ content, error, onViewInThread }: NodeMessages
                 <ErrorCallout message={content.message} />
             ) : content.kind === 'messages' ? (
                 <>
-                    <MessageSection title="Input" messages={content.input} emptyText="No input captured." />
-                    <MessageSection title="Output" messages={content.output} emptyText="No output captured." />
+                    <MessageSection
+                        title="Input"
+                        messages={content.input}
+                        emptyText="No input captured."
+                        defaultOpen="last"
+                    />
+                    <MessageSection
+                        title="Output"
+                        messages={content.output}
+                        emptyText="No output captured."
+                        defaultOpen="all"
+                    />
                 </>
             ) : (
                 <IOPanel input={content.input} output={content.output} />

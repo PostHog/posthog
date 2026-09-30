@@ -3,7 +3,7 @@ import { ReactNode } from 'react'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { NodeProperties, TraceTreeNode } from '../types'
-import { formatCostUsd, formatLatencyMs, formatTokenCounts } from './formatStats'
+import { formatCacheTokens, formatCostUsd, formatLatencyMs, formatTokenCounts } from './formatStats'
 
 const UNKNOWN_VALUE = <span className="text-secondary">Unknown</span>
 
@@ -27,6 +27,7 @@ export function NodePropertyList({ node, properties }: NodePropertyListProps): J
         />
     )
     const tokens = formatTokenCounts(stats.inputTokens, stats.outputTokens) ?? UNKNOWN_VALUE
+    const cache = formatCacheTokens(stats.cacheReadTokens, stats.cacheWriteTokens)
     const latency = stats.latencyMs !== null ? formatLatencyMs(stats.latencyMs) : UNKNOWN_VALUE
     const cost = stats.costUsd !== null ? formatCostUsd(stats.costUsd) : UNKNOWN_VALUE
     const prompt =
@@ -41,6 +42,7 @@ export function NodePropertyList({ node, properties }: NodePropertyListProps): J
                   ['Provider', properties.provider],
                   ['Temperature', properties.temperature !== null ? String(properties.temperature) : null],
                   ['Tokens', tokens],
+                  ['Cache', cache],
                   ['Latency', latency],
                   ['Cost', cost],
                   ['Prompt', prompt],
@@ -54,6 +56,7 @@ export function NodePropertyList({ node, properties }: NodePropertyListProps): J
                   ['Person', properties.person],
                   ['Latency', latency],
                   ['Tokens', tokens],
+                  ['Cache', cache],
                   ['Cost', cost],
                   ['Session', properties.sessionId],
               ]

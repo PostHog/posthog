@@ -6,7 +6,7 @@ export interface TraceSplitViewProps {
     tree: TraceTreeNode[]
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
-    detail: NodeDetailProps | null
+    detail: Omit<NodeDetailProps, 'onSelectNode'> | null
 }
 
 export function TraceSplitView({ tree, selectedNodeId, onSelectNode, detail }: TraceSplitViewProps): JSX.Element {
@@ -16,9 +16,9 @@ export function TraceSplitView({ tree, selectedNodeId, onSelectNode, detail }: T
                 <aside className="w-full shrink-0 @3xl:w-72">
                     <TraceTree nodes={tree} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
                 </aside>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 @3xl:sticky @3xl:top-[var(--scene-title-section-height,50px)] @3xl:max-h-[calc(100vh-var(--scene-title-section-height,50px))] @3xl:overflow-y-auto">
                     {detail ? (
-                        <NodeDetail {...detail} />
+                        <NodeDetail {...detail} onSelectNode={onSelectNode} />
                     ) : (
                         <p className="m-0 text-secondary">Select a step to see its details.</p>
                     )}

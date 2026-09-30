@@ -34,6 +34,20 @@ export const ToolCall: Story = {
         part: { kind: 'toolCall', name: 'lookup_invoice', args: { month: '2026-08' }, result: { total_usd: 180 } },
     },
 }
+export const ToolCallMultilineArgs: Story = {
+    args: {
+        part: {
+            kind: 'toolCall',
+            name: 'run_python',
+            args: {
+                language: 'python',
+                code: 'def total(rows):\n    return sum(row["amount"] for row in rows)\n\nprint(total(invoice_rows))',
+                timeout_s: 30,
+            },
+            result: { stdout: '180\n', exit_code: 0 },
+        },
+    },
+}
 export const ToolCallError: Story = {
     args: {
         part: {

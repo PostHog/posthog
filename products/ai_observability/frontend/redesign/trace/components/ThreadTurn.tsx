@@ -24,6 +24,17 @@ export function ThreadTurn({ turn, isActive, onSelectMessage }: ThreadTurnProps)
 
     return (
         <div className={cn('flex flex-col gap-3', isActive && 'rounded-lg p-3 ring-1 ring-[var(--color-accent)]')}>
+            {hiddenCount > 0 ? (
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    className="self-center"
+                    onClick={() => setShowInternal(!showInternal)}
+                    data-attr="trace-view-toggle-hidden-messages"
+                >
+                    {showInternal ? 'Hide internal messages' : `Show ${pluralize(hiddenCount, 'internal message')}`}
+                </LemonButton>
+            ) : null}
             {visible.map((message) => {
                 const sourceNodeId = message.sourceNodeId
                 return (
@@ -34,17 +45,6 @@ export function ThreadTurn({ turn, isActive, onSelectMessage }: ThreadTurnProps)
                     />
                 )
             })}
-            {hiddenCount > 0 ? (
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    className="self-center"
-                    onClick={() => setShowInternal(!showInternal)}
-                    data-attr="trace-view-toggle-hidden-messages"
-                >
-                    {showInternal ? 'Hide hidden messages' : `Show ${pluralize(hiddenCount, 'hidden message')}`}
-                </LemonButton>
-            ) : null}
             {turn.error ? <ErrorCallout message={turn.error} /> : null}
         </div>
     )

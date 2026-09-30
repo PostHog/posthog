@@ -25,7 +25,7 @@ export function TraceSummaryBar({ traceId, timestamp, person, totals }: TraceSum
                             time={timestamp}
                             timestampStyle="absolute"
                             formatDate="MMM D, YYYY"
-                            formatTime="h:mm A"
+                            formatTime="HH:mm"
                         />
                     </LemonTag>
                     {person ? <PersonChip person={person} /> : null}

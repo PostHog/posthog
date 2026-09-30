@@ -6,9 +6,10 @@ import { EvalResultRow } from './EvalResultRow'
 
 export interface EvalResultListProps {
     evals: EvalsState
+    onSelectNode: (nodeId: string) => void
 }
 
-export function EvalResultList({ evals }: EvalResultListProps): JSX.Element {
+export function EvalResultList({ evals, onSelectNode }: EvalResultListProps): JSX.Element {
     if (evals.status === 'loading') {
         return <LemonSkeleton repeat={3} className="h-8" />
     }
@@ -21,7 +22,7 @@ export function EvalResultList({ evals }: EvalResultListProps): JSX.Element {
     return (
         <ul className="m-0 list-none divide-y divide-primary rounded border border-primary bg-surface-primary p-0">
             {evals.results.map((result) => (
-                <EvalResultRow key={result.id} result={result} />
+                <EvalResultRow key={result.id} result={result} onSelectNode={onSelectNode} />
             ))}
         </ul>
     )

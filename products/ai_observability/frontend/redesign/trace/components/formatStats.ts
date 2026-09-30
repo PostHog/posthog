@@ -39,13 +39,22 @@ export function formatTokenCounts(inputTokens: number | null, outputTokens: numb
     return sides.length > 0 ? sides.join(' · ') : null
 }
 
+export function formatCacheTokens(readTokens: number | null, writeTokens: number | null): string | null {
+    const sides = [
+        readTokens ? `${humanFriendlyNumber(readTokens, 0)} read` : null,
+        writeTokens ? `${humanFriendlyNumber(writeTokens, 0)} write` : null,
+    ].filter((side): side is string => side !== null)
+    return sides.length > 0 ? sides.join(' · ') : null
+}
+
 export function statParts(stats: NodeStats): string[] {
     const tokens = formatTokenCounts(stats.inputTokens, stats.outputTokens)
     return [
         stats.costUsd !== null ? formatCostUsd(stats.costUsd) : null,
         tokens,
         stats.latencyMs !== null ? formatLatencyMs(stats.latencyMs) : null,
-        stats.cacheReadTokens ? `${humanFriendlyNumber(stats.cacheReadTokens, 0)} cached` : null,
+        stats.cacheReadTokens ? `${humanFriendlyNumber(stats.cacheReadTokens, 0)} cache read` : null,
+        stats.cacheWriteTokens ? `${humanFriendlyNumber(stats.cacheWriteTokens, 0)} cache write` : null,
     ].filter((part): part is string => part !== null)
 }
 

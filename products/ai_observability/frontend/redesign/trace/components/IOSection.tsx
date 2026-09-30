@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { toDisplayText } from './jsonText'
+import { isPlainObject, toDisplayText } from './jsonText'
 import { KeyValueTable } from './KeyValueTable'
 
 type IOFormat = 'pretty' | 'json'
@@ -10,10 +10,6 @@ type IOFormat = 'pretty' | 'json'
 export interface IOSectionProps {
     title: string
     value: unknown
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export function IOSection({ title, value }: IOSectionProps): JSX.Element {
@@ -48,7 +44,7 @@ export function IOSection({ title, value }: IOSectionProps): JSX.Element {
                 ) : typeof value === 'string' ? (
                     <p className="m-0 whitespace-pre-wrap break-words text-sm">{value}</p>
                 ) : (
-                    <pre className="m-0 overflow-auto text-xs">{toDisplayText(value)}</pre>
+                    <pre className="m-0 max-h-96 overflow-auto text-xs">{toDisplayText(value)}</pre>
                 )}
             </div>
         </section>

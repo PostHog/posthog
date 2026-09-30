@@ -9,6 +9,7 @@ export interface NodeStats {
     inputTokens: number | null
     outputTokens: number | null
     cacheReadTokens: number | null
+    cacheWriteTokens: number | null
     latencyMs: number | null
 }
 
@@ -53,6 +54,10 @@ export interface ConversationTurn {
     error: string | null
 }
 
+export type ConversationState =
+    | { status: 'loading' }
+    | { status: 'ready'; turns: ConversationTurn[]; activeTurnId: string | null }
+
 export type NodeContent =
     | { kind: 'messages'; input: ThreadMessage[]; output: ThreadMessage[] }
     | { kind: 'io'; input: unknown; output: unknown }
@@ -69,13 +74,29 @@ export interface NodeProperties {
     person: string | null
 }
 
-export type EvalVerdict = 'pass' | 'fail' | 'na'
+/**
+ * `unrated` is a result with a value but no verdict, such as a numeric score without a passing rule.
+ * `inconclusive` is a run that produced no usable value: skipped, not applicable, no score, unknown sentiment.
+ */
+export type EvalOutcome = 'pass' | 'fail' | 'error' | 'pending' | 'inconclusive' | 'unrated'
+
+export interface EvalTarget {
+    label: string
+    nodeId: string
+}
 
 export interface EvalResult {
     id: string
     name: string
-    verdict: EvalVerdict
+    href: string | null
+    outcome: EvalOutcome
+    /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
+    label: string
     reasoning: string | null
+    timestamp: string
+    isBackfill: boolean
+    /** Null when the result targets the node being viewed. */
+    target: EvalTarget | null
 }
 
 export type EvalsState =
@@ -95,4 +116,5 @@ export interface TimelineRowData {
     depth: number
     startMs: number
     durationMs: number | null
+    hasError: boolean
 }

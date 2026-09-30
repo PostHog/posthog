@@ -17,6 +17,7 @@ export interface NodeDetailProps {
     evals: EvalsState
     raw: Record<string, unknown>
     onViewInThread: (() => void) | null
+    onSelectNode: (nodeId: string) => void
 }
 
 export function NodeDetail(props: NodeDetailProps): JSX.Element {
@@ -51,7 +52,7 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                         key: 'evals',
                         label: 'Evals',
                         'data-attr': 'trace-view-detail-tab-evals',
-                        content: <EvalResultList evals={props.evals} />,
+                        content: <EvalResultList evals={props.evals} onSelectNode={props.onSelectNode} />,
                     },
                     {
                         key: 'raw',

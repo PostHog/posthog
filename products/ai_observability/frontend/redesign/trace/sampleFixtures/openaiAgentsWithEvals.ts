@@ -95,21 +95,53 @@ const answerOutput: ThreadMessage[] = [
     },
 ]
 
-const planEval: EvalResult = {
-    id: `${EVALUATION_ID}-2864bb23-1838-757a-f65e-83f2826cbbc2`,
-    name: 'no_fabrication',
-    verdict: 'pass',
-    reasoning: 'The tool call result matches the cited hotel data exactly.',
+const EVALUATION_HREF = `/evaluations/${EVALUATION_ID}`
+
+function evalRun(runId: string, timestamp: string, reasoning: string): EvalResult {
+    return {
+        id: `${EVALUATION_ID}-${runId}`,
+        name: 'no_fabrication',
+        href: EVALUATION_HREF,
+        outcome: 'pass',
+        label: 'True',
+        reasoning,
+        timestamp,
+        isBackfill: false,
+        target: null,
+    }
 }
 
-const answerEval: EvalResult = {
-    id: `${EVALUATION_ID}-65ed9ea6-398b-7c59-32bc-a32577820244`,
-    name: 'no_fabrication',
-    verdict: 'pass',
-    reasoning: 'The final answer only cites facts present in the tool output.',
+const planEval = evalRun(
+    '2864bb23-1838-757a-f65e-83f2826cbbc2',
+    '2026-09-24T10:18:41.508Z',
+    'The tool call result matches the cited hotel data exactly.'
+)
+
+const answerEval = evalRun(
+    '65ed9ea6-398b-7c59-32bc-a32577820244',
+    '2026-09-24T10:18:44.917Z',
+    'The final answer only cites facts present in the tool output.'
+)
+
+const answerHelpfulness: EvalResult = {
+    id: 'b7d31f02-6a4e-4c19-9e58-0f2c7a91d3e6',
+    name: 'helpfulness',
+    href: '/evaluations/b7d31f02-6a4e-4c19-9e58-0f2c7a91d3e6',
+    outcome: 'unrated',
+    label: '0.9',
+    reasoning: 'Covers both hotels and the visa question, with prices and cancellation terms.',
+    timestamp: '2026-09-20T03:02:11.000Z',
+    isBackfill: true,
+    target: null,
 }
 
-export const openaiAgentsEvals: EvalResult[] = [planEval, answerEval]
+export const openaiAgentsEvals: EvalResult[] = [planEval, answerEval, answerHelpfulness]
+
+const traceEvals: EvalResult[] = [
+    { ...planEval, target: { label: GENERATION_NAME, nodeId: PLAN_GENERATION_ID } },
+    { ...answerEval, target: { label: GENERATION_NAME, nodeId: ANSWER_GENERATION_ID } },
+    { ...answerHelpfulness, target: { label: GENERATION_NAME, nodeId: ANSWER_GENERATION_ID } },
+]
 
 const planStats = sampleStats({ costUsd: 0.0016, inputTokens: 853, outputTokens: 49, latencyMs: 2376 })
 const answerStats = sampleStats({ costUsd: 0.0079, inputTokens: 1616, outputTokens: 586, latencyMs: 5995 })
@@ -190,14 +222,14 @@ function generationDetail(
     timestamp: string,
     input: ThreadMessage[],
     output: ThreadMessage[],
-    evalResult: EvalResult,
+    evalResults: EvalResult[],
     rawProperties: Record<string, unknown>
 ): SampleNodeDetail {
     return {
         content: { kind: 'messages', input, output },
         error: null,
         properties: { ...traceProperties, timestamp, provider: 'openai' },
-        evals: { status: 'ready', results: [evalResult] },
+        evals: { status: 'ready', results: evalResults },
         raw: {
             event: '$ai_generation',
             id,
@@ -228,7 +260,7 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
             content: { kind: 'io', input: null, output: null },
             error: null,
             properties: traceProperties,
-            evals: { status: 'ready', results: openaiAgentsEvals },
+            evals: { status: 'ready', results: traceEvals },
             raw: {
                 id: TRACE_ID,
                 createdAt: TRACE_TIMESTAMP,
@@ -265,7 +297,7 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
                 },
             },
         },
-        [PLAN_GENERATION_ID]: generationDetail(PLAN_GENERATION_ID, TRACE_TIMESTAMP, planInput, planOutput, planEval, {
+        [PLAN_GENERATION_ID]: generationDetail(PLAN_GENERATION_ID, TRACE_TIMESTAMP, planInput, planOutput, [planEval], {
             $ai_response_id: 'resp_t6UzdDRX3JALmEQgkpmbjNstpSizyPOtAY3iwM7txHDAbsznsI',
             $ai_input_tokens: 853,
             $ai_output_tokens: 49,
@@ -297,7 +329,7 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
             ANSWER_TIMESTAMP,
             answerInput,
             answerOutput,
-            answerEval,
+            [answerEval, answerHelpfulness],
             {
                 $ai_response_id: 'resp_klx2gvAQZnLtNaXUgbFxg2L7Az15GoJGFMNBt6s847mQpP4v54',
                 $ai_input_tokens: 1616,
@@ -307,6 +339,7 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
         ),
     },
     thread: {
+        status: 'ready',
         turns: [
             {
                 id: TRACE_ID,
@@ -326,10 +359,35 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
                 depth: 0,
                 startMs: 0,
                 durationMs: 8374,
+                hasError: false,
             },
-            { id: PLAN_GENERATION_ID, kind: 'generation', name: MODEL, depth: 1, startMs: 1, durationMs: 2376 },
-            { id: TOOL_SPAN_ID, kind: 'span', name: 'search_hotels', depth: 1, startMs: 2377, durationMs: null },
-            { id: ANSWER_GENERATION_ID, kind: 'generation', name: MODEL, depth: 1, startMs: 2378, durationMs: 5995 },
+            {
+                id: PLAN_GENERATION_ID,
+                kind: 'generation',
+                name: MODEL,
+                depth: 1,
+                startMs: 1,
+                durationMs: 2376,
+                hasError: false,
+            },
+            {
+                id: TOOL_SPAN_ID,
+                kind: 'span',
+                name: 'search_hotels',
+                depth: 1,
+                startMs: 2377,
+                durationMs: null,
+                hasError: false,
+            },
+            {
+                id: ANSWER_GENERATION_ID,
+                kind: 'generation',
+                name: MODEL,
+                depth: 1,
+                startMs: 2378,
+                durationMs: 5995,
+                hasError: false,
+            },
         ],
         totalMs: 8374,
     },

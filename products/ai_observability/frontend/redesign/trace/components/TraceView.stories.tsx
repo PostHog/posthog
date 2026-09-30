@@ -112,7 +112,11 @@ export const SampleLangChainImageError: Story = {
 export const SampleOpenAIAgentsWithEvals: Story = {
     args: { fixture: openaiAgentsWithEvals, initialMode: 'spans' },
 }
-export const Loading: StoryObj<typeof TraceView> = { render: () => <TraceView status="loading" /> }
+export const Loading: StoryObj<typeof TraceView> = {
+    render: () => <TraceView status="loading" />,
+    decorators: [withWidth(1100)],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 export const LoadError: StoryObj<typeof TraceView> = {
     render: () => (
         <TraceView status="error" errorMessage="This trace is outside the loaded time range." backHref="/traces" />

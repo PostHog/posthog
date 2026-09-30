@@ -196,6 +196,7 @@ function stepNode(step: AgentStep): TraceTreeNode {
             inputTokens: 2,
             outputTokens: step.outputTokens,
             cacheReadTokens: step.cacheReadTokens,
+            cacheWriteTokens: step.cacheCreationTokens,
         }),
         hasError: false,
         children: step.bash ? [bashNode(step.bash)] : [],
@@ -285,13 +286,22 @@ function stepTimelineRows(step: AgentStep): TimelineRowData[] {
         depth: 0,
         startMs: step.offsetMs,
         durationMs: null,
+        hasError: false,
     }
     if (!step.bash) {
         return [generation]
     }
     return [
         generation,
-        { id: step.bash.spanId, kind: 'span', name: 'Bash', depth: 1, startMs: step.offsetMs, durationMs: null },
+        {
+            id: step.bash.spanId,
+            kind: 'span',
+            name: 'Bash',
+            depth: 1,
+            startMs: step.offsetMs,
+            durationMs: null,
+            hasError: false,
+        },
     ]
 }
 
@@ -345,6 +355,7 @@ export const claudeCodePluginSession: SampleTraceFixture = {
         ...STEPS.flatMap(stepDetails),
     ]),
     thread: {
+        status: 'ready',
         turns: [
             {
                 id: TRACE_ID,

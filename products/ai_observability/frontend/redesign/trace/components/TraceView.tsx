@@ -1,4 +1,4 @@
-import { ConversationTurn, TimelineRowData, TraceMode, TraceTreeNode } from '../types'
+import { ConversationState, TimelineRowData, TraceMode, TraceTreeNode } from '../types'
 import { NodeDetailProps } from './NodeDetail'
 import { Thread } from './Thread'
 import { TraceHeader, TraceHeaderProps } from './TraceHeader'
@@ -18,8 +18,8 @@ export interface TraceViewReadyProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onSelectFromView: (id: string) => void
-    detail: NodeDetailProps | null
-    thread: { turns: ConversationTurn[]; activeTurnId: string | null }
+    detail: Omit<NodeDetailProps, 'onSelectNode'> | null
+    thread: ConversationState
     timeline: { rows: TimelineRowData[]; totalMs: number }
 }
 
@@ -48,11 +48,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     detail={props.detail}
                 />
             ) : props.mode === 'thread' ? (
-                <Thread
-                    turns={props.thread.turns}
-                    activeTurnId={props.thread.activeTurnId}
-                    onSelectMessage={props.onSelectFromView}
-                />
+                <Thread conversation={props.thread} onSelectMessage={props.onSelectFromView} />
             ) : (
                 <TraceTimeline
                     rows={props.timeline.rows}
