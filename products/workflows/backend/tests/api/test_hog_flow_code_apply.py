@@ -17,6 +17,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.tests.api.test_hog_flow_code_check import (
     IN_FLIGHT_COUNT,
@@ -343,11 +344,15 @@ class TestHogFlowCodeApply(APIBaseTest):
             "abort_action": "exit_node",
         }
         HogFlow.objects.filter(team=self.team, key="crm-sync").update(**stored)
+        HogFlowOptimization.objects.for_team(self.team.id).create(
+            team=self.team, hog_flow=self._workflow("crm-sync"), enabled=True
+        )
 
         assert self._applied(_webhook_file(duration="2d"))["result"] == "updated"
 
         after = self._workflow("crm-sync")
         assert {field: getattr(after, field) for field in stored} == stored
+        assert HogFlowOptimization.objects.for_team(self.team.id).get(hog_flow=after).enabled
 
     def test_a_request_with_more_than_the_file_is_refused(self) -> None:
         self._applied(_webhook_file(), status.HTTP_201_CREATED)
