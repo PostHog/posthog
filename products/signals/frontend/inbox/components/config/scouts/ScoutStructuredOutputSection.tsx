@@ -50,6 +50,7 @@ export function ScoutStructuredOutputSection({
     const changed = JSON.stringify(schema) !== JSON.stringify(saved)
     const fieldNames = scoutStructuredOutputFieldNames(saved)
     const headerFields = fieldNames.slice(0, HEADER_FIELD_LIMIT)
+    const tagType = config.emit ? 'option' : 'muted'
     const disabledReason = updating ? 'Saving scout settings' : undefined
 
     return (
@@ -68,21 +69,17 @@ export function ScoutStructuredOutputSection({
                                     {saved ? (
                                         <>
                                             {headerFields.map((name) => (
-                                                <LemonTag
-                                                    key={name}
-                                                    size="small"
-                                                    type={config.emit ? 'option' : 'muted'}
-                                                >
+                                                <LemonTag key={name} size="small" type={tagType}>
                                                     {name}
                                                 </LemonTag>
                                             ))}
                                             {fieldNames.length > headerFields.length ? (
-                                                <LemonTag size="small" type={config.emit ? 'option' : 'muted'}>
+                                                <LemonTag size="small" type={tagType}>
                                                     {`+${fieldNames.length - headerFields.length}`}
                                                 </LemonTag>
                                             ) : null}
                                             {fieldNames.length === 0 ? (
-                                                <LemonTag size="small" type={config.emit ? 'option' : 'muted'}>
+                                                <LemonTag size="small" type={tagType}>
                                                     Schema set
                                                 </LemonTag>
                                             ) : null}
