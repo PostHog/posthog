@@ -108,12 +108,16 @@ class TestOverrideSurfacesThroughRefresh:
         ModelRegistryService.reset_instance()
 
     @pytest.mark.parametrize(
-        "model,provider",
-        [("claude-fable-5", "anthropic"), ("claude-fable-5-1", "anthropic"), ("gpt-6.1-sol", "openai")],
+        "model,provider,context_window",
+        [
+            ("claude-fable-5", "anthropic", 200_000),
+            ("claude-fable-5-1", "anthropic", 200_000),
+            ("gpt-6.1-sol", "openai", 1_050_000),
+        ],
     )
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
     def test_refresh_injects_model_when_upstream_missing(
-        self, mock_get_cost_map: MagicMock, model: str, provider: str
+        self, mock_get_cost_map: MagicMock, model: str, provider: str, context_window: int
     ) -> None:
         mock_get_cost_map.return_value = {
             "claude-opus-4-8": {
@@ -129,6 +133,7 @@ class TestOverrideSurfacesThroughRefresh:
         costs = service.get_costs(model)
         assert costs is not None
         assert costs["litellm_provider"] == provider
+        assert costs["max_input_tokens"] == context_window
         assert model in service.get_all_models()
 
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")

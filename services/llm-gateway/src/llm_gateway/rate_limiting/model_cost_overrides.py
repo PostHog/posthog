@@ -163,7 +163,7 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
         {
             "litellm_provider": "openai",
             "mode": "responses",
-            "max_input_tokens": 922_000,
+            "max_input_tokens": 1_050_000,
             "max_output_tokens": 128_000,
             "input_cost_per_token": 2e-06,
             "output_cost_per_token": 1e-05,

@@ -233,19 +233,19 @@ describe("resolveModelConfigs", () => {
 });
 
 describe("fallbackModelConfigs", () => {
-  it.each(["gpt-6-astra", "gpt-6.1-sol"])(
-    "includes %s with its gateway capabilities",
-    (id) => {
-      expect(fallbackModelConfigs("us")).toContainEqual(
-        expect.objectContaining({
-          id,
-          api: "openai-responses",
-          contextWindow: 922000,
-          maxTokens: 128000,
-        }),
-      );
-    },
-  );
+  it.each([
+    ["gpt-6-astra", 922000],
+    ["gpt-6.1-sol", 1050000],
+  ])("includes %s with its gateway capabilities", (id, contextWindow) => {
+    expect(fallbackModelConfigs("us")).toContainEqual(
+      expect.objectContaining({
+        id,
+        api: "openai-responses",
+        contextWindow,
+        maxTokens: 128000,
+      }),
+    );
+  });
 
   it("produces a non-empty, region-scoped model list", () => {
     const configs = fallbackModelConfigs("us");
