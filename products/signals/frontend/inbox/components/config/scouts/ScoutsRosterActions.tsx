@@ -22,6 +22,8 @@ export function ScoutsRosterActions(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const suggestionsEnabled = !!featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]
+    // Every trial endpoint requires skill editor access, so the page is empty without it.
+    const trialsDisabledReason = useScoutCreateDisabledReason()
     return (
         <>
             {currentTeamId === 2 && user?.is_staff && (
@@ -29,6 +31,7 @@ export function ScoutsRosterActions(): JSX.Element {
                     type="secondary"
                     size="small"
                     to={urls.inboxScoutTrials()}
+                    disabledReason={trialsDisabledReason ?? undefined}
                     data-attr="scout-open-comparisons"
                 >
                     Trials
