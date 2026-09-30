@@ -3509,6 +3509,7 @@ export interface CredentialApi {
  * * `AudioGO` - AudioGO
  * * `ExactOnline` - ExactOnline
  * * `LettrLabs` - LettrLabs
+ * * `GrafanaIRM` - GrafanaIRM
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4867,6 +4868,7 @@ export const ExternalDataSourceTypeEnumApi = {
     AudioGO: 'AudioGO',
     ExactOnline: 'ExactOnline',
     LettrLabs: 'LettrLabs',
+    GrafanaIRM: 'GrafanaIRM',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
