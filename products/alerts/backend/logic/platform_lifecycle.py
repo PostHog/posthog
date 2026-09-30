@@ -147,8 +147,22 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
     by_id = {str(o.configuration_id): o for o in outcomes}
 
     with transaction.atomic():
+        # Alert rows lock before configuration rows, the order `upsert_configuration` and a
+        # cascade delete also use. The opposite order can deadlock.
+        list(
+            PlatformAlert.objects.for_team(team_id)
+            .filter(configuration_id__in=by_id, grouping_key="")
+            .order_by("id")
+            .select_for_update()
+        )
+        # A concurrent delete waits for this commit or drops the row from this read, so the
+        # runtime rows created below never reference a deleted configuration.
         configurations = list(
-            PlatformAlertConfiguration.objects.for_team(team_id).filter(id__in=by_id).filter(due_q(now))
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .filter(id__in=by_id)
+            .filter(due_q(now))
+            .order_by("id")
+            .select_for_update(of=("self",))
         )
         if not configurations:
             return 0
