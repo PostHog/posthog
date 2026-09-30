@@ -260,6 +260,7 @@ class TestPRFrictionView(_WarehouseMixin):
                 reviews_table=source.reviews,
             )
             response = execute_hogql_query(query=f"SELECT * FROM ({raw_query})", team=self.team)
+            assert response.columns is not None
             assert {row[2]: dict(zip(response.columns, row)) for row in response.results} == rows
 
         timelines = query_pull_request_timelines(
