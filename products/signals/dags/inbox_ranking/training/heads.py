@@ -8,8 +8,10 @@ must still be 0) and the snapshot `horizon_days` later (the label). The report's
 exception: it has no earlier scoring moment, so an outcome already visible there is a future
 positive for that moment rather than an outcome of an earlier one, and the label may already be 1.
 
-Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`) for the seven heads with
-enough positives to ship; the other seven stay workspace-only until they are readable.
+Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`). Seven heads are dense
+enough to read on the holdout. `thumbs_up` and `reviewer_fix` are the explicit human-feedback pair:
+they are rare, so they are carried for the pooled newborn grade and as scorer inputs rather than
+for a holdout AUC. The rest stay workspace-only.
 """
 
 from collections.abc import Callable
@@ -65,6 +67,14 @@ def discussed(frame: pd.DataFrame) -> pd.Series:
 
 def refunded(frame: pd.DataFrame) -> pd.Series:
     return _count(frame, "refund_count") > 0
+
+
+def thumbed_up(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "feedback_positive_count") > 0
+
+
+def reviewer_fixed(frame: pd.DataFrame) -> pd.Series:
+    return (_count(frame, "reviewer_add_count") + _count(frame, "reviewer_remove_count")) > 0
 
 
 @frozen
@@ -132,6 +142,28 @@ HEADS: tuple[Head, ...] = (
         horizon_days=14,
         min_holdout_positives=20,
         label_columns=("refund_count",),
+    ),
+    # Of the reports someone opened, which drew a thumbs up at the end of the body? Every thumbed
+    # report was opened first, so the cohort loses nothing. About one opened report in a hundred
+    # gets one, so the holdout AUC stays noise for weeks and the pooled newborn grade is the read.
+    Head(
+        name="thumbs_up",
+        cohort=opened,
+        label=thumbed_up,
+        horizon_days=7,
+        min_holdout_positives=10,
+        label_columns=("feedback_positive_count",),
+    ),
+    # Of the reports users saw, which had their suggested reviewers corrected? An add and a remove
+    # are one label: a removal alone is housekeeping that usually follows a PR, while the pair reads
+    # as "a person corrected the reviewers". As slow to land as dismiss_wrong, hence the 14 days.
+    Head(
+        name="reviewer_fix",
+        cohort=impressed,
+        label=reviewer_fixed,
+        horizon_days=14,
+        min_holdout_positives=20,
+        label_columns=("reviewer_add_count", "reviewer_remove_count"),
     ),
 )
 

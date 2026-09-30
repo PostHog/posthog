@@ -9,9 +9,11 @@ import {
     bufferProcessingMode,
     decodeLogRecords,
     encodeLogRecords,
+    enrichLogRecordFromJsonAttribute,
     enrichLogRecordWithJsonAttributes,
     extractJsonAttributesFromBody,
     flattenJson,
+    logProcessingDurationHistogram,
     logsJsonAttributeSniffCounter,
     logsJsonEnrichmentSkippedCounter,
     processLogMessageBuffer,
@@ -450,7 +452,7 @@ describe('log-record-avro', () => {
                 expect(record).toEqual(original)
                 expect(record.attributes).toBe(attributes)
                 expect((await logsJsonEnrichmentSkippedCounter.get()).values).toEqual([
-                    expect.objectContaining({ labels: { reason: 'output_size' }, value: 1 }),
+                    expect.objectContaining({ labels: { reason: 'output_size', source: 'body' }, value: 1 }),
                 ])
             } else {
                 expect(record).toEqual({ ...original, attributes: { existing: 'true', a: '"é"' } })
@@ -480,7 +482,7 @@ describe('log-record-avro', () => {
 
             expect(decoded).toEqual([{ ...record, bytes_uncompressed: null }])
             expect((await logsJsonEnrichmentSkippedCounter.get()).values).toEqual([
-                expect.objectContaining({ labels: { reason }, value: 1 }),
+                expect.objectContaining({ labels: { reason, source: 'body' }, value: 1 }),
             ])
         })
 
@@ -594,6 +596,153 @@ describe('log-record-avro', () => {
             enrichLogRecordWithJsonAttributes(record)
 
             expect(record.attributes).toBeNull()
+        })
+    })
+
+    describe('selected JSON attribute extraction', () => {
+        it.each([false, true])('extracts objects with string wrapping=%s and a literal dotted key', (wrapped) => {
+            const json = JSON.stringify({ user: { id: 'synthetic-user' }, count: 3, enabled: true })
+            const source = wrapped ? JSON.stringify(json) : json
+            const record = createRecord({ attributes: { 'payload.json': source, 'payload.json.count': '9' } })
+
+            enrichLogRecordFromJsonAttribute(record, 'payload.json')
+
+            expect(record.attributes).toEqual({
+                'payload.json': source,
+                'payload.json.user.id': JSON.stringify('synthetic-user'),
+                'payload.json.count': '9',
+                'payload.json.enabled': 'true',
+            })
+        })
+
+        it.each(
+            [[], ['alpha', 'beta'], ['beta', 'alpha'], [{ id: 1 }], [null, 3, true, ['nested'], { id: 2 }]].map(
+                (items) => [items]
+            )
+        )('retains nested array %j as a single JSON-string attribute', (items) => {
+            const source = JSON.stringify({ values: items })
+            const record = createRecord({ attributes: { payload: source } })
+
+            enrichLogRecordFromJsonAttribute(record, 'payload')
+
+            expect(record.attributes).toEqual({
+                payload: source,
+                'payload.values': JSON.stringify(JSON.stringify(items)),
+            })
+        })
+
+        it.each(['[]', '[1,2]', JSON.stringify('[1,2]'), 'null', 'true', '4', '"text"', '{broken', ''])(
+            'preserves non-object input %s without extracting fields',
+            (source) => {
+                const record = createRecord({ attributes: { payload: source } })
+                const original = structuredClone(record)
+                enrichLogRecordFromJsonAttribute(record, 'payload')
+                expect(record).toEqual(original)
+            }
+        )
+
+        it('counts each array as one retained field', () => {
+            const source = JSON.stringify(
+                Object.fromEntries(Array.from({ length: 60 }, (_, index) => [`key${index}`, []]))
+            )
+            const record = createRecord({ attributes: { payload: source } })
+            enrichLogRecordFromJsonAttribute(record, 'payload')
+            expect(Object.keys(record.attributes!)).toHaveLength(51)
+            expect(record.attributes!['payload.key49']).toBe(JSON.stringify('[]'))
+            expect(record.attributes!['payload.key50']).toBeUndefined()
+        })
+
+        it.each([
+            ['input_size', JSON.stringify({ value: 'x'.repeat(MAX_LOG_RECORD_BYTES) })],
+            ['output_size', JSON.stringify({ value: '😀'.repeat(150_000) })],
+            ['flatten_budget', '{"child":'.repeat(130) + '1' + '}'.repeat(130)],
+            ['flatten_budget', '{"values":' + '['.repeat(130) + '1' + ']'.repeat(130) + '}'],
+            ['flatten_budget', JSON.stringify({ first: Array(6000).fill(0), second: Array(6000).fill(0) })],
+            [
+                'flatten_budget',
+                JSON.stringify(Object.fromEntries(Array.from({ length: 10_000 }, (_, index) => [index, 0]))),
+            ],
+        ])('skips %s atomically for oversized or complex input', async (reason, source) => {
+            const record = createRecord({ attributes: { payload: source, original: 'true' } })
+            const original = structuredClone(record)
+            logsJsonEnrichmentSkippedCounter.reset()
+            enrichLogRecordFromJsonAttribute(record, 'payload')
+            expect(record).toEqual(original)
+            expect((await logsJsonEnrichmentSkippedCounter.get()).values).toEqual([
+                expect.objectContaining({ labels: { reason, source: 'selected_attribute' }, value: 1 }),
+            ])
+        })
+
+        it('re-encodes attribute-only enrichment before decoded-record visitors', async () => {
+            const record = createRecord({ attributes: { payload: JSON.stringify({ count: 7 }) } })
+            const buffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', [record])
+            const visitor = jest.fn()
+            logProcessingDurationHistogram.reset()
+            const result = await processLogMessageBuffer(
+                buffer,
+                { json_parse_logs_attribute_key: 'payload' },
+                { onRecordsDecoded: visitor }
+            )
+            const [, , records] = await decodeLogRecords(result.value!)
+            expect(records[0].attributes).toEqual({ ...record.attributes, 'payload.count': '7' })
+            expect(visitor.mock.calls[0][0][0].attributes).toEqual(records[0].attributes)
+            expect(result.pii).toEqual({ piiReplacements: 0 })
+            // Extraction-only traffic needs its own duration series. Without the label, its cost
+            // merges into the bucket that body parsing, scrubbing and untransformed traffic share.
+            expect((await logProcessingDurationHistogram.get()).values).toContainEqual(
+                expect.objectContaining({
+                    metricName: 'logs_ingestion_processing_duration_seconds_count',
+                    labels: expect.objectContaining({
+                        json_parse_enabled: 'false',
+                        pii_scrub_enabled: 'false',
+                        attribute_extraction_enabled: 'true',
+                    }),
+                    value: 1,
+                })
+            )
+        })
+
+        it('gives sender attributes priority over selected JSON, then body JSON', async () => {
+            const source = JSON.stringify({ sender: 'selected', selected: 'selected' })
+            const record = createRecord({
+                attributes: { payload: source, 'payload.sender': JSON.stringify('sender') },
+                body: JSON.stringify({ payload: { sender: 'body', selected: 'body', body: 'body', items: [1] } }),
+            })
+            await transformDecodedLogRecordsInPlace([record], {
+                json_parse_logs: true,
+                json_parse_logs_attribute_key: 'payload',
+            })
+            expect(record.attributes).toEqual({
+                payload: source,
+                'payload.sender': JSON.stringify('sender'),
+                'payload.selected': JSON.stringify('selected'),
+                'payload.body': JSON.stringify('body'),
+                'payload.items.0': '1',
+            })
+        })
+
+        it('does not extract from a selected key introduced by body parsing', async () => {
+            const record = createRecord({ attributes: null, body: JSON.stringify({ payload: '{"nested":true}' }) })
+            await transformDecodedLogRecordsInPlace([record], {
+                json_parse_logs: true,
+                json_parse_logs_attribute_key: 'payload',
+            })
+            expect(record.attributes).toEqual({ payload: JSON.stringify('{"nested":true}') })
+        })
+
+        it('extracts from the scrubbed source rather than copying sensitive values', async () => {
+            const record = createRecord({
+                attributes: { payload: JSON.stringify({ authorization: 'Bearer synthetic_test_credential' }) },
+            })
+            const pii = await transformDecodedLogRecordsInPlace([record], {
+                pii_scrub_logs: true,
+                json_parse_logs_attribute_key: 'payload',
+            })
+            expect(pii.piiReplacements).toBeGreaterThan(0)
+            expect(record.attributes).toEqual({
+                payload: JSON.stringify({ authorization: `Bearer ${PII_REDACTED}` }),
+                'payload.authorization': JSON.stringify(`Bearer ${PII_REDACTED}`),
+            })
         })
     })
 
@@ -755,6 +904,8 @@ describe('log-record-avro', () => {
             ['everything off', {}, 0, false, 'passthrough'],
             ['json parse on', { json_parse_logs: true }, 0, false, 'decode_and_reencode'],
             ['pii scrub on', { pii_scrub_logs: true }, 0, false, 'decode_and_reencode'],
+            ['attribute extraction on', { json_parse_logs_attribute_key: 'payload' }, 0, false, 'decode_and_reencode'],
+            ['empty attribute key', { json_parse_logs_attribute_key: '' }, 0, false, 'passthrough'],
             ['a stage present', {}, 1, false, 'decode_and_reencode'],
             ['a decoded-records visitor present', {}, 0, true, 'decode_only'],
             ['a visitor and a stage', {}, 1, true, 'decode_and_reencode'],

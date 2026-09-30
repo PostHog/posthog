@@ -109,11 +109,11 @@ export function mergeQueue(options: Omit<PullRequestOptions, 'headRef' | 'draft'
     return pullRequest({ ...options, draft: true, headRef: 'trunk-merge/abc123' })
 }
 
-function branchContext(eventName: string, actor: string): Context {
+function branchContext(eventName: string, actor: string, branch: string = DEFAULT_BRANCH): Context {
     return {
         ...baseContext(eventName, actor),
-        ref: `refs/heads/${DEFAULT_BRANCH}`,
-        ref_name: DEFAULT_BRANCH,
+        ref: `refs/heads/${branch}`,
+        ref_name: branch,
         head_ref: '',
         base_ref: '',
     }
@@ -139,10 +139,10 @@ export function schedule(): Context {
     }
 }
 
-export function workflowDispatch(): Context {
+export function workflowDispatch(branch: string = DEFAULT_BRANCH): Context {
     return {
-        ...branchContext('workflow_dispatch', 'octocat'),
-        event: { inputs: {}, ref: `refs/heads/${DEFAULT_BRANCH}`, repository: repositoryPayload(REPOSITORY) },
+        ...branchContext('workflow_dispatch', 'octocat', branch),
+        event: { inputs: {}, ref: `refs/heads/${branch}`, repository: repositoryPayload(REPOSITORY) },
     }
 }
 
@@ -194,7 +194,12 @@ export const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 type ScriptStubs = Pick<Scenario, 'vars' | 'jobOutputs'>
 
 // Values only a script produces at runtime, without which a workflow's gates cannot be planned.
-const SCRIPT_STUBS: Record<string, ScriptStubs> = {
+const DEPOT_BACKEND = '.depot/workflows/ci-backend.yml'
+
+export const SCRIPT_STUBS: Record<string, ScriptStubs> = {
+    '.github/workflows/build-deltalite.yml': {
+        jobOutputs: { 'check-version': { 'deltalite-release-needed': 'true' } },
+    },
     '.github/workflows/release.yml': {
         jobOutputs: {
             plan: {
@@ -202,23 +207,30 @@ const SCRIPT_STUBS: Record<string, ScriptStubs> = {
             },
         },
     },
-    // The Depot shadow gates its whole graph on a sampling variable and a dice roll; plan it as sampled in.
-    '.depot/workflows/ci-backend.yml': {
-        vars: { CI_DEPOT_SHADOW_PERCENT: '100' },
-        jobOutputs: { sample: { sampled: 'true' } },
+    // The Depot graph hangs off a hand-off check the planner cannot read; plan it as handed
+    // off, which is the only case where its jobs do any work.
+    [DEPOT_BACKEND]: {
+        jobOutputs: { 'wait-for-handoff': { handed_off: 'true' } },
     },
 }
 
+// The router keeps forks, merge queue batches, pushes and the schedule on GitHub Actions,
+// so Depot's wait job declines those events; only same-repo pull requests and manual
+// dispatches run there.
+const NOT_HANDED_OFF: ScriptStubs = { jobOutputs: { 'wait-for-handoff': { handed_off: 'false' } } }
+
 export function defaultScenarios(workflow: Workflow, workflowPath: string): Scenario[] {
     const steps = allFiltersChanged(workflow)
-    const common = { steps, ...SCRIPT_STUBS[path.relative(REPO_ROOT, workflowPath).split(path.sep).join('/')] }
+    const key = path.relative(REPO_ROOT, workflowPath).split(path.sep).join('/')
+    const common = { steps, ...SCRIPT_STUBS[key] }
+    const keptOnGitHub = { ...common, ...(key === DEPOT_BACKEND ? NOT_HANDED_OFF : {}) }
     return [
         { name: 'draft', github: pullRequest({ draft: true }), ...common },
         { name: 'ready', github: pullRequest(), ...common },
-        { name: 'fork', github: pullRequest({ fork: true }), ...common },
-        { name: 'queued', github: mergeQueue(), ...common },
-        { name: 'merged', github: push(), ...common },
-        { name: 'scheduled', github: schedule(), ...common },
+        { name: 'fork', github: pullRequest({ fork: true }), ...keptOnGitHub },
+        { name: 'queued', github: mergeQueue(), ...keptOnGitHub },
+        { name: 'merged', github: push(), ...keptOnGitHub },
+        { name: 'scheduled', github: schedule(), ...keptOnGitHub },
         { name: 'dispatched', github: workflowDispatch(), ...common },
     ]
 }

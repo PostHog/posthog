@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconChevronDown, IconGear, IconPlusSmall } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -16,6 +16,37 @@ import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTr
 import { NavLink } from '../../NavLink'
 import { flatNavLogic } from './flatNavLogic'
 import { FlatNavSection } from './FlatNavSection'
+import { FlatNavDashboardsMenuItems } from './menus/FlatNavDashboardsMenuItems'
+import { FlatNavProductAnalyticsMenuItems } from './menus/FlatNavProductAnalyticsMenuItems'
+import { FlatNavProductMenu } from './menus/FlatNavProductMenu'
+import { FlatNavSessionReplayMenuItems } from './menus/FlatNavSessionReplayMenuItems'
+
+// Keyed by product path, the same key the picked-products list stores
+const PRODUCT_MENUS: Record<string, JSX.Element> = {
+    'Product analytics': (
+        <FlatNavProductMenu icon={<IconPlusSmall />} tooltip="New insight" data-attr="flat-nav-tool-menu-insight">
+            <FlatNavProductAnalyticsMenuItems />
+        </FlatNavProductMenu>
+    ),
+    Dashboards: (
+        <FlatNavProductMenu
+            icon={<IconChevronDown />}
+            tooltip="Pinned dashboards"
+            data-attr="flat-nav-tool-menu-dashboards"
+        >
+            <FlatNavDashboardsMenuItems />
+        </FlatNavProductMenu>
+    ),
+    'Session replay': (
+        <FlatNavProductMenu
+            icon={<IconChevronDown />}
+            tooltip="Saved filters and collections"
+            data-attr="flat-nav-tool-menu-session-replay"
+        >
+            <FlatNavSessionReplayMenuItems />
+        </FlatNavProductMenu>
+    ),
+}
 
 function slugify(path: string): string {
     return path.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -27,11 +58,11 @@ export function FlatNavProducts(): JSX.Element {
 
     return (
         <FlatNavSection
-            label="My tools"
+            label="My products"
             action={
                 <Link
                     to={urls.settings('user-navigation')}
-                    tooltip="Choose which tools to show in the sidebar"
+                    tooltip="Choose which products to show in the sidebar"
                     tooltipPlacement="top"
                     onClick={() => posthog.capture('nav tools customize clicked')}
                     buttonProps={{ iconOnly: true, size: 'xs' }}
@@ -50,7 +81,7 @@ export function FlatNavProducts(): JSX.Element {
                     ))
                 ) : productGroups.length === 0 ? (
                     <span className="text-xs text-tertiary px-2 py-1">
-                        No tools selected. Use the gear icon above to pick some.
+                        No products selected. Use the gear icon above to pick some.
                     </span>
                 ) : (
                     productGroups.map((group) => (
@@ -64,7 +95,7 @@ export function FlatNavProducts(): JSX.Element {
                                 // A product can register an icon that carries live state, such as the
                                 // support unread counter. iconForType supplies the color wrapper itself,
                                 // so a registered icon needs that wrapper added around it.
-                                const CustomIcon = getCustomIcon(item.type)
+                                const CustomIcon = getCustomIcon(item.type, item.href)
                                 return (
                                     <NavLink
                                         key={item.path}
@@ -83,6 +114,7 @@ export function FlatNavProducts(): JSX.Element {
                                         tag={item.tag}
                                         data-attr={`flat-nav-tool-${slugify(item.path)}`}
                                         onClick={() => reportNavItemClicked(item.path, 'tools')}
+                                        sideAction={PRODUCT_MENUS[item.path]}
                                     />
                                 )
                             })}

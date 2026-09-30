@@ -224,12 +224,11 @@ async fn run_hash_corpus(db: &TestContext, team_id: i32) -> HashSet<String> {
     for vector in corpus["threshold_vectors"].as_array().unwrap() {
         let id = str_field(vector, "id");
         assert_eq!(
-            json!(
-                is_in_rollout(vector["rollout_percentage"].as_f64().unwrap(), || Ok(
-                    prescribed_hash(vector)
-                ),)
-                .unwrap()
-            ),
+            json!(is_in_rollout::<std::convert::Infallible>(
+                vector["rollout_percentage"].as_f64().unwrap(),
+                || Ok(prescribed_hash(vector)),
+            )
+            .unwrap()),
             vector["included"],
             "{id}: rollout inclusion"
         );

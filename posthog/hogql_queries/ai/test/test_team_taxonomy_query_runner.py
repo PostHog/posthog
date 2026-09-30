@@ -189,10 +189,6 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # All 10 custom events covered across pages
         self.assertEqual(len(first_page_events | ch_second_page), 10)
 
-        # Well-known events with count=0 are also present on last page
-        well_known_on_last_page = [r for r in response.results if r.count == 0]
-        self.assertGreater(len(well_known_on_last_page), 0)
-
     def test_events_not_useful_for_llm_ignored(self):
         _create_person(
             distinct_ids=["person1"],
@@ -272,36 +268,31 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(pageview_results), 1)
         self.assertEqual(pageview_results[0].count, 1)
 
-    def test_well_known_events_only_on_last_page(self):
+    def test_well_known_events_are_padded_onto_a_complete_response_only(self):
         _create_person(
             distinct_ids=["person1"],
             properties={"email": "person1@example.com"},
             team=self.team,
         )
 
+        for _ in range(3):
+            _create_event(event="$feature_enrollment_update", distinct_id="person1", team=self.team)
         for i in range(10):
-            _create_event(
-                event=f"event{i}",
-                distinct_id="person1",
-                team=self.team,
-            )
+            _create_event(event=f"event{i}", distinct_id="person1", team=self.team)
 
         flush_persons_and_events()
 
-        # First page: hasMore=True, no well-known events
-        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery(limit=5, offset=0))
-        response = runner.run()
+        first_page = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery(limit=5, offset=0)).run()
+        assert isinstance(first_page, CachedTeamTaxonomyQueryResponse)
+        self.assertTrue(first_page.hasMore)
+        self.assertIn("$feature_enrollment_update", {item.event for item in first_page.results if item.count > 0})
+        self.assertEqual([item.event for item in first_page.results if item.count == 0], [])
 
-        assert isinstance(response, CachedTeamTaxonomyQueryResponse)
-        self.assertTrue(response.hasMore)
-        zero_count = [r for r in response.results if r.count == 0]
-        self.assertEqual(len(zero_count), 0)
+        last_page = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery(limit=10, offset=5)).run()
+        assert isinstance(last_page, CachedTeamTaxonomyQueryResponse)
+        self.assertFalse(last_page.hasMore)
+        self.assertEqual([item.event for item in last_page.results if item.count == 0], [])
 
-        # Last page: hasMore=False, well-known events appended
-        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery(limit=5, offset=5))
-        response = runner.run()
-
-        assert isinstance(response, CachedTeamTaxonomyQueryResponse)
-        self.assertFalse(response.hasMore)
-        zero_count = [r for r in response.results if r.count == 0]
-        self.assertEqual(len(zero_count), len(WELL_KNOWN_EVENT_NAMES))
+        whole = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery()).run()
+        assert isinstance(whole, CachedTeamTaxonomyQueryResponse)
+        self.assertEqual(len([item for item in whole.results if item.count == 0]), len(WELL_KNOWN_EVENT_NAMES) - 1)

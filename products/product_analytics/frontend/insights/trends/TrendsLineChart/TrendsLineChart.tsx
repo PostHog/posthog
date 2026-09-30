@@ -32,6 +32,7 @@ import type { IndexedTrendResult } from 'products/product_analytics/frontend/ins
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { getSeriesIdentification } from '../../shared/seriesIdentification'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
@@ -111,11 +112,17 @@ export function TrendsLineChart({
         showValuesOnSeries,
         showConfidenceIntervals,
         confidenceLevel,
+        isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const seriesIdentification = useMemo(
+        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
+        [indexedResults]
+    )
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
@@ -123,8 +130,16 @@ export function TrendsLineChart({
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
+                isSingleSeriesDefinition,
+                seriesIdentification,
             }),
-        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [
+            breakdownFilter,
+            allCohorts?.results,
+            formatPropertyValueForDisplay,
+            isSingleSeriesDefinition,
+            seriesIdentification,
+        ]
     )
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView

@@ -203,7 +203,8 @@ impl Config {
         })
     }
 
-    pub(crate) fn estimated_heap_bytes(&self) -> usize {
+    #[doc(hidden)]
+    pub fn estimated_heap_bytes(&self) -> usize {
         self.rules.capacity() * std::mem::size_of::<Rule>()
             + self
                 .rules

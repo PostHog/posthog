@@ -3,7 +3,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import models
-from django.db.models import F, Func, IntegerField, OuterRef, Prefetch, Subquery, Value
+from django.db.models import F, Func, IntegerField, OuterRef, Prefetch, Q, Subquery, Value
 from django.db.models.functions import Greatest
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -17,6 +17,19 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
     Status = ExternalDataJobStatus
     PipelineVersion = ExternalDataJobPipelineVersion
+
+    # Overridden from CreatedMetaFields. Import workflows create every job row, so the column is
+    # always NULL, and its index only cost a write per insert. With no index, a user delete would
+    # seq-scan this table twice (Django's SET_NULL update, then the Postgres FK check), so the
+    # constraint goes too and Django's cascade skips it.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        db_index=False,
+        db_constraint=False,
+    )
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     pipeline = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
@@ -69,6 +82,15 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "status", "finished_at"],
                 name="idx_extdatajob_pipe_stat_fin",
             ),
+            # Serves the sweeps that look for live runs (sweep_stopped_schema_syncs, the CDC
+            # orphan sweep, teardown, repair): status equality with a created_at range and no
+            # team or pipeline to narrow on first. Running is a fraction of a percent of the
+            # table, so the partial index holds only live rows instead of the whole history.
+            models.Index(
+                fields=["created_at"],
+                condition=Q(status=ExternalDataJobStatus.RUNNING),
+                name="idx_extdatajob_running",
+            ),
         ]
 
     def folder_path(self) -> str:
@@ -93,6 +115,24 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     ).get(pk=job_id)
 
 
+def latest_completed_job_subquery(team_id: int, field: str) -> Subquery:
+    """One field of each source's newest completed job, correlated on the source row.
+
+    Annotate this on a queryset of `ExternalDataSource`. It costs one probe of
+    `idx_extdatajob_latest_run` per source, because the filter matches that index's leading
+    columns and the ordering matches its trailing one.
+
+    Do not replace it with `Max("jobs__created_at", filter=...)`. Django compiles that aggregate
+    to a LEFT OUTER JOIN onto the job table plus a GROUP BY, so Postgres reads and sorts every
+    completed job the team has ever run to produce one timestamp per source.
+    """
+    return Subquery(
+        ExternalDataJob.objects.filter(pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED)
+        .order_by("-created_at")
+        .values(field)[:1]
+    )
+
+
 def latest_completed_job_prefetch(
     team_id: int, lookup: str, to_attr: str, source_ids: Collection[UUID | str] | None = None
 ) -> Prefetch:
@@ -109,15 +149,7 @@ def latest_completed_job_prefetch(
     sources = ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True)
     if source_ids is not None:
         sources = sources.filter(id__in=source_ids)
-    latest_job_ids = sources.values(
-        latest_job_id=Subquery(
-            ExternalDataJob.objects.filter(
-                pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED
-            )
-            .order_by("-created_at")
-            .values("id")[:1]
-        )
-    )
+    latest_job_ids = sources.values(latest_job_id=latest_completed_job_subquery(team_id, "id"))
     return Prefetch(lookup, queryset=ExternalDataJob.objects.filter(id__in=latest_job_ids), to_attr=to_attr)
 
 

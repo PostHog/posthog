@@ -149,6 +149,7 @@ export function AiPromptFields({
                 <LemonTextArea
                     placeholder="e.g. Which events grew the most week-over-week? Highlight any unusual spikes."
                     minRows={4}
+                    maxRows={12}
                     maxLength={SubscriptionAIPromptMaxLength.CHARACTERS}
                 />
             </LemonField>

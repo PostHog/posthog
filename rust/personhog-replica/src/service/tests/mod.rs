@@ -130,6 +130,7 @@ async fn test_delete_persons_storage_error(
         .delete_persons(Request::new(DeletePersonsRequest {
             team_id: 1,
             person_uuids: vec!["00000000-0000-0000-0000-000000000001".to_string()],
+            mode: 0,
         }))
         .await;
 
@@ -153,6 +154,7 @@ async fn test_delete_persons_invalid_input(
         .delete_persons(Request::new(DeletePersonsRequest {
             team_id: 1,
             person_uuids,
+            mode: 0,
         }))
         .await
         .unwrap_err();
@@ -169,6 +171,7 @@ async fn test_delete_persons_empty_uuids_returns_zero() {
         .delete_persons(Request::new(DeletePersonsRequest {
             team_id: 1,
             person_uuids: vec![],
+            mode: 0,
         }))
         .await;
 
@@ -186,6 +189,7 @@ async fn test_delete_persons_success(#[case] person_uuids: Vec<String>) {
         .delete_persons(Request::new(DeletePersonsRequest {
             team_id: 1,
             person_uuids,
+            mode: 0,
         }))
         .await;
 

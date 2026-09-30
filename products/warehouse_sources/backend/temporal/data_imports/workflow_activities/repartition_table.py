@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_maintenance_error,
+    is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
@@ -59,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     is_auto_coarsen_enabled,
     is_auto_repartition_enabled,
     maybe_flag_for_repartition,
+    needs_pre_extraction_detection,
     target_partition_bytes,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -166,6 +168,12 @@ def _is_transient_infra_error(error: Exception) -> bool:
     # sync self-heals it; burning an attempt and reporting it instead abandons the table after the cap.
     if isinstance(error, PermissionError):
         return True
+    # Same object-store blips (`Generic S3 error`, SlowDown, S3's internal-error response) that
+    # `is_transient_maintenance_error` already recognizes for the maintenance path — the rewrite hits
+    # the same data-warehouse bucket the same way, so an OSError/DeltaError matching one of those
+    # needles here is exactly as transient.
+    if is_transient_object_store_error(error):
+        return True
     message = str(error).lower()
     return any(snippet in message for snippet in _TRANSIENT_ERROR_SNIPPETS)
 
@@ -194,28 +202,6 @@ def _target_from_schema(schema: ExternalDataSchema) -> RepartitionTarget:
         partition_count=schema.partition_count,
         partition_size=schema.partition_size,
     )
-
-
-def _needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -> bool:
-    """Whether to read the live on-disk partition sizes to decide if a repartition is needed.
-
-    We deliberately do NOT gate on the recorded `max_partition_bytes`. That value is only refreshed by
-    post-load detection, so for a table whose merge OOMs before post-load it goes stale and can sit far
-    below the true partition size — precisely the tables this path exists to rescue (e.g. a partition
-    that has since grown to many GB while the recorded value still reads a few hundred MB). Instead,
-    whenever the rollout flag is on (a targeted set of schemas) and the table isn't CDC-excluded, we
-    read the live partition sizes from the Delta log each run and let `maybe_flag_for_repartition` judge
-    against the real, current size. The cost is one metadata-only Delta-log read per sync, bounded to
-    flagged schemas; a disabled flag still short-circuits to a zero-I/O no-op.
-
-    A table nominated for coarsening is measured whether or not the rollout flag covers it, since the
-    nomination is the operator asking for exactly this measurement. CDC stays excluded either way.
-    """
-    if schema.sync_type == ExternalDataSchema.SyncType.CDC:
-        return False
-    if schema.coarsen_requested is not None:
-        return True
-    return enabled
 
 
 def _maybe_flag_pre_extraction(
@@ -296,6 +282,16 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             schema_id=inputs.schema_id,
         )
         return
+    except Exception as e:
+        # retry_on_db_connection_drop already retried once; a second failure here (e.g. the worker
+        # briefly exhausting its file descriptors under load) is the same transient-infra shape the
+        # rewrite itself stands down on below, just hit before a run has even started. No claim has
+        # been staked and no attempt charged yet, so standing down costs nothing: the table is simply
+        # picked up again on the next sync.
+        if not _is_transient_infra_error(e):
+            raise
+        logger.warning("repartition: database unavailable while fetching schema, standing down", exc_info=True)
+        return
 
     # A table with a pending corruption revive must heal first — the extract activity resets it and
     # rebuilds from source. Repartitioning it here would interleave with that heal and re-hollow the
@@ -355,7 +351,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (flag off, or
     # CDC). Return here — before fetching the job and reading the delta log — so the common healthy
     # invocation avoids all on-disk I/O. Flagged tables fall through and measure the live size below.
-    if pending is None and swap is None and not _needs_pre_extraction_detection(schema, enabled):
+    if pending is None and swap is None and not needs_pre_extraction_detection(schema, enabled):
         logger.info("repartition: nothing queued and no detection needed, nothing to do")
         return
 
@@ -366,6 +362,14 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             f"repartition: job not found, skipping activity job_id={inputs.job_id}",
             job_id=inputs.job_id,
         )
+        return
+    except Exception as e:
+        # See the matching comment on the schema fetch above: a second connection failure after
+        # retry_on_db_connection_drop's own retry is transient infra, not a repartition bug, and
+        # nothing has been claimed or charged yet.
+        if not _is_transient_infra_error(e):
+            raise
+        logger.warning("repartition: database unavailable while fetching job, standing down", exc_info=True)
         return
 
     # Attach the same source/schema identity the import activity does, so an exception captured
@@ -415,8 +419,35 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # the only intact copy, and `_give_up` clears the marker that points at it. A ready swap has to be
     # completed however many attempts it took to get here.
     if swap is None and _exhausted_attempts(pending, inputs.job_id):
-        _give_up(inputs, schema, pending, trigger_reason, logger)
-        return
+        # Re-read the markers before acting on them. They were read before the job fetch and the
+        # Delta-log work above, and the attempts that got us here are by definition ones that died
+        # without recording an outcome — a heartbeat timeout among them leaves a predecessor still
+        # running across that window, which is what the fresh claim `_give_up` stakes is for. Each
+        # marker write persists the whole in-memory `sync_type_config`, so deciding on the stale copy
+        # would erase a swap the predecessor staged in between: the only record of which scheme the
+        # data on disk carries, and the marker that holds this schema's imports until it resolves.
+        schema.refresh_from_db(fields=["sync_type_config"])
+        swap = schema.repartition_swap
+        pending = schema.repartition_pending or pending
+        if swap is None and _exhausted_attempts(pending, inputs.job_id):
+            # A killed attempt that still moved the checkpoint on is forward progress, not evidence
+            # the rewrite is doomed, which is the distinction `_handle_budget_exceeded` already draws
+            # for an attempt that ran out of budget. The checkpoint is the only signal available here,
+            # because a killed attempt records no outcome of its own. Otherwise a large table that
+            # converges one worker death per sync is abandoned at the cap, and `_give_up` discards its
+            # progress too.
+            if _last_run_advanced_rewrite(schema, pending):
+                logger.warning(
+                    f"repartition: attempts are spent but the rewrite advanced to "
+                    f"{_rewrite_rows_written(schema)} rows, resetting the count and resuming "
+                    f"schema_id={schema.id}",
+                    schema_id=str(schema.id),
+                    rewrite_rows=_rewrite_rows_written(schema),
+                )
+                pending = _clear_attempts_after_progress(schema, pending, logger)
+            else:
+                _give_up(inputs, schema, pending, trigger_reason, logger)
+                return
 
     # Never while a swap is staged: that recovery runs no rewrite, so the checkpoint says nothing
     # about it, and temp is the only intact copy until it completes.
@@ -695,11 +726,13 @@ def _handle_budget_exceeded(
     run and finishing nothing, because the cap could never count to three.
 
     Two shapes count as progress. A resumed attempt that appended rows extended what it inherited. And
-    a genuine first attempt — one with no prior checkpoint to inherit — that persisted a checkpoint the
+    a genuine first attempt — one with no checkpoint it could build on — that persisted a checkpoint the
     next run resumes from broke new ground, even though `resumed_from` is 0. `had_prior_checkpoint`
-    keeps that first attempt apart from a restart that inherited nothing because it discarded an
-    existing checkpoint: the restart re-covered ground the last attempt already covered, however much it
-    wrote, so only it (and an attempt that saved no checkpoint at all) falls through to `_handle_failure`.
+    keeps that first attempt apart from a restart that inherited nothing because it discarded a
+    checkpoint it could have resumed: the restart re-covered ground the last attempt already covered,
+    however much it wrote, so only it (and an attempt that saved no checkpoint at all) falls through to
+    `_handle_failure`. A checkpoint the resume path rejected does not make an attempt a restart, because
+    it was left by an attempt killed at an arbitrary point and the rows it covered measure nothing.
 
     Returns the metric outcome: "superseded" when a newer attempt owns the claim, "progressing" when
     the rewrite broke new ground, otherwise whatever `_handle_failure` returns.
@@ -765,6 +798,86 @@ def _rewrite_rows_written(schema: ExternalDataSchema) -> int:
     return int((schema.repartition_rewrite or {}).get("rows_written") or 0)
 
 
+def _rewrite_checkpoint_id(schema: ExternalDataSchema) -> str | None:
+    """Which rewrite the current checkpoint belongs to, or None when there is no checkpoint.
+
+    The temp table is claim-scoped, so a rewrite that discards its checkpoint and restarts from row 0
+    builds a different one while a resume keeps the URI it inherited — which makes the URI the
+    identity of a rewrite across runs. Compared only, never reported: it carries the team's bucket and
+    table names.
+    """
+    return (schema.repartition_rewrite or {}).get("temp_uri")
+
+
+def _rewrite_advanced_past(
+    schema: ExternalDataSchema, pending: dict[str, Any], rows_key: str, rewrite_key: str
+) -> bool:
+    """Whether the checkpoint now stands further on than the stamp under `rows_key`/`rewrite_key`.
+
+    A cumulative row count alone cannot answer this, because it is not monotonic across runs. A
+    checkpoint is only resumable while live is byte-identical to when it was written, and the sync's
+    own merge commits to live after every swallowed repartition failure, so a later run routinely
+    discards it and rebuilds from row 0. The fresh checkpoint then reads *below* the stamp, and an
+    attempt that streamed hundreds of thousands of rows records as a stall — the same
+    non-monotonicity `_handle_budget_exceeded` weighs `had_prior_checkpoint` against. So a checkpoint
+    belonging to a different rewrite than the stamp's is ground this attempt broke, and only one on
+    the same rewrite is judged by its row count.
+
+    A stamp written before the rewrite id existed carries nothing to compare, so it keeps the
+    row-count reading it was written for.
+    """
+    rows_stamp = pending.get(rows_key)
+    if rows_stamp is None:
+        return False
+    current = _rewrite_checkpoint_id(schema)
+    if rewrite_key in pending and current is not None and current != pending[rewrite_key]:
+        return _rewrite_rows_written(schema) > 0
+    return _rewrite_rows_written(schema) > int(rows_stamp)
+
+
+def _last_run_advanced_rewrite(schema: ExternalDataSchema, pending: dict[str, Any] | None) -> bool:
+    """Whether the last sync run left the rewrite checkpoint further along than it found it.
+
+    A checkpoint reading past the stamp the run began on is the only trace an attempt killed
+    outright can leave of the rows it committed. The stamp has to be the run's, because the cap
+    counts sync runs and not the Temporal retries inside one (see `_charge_attempt`): `attempt_rows`
+    is re-stamped by every retry, so measuring against it asks only whether the run's *last* retry
+    moved anything. A run whose first retry streams for an hour and whose second dies on arrival
+    reads as stalled on that stamp, so a rewrite converging a budget per sync is abandoned
+    mid-flight. `run_rows` is written once per charged run and answers for the whole of it.
+
+    Strictly past: a checkpoint standing exactly where the run began is the stalled rewrite the cap
+    exists to stop. A marker written before `run_rows` existed falls back to `attempt_rows`, and one
+    carrying neither claims no progress.
+    """
+    if pending is None:
+        return False
+    if pending.get("run_rows") is not None:
+        return _rewrite_advanced_past(schema, pending, "run_rows", "run_rewrite_id")
+    return _rewrite_advanced_past(schema, pending, "attempt_rows", "attempt_rewrite_id")
+
+
+def _clear_attempts_after_progress(
+    schema: ExternalDataSchema, pending: dict[str, Any] | None, logger: FilteringBoundLogger
+) -> dict[str, Any] | None:
+    """Reset the failure count for a rewrite that is still advancing; return the marker now in force.
+
+    Resets rather than refunds, the same way `_handle_budget_exceeded` treats an attempt that
+    advanced: the count records consecutive attempts that got nowhere. A failed write leaves the
+    spent count in place, so the rewrite still runs this time and the next run re-reads the cap,
+    because bookkeeping must never block it.
+    """
+    if pending is None:
+        return None
+    marker = {**pending, "attempts": 0}
+    try:
+        schema.set_repartition_pending(marker)
+    except Exception:
+        logger.warning("repartition: could not reset the attempt count, proceeding on the spent one", exc_info=True)
+        return pending
+    return marker
+
+
 def _retrying_a_killed_attempt(schema: ExternalDataSchema, pending: dict[str, Any] | None, job_id: str) -> bool:
     """Whether this run retries an attempt that was killed without moving the rewrite on.
 
@@ -781,8 +894,9 @@ def _retrying_a_killed_attempt(schema: ExternalDataSchema, pending: dict[str, An
         return False
     if pending.get("charged_job_id") != job_id:
         return False
-    started_from = pending.get("attempt_rows")
-    return started_from is not None and _rewrite_rows_written(schema) <= int(started_from)
+    if pending.get("attempt_rows") is None:
+        return False
+    return not _rewrite_advanced_past(schema, pending, "attempt_rows", "attempt_rewrite_id")
 
 
 def _give_up(
@@ -857,15 +971,26 @@ def _charge_attempt(
 
     Every attempt also stamps `attempt_rows`, the rewrite checkpoint it is about to run from, charged
     or not: an attempt killed outright records nothing itself, so that stamp is the only thing a
-    retry can judge the attempt it retries against (see `_retrying_a_killed_attempt`).
+    retry can judge the attempt it retries against (see `_retrying_a_killed_attempt`). `run_rows` is
+    the same reading kept once per charged run, so the give-up check weighs the run the cap actually
+    counted rather than whichever retry happened to end it (see `_last_run_advanced_rewrite`). Each
+    stamp records which rewrite that reading came from too, because the reading alone is not
+    comparable across a restart (see `_rewrite_advanced_past`).
     """
     if pending is None:
         return None
     prior = int(pending.get("attempts", 0))
     already_charged = pending.get("charged_job_id") == job_id
-    marker = {**pending, "attempt_rows": _rewrite_rows_written(schema)}
+    rows_at_start = _rewrite_rows_written(schema)
+    rewrite_at_start = _rewrite_checkpoint_id(schema)
+    marker = {**pending, "attempt_rows": rows_at_start, "attempt_rewrite_id": rewrite_at_start}
     if not already_charged:
-        marker |= {"attempts": prior + 1, "charged_job_id": job_id}
+        marker |= {
+            "attempts": prior + 1,
+            "charged_job_id": job_id,
+            "run_rows": rows_at_start,
+            "run_rewrite_id": rewrite_at_start,
+        }
     try:
         schema.set_repartition_pending(marker)
     except Exception:

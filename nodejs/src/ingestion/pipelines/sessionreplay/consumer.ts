@@ -40,6 +40,7 @@ import { SessionRecordingIngesterMetrics } from './metrics'
 import { SessionReplayLagReporter } from './session-replay-lag-reporter'
 import { SessionReplayPipelineFactory, SessionReplayPipelineRunner } from './session-replay-pipeline-runner'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
+import { BlockCompression } from './sessions/block-compression'
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
@@ -75,6 +76,7 @@ export interface SessionRecordingIngesterCollaborators {
     featureStore?: SessionFeatureStore
     keyStore?: KeyStore
     encryptor?: RecordingEncryptor
+    compression?: BlockCompression
     createPipeline?: SessionReplayPipelineFactory
     /** Runs each poll batch through its stages. If omitted, the session replay pipeline runs in one stage. A lane that overlaps batches supplies a runner with more stages. The consumer then keeps one batch in flight for each stage. */
     runner?: StagedBatchRunner
@@ -129,6 +131,7 @@ export class SessionRecordingIngester {
     private readonly sessionFilter: SessionFilter
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
+    private readonly compression?: BlockCompression
     private readonly runner: StagedBatchRunner
     private readonly batchStages: BatchStages
     private readonly usageBatch: UsageRecordBatch
@@ -253,6 +256,7 @@ export class SessionRecordingIngester {
                 })
             )
         this.encryptor = collaborators.encryptor ?? getBlockEncryptor(this.keyStore)
+        this.compression = collaborators.compression
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
@@ -265,6 +269,7 @@ export class SessionRecordingIngester {
             consoleLogStore,
             featureStore,
             encryptor: this.encryptor,
+            compression: this.compression,
         })
 
         this.lagReporter = new SessionReplayLagReporter(this.topic)

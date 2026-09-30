@@ -8,6 +8,7 @@ view imports them from here rather than reaching the internal ``metrics`` module
 
 from products.tasks.backend.metrics import (
     StreamConnectionOutcome,
+    StreamTokenRoute,
     observe_stream_backlog_bytes,
     observe_stream_backlog_gap,
     observe_stream_backlog_oversized,
@@ -17,11 +18,13 @@ from products.tasks.backend.metrics import (
     observe_stream_connection_opened,
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
+    observe_stream_token_routed,
     origin_product_label,
 )
 
 __all__ = [
     "StreamConnectionOutcome",
+    "StreamTokenRoute",
     "observe_stream_backlog_bytes",
     "observe_stream_backlog_gap",
     "observe_stream_backlog_oversized",
@@ -31,5 +34,6 @@ __all__ = [
     "observe_stream_connection_opened",
     "observe_stream_length_on_connect",
     "observe_stream_resume_gap",
+    "observe_stream_token_routed",
     "origin_product_label",
 ]

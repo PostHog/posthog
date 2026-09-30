@@ -15,7 +15,7 @@ from django.http.multipartparser import MultiPartParserError
 from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
-from posthog.ingress.providers import InvalidPayload, WebhookProvider
+from posthog.ingress.providers import InvalidPayload, WebhookProvider, require_known_app
 from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme, Verification, VerificationOutcome
 
 # These go to the HMAC scheme as header names, because the scheme reads a mapping and does not
@@ -29,6 +29,9 @@ TOKEN_FIELD = "token"
 _APP_EVENT_TYPES: Mapping[str, str] = {
     "inbound": "message_received",
     "outbound": "message_sent",
+    # A catch-all route carries both directions, so the consumer reads the recipient address to
+    # tell them apart.
+    "capture": "message_received",
 }
 
 SPECS = tuple(
@@ -53,16 +56,24 @@ def _files_in_request(request: HttpRequest) -> dict[str, UploadedFile]:
 
 class MailgunProvider(WebhookProvider):
     provider = "mailgun"
+    # Mailgun retries a route delivery on any status but 2xx and 406, over several hours. So a
+    # forward that never landed, or a consumer whose write raised, must not be receipted: the
+    # message is only held by Mailgun's own queue, and nothing else can hand it back.
+    retry_status = 502
     # A route delivery carries the whole mail message, including up to MAX_FILES attachments, and
     # the forward rebuilds and re-sends every part. Three seconds is not enough for that.
     forward_timeout_seconds = 10.0
+    # The status these endpoints answered before they moved here: an instance with no signing key
+    # reads as a request it refuses, not as a server that broke.
+    unconfigured_status = 403
+    # The body must not tell an unauthenticated caller that the endpoint is unconfigured, which is
+    # an operator fact about an instance anyone can probe.
+    explains_rejections = False
 
     def __init__(self, app: str, *, signing_key_getter: Callable[[], str | None]) -> None:
-        event_type = _APP_EVENT_TYPES.get(app)
-        if event_type is None:
-            raise ValueError(f"Unknown Mailgun app {app!r}, expected one of {sorted(_APP_EVENT_TYPES)}")
+        require_known_app(self.provider, app, SPECS)
         self.app = app
-        self.event_type = event_type
+        self.event_type = _APP_EVENT_TYPES[app]
         self._scheme = HmacSha256(
             secret_getter=signing_key_getter,
             signature_header=SIGNATURE_FIELD,

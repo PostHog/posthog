@@ -132,23 +132,28 @@ def get_resource(
     config = RECURLY_ENDPOINTS[endpoint]
     incremental = should_use_incremental_field and config.supports_incremental
 
-    if incremental:
-        # Sort by the cursor the user chose so `begin_time` and the watermark agree.
-        # Ascending order is mandatory: Recurly warns that descending `updated_at`
-        # lets concurrently-updated rows slip behind the cursor and never return.
-        sort_field = incremental_field if incremental_field in VALID_SORT_FIELDS else DEFAULT_SORT_FIELD
+    if not config.supports_list_params:
+        # This endpoint 400s on any query parameter, so it can't be paginated with a
+        # `limit`, sorted, or filtered by `begin_time` — just take whatever Recurly returns.
+        params: dict[str, Any] = {}
     else:
-        # Full refresh: a stable ascending `created_at` sort avoids page-boundary
-        # skips/duplicates if rows are inserted mid-sync.
-        sort_field = "created_at"
+        if incremental:
+            # Sort by the cursor the user chose so `begin_time` and the watermark agree.
+            # Ascending order is mandatory: Recurly warns that descending `updated_at`
+            # lets concurrently-updated rows slip behind the cursor and never return.
+            sort_field = incremental_field if incremental_field in VALID_SORT_FIELDS else DEFAULT_SORT_FIELD
+        else:
+            # Full refresh: a stable ascending `created_at` sort avoids page-boundary
+            # skips/duplicates if rows are inserted mid-sync.
+            sort_field = "created_at"
 
-    params: dict[str, Any] = {
-        "limit": PAGE_LIMIT,
-        "sort": sort_field,
-        "order": "asc",
-    }
-    if incremental and db_incremental_field_last_value is not None:
-        params["begin_time"] = _format_datetime(db_incremental_field_last_value)
+        params = {
+            "limit": PAGE_LIMIT,
+            "sort": sort_field,
+            "order": "asc",
+        }
+        if incremental and db_incremental_field_last_value is not None:
+            params["begin_time"] = _format_datetime(db_incremental_field_last_value)
 
     return {
         "name": endpoint,

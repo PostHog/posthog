@@ -1,15 +1,18 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState, memo } from 'react'
+import { useContext, useState, memo } from 'react'
 
 import { IconCopy, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { stripMarkdown } from 'lib/utils/markdown'
 
 import { messageRatingsLogic } from '../logics/messageRatingsLogic'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { RunRef, captureTurnFeedbackText, captureTurnRating } from '../utils/feedbackEvents'
+import { TurnRevealContext } from './TurnRevealContext'
 
 export interface TurnFeedbackActionsProps {
     /** Task id backing the sandbox conversation. Lands in `$ai_session_id`. */
@@ -20,11 +23,13 @@ export interface TurnFeedbackActionsProps {
     /** The turn's gateway trace id, when the run reported one. Lands in `$ai_trace_id`. */
     traceId?: string
     turnText: string
+    /** When the turn completed, in milliseconds. */
+    timestamp?: number
 }
 
 /**
- * Feedback actions under a completed turn: copy, thumbs up/down, and a free-text form on
- * thumbs-down. Counterpart of the legacy thread's `SuccessActions` — same events
+ * Feedback actions under a completed turn: copy, thumbs up/down, the completion time, and a
+ * free-text form on thumbs-down. Counterpart of the legacy thread's `SuccessActions` — same events
  * (`$ai_metric` quality / `$ai_feedback`), plus runtime/task/run properties.
  */
 export const TurnFeedbackActions = memo(function TurnFeedbackActions({
@@ -33,9 +38,11 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
     run,
     traceId,
     turnText,
+    timestamp,
 }: TurnFeedbackActionsProps): JSX.Element {
     const { ratingForKey } = useValues(messageRatingsLogic)
     const { setRating } = useActions(messageRatingsLogic)
+    const turnHovered = useContext(TurnRevealContext)
 
     const ratingKey = `${sessionId}:turn-${turnIndex}`
     const rating = ratingForKey(ratingKey)
@@ -63,7 +70,7 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
 
     return (
         <>
-            <div className="flex items-center ml-1">
+            <div className="group flex items-center ml-1">
                 {turnText && (
                     <LemonButton
                         icon={<IconCopy />}
@@ -92,6 +99,15 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
                         tooltip="Bad answer"
                         data-attr="posthog-ai-turn-rating-bad"
                         onClick={() => submitRating('bad')}
+                    />
+                )}
+                {timestamp !== undefined && (
+                    <TZLabel
+                        time={new Date(timestamp).toISOString()}
+                        className={clsx(
+                            'text-xs text-muted ml-1 transition-opacity group-focus-within:opacity-100',
+                            !turnHovered && 'opacity-0'
+                        )}
                     />
                 )}
             </div>

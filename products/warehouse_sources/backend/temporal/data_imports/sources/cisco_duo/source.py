@@ -53,15 +53,15 @@ class CiscoDuoSource(ResumableSource[CiscoDuoSourceConfig, CiscoDuoResumeConfig]
             label="Cisco Duo",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["duo", "duo security", "mfa", "2fa"],
-            caption="""Enter your Duo Admin API credentials to pull your Cisco Duo authentication, administrator, telephony, and activity logs — plus users, groups, phones, admins, and integrations — into the PostHog Data warehouse.
+            caption="""Enter your Duo Admin API credentials to pull your Cisco Duo authentication, administrator, telephony, and activity logs into the PostHog Data warehouse, along with users, groups, group memberships, phones, endpoints, admins, integrations, and policies.
 
 In the [Duo Admin Panel](https://admin.duosecurity.com/), go to **Applications**, click **Protect an Application**, and protect the **Admin API** application. That gives you the integration key, secret key, and API hostname.
 
 Grant the application the permissions matching the tables you want to sync:
-- **Grant read log** — authentication, administrator, telephony, and activity logs
-- **Grant read resource** — users, groups, phones
-- **Grant administrators** — admins
-- **Grant applications** — integrations
+- **Grant read log**: authentication, administrator, telephony, and activity logs
+- **Grant read resource**: users, groups, group memberships, phones, endpoints, policies
+- **Grant administrators**: admins
+- **Grant applications**: integrations
 """,
             iconPath="/static/services/cisco_duo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/cisco-duo",

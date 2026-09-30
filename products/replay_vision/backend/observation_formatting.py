@@ -84,6 +84,14 @@ def read_output(obs: "ReplayObservation") -> dict[str, Any] | None:
     return output if isinstance(output, dict) else None
 
 
+def _tag_list(value: Any) -> list[str]:
+    # persisted model output, so a scanner that wrote a bare string or a number here must not take the
+    # whole listing down with it
+    if isinstance(value, list | tuple):
+        return [str(v) for v in value]
+    return [str(value)] if isinstance(value, str) and value else []
+
+
 def describe_output(output: dict[str, Any]) -> str | None:
     """Short type-specific descriptor (verdict / score / tags / title) prepended to each result line."""
     scanner_type = output.get("scanner_type")
@@ -93,8 +101,8 @@ def describe_output(output: dict[str, Any]) -> str | None:
         label = output.get("label")
         return f"score={output['score']}{f' ({label})' if label else ''}"
     if scanner_type == ScannerType.CLASSIFIER:
-        tags = [*(output.get("tags") or []), *(output.get("tags_freeform") or [])]
-        return f"tags={', '.join(str(t) for t in tags)}" if tags else None
+        tags = [*_tag_list(output.get("tags")), *_tag_list(output.get("tags_freeform"))]
+        return f"tags={', '.join(tags)}" if tags else None
     if scanner_type == ScannerType.SUMMARIZER:
         title = output.get("title")
         return str(title) if isinstance(title, str) and title.strip() else None
@@ -111,14 +119,31 @@ def explanation_text(output: dict[str, Any]) -> str:
     return plain_snippet(explanation, limit=None)
 
 
-def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanner: bool) -> str:
+def summarize_output(output: dict[str, Any]) -> str:
+    """What the scanner found, on one line: the type-specific descriptor, then the model's own words."""
     descriptor = describe_output(output)
     clean = explanation_text(output)[:SEARCH_SNIPPET_LIMIT]
+    return f"[{descriptor}] {clean}".rstrip() if descriptor else clean
 
+
+def summarize_observation(obs: "ReplayObservation") -> str:
+    """One line describing an observation, whatever state it reached.
+
+    A full observation row carries the scanner snapshot and the model's segmented reasoning, which is far
+    more than a reader needs to pick which row to open. This is the condensed form, so a listing can stay
+    readable at any page size. An observation that produced no output says why instead, and one still in
+    flight has nothing to say yet.
+    """
+    output = read_output(obs)
+    if output is not None:
+        return summarize_output(output)
+    return plain_snippet(obs.error_reason) if obs.error_reason else ""
+
+
+def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanner: bool) -> str:
     prefix = f"{obs.created_at:%Y-%m-%d}"
     session = str(obs.session_id)
     # `scanner_name` is annotated by the search hydration so no scanner row is joined; fall back to the relation.
     scanner_name = getattr(obs, "scanner_name", None) or (obs.scanner.name if show_scanner and obs.scanner else "")
     scanner_part = f" {scanner_name}" if show_scanner and scanner_name else ""
-    descriptor_part = f" [{descriptor}]" if descriptor else ""
-    return f"- (session {session}, {prefix}){scanner_part}{descriptor_part} {clean}".rstrip()
+    return f"- (session {session}, {prefix}){scanner_part} {summarize_output(output)}".rstrip()

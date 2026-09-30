@@ -11,6 +11,8 @@ from ..facade.contracts import (
     FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
+    TOLERATION_PILEUP_WINDOW_DAYS,
+    VARIANT_PILEUP_MIN,
     AddSnapshotsInput,
     AddSnapshotsResult,
     ApproveRunRequestInput,
@@ -43,6 +45,8 @@ from ..facade.contracts import (
     SnapshotHistoryEntry,
     SnapshotManifestItem,
     ToleratedHashEntry,
+    TolerationPileupEntry,
+    TolerationPileups,
     UpdateRepoRequestInput,
     UploadTarget,
     UserBasicInfo,
@@ -585,3 +589,87 @@ class FlakinessOverviewSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = FlakinessOverview
+
+
+class TolerationPileupsQuerySerializer(serializers.Serializer):
+    min_tolerations = serializers.IntegerField(
+        default=VARIANT_PILEUP_MIN,
+        min_value=1,
+        max_value=100,
+        help_text=(
+            "List a snapshot when a person or agent tolerated it at least this many times in the window. "
+            f"The default, {VARIANT_PILEUP_MIN}, is the weekly debt digest's rule. Lower it to see snapshots that "
+            "are starting to pile up, raise it to see only the worst ones."
+        ),
+    )
+    min_automatic_tolerations = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=10000,
+        help_text=(
+            "Also list a snapshot when it collected at least this many automatic tolerations in the window. "
+            "An automatic toleration is a rendering under both diff thresholds, so it never blocked anybody; "
+            "many of them still mean the story is unstable. Omit to ignore automatic tolerations when "
+            "deciding what to list. With 10, the list matches the Tolerate dialog's quarantine suggestion."
+        ),
+    )
+    window_days = serializers.IntegerField(
+        default=TOLERATION_PILEUP_WINDOW_DAYS,
+        min_value=1,
+        max_value=90,
+        help_text=f"How many days back to count tolerations. Defaults to {TOLERATION_PILEUP_WINDOW_DAYS}.",
+    )
+    include_quarantined = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "Keep snapshots that an active quarantine already covers. They are marked with `is_quarantined`. "
+            "Set to false to see only piles nobody has acted on yet."
+        ),
+    )
+    run_type = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Only list snapshots of this run type, for example `storybook` or `playwright`.",
+    )
+    limit = serializers.IntegerField(
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of snapshots to return. `total` and `truncated` say whether more matched.",
+    )
+
+
+class TolerationPileupEntrySerializer(DataclassSerializer):
+    identifier = serializers.CharField(help_text="Snapshot identifier, for example a Storybook story id plus theme.")
+    run_type = serializers.CharField(help_text="Run type the snapshot belongs to, for example `storybook`.")
+    intentional_count = serializers.IntegerField(
+        help_text=(
+            "Tolerations a person or agent recorded for this snapshot in the window, across every baseline. "
+            "Each one accepted a different exact rendering, so a high count means the snapshot renders "
+            "differently from run to run."
+        )
+    )
+    automatic_count = serializers.IntegerField(
+        help_text="Automatic tolerations in the window: renderings that came in under both diff thresholds."
+    )
+    is_quarantined = serializers.BooleanField(
+        help_text="Whether an active quarantine already covers this snapshot, so it no longer blocks pull requests."
+    )
+
+    class Meta:
+        dataclass = TolerationPileupEntry
+
+
+class TolerationPileupsSerializer(DataclassSerializer):
+    entries = TolerationPileupEntrySerializer(many=True, help_text="Matching snapshots, most manual tolerations first.")
+    window_days = serializers.IntegerField(help_text="Length of the counting window in days that was applied.")
+    min_tolerations = serializers.IntegerField(help_text="Manual toleration threshold that was applied.")
+    min_automatic_tolerations = serializers.IntegerField(
+        allow_null=True, help_text="Automatic toleration threshold that was applied, or null when none was."
+    )
+    total = serializers.IntegerField(help_text="How many snapshots matched before `limit` was applied.")
+    truncated = serializers.BooleanField(help_text="True when `limit` cut the list short.")
+    generated_at = serializers.DateTimeField(help_text="When the list was computed.")
+
+    class Meta:
+        dataclass = TolerationPileups

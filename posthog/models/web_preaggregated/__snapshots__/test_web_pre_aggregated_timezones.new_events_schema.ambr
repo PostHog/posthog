@@ -8,9 +8,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -50,9 +50,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -92,9 +92,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -134,9 +134,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -176,9 +176,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -218,9 +218,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -260,9 +260,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -302,9 +302,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -344,9 +344,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -386,9 +386,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -428,9 +428,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -470,9 +470,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -512,9 +512,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -554,9 +554,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -596,9 +596,9 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            events.properties.`$browser` AS breakdown_value,
-            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
-            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))) AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,

@@ -3,15 +3,7 @@ import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/m
 
 import { MlDataKey, MlKeyEncryption, openSessionKey } from './crypto'
 import { DynamoItem, MlKeyDynamoDB } from './dynamodb'
-import {
-    MlKeyIdentity,
-    TableKey,
-    imageKeyId,
-    keySessionMonth,
-    storedSessionId,
-    tableKeyString,
-    teamBlockId,
-} from './schema'
+import { MlKeyIdentity, TableKey, imageKeyId, keySessionMonth, storedSessionId, tableKeyString } from './schema'
 import { isTransientError } from './transient'
 
 export class MlKeyReader {
@@ -66,18 +58,14 @@ export class MlKeyReader {
             monthKeyOf.set(id, monthId)
             monthKeys.set(monthId, imageKeyId(identity.teamId, keySessionMonth(identity)))
         }
-        const state = await this.db.read([
-            ...[...identities.values()].map((identity) => teamBlockId(identity.teamId)),
-            ...monthKeys.values(),
-        ])
-        const blocked = (teamId: number): boolean => state.has(tableKeyString(teamBlockId(teamId)))
+        const state = await this.db.read([...monthKeys.values()])
         const months = new Map<string, MlDataKey>()
         const refused: { id: string; error: string }[] = []
-        // A deleted month key and a blocked team are answers, not failures, so neither counts against the month key.
         let unavailable = 0
         await Promise.all(
             [...monthKeys.keys()].map(async (id) => {
                 const item = state.get(id)
+                // A tombstoned month key is an answer, not a failure, so it does not count as unavailable. It also ends the month, because no reader can open the session keys that are sealed under it. See products/ai_training/docs/replay-data.md.
                 if (item?.deleted?.BOOL === true) {
                     return
                 }
@@ -86,11 +74,10 @@ export class MlKeyReader {
                     return
                 }
                 try {
-                    const identity = this.identityOf(item)
-                    if (blocked(identity.teamId)) {
-                        return
-                    }
-                    months.set(id, await this.encryption.decrypt(identity, Buffer.from(item.wrapped_key.B)))
+                    months.set(
+                        id,
+                        await this.encryption.decrypt(this.identityOf(item), Buffer.from(item.wrapped_key.B))
+                    )
                 } catch (error) {
                     // A throttled KMS must fail the read so the caller retries. A month key that can never open must not stall every session in the batch.
                     if (isTransientError(error)) {
@@ -110,9 +97,6 @@ export class MlKeyReader {
         const result = new Map<string, MlDataKey>()
         await Promise.all(
             [...identities].map(async ([id, identity]) => {
-                if (blocked(identity.teamId)) {
-                    return
-                }
                 const item = stored.get(id)!
                 if (item.sealed_key?.B && item.key_nonce?.B) {
                     const monthId = monthKeyOf.get(id)

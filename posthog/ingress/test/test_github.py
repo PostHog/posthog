@@ -41,10 +41,6 @@ class TestGitHubProvider(SimpleTestCase):
                 VerificationOutcome.INVALID,
             )
 
-    def test_an_unknown_app_is_refused_at_build(self) -> None:
-        with self.assertRaises(ValueError):
-            build_github_provider("gitlab")
-
     def test_every_declared_app_has_a_spec_and_the_core_consumers_fit_it(self) -> None:
         self.assertEqual({spec.app for spec in SPECS}, {"posthog", "stamphog"})
         declared = {(spec.provider, spec.app): spec.event_types for spec in SPECS}

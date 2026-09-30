@@ -2,6 +2,7 @@ import json
 import time
 import asyncio
 import importlib
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
 
@@ -12,8 +13,14 @@ import httpx
 import httpx_sse
 import temporalio.client
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from temporalio.exceptions import ApplicationError
 
+from products.tasks.backend.logic.services.process_killed import (
+    ProcessKilledNotice,
+    format_process_killed_message,
+    parse_process_killed,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
@@ -49,6 +56,23 @@ relay_sandbox_events_module = importlib.import_module(
     "products.tasks.backend.temporal.process_task.activities.relay_sandbox_events"
 )
 
+_GIB = 1024**3
+
+
+def _process_killed_event(**overrides: object) -> dict:
+    params: dict[str, object] = {
+        "pid": 4242,
+        "comm": "vitest",
+        "command": "node vitest run --token=secret-value",
+        "treeRssBytes": 12 * _GIB,
+        "memoryCurrentBytes": 14 * _GIB,
+        "memoryLimitBytes": 16 * _GIB,
+        "signal": "SIGTERM",
+        "at": "2026-01-01T00:00:00.000Z",
+        **overrides,
+    }
+    return {"type": "notification", "notification": {"method": "_posthog/process_killed", "params": params}}
+
 
 class TestIsTurnComplete:
     @parameterized.expand(
@@ -83,6 +107,9 @@ class TestIsTurnComplete:
                 {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}},
                 True,
             ),
+            ("null_notification", {"type": "notification", "notification": None}, False),
+            ("scalar_notification", {"type": "notification", "notification": "turn_completed"}, False),
+            ("array_notification", {"type": "notification", "notification": []}, False),
         ]
     )
     def test_is_turn_complete(self, _name: str, event_data: dict, expected: bool):
@@ -326,6 +353,46 @@ class TestIsKeepaliveEvent:
     )
     def test_is_keepalive_event(self, _name: str, event_data: dict, expected: bool) -> None:
         assert _is_keepalive_event(event_data) == expected
+
+
+class TestParseProcessKilled:
+    @parameterized.expand(
+        [
+            (
+                "kill_notification",
+                _process_killed_event(),
+                ProcessKilledNotice(
+                    comm="vitest",
+                    signal="SIGTERM",
+                    tree_rss_bytes=12 * _GIB,
+                    memory_current_bytes=14 * _GIB,
+                    memory_limit_bytes=16 * _GIB,
+                ),
+            ),
+            ("other_method", {"type": "notification", "notification": {"method": "_posthog/error"}}, None),
+            ("not_a_notification", {"type": "keepalive"}, None),
+            ("missing_size", _process_killed_event(treeRssBytes=None), None),
+            ("boolean_size", _process_killed_event(memoryLimitBytes=True), None),
+            ("missing_comm", _process_killed_event(comm=None), None),
+        ],
+    )
+    def test_parse_process_killed(self, _name: str, event_data: dict, expected: ProcessKilledNotice | None) -> None:
+        assert parse_process_killed(event_data) == expected
+
+    @parameterized.expand(
+        [
+            ("whole_gib", 12 * _GIB, 16 * _GIB, "using 12.0 GiB of the 16.0 GiB available"),
+            ("fractional_gib", int(13.46 * _GIB), int(15.5 * _GIB), "using 13.5 GiB of the 15.5 GiB available"),
+        ],
+    )
+    def test_format_process_killed_message(self, _name: str, tree_rss: int, limit: int, expected: str) -> None:
+        notice = ProcessKilledNotice(
+            comm="node", signal="SIGKILL", tree_rss_bytes=tree_rss, memory_current_bytes=limit, memory_limit_bytes=limit
+        )
+
+        assert format_process_killed_message(notice) == (
+            f"The sandbox stopped node because it was {expected}. The agent is still running."
+        )
 
 
 class TestSanitizeHttpxError:
@@ -763,6 +830,71 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 
+    async def test_process_killed_is_reported_without_ending_the_relay(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        killed_event = _process_killed_event()
+        terminal_event = {"type": "notification", "notification": {"method": "_posthog/task_complete"}}
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(killed_event))
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
+            return SuccessfulEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        emit_agent_log_mock = MagicMock()
+        task_run = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+        monkeypatch.setattr(relay_sandbox_events_module, "emit_agent_log", emit_agent_log_mock)
+        monkeypatch.setattr(relay_sandbox_events_module, "parse_permission_request", lambda _event: None)
+
+        sandbox_gone = await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            task_run=cast(TaskRun, task_run),
+        )
+
+        assert sandbox_gone is False
+        assert redis_stream.write_event.await_args_list == [call(killed_event), call(terminal_event)]
+        emit_agent_log_mock.assert_called_once_with(
+            "run-id",
+            "warn",
+            "The sandbox stopped vitest because it was using 12.0 GiB of the 16.0 GiB available. "
+            "The agent is still running.",
+        )
+        task_run.capture_event.assert_called_once_with(
+            "sandbox_process_killed",
+            {
+                "process_comm": "vitest",
+                "process_signal": "SIGTERM",
+                "process_tree_rss_bytes": 12 * _GIB,
+                "memory_current_bytes": 14 * _GIB,
+                "memory_limit_bytes": 16 * _GIB,
+            },
+        )
+        assert "secret-value" not in json.dumps(task_run.capture_event.call_args.args)
+
     async def test_relay_signals_command_and_generated_activity_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
@@ -857,8 +989,43 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.release_first_agent_activity.assert_not_awaited()
         assert redis_stream.claim_first_agent_activity.await_count == 2
 
-    async def test_relay_fails_the_run_instead_of_completing_it_on_a_pi_runtime_error(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("event", "turn_failed", "turn_completed", "turn_succeeded"),
+        [
+            ({"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}}, True, False, False),
+            (
+                {"type": "notification", "notification": {"method": TURN_COMPLETE_METHOD}},
+                False,
+                True,
+                False,
+            ),
+            (
+                {
+                    "type": "notification",
+                    "notification": {"method": TURN_COMPLETE_METHOD, "params": {"stopReason": "end_turn"}},
+                },
+                False,
+                True,
+                True,
+            ),
+            (
+                {
+                    "type": "notification",
+                    "notification": {"method": TURN_COMPLETE_METHOD, "params": {"stopReason": "idle_resume"}},
+                },
+                False,
+                False,
+                False,
+            ),
+        ],
+    )
+    async def test_relay_handles_turn_completion(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        event: dict[str, object],
+        turn_failed: bool,
+        turn_completed: bool,
+        turn_succeeded: bool,
     ) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
@@ -870,7 +1037,7 @@ class TestRelaySandboxEventsErrorHandling:
             release_first_agent_activity=AsyncMock(),
         )
         events = [
-            {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}},
+            event,
             {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
         ]
 
@@ -899,6 +1066,21 @@ class TestRelaySandboxEventsErrorHandling:
         )
         monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
 
+        dispatch_done = asyncio.Event()
+
+        async def run_sync(func: Callable[..., object], *args: object, **kwargs: object) -> object:
+            result = func(*args, **kwargs)
+            dispatch_done.set()
+            return result
+
+        notify = MagicMock()
+        monkeypatch.setattr("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed", notify)
+        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", run_sync)
+        metric = "posthog_tasks_turn_completed_suppressed_total"
+        labels = {"reason": "idle_resume"}
+        suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
+        task_run = TaskRun(state={"mode": "interactive"})
+
         await _relay_loop(
             events_url="https://sandbox.example/events",
             headers={"Authorization": "Bearer token"},
@@ -906,10 +1088,24 @@ class TestRelaySandboxEventsErrorHandling:
             redis_stream=cast(TaskRunRedisStream, redis_stream),
             run_id="run-id",
             task_id="task-id",
+            task_run=task_run,
         )
 
-        assert call("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE]) in handle.signal.await_args_list
-        assert call("agent_state_changed", arg=False) not in handle.signal.await_args_list
+        if turn_failed:
+            handle.signal.assert_awaited_once_with("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE])
+        else:
+            await asyncio.wait_for(dispatch_done.wait(), timeout=5)
+            assert handle.signal.await_args_list == [
+                call("agent_state_changed", arg=False),
+                call("agent_turn_completed", arg=turn_succeeded),
+            ]
+        if turn_completed:
+            notify.assert_called_once_with(task_run)
+        else:
+            notify.assert_not_called()
+        assert (REGISTRY.get_sample_value(metric, labels) or 0) - suppressed_before == int(
+            not turn_failed and not turn_completed
+        )
 
     @parameterized.expand(
         [
@@ -1651,7 +1847,9 @@ class TestBackgroundHeartbeat:
                 _background_heartbeat(
                     stop_event,
                     cast(temporalio.client.WorkflowHandle, handle),
-                    [time.monotonic() - 100.0],
+                    # The gate reads a value <= 0 as "no event yet". monotonic() counts from boot,
+                    # so subtracting an offset gives <= 0 on a runner that booted recently.
+                    [time.monotonic()],
                     [0.0],
                     [False],
                     inactivity_timeout_seconds=3600.0,

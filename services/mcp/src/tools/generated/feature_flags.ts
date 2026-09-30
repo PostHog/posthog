@@ -207,6 +207,9 @@ const FeatureFlagGetAllSchema = () => {
         search: FeatureFlagsListQueryParams.shape['search'].describe(
             'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
         ),
+        active: FeatureFlagsListQueryParams.shape['active'].describe(
+            'Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and `"STALE"` returns enabled flags that PostHog classifies as stale.'
+        ),
         limit: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['limit']).optional(),
         offset: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['offset']).optional(),
     })
@@ -243,7 +246,17 @@ const featureFlagGetAll = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
+                pickResponseFields(item, [
+                    'id',
+                    'key',
+                    'name',
+                    'updated_at',
+                    'status',
+                    'tags',
+                    'last_called_at',
+                    'active',
+                    'created_at',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(
@@ -282,6 +295,104 @@ const featureFlagGetDefinition = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
         })
         return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+    },
+})
+
+const FeatureFlagRollOutToEveryoneSchema = () => {
+    const FeatureFlagsRollOutToEveryoneCreateBody = orvalSchemas.FeatureFlagsRollOutToEveryoneCreateBody()
+    const FeatureFlagsRollOutToEveryoneCreateParams = orvalSchemas.FeatureFlagsRollOutToEveryoneCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsRollOutToEveryoneCreateParams.omit({ project_id: true })
+            .extend(FeatureFlagsRollOutToEveryoneCreateBody.shape)
+            .extend({ id: z.preprocess(castStringToInt, FeatureFlagsRollOutToEveryoneCreateParams.shape['id']) })
+    )
+}
+
+const featureFlagRollOutToEveryone = (): ToolBase<
+    ReturnType<typeof FeatureFlagRollOutToEveryoneSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-roll-out-to-everyone',
+    schema: FeatureFlagRollOutToEveryoneSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagRollOutToEveryoneSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        if (params.variant_key !== undefined) {
+            body['variant_key'] = params.variant_key
+        }
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/roll_out_to_everyone/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'active',
+            'archived',
+            'status',
+            'version',
+            'filters',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
+    },
+})
+
+const FeatureFlagSetReleaseConditionRolloutSchema = () => {
+    const FeatureFlagsSetReleaseConditionRolloutCreateBody =
+        orvalSchemas.FeatureFlagsSetReleaseConditionRolloutCreateBody()
+    const FeatureFlagsSetReleaseConditionRolloutCreateParams =
+        orvalSchemas.FeatureFlagsSetReleaseConditionRolloutCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsSetReleaseConditionRolloutCreateParams.omit({ project_id: true })
+            .extend(FeatureFlagsSetReleaseConditionRolloutCreateBody.shape)
+            .extend({
+                id: z.preprocess(castStringToInt, FeatureFlagsSetReleaseConditionRolloutCreateParams.shape['id']),
+            })
+    )
+}
+
+const featureFlagSetReleaseConditionRollout = (): ToolBase<
+    ReturnType<typeof FeatureFlagSetReleaseConditionRolloutSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-set-release-condition-rollout',
+    schema: FeatureFlagSetReleaseConditionRolloutSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof FeatureFlagSetReleaseConditionRolloutSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.condition_index !== undefined) {
+            body['condition_index'] = params.condition_index
+        }
+        if (params.rollout_percentage !== undefined) {
+            body['rollout_percentage'] = params.rollout_percentage
+        }
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/set_release_condition_rollout/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'active',
+            'archived',
+            'status',
+            'version',
+            'filters',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
     },
 })
 
@@ -949,6 +1060,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flag-enable': featureFlagEnable,
     'feature-flag-get-all': featureFlagGetAll,
     'feature-flag-get-definition': featureFlagGetDefinition,
+    'feature-flag-roll-out-to-everyone': featureFlagRollOutToEveryone,
+    'feature-flag-set-release-condition-rollout': featureFlagSetReleaseConditionRollout,
     'feature-flag-unarchive': featureFlagUnarchive,
     'feature-flags-activity-retrieve': featureFlagsActivityRetrieve,
     'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,

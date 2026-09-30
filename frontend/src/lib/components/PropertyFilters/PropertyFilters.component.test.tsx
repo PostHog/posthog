@@ -336,7 +336,7 @@ describe('PropertyFilters recent selections', () => {
 
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
-            expect(screen.getByText(/Start searching/)).toBeInTheDocument()
+            expect(screen.getByText(/Type a value like a URL and we'll suggest a filter for it/)).toBeInTheDocument()
         })
     })
 

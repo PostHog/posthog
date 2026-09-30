@@ -53,6 +53,15 @@ def team_distinct_id(team_id: int) -> str:
     return f"team-{team_id}"
 
 
+class GatewayNotConfiguredError(ValueError):
+    """No LLM gateway is configured, so the client could not be built and no call was made.
+
+    A `ValueError` so existing callers keep behaving as before, but a distinct type so a caller whose
+    LLM step is optional can tell an absent gateway, which is static and the same for every team,
+    apart from a gateway call that went out and failed and is worth reporting.
+    """
+
+
 def get_llm_client(
     product: Product = "django",
     team_id: int | None = None,
@@ -113,7 +122,7 @@ def get_llm_client(
     """
     resolved_api_key = api_key or settings.LLM_GATEWAY_API_KEY
     if not settings.LLM_GATEWAY_URL or not resolved_api_key:
-        raise ValueError("LLM_GATEWAY_URL and an API key must be configured")
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and an API key must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
     headers = dict(default_headers or {})
@@ -138,7 +147,7 @@ def get_async_llm_client(
     attribution and how to attach extra per-call event properties.
     """
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
     headers = dict(default_headers or {})
@@ -157,6 +166,7 @@ def get_async_anthropic_gateway_client(
     product: Product = "django",
     team_id: int | None = None,
     use_bedrock_fallback: bool = False,
+    default_headers: Mapping[str, str] | None = None,
 ) -> AsyncAnthropic:
     """
     Get an Anthropic-native async client pointed at the internal LLM gateway.
@@ -182,17 +192,19 @@ def get_async_anthropic_gateway_client(
     Bedrock instead of failing. Sent as the `x-posthog-use-bedrock-fallback` default header.
     """
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
-    default_headers = _team_id_header(team_id) if team_id is not None else {}
+    headers = dict(default_headers or {})
+    if team_id is not None:
+        headers.update(_team_id_header(team_id))
     if use_bedrock_fallback:
-        default_headers["x-posthog-use-bedrock-fallback"] = "true"
+        headers["x-posthog-use-bedrock-fallback"] = "true"
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}"
     return AsyncAnthropic(
         base_url=base_url,
         api_key=settings.LLM_GATEWAY_API_KEY,
-        default_headers=default_headers or None,
+        default_headers=headers or None,
         http_client=httpx.AsyncClient(trust_env=False),
     )
 
@@ -205,7 +217,7 @@ def get_anthropic_gateway_client(
 ) -> Anthropic:
     """Synchronous variant of :func:`get_async_anthropic_gateway_client`."""
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     headers = dict(default_headers or {})
     if team_id is not None:
@@ -329,7 +341,7 @@ def team_trace_id(team_id: int | None) -> str | None:
     return str(uuid5(_TEAM_TRACE_ID_NAMESPACE, f"team-{team_id}"))
 
 
-def _anthropic_gateway_base_url(openai_base_url: str) -> str:
+def anthropic_gateway_base_url(openai_base_url: str) -> str:
     """Drop the OpenAI ``/v1`` suffix so the Anthropic SDK, which appends ``/v1/messages``
     itself, hits the same gateway root the OpenAI route uses. ``resolve_ai_gateway_config``
     guarantees the ``/v1`` suffix, so this is the inverse of that validation.
@@ -410,6 +422,8 @@ def build_async_anthropic_client(
     ai_stage: str | None = None,
     team_id: int | None = None,
     use_bedrock_fallback: bool = False,
+    trace_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
 ) -> AsyncAnthropic:
     """Return a raw Anthropic client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_async_anthropic_gateway_client`.
@@ -427,12 +441,14 @@ def build_async_anthropic_client(
     over to Bedrock on its own via the host breaker and reads no opt-in header. trust_env=False
     keeps the in-cluster call off the egress proxy.
 
-    An attributed call also carries ``X-PostHog-Trace-Id`` (see :func:`team_trace_id`); the
-    Python-gateway fallback derives the same id internally and needs no header.
+    An attributed call also carries ``X-PostHog-Trace-Id``. Callers can supply a per-operation
+    ``trace_id`` and custom ``properties``; otherwise the trace falls back to :func:`team_trace_id`.
+    The Python-gateway fallback receives the same trace and properties through its native headers.
     """
     gateway = resolve_ai_gateway_config()
-    if gateway:
-        properties = {
+    labels = dict(properties or {})
+    labels.update(
+        {
             key: value
             for key, value in {
                 "ai_stage": ai_stage,
@@ -440,17 +456,24 @@ def build_async_anthropic_client(
             }.items()
             if value
         }
+    )
+    if gateway:
         return AsyncAnthropic(
             api_key=gateway.api_key,
-            base_url=_anthropic_gateway_base_url(gateway.url),
+            base_url=anthropic_gateway_base_url(gateway.url),
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
-                trace_id=team_trace_id(team_id),
-                properties=properties,
+                trace_id=trace_id or team_trace_id(team_id),
+                properties=labels,
             ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
-    return get_async_anthropic_gateway_client(product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback)
+    fallback_headers = _python_gateway_observability_headers(trace_id, None, properties)
+    if fallback_headers is None:
+        return get_async_anthropic_gateway_client(product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback)
+    return get_async_anthropic_gateway_client(
+        product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback, default_headers=fallback_headers
+    )
 
 
 def _ai_gateway_anthropic_client(
@@ -466,7 +489,7 @@ def _ai_gateway_anthropic_client(
         labels["team_id"] = str(team_id)
     return Anthropic(
         api_key=gateway.api_key,
-        base_url=_anthropic_gateway_base_url(gateway.url),
+        base_url=anthropic_gateway_base_url(gateway.url),
         default_headers=ai_gateway_headers(
             ai_product=ai_product,
             trace_id=trace_id or team_trace_id(team_id),

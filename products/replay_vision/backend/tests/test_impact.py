@@ -10,10 +10,11 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.replay_vision.backend.impact import compute_scanner_impact, create_affected_cohort
+from products.replay_vision.backend.impact import affected_observations, compute_scanner_impact, create_affected_cohort
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
+    ObservationVerdict,
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
@@ -63,16 +64,29 @@ class _ImpactTestCase(APIBaseTest):
 
 
 class TestComputeScannerImpact(_ImpactTestCase):
-    def test_monitor_counts_only_verdict_yes(self) -> None:
+    @parameterized.expand(
+        [
+            ("defaults_to_yes", None, "u-yes"),
+            ("yes", ObservationVerdict.YES, "u-yes"),
+            ("no", ObservationVerdict.NO, "u-no"),
+            ("inconclusive", ObservationVerdict.INCONCLUSIVE, "u-inc"),
+        ]
+    )
+    def test_monitor_counts_only_the_requested_verdict(
+        self, _name: str, verdict: ObservationVerdict | None, expected_user: str
+    ) -> None:
         scanner = self._make_scanner(ScannerType.MONITOR)
-        self._make_observation(scanner, session_id="s-yes", distinct_id="u1", verdict="yes")
-        self._make_observation(scanner, session_id="s-no", distinct_id="u2", verdict="no")
-        self._make_observation(scanner, session_id="s-inc", distinct_id="u3", verdict="inconclusive")
+        self._make_observation(scanner, session_id="s-yes", distinct_id="u-yes", verdict="yes")
+        self._make_observation(scanner, session_id="s-no", distinct_id="u-no", verdict="no")
+        self._make_observation(scanner, session_id="s-inc", distinct_id="u-inc", verdict="inconclusive")
 
-        impact = compute_scanner_impact(scanner)
+        impact = compute_scanner_impact(scanner, verdict=verdict)
 
         assert impact.affected_sessions == 1
         assert impact.affected_users == 1
+        assert list(affected_observations(scanner, 30, verdict=verdict).values_list("distinct_id", flat=True)) == [
+            expected_user
+        ]
 
     def test_classifier_counts_only_sessions_with_the_tag(self) -> None:
         scanner = self._make_scanner(ScannerType.CLASSIFIER)
@@ -98,6 +112,7 @@ class TestComputeScannerImpact(_ImpactTestCase):
     @parameterized.expand(
         [
             ("monitor_rejects_tag", ScannerType.MONITOR, {"tag": "bug"}),
+            ("classifier_rejects_verdict", ScannerType.CLASSIFIER, {"tag": "bug", "verdict": ObservationVerdict.NO}),
             ("classifier_requires_tag", ScannerType.CLASSIFIER, {}),
             ("scorer_requires_bound", ScannerType.SCORER, {}),
             ("summarizer_unsupported", ScannerType.SUMMARIZER, {}),

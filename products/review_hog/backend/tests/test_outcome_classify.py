@@ -1,4 +1,6 @@
+import json
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -11,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
 from posthog.models.team import Team
@@ -23,10 +26,16 @@ from products.review_hog.backend.reviewer.artefact_content import (
     parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.constants import (
+    DEFAULT_REVIEW_ARM,
+    DEFAULT_VALIDATION_ARM,
+    FLASH_ARM,
     OUTCOME_JUDGE_FAILURE_STREAK,
     OUTCOME_JUDGE_REASONING_MAX_CHARS,
     OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     VALIDATION_MODEL,
+    VALIDATION_REASONING_EFFORT,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.outcomes.classify import (
@@ -128,26 +137,54 @@ class TestClassifyReportDecision:
         assert captured[0]["properties"]["outcome"] == "ignored"
         assert captured[0]["properties"]["classification_method"] == "judge_rejected"
 
-    def test_the_outcome_event_carries_the_review_arm(self):
-        # Per-tier precision splits this event by the report's arm as it stands when the outcome is
-        # classified: a row in a cheaper tier must label its findings with that tier and effort, not
-        # the default pins.
+    @parameterized.expand(
+        [
+            ("legacy", None, "gpt-5.6-sol"),
+            ("unreadable", "unreadable", "gpt-5.6-sol"),
+            ("full", REVIEW_MODE_FULL, "gpt-5.6-sol"),
+            ("flash", REVIEW_MODE_FLASH, "gpt-5.6-sol"),
+            ("flash_with_stale_report_arm", REVIEW_MODE_FLASH, "gpt-removed"),
+        ]
+    )
+    def test_the_outcome_event_carries_the_review_arm(
+        self, _name: str, context_mode: str | None, report_model: str
+    ) -> None:
         report = ReviewReport(
             repository="o/r",
             pr_number=7,
             review_tier="agent_p2",
             review_runtime_adapter="codex",
-            review_model="gpt-5.6-sol",
+            review_model=report_model,
             review_reasoning_effort="medium",
             review_initial_permission_mode="full-access",
         )
-        captured, _judge = self._run(inputs=self._inputs(comment=None, compare_files=_TOUCHING), report=report)
+        inputs = self._inputs(comment=None, compare_files=_TOUCHING)
+        is_flash = context_mode == REVIEW_MODE_FLASH
+        if context_mode in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH):
+            inputs.published[0].finding.validation_context = json.dumps(
+                {
+                    "head_sha": "base_sha",
+                    "review_mode": context_mode,
+                    "review_arm": asdict(FLASH_ARM if is_flash else DEFAULT_REVIEW_ARM),
+                    "validation_arm": asdict(FLASH_ARM if is_flash else DEFAULT_VALIDATION_ARM),
+                }
+            )
+        else:
+            inputs.published[0].finding.validation_context = context_mode
+
+        with patch("products.review_hog.backend.reviewer.constants.FLASH_ARM", DEFAULT_REVIEW_ARM):
+            captured, _judge = self._run(inputs=inputs, report=report)
         props = captured[0]["properties"]
         assert props["review_tier"] == "agent_p2"
-        assert props["review_model"] == "gpt-5.6-sol"
+        assert props["review_mode"] == (context_mode if context_mode in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH) else None)
+        assert props["review_runtime_adapter"] == "codex"
+        assert props["review_model"] == (FLASH_ARM.model if is_flash else report_model)
         assert props["review_reasoning_effort"] == "medium"
         assert props["review_arm_fallback"] is False
-        assert props["validator_model"] == VALIDATION_MODEL
+        assert props["validator_model"] == (FLASH_ARM.model if is_flash else VALIDATION_MODEL)
+        assert props["validator_reasoning_effort"] == (
+            FLASH_ARM.reasoning_effort.value if is_flash else VALIDATION_REASONING_EFFORT.value
+        )
 
     def test_the_judges_reasoning_is_persisted_with_the_outcome(self):
         # The ruling is the only record of why a finding was classified as it was; the diff it read
