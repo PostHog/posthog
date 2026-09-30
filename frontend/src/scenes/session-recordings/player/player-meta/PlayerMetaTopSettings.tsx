@@ -19,6 +19,8 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
+import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
+
 function PlayerControlsLayoutToggle(): JSX.Element {
     const { playerControlsOverlay } = useValues(sessionRecordingPlayerLogic)
     const { setPlayerControlsOverlay } = useActions(sessionRecordingPlayerLogic)
@@ -82,6 +84,31 @@ function InspectDOM(): JSX.Element {
                 sessionPlayerMetaData?.snapshot_source === 'mobile' ? 'Only available for web recordings' : undefined
             }
             icon={<IconSearch />}
+        />
+    )
+}
+
+function ViewHeatmap(): JSX.Element {
+    const { sessionPlayerMetaData, currentURL } = useValues(sessionRecordingPlayerLogic)
+    const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
+
+    return (
+        <SettingsButton
+            size="xsmall"
+            icon={<IconHeatmap />}
+            onClick={() => {
+                setPause()
+                openHeatmap()
+            }}
+            label="View heatmap"
+            tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
+            disabledReason={
+                sessionPlayerMetaData?.snapshot_source === 'mobile'
+                    ? 'Only available for web recordings'
+                    : !isUsableHeatmapUrl(currentURL)
+                      ? 'This moment has no page address to build a heatmap for. Try a different moment, or create a heatmap from the page URL instead.'
+                      : undefined
+            }
         />
     )
 }
@@ -155,7 +182,6 @@ export function PlayerMetaTopSettings(): JSX.Element {
         showPlayerChrome,
     } = useValues(sessionRecordingPlayerLogic)
     const { modalContext } = useValues(sessionPlayerModalLogic)
-    const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
 
     const showControlsLayoutToggle = !!mode && ModesWithInteractions.includes(mode)
 
@@ -186,18 +212,7 @@ export function PlayerMetaTopSettings(): JSX.Element {
                     </div>
 
                     <div className="flex flex-row gap-0.5">
-                        {modalContext?.type !== 'heatmap-background-selection' ? (
-                            <SettingsButton
-                                size="xsmall"
-                                icon={<IconHeatmap />}
-                                onClick={() => {
-                                    setPause()
-                                    openHeatmap()
-                                }}
-                                label="View heatmap"
-                                tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
-                            />
-                        ) : null}
+                        {modalContext?.type !== 'heatmap-background-selection' ? <ViewHeatmap /> : null}
                         {withSidebar && <InspectDOM />}
                         {withSidebar && <PlayerInspectorButton />}
                     </div>
