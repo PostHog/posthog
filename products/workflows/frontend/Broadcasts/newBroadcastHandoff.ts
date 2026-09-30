@@ -1,8 +1,12 @@
+import { combineUrl } from 'kea-router'
+
 import { ApiConfig } from 'lib/api'
 import type { AiFirstHandoffLogicProps } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 import { urls } from 'scenes/urls'
 
 import { hogFlowsList } from 'products/workflows/frontend/generated/api'
+
+import { COMPOSER_DRAFT_PARAM, COMPOSER_DRAFT_VALUE } from './broadcastUsage'
 
 // pinned: MCP tool name from products/workflows/mcp/tools.yaml
 const CREATE_BROADCAST_TOOL = 'broadcasts-create'
@@ -31,7 +35,7 @@ export async function findCreatedBroadcastId(name: unknown): Promise<string | nu
 export const NEW_BROADCAST_HANDOFF: AiFirstHandoffLogicProps = {
     toolName: CREATE_BROADCAST_TOOL,
     findCreatedId: (innerInput) => findCreatedBroadcastId(innerInput?.name),
-    urlFor: (id) => urls.broadcast(id),
+    urlFor: (id) => combineUrl(urls.broadcast(id), { [COMPOSER_DRAFT_PARAM]: COMPOSER_DRAFT_VALUE }).url,
     notOpenedMessage: 'Your broadcast was created, but it could not be opened. Find it in the broadcasts list.',
     // pinned: analytics event names
     eventPrefix: 'broadcast ai composer',

@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ComputeTableStatisticsInputs,
     ComputeTableStatisticsWorkflow,
     _aggregate_add_action_stats,
+    _parse_commit_actions,
     _parse_log_value,
     compute_table_statistics_activity,
     compute_table_statistics_sync,
@@ -135,6 +136,32 @@ class TestAggregateAddActionStats:
         _, stats = _aggregate_add_action_stats(add_actions, {"v": "X"})
         assert stats["v"].min_value == expected_min
         assert stats["v"].max_value == expected_max
+
+
+class TestParseCommitActions:
+    @parameterized.expand([("next_line", "\u0085"), ("line_separator", "\u2028"), ("paragraph_separator", "\u2029")])
+    def test_string_stat_holding_a_unicode_line_boundary_stays_one_action(self, _name, char) -> None:
+        # Regression: splitlines() broke the commit on these characters, which a string column's
+        # min/max carries through into `stats`, so the fragment raised JSONDecodeError. delta-rs
+        # writes them raw rather than escaped, hence ensure_ascii=False here.
+        stats = json.dumps(
+            {"numRecords": 3, "minValues": {"title": f"a{char}b"}, "maxValues": {"title": "z"}}, ensure_ascii=False
+        )
+        raw = (json.dumps({"add": {"path": "part-0.parquet", "stats": stats}}, ensure_ascii=False) + "\n").encode()
+        assert char.encode() in raw
+
+        actions = _parse_commit_actions(raw)
+
+        assert len(actions) == 1
+        assert json.loads(actions[0]["add"]["stats"])["minValues"]["title"] == f"a{char}b"
+
+    def test_reads_every_action_and_keeps_stats_floats_exact(self) -> None:
+        raw = b'{"protocol": {"minReaderVersion": 1}}\n{"add": {"path": "part-0.parquet", "size": 0.1}}\n'
+
+        actions = _parse_commit_actions(raw)
+
+        assert [next(iter(action)) for action in actions] == ["protocol", "add"]
+        assert actions[1]["add"]["size"] == Decimal("0.1")
 
 
 class TestParseLogValue:

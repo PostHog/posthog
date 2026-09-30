@@ -96,7 +96,9 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentFlagCleanupTaskSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
-    ExperimentMetricsRecalculationSerializer,
+    ExperimentMetricsRecalculationJobSerializer,
+    ExperimentMetricsRecalculationLatestSerializer,
+    ExperimentMetricsRecalculationRunSerializer,
     ExperimentSerializer,
     ExperimentSessionBucketRequestSerializer,
     ExperimentSessionBucketResponseSerializer,
@@ -1361,8 +1363,8 @@ class EnterpriseExperimentsViewSet(
     @extend_schema(
         request=RecalculateMetricsRequestSerializer,
         responses={
-            200: ExperimentMetricsRecalculationSerializer,
-            201: ExperimentMetricsRecalculationSerializer,
+            200: ExperimentMetricsRecalculationJobSerializer,
+            201: ExperimentMetricsRecalculationJobSerializer,
         },
     )
     @action(
@@ -1430,11 +1432,11 @@ class EnterpriseExperimentsViewSet(
                 raise
 
         return Response(
-            ExperimentMetricsRecalculationSerializer(result).data,
+            ExperimentMetricsRecalculationJobSerializer(result).data,
             status=200 if is_existing else 201,
         )
 
-    @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
+    @extend_schema(responses={200: ExperimentMetricsRecalculationLatestSerializer, 404: None})
     @action(
         methods=["GET"],
         detail=True,
@@ -1449,7 +1451,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_latest_recalculation(experiment)
 
         if recalc is not None:
-            return Response(_serialize_recalculation(recalc, active_run=active_run))
+            return Response(_serialize_latest(_build_run_payload(recalc), active_run))
 
         # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
         # placeholder so the user sees results immediately, even while a first run is active (its pending
@@ -1457,12 +1459,10 @@ class EnterpriseExperimentsViewSet(
         # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
-            if active_run is not None:
-                fallback["active_run"] = active_run
-            return Response(ExperimentMetricsRecalculationSerializer(fallback).data)
+            return Response(_serialize_latest(fallback, active_run))
 
         if active is not None:
-            return Response(_serialize_recalculation(active, active_run=active_run))
+            return Response(_serialize_latest(_build_run_payload(active), active_run))
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
@@ -1481,7 +1481,7 @@ class EnterpriseExperimentsViewSet(
                 ),
             )
         ],
-        responses={200: ExperimentMetricsRecalculationSerializer, 404: None},
+        responses={200: ExperimentMetricsRecalculationRunSerializer, 404: None},
     )
     @action(
         methods=["GET"],
@@ -1497,7 +1497,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_recalculation_by_id(experiment, recalculation_id)
         if recalc is None:
             return Response({"detail": "Recalculation not found"}, status=404)
-        return Response(_serialize_recalculation(recalc))
+        return Response(ExperimentMetricsRecalculationRunSerializer(_build_run_payload(recalc)).data)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
@@ -1886,10 +1886,14 @@ class EnterpriseExperimentsViewSet(
             return False
 
 
-def _serialize_recalculation(recalc: ExperimentMetricsRecalculation, active_run: dict | None = None) -> dict:
+def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
     results = get_run_results(recalc)
     payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
+    return payload
+
+
+def _serialize_latest(payload: dict, active_run: dict | None) -> dict:
     if active_run is not None:
         payload["active_run"] = active_run
-    return ExperimentMetricsRecalculationSerializer(payload).data
+    return ExperimentMetricsRecalculationLatestSerializer(payload).data

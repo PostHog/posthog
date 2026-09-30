@@ -1,6 +1,7 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
+import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { isEmptyToolResult } from '@/lib/discovery-hints'
@@ -14,6 +15,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
+import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
@@ -1578,11 +1580,23 @@ function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[])
     return `Tool "${gated.name}" is retired on this PostHog connection. Use ${successors} instead.${hint}`
 }
 
+function missingScopeRecovery(context: Context | undefined): string {
+    switch (classifyAuthMethod(context?.api.config.apiToken)) {
+        case 'oauth':
+            return 'Reauthorize the PostHog MCP connection and approve these scopes.'
+        case 'personal_api_key':
+            return `Add these scopes to the personal API key. The change reaches this connection within ${API_KEY_CACHE_TTL_MS / 60_000} minutes, and reconnecting the client does not make it faster.`
+        default:
+            return 'Reauthorize the PostHog MCP connection, or add these scopes to the personal API key.'
+    }
+}
+
 function findTool(
     tools: Tool<ZodObjectAny>[],
     scopeGatedTools: ScopeGatedTool[],
     flagGatedTools: FlagGatedTool[],
-    name: string
+    name: string,
+    context: Context | undefined
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -1597,7 +1611,7 @@ function findTool(
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
             throw new ExecCommandError(
-                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. Reconnect or reauthorize the PostHog MCP connection and approve these scopes. Logging in to PostHog in a browser does not update MCP permissions.`,
+                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context)} Logging in to PostHog in a browser does not update MCP permissions.`,
                 'missing_scope'
             )
         }
@@ -1756,7 +1770,7 @@ export function createExecTool(
                             })),
                             hint:
                                 `These tools also match but are hidden because the API key is missing the ` +
-                                `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
+                                `required scope(s): ${requiredScopes.join(', ')}. ${missingScopeRecovery(context)}`,
                         })
                     }
                     if (matches.length === 0) {
@@ -1794,7 +1808,7 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs, context)
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
@@ -1839,7 +1853,13 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    const schemaTool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, schemaToolName)
+                    const schemaTool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        schemaToolName,
+                        context
+                    )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
                     const fullJsonSchema =
@@ -1896,7 +1916,7 @@ export function createExecTool(
                         throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName, context)
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
