@@ -18,6 +18,7 @@ import type {
 import { webAnalyticsContentAutopilotOpportunitiesDraftBodyOpportunityIdsMax } from 'products/web_analytics/frontend/generated/api.zod'
 
 export type ContentAutopilotOnboardingStep = 'site' | 'sources'
+export type ContentAutopilotProposalTab = 'preview' | 'draft' | 'changes' | 'brief' | 'sources'
 export type ContentAutopilotWorkspaceTab = 'opportunities' | 'drafts'
 export type ContentAutopilotWorkspaceResource = 'profiles' | 'runs' | 'proposals'
 export type ContentAutopilotProfileResource = 'runs' | 'proposals'
@@ -160,6 +161,7 @@ export interface contentAutopilotLogicValues {
     proposalHasUnsavedChanges: boolean
     proposalMutation: ContentAutopilotProposalApi | null
     proposalMutationLoading: boolean
+    proposalTab: ContentAutopilotProposalTab
     proposals: ContentAutopilotProposalListApi[]
     proposalsLoading: boolean
     proposedMarkdown: string
@@ -488,6 +490,9 @@ export interface contentAutopilotLogicActions {
     setProfileDraft: (profileDraft: Partial<ContentAutopilotProfileDraft>) => {
         profileDraft: Partial<ContentAutopilotProfileDraft>
     }
+    setProposalTab: (proposalTab: ContentAutopilotProposalTab) => {
+        proposalTab: ContentAutopilotProposalTab
+    }
     setProposedMarkdown: (proposedMarkdown: string) => {
         proposedMarkdown: string
     }
@@ -586,6 +591,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
         setProfileDraft: (profileDraft: Partial<ContentAutopilotProfileDraft>) => ({ profileDraft }),
         selectProposal: (proposalId: string | null) => ({ proposalId }),
         setProposedMarkdown: (proposedMarkdown: string) => ({ proposedMarkdown }),
+        setProposalTab: (proposalTab: ContentAutopilotProposalTab) => ({ proposalTab }),
         loadOpportunities: true,
         refreshOpportunities: true,
         toggleOpportunitySelection: (opportunityId: string) => ({ opportunityId }),
@@ -636,6 +642,13 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             '',
             {
                 setProposedMarkdown: (_, { proposedMarkdown }) => proposedMarkdown,
+            },
+        ],
+        proposalTab: [
+            'preview' as ContentAutopilotProposalTab,
+            {
+                selectProposal: () => 'preview',
+                setProposalTab: (_, { proposalTab }) => proposalTab,
             },
         ],
         workspaceTab: [
@@ -960,7 +973,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             {
                 exportProposal: async (proposalId: string) => {
                     if (values.selectedProposalId === proposalId && values.proposalHasUnsavedChanges) {
-                        throw new Error('Save or discard your changes before exporting this proposal')
+                        throw new Error('Save or discard your changes before downloading this draft')
                     }
                     const exported = await webAnalyticsApi.webAnalyticsContentAutopilotProposalsExport(
                         String(values.currentTeamIdStrict),
@@ -1057,31 +1070,31 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                     return {}
                 }
                 const readyForReview = selectedProposal.lifecycle_status === 'ready_for_review'
-                const exportInFlight = exportedProposalLoading ? 'Wait for the export to finish' : undefined
+                const exportInFlight = exportedProposalLoading ? 'Wait for the download to finish' : undefined
                 const unsavedChanges = proposalHasUnsavedChanges ? 'Save or discard your changes first' : undefined
                 return {
                     reject:
-                        (!readyForReview ? 'Only a proposal ready for review can be rejected' : undefined) ??
+                        (!readyForReview ? 'Only a draft ready for review can be rejected' : undefined) ??
                         exportInFlight ??
                         unsavedChanges,
                     regenerate:
                         (!readyForReview && selectedProposal.lifecycle_status !== 'failed'
-                            ? 'Only proposals ready for review or failed can be regenerated'
+                            ? 'Only drafts ready for review or failed can be regenerated'
                             : undefined) ??
                         exportInFlight ??
                         unsavedChanges,
                     save:
-                        (!readyForReview ? 'Only a proposal ready for review can be edited' : undefined) ??
+                        (!readyForReview ? 'Only a draft ready for review can be edited' : undefined) ??
                         (proposalDetailLoading ? 'Wait for the proposal to load' : undefined) ??
                         exportInFlight ??
                         (!proposalHasUnsavedChanges ? 'No unsaved changes' : undefined),
                     exportMarkdown:
                         (!selectedProposal.validation_report.passed
-                            ? 'Fix the blocked checks before exporting'
+                            ? 'Fix the checks marked Must fix first'
                             : undefined) ??
-                        (!readyForReview ? 'Only a proposal ready for review can be exported' : undefined) ??
-                        (proposalHasUnsavedChanges ? 'Save or discard your changes before exporting' : undefined) ??
-                        (proposalMutationLoading ? 'Wait for proposal changes to finish' : undefined),
+                        (!readyForReview ? 'Only a draft ready for review can be downloaded' : undefined) ??
+                        (proposalHasUnsavedChanges ? 'Save or discard your changes before downloading' : undefined) ??
+                        (proposalMutationLoading ? 'Wait for your changes to save' : undefined),
                 }
             },
         ],

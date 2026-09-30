@@ -1,4 +1,6 @@
 import type { Meta, StoryFn } from '@storybook/react'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -11,6 +13,7 @@ import type {
     ContentAutopilotSiteProfileApi,
 } from '../generated/api.schemas'
 import { ContentAutopilot } from './ContentAutopilot'
+import { type ContentAutopilotProposalTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
     EXAMPLE_OPPORTUNITIES,
@@ -129,3 +132,34 @@ ActiveRun.decorators = [
         runs: [{ ...EXAMPLE_RUN, run_status: 'generating', completed_at: null }],
     }),
 ]
+
+const ProposalStory = ({ tab }: { tab?: ContentAutopilotProposalTab }): JSX.Element => {
+    const { profileDataLoaded } = useValues(contentAutopilotLogic)
+    const { selectProposal, setProposalTab } = useActions(contentAutopilotLogic)
+    useEffect(() => {
+        if (profileDataLoaded) {
+            selectProposal(EXAMPLE_PROPOSAL.id)
+            if (tab) {
+                setProposalTab(tab)
+            }
+        }
+    }, [profileDataLoaded, selectProposal, setProposalTab, tab])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+export const ProposalReview: StoryFn<typeof ContentAutopilot> = () => <ProposalStory tab="changes" />
+ProposalReview.decorators = [
+    workspaceHandlers({
+        profiles: [EXAMPLE_PROFILE],
+        runs: [EXAMPLE_RUN],
+        proposals: [EXAMPLE_PROPOSAL_LIST],
+        opportunities: EXAMPLE_OPPORTUNITIES,
+    }),
+]
+
+export const ProposalPreview: StoryFn<typeof ContentAutopilot> = () => <ProposalStory />
+ProposalPreview.decorators = ProposalReview.decorators
