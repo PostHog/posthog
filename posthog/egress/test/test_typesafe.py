@@ -65,7 +65,7 @@ def _with_answer(question_id: str, answer: dict[str, Any]) -> str:
 
 @override_settings(TYPESAFE_API_KEY=_FAKE_API_KEY, CLOUD_DEPLOYMENT="LOCAL")
 class TestTypeSafeEgress(SimpleTestCase):
-    @parameterized.expand(["US", "EU", "DEV", "E2E"])
+    @parameterized.expand(["US", "EU", "DEV", "E2E", "us", "eu", "dev", "e2e"])
     def test_cloud_never_calls_typesafe_even_with_a_key(self, deployment: str) -> None:
         with (
             override_settings(CLOUD_DEPLOYMENT=deployment),

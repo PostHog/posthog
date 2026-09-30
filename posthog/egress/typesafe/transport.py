@@ -53,7 +53,7 @@ DEFAULT_TIMEOUT: tuple[float, float] = (3.0, 15.0)
 
 
 def typesafe_allowed() -> bool:
-    return settings.CLOUD_DEPLOYMENT in (None, "LOCAL")
+    return (settings.CLOUD_DEPLOYMENT or "").upper() in ("", "LOCAL")
 
 
 def typesafe_request(

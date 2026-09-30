@@ -7,7 +7,7 @@ The request and answer types live in `posthog/llm/system_one.py`, because the Go
 A caller builds its client with `build_system_one_client` from `posthog/llm/system_one_client.py`.
 It reaches the ai-gateway where `AI_GATEWAY_URL` is set.
 PostHog Cloud uses the ai-gateway with a PostHog-hosted System One model. This domain is available only in local development or self-hosted instances, when the caller passes a `TypeSafeFallback`.
-The transport rejects TypeSafe requests from Cloud before an HTTP call, even if someone configures an API key or calls it directly.
+The transport rejects TypeSafe requests from Cloud before an HTTP call, even if someone configures an API key or calls it directly. The Cloud check ignores case in deployment values.
 
 ## Usage policy
 
