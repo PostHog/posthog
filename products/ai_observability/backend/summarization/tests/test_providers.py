@@ -7,6 +7,8 @@ import httpx
 from openai import APIConnectionError, APIStatusError, BadRequestError, InternalServerError, RateLimitError, omit
 from rest_framework import exceptions
 
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
+
 from products.ai_observability.backend.summarization.constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
 from products.ai_observability.backend.summarization.llm.openai import summarize_with_openai
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
@@ -140,7 +142,7 @@ class TestSummarizeWithOpenAI:
             mock_client.with_options.return_value = mock_client
             mock_client.chat.completions.create.side_effect = _json_body_parse_error()
 
-            with pytest.raises(exceptions.APIException):
+            with pytest.raises(exceptions.APIException) as raised:
                 summarize_with_openai(
                     text_repr="L1: Test",
                     team_id=1,
@@ -148,6 +150,8 @@ class TestSummarizeWithOpenAI:
                     model=OpenAIModel.GPT_4_1_MINI,
                 )
 
+            mock_capture.assert_called_once()
+            assert is_expected_activity_failure(raised.value)
             properties = mock_capture.call_args[1]["additional_properties"]
             assert properties["$exception_fingerprint"] == "aio_summarization.BadRequestError.400"
             assert properties["provider_status"] == 400

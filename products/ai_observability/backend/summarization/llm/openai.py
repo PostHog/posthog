@@ -11,6 +11,7 @@ from rest_framework import exceptions
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import build_openai_client, team_distinct_id
 from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
+from posthog.temporal.common.errors import NonReportableError
 
 from ..constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
 from ..models import OpenAIModel, SummarizationMode
@@ -18,6 +19,10 @@ from ..utils import load_summarization_template
 from .schema import SummarizationResponse
 
 logger = structlog.get_logger(__name__)
+
+
+class SummarizationFailedError(exceptions.APIException, NonReportableError):
+    pass
 
 
 def _is_gpt5_model(model: OpenAIModel) -> bool:
@@ -146,9 +151,10 @@ def summarize_with_openai(
             model=model,
             flex=flex,
         )
-        # The raised exception is a DRF APIException, which the exceptions-hog handler never
-        # reports, so capture it here. The fingerprint splits the causes that used to share one
-        # issue: a capacity refusal, a malformed request and a provider outage each get their own.
+        # Capture here because no caller reports the raised exception: the exceptions-hog handler
+        # skips DRF APIExceptions, and the activity interceptor skips NonReportableError. The
+        # fingerprint gives a capacity refusal, a malformed request and a provider outage each
+        # their own issue.
         capture_exception(
             e,
             additional_properties={
@@ -160,4 +166,4 @@ def summarize_with_openai(
                 "flex": flex,
             },
         )
-        raise exceptions.APIException(f"Failed to generate summary{reason}")
+        raise SummarizationFailedError(f"Failed to generate summary{reason}")
