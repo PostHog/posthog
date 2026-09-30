@@ -55,7 +55,7 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
 - **New DB**: we created a new DB to store these tables.
 - **Daily range partitioning** on `created_at`: both tables use `PARTITION BY RANGE (created_at)` with daily partitions and a DEFAULT partition catching rows that miss one.
   A Temporal scheduled workflow (`warehouse-sources-queue-partition-management`, daily at 8 AM UTC) creates the next 7 days of partitions, drops partitions older than 7 days, and deletes DEFAULT-partition rows older than 7 days.
-  It posts to Slack only when someone must act: a partition for tomorrow or later is missing, or data is more than a day past retention, in a daily partition or in a DEFAULT partition.
+  It posts to Slack only when someone must act: a partition for one of the next 5 days is missing, or data is more than a day past retention, in a daily partition or in a DEFAULT partition.
   An S3 lifecycle rule on the warehouse bucket expires the extraction files under `data_pipelines_extract/` after 8 days, so this workflow does not touch S3.
   `DROP TABLE partition` is O(1) metadata-only: no vacuum, no dead tuples.
   The workflow connects with `WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL`, the migration role's credentials, because Postgres lets only the owner of a partitioned table create partitions of it.
@@ -64,7 +64,8 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
 - **Claim eligibility coupled to retention**: a batch is only claimable (or recovery-sweepable) while younger than `CLAIM_ELIGIBILITY_INTERVAL` (`6 days 12 hours`, `jobs_db.py`), which must stay below the 7-day retention window (`RETENTION_DAYS` in `posthog/temporal/warehouse_sources_queue_partition_management/activities.py`).
   Otherwise the partition drop may delete a batch the loader has claimed.
   The bucket's 8-day lifecycle rule for extraction files also stays above this window, so a claimable batch's parquet still exists.
-  `test_eligibility_window_stays_below_retention_window` in `tests/test_jobs_db.py` enforces the coupling.
+  `TestClaimEligibilityWindow` in `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/postgres_queue/test_jobs_db.py` enforces the retention coupling.
+  The bucket rule lives in the infrastructure repo, and nothing in this repo checks it.
 - **Partition pruning bounds**: consumer queries include `created_at > now() - interval '14 days'` (2x the retention) so the planner can skip dropped partitions.
 
 ### Query cost scales with the answer, not with history
@@ -125,7 +126,9 @@ For ad-hoc inspection (state summaries, active runs, leases, force-release), use
 
 ## Things to look out for
 
-- **Partition health**: monitor that the `warehouse-sources-queue-partition-management` Temporal schedule is running. Alert on rows landing in DEFAULT partitions (means partition creation failed).
+- **Partition health**: monitor that the `warehouse-sources-queue-partition-management-schedule` Temporal schedule is running, because a run that never starts cannot alert.
+  The job posts to Slack when an upcoming partition is missing or retention is stuck.
+  Rows for today in a DEFAULT partition need no action, because retention deletes them.
 - **Poll duration vs lease TTL**: leases are claimed when the poll query starts, so a poll slower than half the 300s TTL hands groups over mostly expired; the consumer logs `poll_duration_approaching_lease_ttl` when this starts happening.
 
 ## Generic jobs (phase 1)

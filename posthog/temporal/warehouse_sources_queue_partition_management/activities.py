@@ -12,6 +12,8 @@ import structlog
 import temporalio.activity
 from asgiref.sync import sync_to_async
 
+from posthog.temporal.warehouse_sources_queue_partition_management.schedule import SCHEDULE_ID
+
 logger = structlog.get_logger(__name__)
 
 PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus", "queuejob", "queuejobstatus"]
@@ -65,16 +67,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 
         cutoff = today - timedelta(days=RETENTION_DAYS)
         for table in PARTITIONED_TABLES:
-            for row in conn.execute(
-                """
-                SELECT inhrelid::regclass::text AS partition_name
-                FROM pg_inherits
-                WHERE inhparent = %s::regclass
-                ORDER BY inhrelid::regclass::text
-                """,
-                [table],
-            ).fetchall():
-                partition_name = row[0]
+            for partition_name in _list_partitions(conn, table):
                 if partition_name.endswith("_default"):
                     await sync_to_async(_expire_default_partition_rows)(conn, table, partition_name, cutoff, errors)
                     continue
@@ -129,6 +122,21 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 def _partition_ddl_database_url() -> str:
     # Only the owner of a partitioned table can create its partitions, and the migration role owns the queue tables.
     return settings.WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL or settings.WAREHOUSE_SOURCES_DATABASE_URL
+
+
+def _list_partitions(conn: psycopg.Connection, table: str) -> list[str]:
+    return [
+        row[0]
+        for row in conn.execute(
+            """
+            SELECT inhrelid::regclass::text AS partition_name
+            FROM pg_inherits
+            WHERE inhparent = %s::regclass
+            ORDER BY inhrelid::regclass::text
+            """,
+            [table],
+        ).fetchall()
+    ]
 
 
 def _partition_date(partition_name: str) -> date | None:
@@ -277,7 +285,9 @@ def _find_partition_alerts(conn: psycopg.Connection, today: date) -> list[str]:
     partition, Postgres refuses to create today's partition, and retention deletes those rows
     later. A cause that also blocks tomorrow's partition still alerts through the upcoming check.
     """
-    upcoming = [today + timedelta(days=offset) for offset in range(1, PARTITIONS_AHEAD)]
+    # The newest partition is the only one a run creates for the first time. Leaving it out gives a
+    # failed create one retry before it alerts, like the retention check below.
+    upcoming = [today + timedelta(days=offset) for offset in range(1, PARTITIONS_AHEAD - 1)]
     # Data this old was due for removal in at least two daily runs, so one transient failure does not alert.
     stuck_before = today - timedelta(days=RETENTION_DAYS + 1)
     stuck_before_at = datetime.combine(stuck_before, datetime.min.time(), tzinfo=UTC)
@@ -285,14 +295,7 @@ def _find_partition_alerts(conn: psycopg.Connection, today: date) -> list[str]:
     stuck: list[str] = []
     for table in PARTITIONED_TABLES:
         existing: set[date] = set()
-        for (partition_name,) in conn.execute(
-            """
-            SELECT inhrelid::regclass::text AS partition_name
-            FROM pg_inherits
-            WHERE inhparent = %s::regclass
-            """,
-            [table],
-        ).fetchall():
+        for partition_name in _list_partitions(conn, table):
             if partition_name.endswith("_default"):
                 row = conn.execute(
                     f"SELECT EXISTS (SELECT 1 FROM {partition_name} WHERE created_at < %s)", [stuck_before_at]
@@ -317,7 +320,7 @@ def _find_partition_alerts(conn: psycopg.Connection, today: date) -> list[str]:
             f"the default partition. Once that happens, Postgres can't create the partition for that day.\n{lines}\n"
             "Find the cause in the worker logs under `Failed to create partition`. Check that "
             "`WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL` logs in as the role that owns the queue tables, "
-            "then rerun the `warehouse-sources-queue-partition-management` schedule."
+            f"then trigger the `{SCHEDULE_ID}` schedule."
         )
     if stuck:
         lines = "\n".join(stuck)

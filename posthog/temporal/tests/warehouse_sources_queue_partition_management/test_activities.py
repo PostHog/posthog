@@ -115,6 +115,7 @@ def _day(offset: int) -> str:
     [
         ({}, {}, {f"sourcebatch_{_day(1)}"}, set(), "`sourcebatch`: 2026-09-23"),
         ({}, {}, {f"sourcebatch_{_day(0)}"}, set(), None),
+        ({}, {}, {f"sourcebatch_{_day(6)}"}, set(), None),
         ({"sourcebatch": [f"sourcebatch_{_day(-9)}"]}, {}, set(), {f"sourcebatch_{_day(-9)}"}, "oldest 2026-09-13"),
         ({"sourcebatch": [f"sourcebatch_{_day(-8)}"]}, {}, set(), {f"sourcebatch_{_day(-8)}"}, None),
         (
@@ -135,6 +136,7 @@ def _day(offset: int) -> str:
     ids=[
         "tomorrow_missing",
         "only_today_missing",
+        "newest_partition_first_failure",
         "drop_overdue_a_day",
         "first_drop_failure",
         "default_rows_overdue_a_day",
