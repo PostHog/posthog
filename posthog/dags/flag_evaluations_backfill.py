@@ -167,8 +167,9 @@ class DiskHeadroom:
 
 def resolve_backfill_days(config: FlagEvaluationsBackfillConfig, *, today: date) -> tuple[date, ...]:
     latest_end = today - timedelta(days=1)
-    # Rows from the day FLAG_EVALUATIONS_TTL_DAYS back expire during today, so the TTL drops their
-    # copies within hours. The window therefore starts one day later.
+    # The TTL expires every row at the start of toDate(timestamp) + FLAG_EVALUATIONS_TTL_DAYS. Rows
+    # from the day FLAG_EVALUATIONS_TTL_DAYS back are already expired when today starts, so a TTL
+    # merge can drop their copies soon after the insert. The window therefore starts one day later.
     earliest_start = today - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS - 1)
     start = date.fromisoformat(config.start_date) if config.start_date else earliest_start
     end = date.fromisoformat(config.end_date) if config.end_date else latest_end
