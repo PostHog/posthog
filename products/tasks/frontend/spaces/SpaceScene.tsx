@@ -137,7 +137,8 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                         </TabsTrigger>
                     </TabsList>
                     <TabsContent value="feed">
-                        <div className="flex max-w-3xl flex-col gap-4">
+                        {/* The same centered column as PostHog Desktop's space feed. */}
+                        <div className="mx-auto flex w-full max-w-165 flex-col gap-4">
                             {/* Mounted once the space loads, so the composer starts on the space's repository. */}
                             {space && (
                                 <div data-attr="today-space-new-task">
@@ -149,6 +150,7 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                                         composerOverride={SPACE_COMPOSER_OVERRIDE}
                                         onTaskCreated={sessionStarted}
                                         focusRequest={composerFocusRequest}
+                                        autoFocus={false}
                                     />
                                 </div>
                             )}

@@ -70,7 +70,9 @@ export interface spaceSceneLogicValues {
     composerFocusRequest: number
     composerRepositoryConfig: SpaceComposerRepositoryConfig
     creatorId: number | null
+    dominantRepository: string | null
     feedGroups: TodayWorkGroup[]
+    feedRepositories: Record<string, string | null>
     members: TaskUserBasicInfoApi[]
     membersLoading: boolean
     savingSpace: boolean
@@ -212,6 +214,11 @@ export interface spaceSceneLogicMeta {
         ) => string | null
         activeTab: (location: { hash: string; pathname: string; search: string }) => SpaceTab
         feedGroups: (sessions: TaskListItemApi[]) => TodayWorkGroup[]
+        dominantRepository: (sessions: TaskListItemApi[]) => string | null
+        feedRepositories: (
+            sessions: TaskListItemApi[],
+            dominantRepository: string | null
+        ) => Record<string, string | null>
         sessionsById: (sessions: TaskListItemApi[]) => Record<string, TaskListItemApi>
         breadcrumbs: (space: ChannelDTOApi | null, arg: any) => Breadcrumb[]
         composerRepositoryConfig: (space: ChannelDTOApi | null) => SpaceComposerRepositoryConfig
@@ -376,6 +383,36 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
             (s) => [s.sessions],
             (sessions: TaskListItemApi[]): TodayWorkGroup[] =>
                 groupByDay(sessions.filter((task) => !task.archived).map(sessionItem)),
+        ],
+        // Like PostHog Desktop, a card names its repository only when it differs from the space's most used one.
+        // A tie goes to the repository of the most recently active session.
+        dominantRepository: [
+            (s) => [s.sessions],
+            (sessions: TaskListItemApi[]): string | null => {
+                const counts = new Map<string, number>()
+                for (const task of sessions) {
+                    if (!task.archived && task.repository) {
+                        counts.set(task.repository, (counts.get(task.repository) ?? 0) + 1)
+                    }
+                }
+                let dominant: string | null = null
+                for (const [repository, count] of counts) {
+                    if (dominant === null || count > (counts.get(dominant) ?? 0)) {
+                        dominant = repository
+                    }
+                }
+                return dominant
+            },
+        ],
+        feedRepositories: [
+            (s) => [s.sessions, s.dominantRepository],
+            (sessions: TaskListItemApi[], dominantRepository: string | null): Record<string, string | null> =>
+                Object.fromEntries(
+                    sessions.map((task) => [
+                        task.id,
+                        task.repository && task.repository !== dominantRepository ? task.repository : null,
+                    ])
+                ),
         ],
         sessionsById: [
             (s) => [s.sessions],

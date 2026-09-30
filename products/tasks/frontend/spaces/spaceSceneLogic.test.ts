@@ -8,6 +8,7 @@ import { spaceNewSessionUrl, todaySpacesLogic } from '~/layout/today/todaySpaces
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { TaskListItemApi } from '../generated/api.schemas'
 import { AutoArchiveSelection, spaceSceneLogic } from './spaceSceneLogic'
 
 describe('spaceSceneLogic', () => {
@@ -136,6 +137,56 @@ describe('spaceSceneLogic', () => {
 
         expect(logic.values.composerRepositoryConfig).toEqual(expected)
     })
+
+    it.each([
+        [
+            'one repository is used most',
+            [
+                ['a', 'acme/web'],
+                ['b', 'acme/api'],
+                ['c', 'acme/api'],
+            ],
+            { a: 'acme/web', b: null, c: null },
+        ],
+        [
+            'two repositories tie',
+            [
+                ['a', 'acme/web'],
+                ['b', 'acme/api'],
+            ],
+            { a: null, b: 'acme/api' },
+        ],
+        [
+            'a session has no repository',
+            [
+                ['a', null],
+                ['b', 'acme/api'],
+            ],
+            { a: null, b: null },
+        ],
+        [
+            'archived sessions use another repository',
+            [
+                ['a', 'acme/web'],
+                ['b', 'acme/api', true],
+                ['c', 'acme/api', true],
+            ],
+            { a: null, b: 'acme/api', c: 'acme/api' },
+        ],
+    ] as [string, [string, string | null, boolean?][], Record<string, string | null>][])(
+        'names a card repository only when it is not the usual one, when %s',
+        async (_, sessions, expected) => {
+            const logic = spaceSceneLogic({ id: 'space-a' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.loadSessionsSuccess(
+                sessions.map(([id, repository, archived = false]) => ({ id, repository, archived }) as TaskListItemApi)
+            )
+
+            expect(logic.values.feedRepositories).toEqual(expected)
+        }
+    )
 
     it('opens a started session and lists it in the feed', async () => {
         const logic = spaceSceneLogic({ id: 'space-a' })
