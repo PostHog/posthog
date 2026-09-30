@@ -1,7 +1,8 @@
 """The item type every source returns and the ranker orders."""
 
 from datetime import datetime
-from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
@@ -19,8 +20,11 @@ URGENCY_THIS_WEEK = 2
 URGENCY_WHEN_FREE = 3
 
 
-@frozen
-class Candidate:
+class Candidate(BaseModel):
+    """One item a source found. Crosses the Temporal boundary as JSON, so it validates on the way back."""
+
+    model_config = ConfigDict(frozen=True)
+
     key: str
     group: ItemGroup
     source: ItemSource
@@ -32,34 +36,6 @@ class Candidate:
     sort_key: tuple[float, ...]
     # Short scalar facts only. Never free text written by customers.
     facts: dict[str, FactValue]
-
-    def to_payload(self) -> dict[str, Any]:
-        """Plain JSON, so a Temporal activity can return it under either data converter."""
-        return {
-            "key": self.key,
-            "group": self.group.value,
-            "source": self.source.value,
-            "reason": self.reason.value,
-            "title": self.title,
-            "url": self.url,
-            "urgency": self.urgency,
-            "sort_key": list(self.sort_key),
-            "facts": dict(self.facts),
-        }
-
-    @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "Candidate":
-        return cls(
-            key=payload["key"],
-            group=ItemGroup(payload["group"]),
-            source=ItemSource(payload["source"]),
-            reason=ItemReason(payload["reason"]),
-            title=payload["title"],
-            url=payload["url"],
-            urgency=int(payload["urgency"]),
-            sort_key=tuple(payload["sort_key"]),
-            facts=dict(payload["facts"]),
-        )
 
 
 @frozen

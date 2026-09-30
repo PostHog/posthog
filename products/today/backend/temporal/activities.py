@@ -46,7 +46,7 @@ async def collect_source_activity(inputs: CollectSourceInputs) -> list[dict[str,
     candidates = await database_sync_to_async(generate.collect_source, thread_sensitive=False)(
         team_id=inputs.team_id, briefing_id=inputs.briefing_id, source=inputs.source
     )
-    return [candidate.to_payload() for candidate in candidates]
+    return [candidate.model_dump(mode="json") for candidate in candidates]
 
 
 @temporalio.activity.defn
@@ -54,7 +54,7 @@ async def draft_activity(inputs: DraftInputs) -> bool:
     return await database_sync_to_async(generate.draft_briefing, thread_sensitive=False)(
         team_id=inputs.team_id,
         briefing_id=inputs.briefing_id,
-        candidates=[Candidate.from_payload(payload) for payload in inputs.candidates],
+        candidates=[Candidate.model_validate(payload) for payload in inputs.candidates],
         failed_sources=list(inputs.failed_sources),
     )
 

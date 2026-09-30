@@ -3,6 +3,9 @@
 import re
 from typing import Any
 
+from .content import BriefingContent
+from .fact_sheet import FactSheet
+
 MAX_WORDS = 130
 MAX_LINK_WORDS = 8
 MAX_LABEL_WORDS = 6
@@ -31,35 +34,33 @@ def _backed(number: float, known: set[float]) -> bool:
     return any(abs(number - value) < 0.51 for value in known)
 
 
-def check_content(fact_sheet: dict[str, Any], content: dict[str, Any]) -> list[str]:
+def check_content(fact_sheet: FactSheet, content: BriefingContent) -> list[str]:
     """Every rule the output breaks, or an empty list when it passes."""
     problems: list[str] = []
-    items = fact_sheet["items"]
-    text_keys = [item["key"] for item in items if item["in_text"]]
-    top_key = next((item["key"] for item in items if item.get("top")), None)
+    text_keys = [item.key for item in fact_sheet.text_items]
+    top_key = next((item.key for item in fact_sheet.items if item.top), None)
     known: set[float] = set()
-    _numbers(fact_sheet, known)
+    _numbers(fact_sheet.model_dump(mode="json"), known)
 
     linked: list[str] = []
     highlighted: list[str | None] = []
     words = 0
-    texts = [str(content.get("headline") or "")]
+    texts = [content.headline]
     if not texts[0]:
         problems.append("headline is empty")
-    for paragraph in content.get("paragraphs") or []:
+    for paragraph in content.paragraphs:
         for segment in paragraph:
-            text = str(segment.get("text") or "")
+            text = segment.text
             texts.append(text)
             words += len(text.split())
-            key = segment.get("item_key")
-            if key:
-                linked.append(key)
+            if segment.item_key:
+                linked.append(segment.item_key)
                 if not text[:1].isalnum():
                     problems.append(f"link does not start with a word: {text!r}")
                 if len(text.split()) > MAX_LINK_WORDS:
                     problems.append(f"link has more than {MAX_LINK_WORDS} words: {text!r}")
-            if segment.get("highlight"):
-                highlighted.append(key)
+            if segment.highlight:
+                highlighted.append(segment.item_key)
     for key in text_keys:
         if linked.count(key) != 1:
             problems.append(f"item {key} is linked {linked.count(key)} times, expected once")
@@ -70,15 +71,13 @@ def check_content(fact_sheet: dict[str, Any], content: dict[str, Any]) -> list[s
     if words > MAX_WORDS:
         problems.append(f"paragraphs have {words} words, the limit is {MAX_WORDS}")
 
-    labels = content.get("labels") or {}
-    signals = content.get("signals") or {}
-    for item in items:
-        label = str(labels.get(item["key"]) or "")
-        signal = str(signals.get(item["key"]) or "")
+    for item in fact_sheet.items:
+        label = content.labels.get(item.key, "")
+        signal = content.signals.get(item.key, "")
         if not label or len(label.split()) > MAX_LABEL_WORDS:
-            problems.append(f"label for {item['key']} is missing or longer than {MAX_LABEL_WORDS} words")
+            problems.append(f"label for {item.key} is missing or longer than {MAX_LABEL_WORDS} words")
         if not signal or len(signal) > MAX_SIGNAL_CHARS:
-            problems.append(f"signal for {item['key']} is missing or longer than {MAX_SIGNAL_CHARS} characters")
+            problems.append(f"signal for {item.key} is missing or longer than {MAX_SIGNAL_CHARS} characters")
         texts += [label, signal]
 
     for text in texts:

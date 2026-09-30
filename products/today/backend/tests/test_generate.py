@@ -10,13 +10,14 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.today.backend.facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter
+from products.today.backend.logic.content import BriefingContent
 from products.today.backend.logic.generate import draft_briefing, write_and_check
 from products.today.backend.models import DailyBriefing
 from products.today.backend.temporal.activities import _due_briefings
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 from products.today.backend.tests.test_checks import FACT_SHEET, VALID
 
-INVENTED = {**VALID, "headline": "Orders fell 41% overnight."}
+INVENTED = VALID.model_copy(update={"headline": "Orders fell 41% overnight."})
 
 
 WRITE = "products.today.backend.logic.generate.write"
@@ -37,7 +38,7 @@ class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
             trigger=BriefingTrigger.FIRST_OPEN,
             status=BriefingStatus.WRITING,
             writer=BriefingWriter.TEMPLATE,
-            facts=FACT_SHEET,
+            facts=FACT_SHEET.model_dump(mode="json"),
             draft=self.draft,
             content=self.draft,
         )
@@ -54,7 +55,7 @@ class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
         _name: str,
         answers: list[dict[str, Any]],
         expected_writer: BriefingWriter,
-        expected_content: dict[str, Any] | None,
+        expected_content: BriefingContent | None,
         expected_calls: int,
     ) -> None:
         with patch(WRITE, side_effect=list(answers)) as write:
@@ -63,7 +64,7 @@ class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
         self.briefing.refresh_from_db()
         assert self.briefing.status == BriefingStatus.READY
         assert self.briefing.writer == expected_writer
-        assert self.briefing.content == (expected_content or self.draft)
+        assert self.briefing.content == (expected_content.model_dump(mode="json") if expected_content else self.draft)
         assert write.call_count == expected_calls
         if expected_calls == 2:
             assert write.call_args.kwargs["problems"]

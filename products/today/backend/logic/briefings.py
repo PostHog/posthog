@@ -2,7 +2,6 @@
 
 import asyncio
 from datetime import date, datetime
-from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -18,21 +17,13 @@ from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
 from ..facade.contracts import RefreshLimitReached
-from ..facade.enums import (
-    BriefingEdition,
-    BriefingStatus,
-    BriefingTrigger,
-    BriefingWriter,
-    ItemGroup,
-    ItemReason,
-    ItemSource,
-    ItemState,
-)
+from ..facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter, ItemGroup, ItemState
 from ..models import DailyBriefing
 from ..temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, generate_workflow_id
 from .candidates import SourceContext
+from .content import BriefingContent
 from .eligibility import EditionSlot, current_edition, resolve_timezone
-from .fact_sheet import build_fact_sheet
+from .fact_sheet import FactSheet, FactSheetItem, build_fact_sheet
 from .ranking import rank_candidates, select
 from .sources import collect_all
 
@@ -119,12 +110,12 @@ def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> Da
     return briefing
 
 
-def _inbox_counts(team: Team, user_id: int, items: list[dict[str, Any]]) -> tuple[int, int]:
+def _inbox_counts(team: Team, user_id: int, items: list[FactSheetItem]) -> tuple[int, int]:
     """Open reports beyond the ones the page shows, for the person and for the whole project, counted now.
 
     The briefing itself is hours old, so these come from the live tables rather than the fact sheet.
     """
-    reports_shown = sum(1 for item in items if item["in_text"] and item["group"] == ItemGroup.REPORT.value)
+    reports_shown = sum(1 for item in items if item.in_text and item.group == ItemGroup.REPORT)
     try:
         for_me = signals.reports_for_me_count(team_id=team.id, user_id=user_id)
         in_project = signals.open_reports_count(team_id=team.id)
@@ -134,8 +125,8 @@ def _inbox_counts(team: Team, user_id: int, items: list[dict[str, Any]]) -> tupl
     return max(for_me - reports_shown, 0), max(in_project - reports_shown, 0)
 
 
-def _live_states(team: Team, items: list[dict[str, Any]]) -> dict[str, ItemState]:
-    report_ids = [item["key"].split(":", 1)[1] for item in items if item["key"].startswith("report:")]
+def _live_states(team: Team, items: list[FactSheetItem]) -> dict[str, ItemState]:
+    report_ids = [item.key.split(":", 1)[1] for item in items if item.key.startswith("report:")]
     states: dict[str, ItemState] = {}
     try:
         for state in signals.report_states(team_id=team.id, report_ids=report_ids):
@@ -146,11 +137,14 @@ def _live_states(team: Team, items: list[dict[str, Any]]) -> dict[str, ItemState
     return states
 
 
+def _stored_items(briefing: DailyBriefing) -> list[FactSheetItem]:
+    """The fact sheet items, or none for a row written before its draft."""
+    return FactSheet.model_validate(briefing.facts).items if briefing.facts else []
+
+
 def to_contract(briefing: DailyBriefing, team: Team) -> contracts.Briefing:
-    fact_items: list[dict[str, Any]] = (briefing.facts or {}).get("items") or []
-    content = briefing.content or briefing.draft or {}
-    labels = content.get("labels") or {}
-    signals_by_key = content.get("signals") or {}
+    fact_items = _stored_items(briefing)
+    content = BriefingContent.model_validate(briefing.content or briefing.draft or {})
     states = _live_states(team, fact_items)
     more_for_you, open_in_project = _inbox_counts(team, briefing.user_id, fact_items)
     return contracts.Briefing(
@@ -159,32 +153,28 @@ def to_contract(briefing: DailyBriefing, team: Team) -> contracts.Briefing:
         writer=BriefingWriter(briefing.writer) if briefing.writer else None,
         local_day=briefing.local_day,
         edition=BriefingEdition(briefing.edition),
-        headline=str(content.get("headline") or ""),
+        headline=content.headline,
         paragraphs=[
             [
-                contracts.BriefingSegment(
-                    text=str(segment.get("text") or ""),
-                    item_key=segment.get("item_key"),
-                    highlight=bool(segment.get("highlight")),
-                )
+                contracts.BriefingSegment(text=segment.text, item_key=segment.item_key, highlight=segment.highlight)
                 for segment in paragraph
             ]
-            for paragraph in content.get("paragraphs") or []
+            for paragraph in content.paragraphs
         ],
         items=[
             contracts.BriefingItem(
-                key=item["key"],
-                group=ItemGroup(item["group"]),
-                source=ItemSource(item["source"]),
-                reason=ItemReason(item["reason"]),
-                title=item["title"],
-                label=str(labels.get(item["key"]) or item["title"]),
-                signal=str(signals_by_key.get(item["key"]) or ""),
-                url=item["url"],
-                rank=int(item["rank"]),
-                in_text=bool(item["in_text"]),
-                state=states.get(item["key"], ItemState.OPEN),
-                source_product=(item.get("facts") or {}).get("source_product") or None,
+                key=item.key,
+                group=item.group,
+                source=item.source,
+                reason=item.reason,
+                title=item.title,
+                label=content.labels.get(item.key) or item.title,
+                signal=content.signals.get(item.key, ""),
+                url=item.url,
+                rank=item.rank,
+                in_text=item.in_text,
+                state=states.get(item.key, ItemState.OPEN),
+                source_product=item.source_product,
             )
             for item in fact_items
         ],
@@ -195,30 +185,30 @@ def to_contract(briefing: DailyBriefing, team: Team) -> contracts.Briefing:
     )
 
 
-def _facts_to_candidates(fact_sheet: dict[str, Any], day: date, *, team: Team, user: User) -> contracts.CandidateList:
-    more_for_you, _ = _inbox_counts(team, user.id, fact_sheet.get("items") or [])
+def _facts_to_candidates(fact_sheet: FactSheet, day: date, *, team: Team, user: User) -> contracts.CandidateList:
+    more_for_you, _ = _inbox_counts(team, user.id, fact_sheet.items)
     return contracts.CandidateList(
         local_day=day,
         candidates=[
             contracts.Candidate(
-                key=item["key"],
-                group=ItemGroup(item["group"]),
-                source=ItemSource(item["source"]),
-                reason=ItemReason(item["reason"]),
-                title=item["title"],
-                url=item["url"],
-                rank=int(item["rank"]),
-                in_text=bool(item["in_text"]),
+                key=item.key,
+                group=item.group,
+                source=item.source,
+                reason=item.reason,
+                title=item.title,
+                url=item.url,
+                rank=item.rank,
+                in_text=item.in_text,
                 facts=[
                     contracts.CandidateFact(name=name, value=str(value))
-                    for name, value in (item.get("facts") or {}).items()
+                    for name, value in item.facts.items()
                     if value is not None
                 ],
             )
-            for item in fact_sheet.get("items") or []
+            for item in fact_sheet.items
         ],
         more_reports_count=more_for_you,
-        failed_sources=list(fact_sheet.get("failed_sources") or []),
+        failed_sources=fact_sheet.failed_sources,
     )
 
 
@@ -228,8 +218,8 @@ def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> con
     slot = current_edition(timezone.now(), tz)
     day = slot.local_day
     briefing = _current(team, user, slot)
-    if briefing is not None and (briefing.facts or {}).get("items") is not None:
-        return _facts_to_candidates(briefing.facts, day, team=team, user=user)
+    if briefing is not None and briefing.facts:
+        return _facts_to_candidates(FactSheet.model_validate(briefing.facts), day, team=team, user=user)
     ctx = SourceContext(team=team, user=user, now=timezone.now())
     collected = collect_all(ctx)
     fact_sheet = build_fact_sheet(

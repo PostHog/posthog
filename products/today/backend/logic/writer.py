@@ -1,7 +1,6 @@
 """One LLM call that turns the fact sheet into the briefing text. Code chose the items; this only writes."""
 
-import json
-from typing import Any, Literal
+from typing import Literal
 
 import structlog
 from pydantic import BaseModel, ValidationError
@@ -10,6 +9,8 @@ from posthog.llm.gateway_client import build_anthropic_client
 from posthog.models import Team, User
 
 from ..models import DailyBriefing
+from .content import BriefingContent, ContentSegment
+from .fact_sheet import FactSheet
 
 logger = structlog.get_logger(__name__)
 
@@ -53,12 +54,6 @@ What to write:
   - "signal": the short fact under the label, at most 40 characters, with a number from the fact sheet when there is one."""
 
 
-class _Segment(BaseModel):
-    text: str
-    item_key: str | None
-    highlight: bool
-
-
 class _ItemText(BaseModel):
     item_key: str
     label: str
@@ -68,25 +63,25 @@ class _ItemText(BaseModel):
 # Structured outputs accept no free-form maps, so labels and signals come back as a list of items.
 class WriterOutput(BaseModel):
     headline: str
-    paragraphs: list[list[_Segment]]
+    paragraphs: list[list[ContentSegment]]
     items: list[_ItemText]
 
-    def to_content(self) -> dict[str, Any]:
+    def to_content(self) -> BriefingContent:
         """The stored content shape, which the draft, the checks and the API share."""
-        return {
-            "headline": self.headline,
-            "paragraphs": [[segment.model_dump() for segment in paragraph] for paragraph in self.paragraphs],
-            "labels": {item.item_key: item.label for item in self.items},
-            "signals": {item.item_key: item.signal for item in self.items},
-        }
+        return BriefingContent(
+            headline=self.headline,
+            paragraphs=self.paragraphs,
+            labels={item.item_key: item.label for item in self.items},
+            signals={item.item_key: item.signal for item in self.items},
+        )
 
 
 class WriterError(Exception):
     pass
 
 
-def _user_message(fact_sheet: dict[str, Any], problems: list[str] | None) -> str:
-    message = f"<untrusted_fact_sheet>\n{json.dumps(fact_sheet, ensure_ascii=False, indent=2)}\n</untrusted_fact_sheet>"
+def _user_message(fact_sheet: FactSheet, problems: list[str] | None) -> str:
+    message = f"<untrusted_fact_sheet>\n{fact_sheet.model_dump_json(indent=2)}\n</untrusted_fact_sheet>"
     if problems:
         message += "\n\nYour previous answer broke these rules. Fix all of them:\n- " + "\n- ".join(problems)
     return message
@@ -97,10 +92,10 @@ def write(
     team: Team,
     user: User,
     briefing: DailyBriefing,
-    fact_sheet: dict[str, Any],
+    fact_sheet: FactSheet,
     attempt: int,
     problems: list[str] | None = None,
-) -> dict[str, Any]:
+) -> BriefingContent:
     """The writer's content. ``problems`` feeds back the checks of a failed try.
 
     Every attempt for one briefing shares its id as the trace, and the properties name the edition

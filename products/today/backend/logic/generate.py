@@ -13,7 +13,7 @@ from ..models import DailyBriefing
 from .candidates import Candidate, SourceContext
 from .checks import check_content
 from .draft import build_draft
-from .fact_sheet import build_fact_sheet
+from .fact_sheet import FactSheet, build_fact_sheet
 from .ranking import rank_candidates, select
 from .sources import SOURCES_BY_NAME
 from .writer import WriterError, write
@@ -57,8 +57,8 @@ def draft_briefing(*, team_id: int, briefing_id: str, candidates: list[Candidate
         items=items,
         failed_sources=failed_sources,
     )
-    draft = build_draft(fact_sheet)
-    briefing.facts = fact_sheet
+    draft = build_draft(fact_sheet).model_dump(mode="json")
+    briefing.facts = fact_sheet.model_dump(mode="json")
     briefing.draft = draft
     briefing.content = draft
     briefing.writer = BriefingWriter.TEMPLATE
@@ -70,8 +70,8 @@ def draft_briefing(*, team_id: int, briefing_id: str, candidates: list[Candidate
 def write_and_check(*, team_id: int, briefing_id: str) -> None:
     """Replace the draft with the LLM text when it passes the checks; keep the draft otherwise."""
     briefing, team, user = _load(team_id, briefing_id)
-    fact_sheet = briefing.facts
-    if fact_sheet.get("items") and team.organization.is_ai_data_processing_approved:
+    fact_sheet = FactSheet.model_validate(briefing.facts)
+    if fact_sheet.items and team.organization.is_ai_data_processing_approved:
         problems: list[str] | None = None
         for attempt in range(1, WRITER_ATTEMPTS + 1):
             try:
@@ -88,7 +88,7 @@ def write_and_check(*, team_id: int, briefing_id: str) -> None:
                 break
             problems = check_content(fact_sheet, content)
             if not problems:
-                briefing.content = content
+                briefing.content = content.model_dump(mode="json")
                 briefing.writer = BriefingWriter.LLM
                 briefing.error = None
                 break

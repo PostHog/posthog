@@ -42,18 +42,11 @@ def _dashboard_movements(ctx: SourceContext, dashboard_id: int) -> list[Movement
     cache_key = f"today:movements:{ctx.team.id}:{dashboard_id}:{ctx.now.date().isoformat()}"
     cached = cache.get(cache_key)
     if cached is not None:
-        return [Movement(**row) for row in cached]
+        return [Movement.model_validate(row) for row in cached]
     movements = _movements(
         dashboards.cached_trends_for_dashboard(team_id=ctx.team.id, user=ctx.user, dashboard_id=dashboard_id), ctx
     )
-    cache.set(
-        cache_key,
-        [
-            {"metric": m.metric, "previous": m.previous, "current": m.current, "pct_change": m.pct_change}
-            for m in movements
-        ],
-        _CACHE_SECONDS,
-    )
+    cache.set(cache_key, [m.model_dump() for m in movements], _CACHE_SECONDS)
     return movements
 
 

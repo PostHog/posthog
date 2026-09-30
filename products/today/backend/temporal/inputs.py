@@ -24,7 +24,7 @@ class CollectSourceInputs:
 class DraftInputs:
     team_id: int
     briefing_id: str
-    # `Candidate.to_payload()` dicts from the source activities.
+    # `Candidate` JSON dumps from the source activities.
     candidates: list[dict[str, Any]]
     failed_sources: list[str]
 

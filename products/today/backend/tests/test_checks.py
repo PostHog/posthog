@@ -6,54 +6,66 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.today.backend.logic.checks import check_content
+from products.today.backend.logic.content import BriefingContent
 from products.today.backend.logic.draft import build_draft
+from products.today.backend.logic.fact_sheet import FactSheet
 
-FACT_SHEET: dict[str, Any] = {
-    "first_name": "Ada",
-    "local_day": "2026-09-30",
-    "counts": {"reports_in_text": 1},
-    "failed_sources": [],
-    "items": [
-        {
-            "key": "report:1",
-            "group": "report",
-            "source": "self_driving",
-            "reason": "waiting_for_you",
-            "title": "Checkout button is hidden on narrow screens after the last release",
-            "url": "/project/1/inbox/1",
-            "rank": 1,
-            "in_text": True,
-            "top": True,
-            "facts": {"priority": "P2", "status": "pending_input"},
-        },
-        {
-            "key": "dashboard:7",
-            "group": "dashboard",
-            "source": "product_analytics",
-            "reason": "dashboard_you_viewed",
-            "title": "Checkout",
-            "url": "/project/1/dashboard/7",
-            "rank": 2,
-            "in_text": True,
-            "top": False,
-            "facts": {"metric": "Orders", "last_week": 2000, "this_week": 1500, "pct_change": -25.0},
-        },
-        {
-            "key": "ticket:9",
-            "group": "other",
-            "source": "support",
-            "reason": "assigned_ticket",
-            "title": "Support ticket #1042",
-            "url": "/project/1/support/tickets/9",
-            "rank": 3,
-            "in_text": False,
-            "top": False,
-            "facts": {"ticket_number": 1042, "unread_messages": 6},
-        },
-    ],
-}
+# The stored JSON shapes, as a row in the database holds them.
+FACT_SHEET = FactSheet.model_validate(
+    {
+        "first_name": "Ada",
+        "local_day": "2026-09-30",
+        "counts": {"items_in_text": 2, "reports_in_text": 1},
+        "failed_sources": [],
+        "reason_glossary": {},
+        "items": [
+            {
+                "key": "report:1",
+                "group": "report",
+                "source": "self_driving",
+                "reason": "waiting_for_you",
+                "title": "Checkout button is hidden on narrow screens after the last release",
+                "url": "/project/1/inbox/1",
+                "rank": 1,
+                "urgency": 0,
+                "urgency_label": "act now",
+                "in_text": True,
+                "top": True,
+                "facts": {"priority": "P2", "status": "pending_input"},
+            },
+            {
+                "key": "dashboard:7",
+                "group": "dashboard",
+                "source": "product_analytics",
+                "reason": "dashboard_you_viewed",
+                "title": "Checkout",
+                "url": "/project/1/dashboard/7",
+                "rank": 2,
+                "urgency": 2,
+                "urgency_label": "this week",
+                "in_text": True,
+                "top": False,
+                "facts": {"metric": "Orders", "last_week": 2000, "this_week": 1500, "pct_change": -25.0},
+            },
+            {
+                "key": "ticket:9",
+                "group": "other",
+                "source": "support",
+                "reason": "assigned_ticket",
+                "title": "Support ticket #1042",
+                "url": "/project/1/support/tickets/9",
+                "rank": 3,
+                "urgency": 1,
+                "urgency_label": "today",
+                "in_text": False,
+                "top": False,
+                "facts": {"ticket_number": 1042, "unread_messages": 6},
+            },
+        ],
+    }
+)
 
-VALID: dict[str, Any] = {
+VALID_DATA: dict[str, Any] = {
     "headline": "One report needs your input.",
     "paragraphs": [
         [
@@ -74,15 +86,16 @@ VALID: dict[str, Any] = {
     },
     "signals": {"report:1": "P2, waits for you", "dashboard:7": "Orders down 25%", "ticket:9": "6 unread messages"},
 }
+VALID = BriefingContent.model_validate(VALID_DATA)
 
 
-def _with(path: list[Any], value: Any) -> dict[str, Any]:
-    content = copy.deepcopy(VALID)
+def _with(path: list[Any], value: Any) -> BriefingContent:
+    content = copy.deepcopy(VALID_DATA)
     target: Any = content
     for step in path[:-1]:
         target = target[step]
     target[path[-1]] = value
-    return content
+    return BriefingContent.model_validate(content)
 
 
 class TestCheckContent(SimpleTestCase):
@@ -122,4 +135,4 @@ class TestCheckContent(SimpleTestCase):
 
         # The draft keeps the source titles, so only the link-length rule may fail on it.
         assert [problem for problem in problems if "more than 8 words" not in problem] == []
-        assert set(draft["labels"]) == {"report:1", "dashboard:7", "ticket:9"}
+        assert set(draft.labels) == {"report:1", "dashboard:7", "ticket:9"}

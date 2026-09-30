@@ -6,14 +6,17 @@ number that means nothing.
 
 from datetime import date, timedelta
 
-from posthog.dataclasses import frozen
+from pydantic import BaseModel, ConfigDict
 
 MIN_CHANGE_PCT = 10.0
 MIN_PREVIOUS_WEEK = 20.0
 
 
-@frozen
-class Movement:
+class Movement(BaseModel):
+    """Cached per dashboard per day, so it round-trips through the cache as JSON."""
+
+    model_config = ConfigDict(frozen=True)
+
     metric: str
     previous: float
     current: float

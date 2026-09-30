@@ -54,7 +54,7 @@ async def test_a_failing_source_loses_only_its_own_items(environment: WorkflowEn
                 urgency=1,
                 sort_key=(0.0,),
                 facts={"unread_messages": 3},
-            ).to_payload()
+            ).model_dump(mode="json")
         ]
 
     @activity.defn(name="draft_activity")
@@ -88,6 +88,6 @@ async def test_a_failing_source_loses_only_its_own_items(environment: WorkflowEn
     assert github_attempts == 2
     [draft_inputs] = drafted
     assert draft_inputs.failed_sources == ["github"]
-    assert sorted(Candidate.from_payload(payload).key for payload in draft_inputs.candidates) == sorted(
+    assert sorted(Candidate.model_validate(payload).key for payload in draft_inputs.candidates) == sorted(
         f"{source}:1" for source in SOURCE_NAMES if source != "github"
     )
