@@ -488,7 +488,11 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         actions.loadSpaceSessions()
         // A reload also moves the "live" cutoff forward, so presence does not go stale while the rail stays open.
         cache.disposables.add(() => {
-            const pollTimer = window.setInterval(() => actions.loadSpaceSessions(), PRESENCE_POLL_INTERVAL_MS)
+            const pollTimer = window.setInterval(() => {
+                if (document.visibilityState === 'visible') {
+                    actions.loadSpaceSessions()
+                }
+            }, PRESENCE_POLL_INTERVAL_MS)
             return () => clearInterval(pollTimer)
         }, 'spacePresencePoll')
     }),

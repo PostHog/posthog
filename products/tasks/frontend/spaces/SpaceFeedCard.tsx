@@ -17,6 +17,7 @@ import {
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -24,6 +25,7 @@ import { TodaySessionMenu } from '~/layout/today/TodaySessionMenu'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { TodaySessionStatusIcon } from '~/layout/today/TodaySessionStatusIcon'
+import { authorInitials } from '~/layout/today/todaySpaceAuthors'
 import { activeCloudRunId, analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
@@ -45,14 +47,8 @@ export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element
     const pullRequests = splitPullRequests(item.pullRequests)
     const preview = spaceFeedPreview('description_preview' in task ? task.description_preview : task.description)
     const author = task.created_by
-    const authorName = author ? [author.first_name, author.last_name].filter(Boolean).join(' ') || author.email : null
-    const initials = authorName
-        ? authorName
-              .split(/\s+/)
-              .slice(0, 2)
-              .map((part) => part[0]?.toUpperCase())
-              .join('')
-        : ''
+    const authorName = author ? fullNameOrEmail(author) : null
+    const initials = authorName ? authorInitials(authorName) : ''
 
     return (
         <Card size="sm" className="group/card relative gap-2 px-3 py-3">

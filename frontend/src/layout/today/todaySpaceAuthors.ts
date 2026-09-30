@@ -50,10 +50,6 @@ export function spacePresence(
     )
 }
 
-export function authorName(user: Pick<TaskUserBasicInfoApi, 'first_name' | 'last_name' | 'email'>): string {
-    return [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email
-}
-
 export function authorInitials(name: string): string {
     return name
         .split(/\s+/)

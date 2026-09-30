@@ -14,9 +14,10 @@ import {
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { gravatarUrl } from 'lib/utils/gravatar'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { TodaySpaceAuthor, authorInitials, authorName } from './todaySpaceAuthors'
+import { TodaySpaceAuthor, authorInitials } from './todaySpaceAuthors'
 import { TodayPresenceSurface, todaySpacesLogic } from './todaySpacesLogic'
 import { shortTimeAgo } from './todayWorkItems'
 
@@ -36,10 +37,8 @@ export function TodaySpacePresence({ spaceId, authors, surface }: TodaySpacePres
     const shown = authors.slice(0, MAX_AVATARS)
     const hiddenCount = authors.length - shown.length
     const liveCount = authors.filter((author) => author.live).length
-    const label =
-        liveCount > 0
-            ? `${liveCount} of ${authors.length} ${authors.length === 1 ? 'person' : 'people'} active now`
-            : `${authors.length} ${authors.length === 1 ? 'person' : 'people'} worked here recently`
+    const people = `${authors.length} ${authors.length === 1 ? 'person' : 'people'}`
+    const label = liveCount > 0 ? `${liveCount} of ${people} active now` : `${people} worked here recently`
 
     return (
         <Tooltip>
@@ -57,15 +56,12 @@ export function TodaySpacePresence({ spaceId, authors, surface }: TodaySpacePres
             >
                 {liveCount > 0 && <Dot variant="success" aria-hidden />}
                 <AvatarGroup stacked reverse size="xs">
-                    {shown.map((author) => {
-                        const name = authorName(author.user)
-                        return (
-                            <Avatar key={author.user.id}>
-                                {author.user.email && <AvatarImage src={gravatarUrl(author.user.email)} alt="" />}
-                                <AvatarFallback>{authorInitials(name)}</AvatarFallback>
-                            </Avatar>
-                        )
-                    })}
+                    {shown.map((author) => (
+                        <Avatar key={author.user.id}>
+                            {author.user.email && <AvatarImage src={gravatarUrl(author.user.email)} alt="" />}
+                            <AvatarFallback>{authorInitials(fullNameOrEmail(author.user))}</AvatarFallback>
+                        </Avatar>
+                    ))}
                 </AvatarGroup>
                 {hiddenCount > 0 && (
                     <Text render={<span />} size="xs" variant="muted" translate="no">
@@ -77,7 +73,7 @@ export function TodaySpacePresence({ spaceId, authors, surface }: TodaySpacePres
                 <div className="flex flex-col gap-0.5">
                     {authors.map((author) => (
                         <span key={author.user.id}>
-                            {`${authorName(author.user)} · ${
+                            {`${fullNameOrEmail(author.user)} · ${
                                 author.live ? 'active now' : `active ${shortTimeAgo(author.lastActivityAt)} ago`
                             }`}
                         </span>

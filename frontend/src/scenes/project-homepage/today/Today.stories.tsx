@@ -110,6 +110,22 @@ const RECENT_SESSIONS = [
     },
 ]
 
+// The team-wide list feeds space presence, so it also holds a session another person is working in right now.
+const TEAM_SESSIONS = [
+    ...RECENT_SESSIONS,
+    {
+        id: 'task-3',
+        channel: 'space-checkout',
+        title: 'Tighten the coupon field validation',
+        archived: false,
+        last_activity_at: '2026-09-28T18:26:00Z',
+        latest_run: { id: 'run-3', status: 'in_progress', environment: 'cloud', output: null },
+        description_preview: 'Reject coupon codes with spaces before they reach the billing API.',
+        repository: 'example-org/web',
+        created_by: { id: 180, first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.com' },
+    },
+]
+
 const LIBRARY = [
     { id: 'fs-1', path: 'Unfiled/Insights/Checkout funnel', type: 'insight', ref: 'abc123' },
     { id: 'fs-2', path: 'Unfiled/Dashboards/Growth overview', type: 'dashboard', ref: '12' },
@@ -203,7 +219,9 @@ const meta: Meta = {
                         ? PINNED_SESSIONS
                         : params.get('created_by') || params.get('channel') === 'space-checkout'
                           ? RECENT_SESSIONS
-                          : []
+                          : !params.get('channel')
+                            ? TEAM_SESSIONS
+                            : []
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/environments/:team_id/conversations/': { results: CONVERSATIONS, next: null },
