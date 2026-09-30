@@ -56,6 +56,7 @@ function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObje
 
 const mockContext = {
     getDistinctId: async () => 'test-distinct-id',
+    api: { config: { apiToken: 'phx_test' } },
 } as unknown as Context
 
 function createExec(
@@ -1824,8 +1825,41 @@ describe('exec tool', () => {
                 ])
 
                 await expect(exec.handler(mockContext, { command })).rejects.toThrow(
-                    /exists[\s\S]*endpoint:write[\s\S]*reauthorize[\s\S]*browser does not update MCP permissions/i
+                    /exists[\s\S]*endpoint:write[\s\S]*browser does not update MCP permissions/i
                 )
+            }
+        )
+
+        it.each([
+            { apiToken: 'pha_test', recovery: 'Reauthorize the PostHog MCP connection and approve these scopes.' },
+            {
+                apiToken: 'phx_test',
+                recovery:
+                    'Add these scopes to the personal API key. The change reaches this connection within 2 minutes, and reconnecting the client does not make it faster.',
+            },
+            {
+                apiToken: 'unrecognized-token',
+                recovery: 'Reauthorize the PostHog MCP connection, or add these scopes to the personal API key.',
+            },
+        ])(
+            'gives the scope recovery step for the connection credential ($apiToken)',
+            async ({ apiToken, recovery }) => {
+                const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
+                const scopeGated = [
+                    {
+                        name: 'endpoint-create',
+                        title: 'Create endpoint',
+                        description: 'Create a new endpoint',
+                        missingScopes: ['endpoint:write'],
+                    },
+                ]
+                const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, scopeGated)
+
+                await expect(exec.handler(context, { command: 'call endpoint-create {}' })).rejects.toThrow(recovery)
+                const search = JSON.parse(
+                    (await exec.handler(context, { command: 'search endpoint-create' })) as string
+                )
+                expect(search.hint).toContain(recovery)
             }
         )
 

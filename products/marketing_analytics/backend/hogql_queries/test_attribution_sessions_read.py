@@ -15,6 +15,7 @@ from posthog.schema import (
     DateRange,
     HogQLPropertyFilter,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     MarketingAnalyticsAttributionPathsQuery,
     MarketingAnalyticsAttributionQuery,
     PropertyMathType,
@@ -406,3 +407,49 @@ class TestAttributionSessionsRead(SimpleTestCase):
             assert identities[0].runtime_hash == identities[2].runtime_hash
             live_keys.append(keys[1])
         assert live_keys[0] == live_keys[1]
+
+    @parameterized.expand(
+        [
+            (shape, query_type, runner_type, live, timezone)
+            for shape, query_type, runner_type in [
+                ("table", MarketingAnalyticsAttributionQuery, MarketingAnalyticsAttributionQueryRunner),
+                ("paths", MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
+            ]
+            for live, timezone in [(True, "UTC"), (False, "UTC"), (True, "Asia/Kolkata")]
+        ]
+    )
+    def test_execution_settings_follow_selected_session_source(
+        self,
+        _name: str,
+        query_type: type[MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery],
+        runner_type: type[MarketingAnalyticsAttributionQueryRunner | MarketingAnalyticsAttributionPathsQueryRunner],
+        live: bool,
+        timezone: str,
+    ) -> None:
+        self.team.timezone = timezone
+        runner = runner_type(
+            team=self.team,
+            query=query_type(
+                conversionGoalId="goal",
+                properties=[],
+                dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-11"),
+            ),
+        )
+        runner.config.live_session_resolution_enabled = live
+        with (
+            time_machine.travel("2023-01-12T12:00:00Z", tick=False),
+            patch.object(
+                runner_type, "_shared_hogql_context", new_callable=PropertyMock, return_value=HogQLContext(team_id=1)
+            ),
+            patch(
+                f"{runner_type.__module__}.execute_hogql_query",
+                return_value=HogQLQueryResponse(results=[], columns=[]),
+            ) as execute,
+        ):
+            runner.calculate()
+        execute.assert_called_once()
+        settings = execute.call_args.kwargs["settings"]
+        eligible_live = live and timezone == "UTC"
+        assert settings.max_threads == (16 if eligible_live else None)
+        assert settings.optimize_aggregation_in_order == (True if eligible_live else None)
+        assert settings.max_bytes_before_external_group_by == 512 * 1024 * 1024

@@ -17,6 +17,7 @@ from botocore.exceptions import ClientError
 
 from posthog import settings
 from posthog.dags.common import JobOwners
+from posthog.storage.object_storage import ObjectStorage
 
 DATASET_VERSION = "v1"
 
@@ -103,6 +104,11 @@ def s3_client():  # noqa: ANN201
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         region_name=settings.OBJECT_STORAGE_REGION,
     )
+
+
+def serving_mirror_storage() -> ObjectStorage:
+    # The mirror is another deployment's store, so ambient AWS config must grant the write there.
+    return ObjectStorage(boto3.client("s3", region_name=settings.INBOX_RANKING_SERVING_MIRROR_REGION or None))
 
 
 SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"
