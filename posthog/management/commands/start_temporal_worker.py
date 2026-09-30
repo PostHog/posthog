@@ -1,4 +1,5 @@
 import os
+import time
 import signal
 import typing
 import asyncio
@@ -814,6 +815,21 @@ class Command(BaseCommand):
                 return
 
             logger.info("Initiating shutdown")
+
+            # Each activity that runs now holds this pod until it returns or the graceful shutdown
+            # timeout ends, so this list shows what a slow shutdown waits on.
+            running_activities = get_liveness_tracker().get_running_activities()
+            now = time.time()
+            logger.info("Activities running at shutdown", count=len(running_activities))
+            for running in running_activities:
+                logger.info(
+                    "Activity running at shutdown",
+                    activity_type=running.activity_type,
+                    workflow_type=running.workflow_type,
+                    workflow_id=running.workflow_id,
+                    attempt=running.attempt,
+                    running_seconds=round(now - running.started_at),
+                )
 
             # Shutdown health server first so k8s stops sending traffic
             if health_srv:

@@ -101,6 +101,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
+    '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
@@ -623,6 +624,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'experiment',
     },
     AutoresearchNew: { name: 'New model', projectBased: true },
+    AutoresearchPipeline: { name: 'Autoresearch model', projectBased: true },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,
@@ -2158,7 +2160,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'experiment',
         tags: ['alpha'],
         sceneKey: 'Autoresearch',
-        sceneKeys: ['Autoresearch', 'AutoresearchNew'],
+        sceneKeys: ['Autoresearch', 'AutoresearchNew', 'AutoresearchPipeline'],
     },
     {
         path: 'Broadcasts',
