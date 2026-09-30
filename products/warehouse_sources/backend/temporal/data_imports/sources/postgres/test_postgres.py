@@ -2617,6 +2617,12 @@ class TestIsConnectionLimitError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15"
             ),
+            # Supavisor's instance-wide sibling of EMAXCONNSESSION: the pooler's total client-facing
+            # connection count (across every tenant) hit its own cap, not just this tenant's pool.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 6543 failed: '
+                "FATAL:  (EMAXCONN) max client connections reached, limit: 200"
+            ),
             # A pooler (PgBouncer-style) that caches an upstream login failure reveals the limit on
             # the first query as a ProtocolViolation, not an OperationalError — it must still be
             # recognised so the discovery retry recovers instead of surfacing it as captured noise.
@@ -2628,6 +2634,7 @@ class TestIsConnectionLimitError:
     )
     def test_connection_limit_errors_are_detected(self, error):
         assert _is_connection_limit_error(error) is True
+        assert _is_dropped_or_connect_timeout(error) is True
 
     @pytest.mark.parametrize(
         "error",
@@ -4343,7 +4350,6 @@ class TestChunkedRereadAfterRecoveryConflict:
                 db_incremental_field_last_value=0 if should_use_incremental_field else None,
                 team_id=1,
                 is_xmin=is_xmin,
-                xmin_last_value=self._XMIN_BOUNDS.lower if is_xmin else None,
                 activity_attempt=activity_attempt,
                 resumable_source_manager=resumable_source_manager,
                 keyset_full_load_enabled=keyset_full_load_enabled,
@@ -5286,6 +5292,40 @@ class TestValidateCredentialsErrorMapping:
         assert error is not None
         assert "Could not establish session to SSH gateway" not in error
         assert "SSH gateway" in error and "firewall" in error
+
+    def test_ssh_forward_failure_maps_to_actionable_message(self, source, config):
+        err = BaseSSHTunnelForwarderError("An error occurred while opening tunnels.")
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=err),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert error is not None
+        assert "opening tunnels" not in error
+        assert "port forwarding" in error
+
+    def test_unmapped_ssh_tunnel_error_is_not_echoed_and_is_captured(self, source, config):
+        # An unmapped sshtunnel message can name the host it was dialing, so it must not reach the
+        # wizard. It still has to reach error tracking, or the condition goes unnoticed.
+        err = BaseSSHTunnelForwarderError("Problem setting SSH Forwarder up: some internal detail")
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=err),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.capture_exception"
+            ) as mock_capture,
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert (
+            error == "Could not connect to Postgres via the SSH tunnel. Please check all connection details are valid."
+        )
+        mock_capture.assert_called_once()
 
     @pytest.mark.parametrize(
         "host",

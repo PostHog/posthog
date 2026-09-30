@@ -107,6 +107,8 @@ def decide(
         )
         or {}
     )
+    if request.privacy_mode:
+        headers["X-PostHog-Privacy-Mode"] = "true"
     try:
         with httpx.Client(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
             response = client.post(decision_url(config.url), json=_wire_body(request), headers=headers)
