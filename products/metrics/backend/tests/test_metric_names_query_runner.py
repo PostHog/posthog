@@ -371,17 +371,26 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         seed_metric(
             team_id=self.team.id,
             metric_name="http.server.duration",
-            points=[(anchor, 1.0)],
+            points=[(anchor - dt.timedelta(minutes=20), 1.0)],
             metric_type="histogram",
             unit="ms",
+        )
+        # Capture strips the labels from later samples in the label window, so
+        # the series row keeps the first sample time.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.server.duration",
+            points=[(anchor, 2.0)],
+            metric_type="histogram",
+            unit="ms",
+            has_labels=False,
         )
 
         runner = MetricNamesQueryRunner(team=self.team)
         row = next(r for r in runner.run() if r["name"] == "http.server.duration")
 
         self.assertEqual(row["unit"], "ms")
-        # last_seen is an ISO string so the API layer can pass it straight through.
-        self.assertIn("T", row["last_seen"])
+        self.assertEqual(dt.datetime.fromisoformat(row["last_seen"]), anchor)
 
     def test_sparkline_reflects_the_metric_shape(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=30)
