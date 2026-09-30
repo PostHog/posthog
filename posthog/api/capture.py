@@ -72,9 +72,7 @@ _OPTIONS_TO_LEGACY_PROPERTY: dict[str, str] = {
     "process_person_profile": "$process_person_profile",
 }
 
-# Bounds on the per-reason summary in `raise_for_status`, matching the posthog-rs SDK:
-# at most this many reasons are named and the rest are summed as `other`.
-_MAX_REPORTED_REASONS = 5
+# Longest reason from the capture response that `verdict_summary` shows, matching the posthog-rs SDK.
 _MAX_REPORTED_REASON_CHARS = 64
 
 _KNOWN_RESULT_STATUSES = frozenset({"ok", "drop", "warning", "retry"})
@@ -198,43 +196,34 @@ class CaptureInternalResult:
             )
         failures = len(self.dropped) + len(self.retried) + len(self.unaccounted)
         if failures:
-            dropped_reasons, retried_reasons = _reason_summaries((self.dropped, self.retried), self.results)
             raise CaptureInternalError(
-                f"capture internal partial failure: {len(self.dropped)} dropped{dropped_reasons}, "
-                f"{len(self.retried)} exhausted retries{retried_reasons}, {len(self.unaccounted)} unaccounted",
+                f"capture internal partial failure: {len(self.dropped)} dropped, "
+                f"{len(self.retried)} exhausted retries, {len(self.unaccounted)} unaccounted",
                 status_code=0,
             )
 
+    def verdict_summary(self) -> str:
+        """Every ``drop`` and ``retry`` reason with its count on one line, for example
+        ``drop/invalid_options=2, retry/not_persisted=1``.
 
-def _reason_summaries(groups: tuple[list[str], ...], results: dict[str, dict[str, Any]]) -> list[str]:
-    """Format `` (reason=count, ...)`` for each group of uuids, or ``""`` for an empty group.
-
-    The groups share one budget of named reasons, so a batch with many distinct reasons
-    still produces a short message.
-    """
-    budget = _MAX_REPORTED_REASONS
-    summaries: list[str] = []
-    for uids in groups:
-        tally: dict[str, int] = {}
-        for uid in uids:
-            reason = _reported_reason(results.get(uid, {}).get("details"))
-            tally[reason] = tally.get(reason, 0) + 1
-        if not tally:
-            summaries.append("")
-            continue
-        ranked = sorted(tally.items(), key=lambda item: (-item[1], item[0]))
-        shown = ranked[:budget]
-        budget -= len(shown)
-        parts = [f"{reason}={count}" for reason, count in shown]
-        other = sum(count for _, count in ranked[len(shown) :])
-        if other:
-            parts.append(f"other={other}")
-        summaries.append(f" ({', '.join(parts)})")
-    return summaries
+        ``raise_for_status`` reports only totals; log this line when the reasons matter.
+        Drops come first, then retries, each by count and then by reason. It is empty when
+        nothing was dropped or retried.
+        """
+        parts: list[str] = []
+        for verdict, uids in (("drop", self.dropped), ("retry", self.retried)):
+            tally: dict[str, int] = {}
+            for uid in uids:
+                entry = self.results.get(uid)
+                reason = _reported_reason(entry.get("details") if isinstance(entry, dict) else None)
+                tally[reason] = tally.get(reason, 0) + 1
+            for reason, count in sorted(tally.items(), key=lambda item: (-item[1], item[0])):
+                parts.append(f"{verdict}/{reason}={count}")
+        return ", ".join(parts)
 
 
 def _reported_reason(details: Any) -> str:
-    """Clip a reason from the capture response and drop unprintable characters so it cannot break the message."""
+    """Clip a reason from the capture response and drop unprintable characters so it cannot break the summary line."""
     reason = ""
     if isinstance(details, str):
         reason = "".join(ch for ch in details if ch.isprintable())[:_MAX_REPORTED_REASON_CHARS]

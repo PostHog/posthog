@@ -1110,15 +1110,20 @@ class TestCaptureInternalResult(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("dropped", {"dropped": ["a"]}),
-            ("retried", {"retried": ["a"]}),
-            ("unaccounted", {"unaccounted": ["a"]}),
+            (
+                "dropped_reason_left_out",
+                {"dropped": ["a"], "results": {"a": {"result": "drop", "details": "invalid_options"}}},
+                "1 dropped, 0 exhausted retries, 0 unaccounted",
+            ),
+            ("retried", {"retried": ["a"]}, "0 dropped, 1 exhausted retries, 0 unaccounted"),
+            ("unaccounted", {"unaccounted": ["a"]}, "0 dropped, 0 exhausted retries, 1 unaccounted"),
         ]
     )
-    def test_raise_for_status_on_partial_failure(self, _name: str, kwargs: dict[str, Any]) -> None:
+    def test_raise_for_status_on_partial_failure(self, _name: str, kwargs: dict[str, Any], totals: str) -> None:
         r = CaptureInternalResult(status_code=200, **kwargs)
-        with self.assertRaises(CaptureInternalError):
+        with self.assertRaises(CaptureInternalError) as ctx:
             r.raise_for_status()
+        assert str(ctx.exception) == f"capture internal partial failure: {totals}"
 
     def test_raise_for_status_noop_on_success(self) -> None:
         r = CaptureInternalResult(status_code=200, ok=["a"])
@@ -1130,23 +1135,24 @@ class TestCaptureInternalResult(SimpleTestCase):
                 "counts_per_reason",
                 [("drop", "invalid_options"), ("drop", "invalid_options"), ("drop", "missing_distinct_id")],
                 [("retry", "not_persisted")],
-                "3 dropped (invalid_options=2, missing_distinct_id=1), 1 exhausted retries (not_persisted=1)",
+                "drop/invalid_options=2, drop/missing_distinct_id=1, retry/not_persisted=1",
             ),
             (
-                "names_at_most_five_reasons",
+                "lists_every_reason",
                 [("drop", f"r{i}") for i in range(1, 7) for _ in range(7 - i)],
-                [("retry", "not_persisted")],
-                "21 dropped (r1=6, r2=5, r3=4, r4=3, r5=2, other=1), 1 exhausted retries (other=1)",
+                [("retry", "not_persisted"), ("retry", "rejected")],
+                "drop/r1=6, drop/r2=5, drop/r3=4, drop/r4=3, drop/r5=2, drop/r6=1, retry/not_persisted=1, retry/rejected=1",
             ),
             (
                 "cleans_reasons",
-                [("drop", "x" * 100), ("drop", "bad\nreason"), ("drop", None), ("drop", " ")],
+                [("drop", "x" * 100), ("drop", "bad\nreason"), ("drop", "a\u2028b"), ("drop", None), ("drop", " ")],
                 [],
-                f"4 dropped (unspecified=2, badreason=1, {'x' * 64}=1), 0 exhausted retries,",
+                f"drop/unspecified=2, drop/ab=1, drop/badreason=1, drop/{'x' * 64}=1",
             ),
+            ("nothing_lost", [], [], ""),
         ]
     )
-    def test_raise_for_status_names_reasons(
+    def test_verdict_summary(
         self,
         _name: str,
         dropped: list[tuple[str, str | None]],
@@ -1163,9 +1169,7 @@ class TestCaptureInternalResult(SimpleTestCase):
         r = CaptureInternalResult(
             status_code=200, results=results, dropped=uids[: len(dropped)], retried=uids[len(dropped) :]
         )
-        with self.assertRaises(CaptureInternalError) as ctx:
-            r.raise_for_status()
-        assert expected in str(ctx.exception)
+        assert r.verdict_summary() == expected
 
 
 # --------------------------------------------------------------------------- #
