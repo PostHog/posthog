@@ -9,6 +9,8 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 from pydantic import ValidationError
 
+from posthog.hogql.cost.fingerprint import fingerprint_query
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -425,6 +427,18 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         assert comment["source_file"] == "posthog/clickhouse/test/test_query_tagging.py"
         assert comment["source_line"] > 0
+
+    def test_execute_hogql_query_populates_plan_fingerprint(self):
+        marker = str(uuid.uuid4())
+        # An explicit LIMIT keeps the executor from adding its default one, so both sides hash the same shape.
+        sql = f"SELECT count() FROM events WHERE event = '{marker}' LIMIT 100"  # noqa: S608
+        reset_query_tags()
+        tag_queries(kind="request", id="test")
+        execute_hogql_query(sql, team=self.team, query_type="HogQLQuery")
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["plan_fingerprint"] == fingerprint_query(parse_select(sql))
 
     @parameterized.expand([("approved", True), ("not_approved", False)])
     def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):
