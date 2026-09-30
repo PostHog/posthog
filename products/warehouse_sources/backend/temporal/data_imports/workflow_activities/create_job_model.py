@@ -445,13 +445,8 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type, schema.name, ai_data_processing_approved
         )
 
-        # Column-statistics profiling is gated on its feature flag only (no consent term) — let the
-        # workflow skip the child rather than spawn a no-op. Lazy import keeps deltalake off this path.
-        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
-            statistics_enabled,
-        )
-
-        statistics_should_run = bool(team is not None and statistics_enabled(team))
+        # Column-statistics profiling needs no consent term, only a team to attribute it to.
+        statistics_should_run = team is not None
 
         # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
         # no-op metadata workflows. The activities re-check this themselves as a safety net.

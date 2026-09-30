@@ -571,7 +571,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if isinstance(model_configuration, dict)
             else getattr(model_configuration, "provider", None)
         )
-        if model_provider == LLMProvider.SYSTEM_ONE and output_type != "boolean":
+        if model_provider == LLMProvider.SYSTEM_ONE and output_type not in ("boolean", "categorical"):
             raise serializers.ValidationError(
                 {"model_configuration": "Select a model that supports this evaluation output type."}
             )

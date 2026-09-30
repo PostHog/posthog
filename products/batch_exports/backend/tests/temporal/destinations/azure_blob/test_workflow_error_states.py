@@ -1,4 +1,3 @@
-import asyncio
 import datetime as dt
 
 import pytest
@@ -25,7 +24,10 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     InternalStageResult,
 )
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    NeverFinishingActivity,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -245,11 +247,7 @@ async def test_workflow_sets_cancelled_on_cancellation(
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
         return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
-    @activity.defn(name="insert_into_azure_blob_activity_from_stage")
-    async def never_finish_activity(_):
-        while True:
-            activity.heartbeat()
-            await asyncio.sleep(1)
+    never_finish = NeverFinishingActivity("insert_into_azure_blob_activity_from_stage")
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -259,7 +257,7 @@ async def test_workflow_sets_cancelled_on_cancellation(
             activities=[
                 mocked_start_batch_export_run,
                 insert_into_internal_stage_activity_mocked,
-                never_finish_activity,
+                never_finish.defn,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -271,7 +269,7 @@ async def test_workflow_sets_cancelled_on_cancellation(
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-            await asyncio.sleep(5)
+            await never_finish.wait_until_started()
             await handle.cancel()
 
             with pytest.raises(WorkflowFailureError):

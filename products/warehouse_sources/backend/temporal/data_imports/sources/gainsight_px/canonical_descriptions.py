@@ -5,6 +5,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 _DOCS_URL = (
     "https://support.gainsight.com/PX/API_for_Developers/02Usage_of_Different_APIs/Work_with_the_Gainsight_PX_REST_API"
 )
+_EVENTS_DOCS_URL = "https://px-apidocs.gainsight.com/"
+
+_EVENT_COLUMNS: dict[str, str] = {
+    "eventId": "Unique event identifier.",
+    "identifyId": "Identifier of the user who triggered the event.",
+    "accountId": "Identifier of the account the user belongs to.",
+    "propertyKey": "Aptrinsic tag key of the product the event was captured in.",
+    "date": "Timestamp the event occurred.",
+    "eventType": "Type of the event.",
+    "sessionId": "Identifier of the session the event belongs to.",
+    "userType": "Type of the user who triggered the event (e.g. user or lead).",
+    "globalContext": "Global context attributes set on the page when the event was captured.",
+}
 
 # Descriptions curated from the Gainsight PX REST API docs. Date fields are returned by the API as
 # epoch-millisecond integers and normalized to timestamps before loading.
@@ -131,6 +144,69 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "environments": "Environments the bot is published to.",
             "createdDate": "Timestamp the bot was created.",
             "modifiedDate": "Timestamp the bot was last modified.",
+        },
+    },
+    "page_view_events": {
+        "description": "Page view events captured by the Gainsight PX tag, one row per page viewed.",
+        "docs_url": _EVENTS_DOCS_URL,
+        "columns": {
+            **_EVENT_COLUMNS,
+            "scheme": "URL scheme of the viewed page.",
+            "host": "Host of the viewed page.",
+            "path": "Path of the viewed page.",
+            "queryString": "Query string of the viewed page.",
+            "hash": "URL fragment of the viewed page.",
+            "queryParams": "Parsed query string parameters of the viewed page.",
+            "remoteHost": "IP address the request came from.",
+            "referrer": "Referring URL.",
+            "screenHeight": "Screen height in pixels.",
+            "screenWidth": "Screen width in pixels.",
+            "languages": "Browser languages.",
+            "pageTitle": "Title of the viewed page.",
+        },
+    },
+    "session_events": {
+        "description": "Session initialized events, one row per user session started.",
+        "docs_url": _EVENTS_DOCS_URL,
+        "columns": {
+            **_EVENT_COLUMNS,
+            "remoteHost": "IP address the session started from.",
+            "inferredLocation": "Location inferred from the IP address.",
+        },
+    },
+    "engagement_view_events": {
+        "description": "Engagement view events: views of and interactions with in-app engagements (guides, surveys, dialogs).",
+        "docs_url": _EVENTS_DOCS_URL,
+        "columns": {
+            **_EVENT_COLUMNS,
+            "engagementId": "Identifier of the engagement. Joins to the engagements table.",
+            "engagementTrackType": "Tracking type of the engagement.",
+            "contentId": "Identifier of the engagement content.",
+            "contentType": "Type of the engagement content (e.g. guide, survey, carousel).",
+            "executionDate": "Timestamp of the engagement view. The same on all events of one view.",
+            "executionId": "Identifier of the engagement view. The same on all events of one view.",
+            "viewEventId": "Identifier of the view event.",
+            "carouselState": "State of a carousel engagement.",
+            "slideId": "Identifier of the carousel slide.",
+            "sequenceNumber": "Sequence number of the event within the engagement view.",
+            "linkUrl": "URL of a clicked link.",
+            "guideState": "State of a guide engagement.",
+            "stepId": "Identifier of the guide step.",
+            "surveyState": "State of a survey engagement.",
+            "contactMeAllowed": "Whether the user allowed follow-up contact from a survey.",
+            "score": "Survey score the user gave.",
+            "comment": "Survey comment the user wrote.",
+            "questionType": "Type of the survey question.",
+            "selectionIds": "Identifiers of the options the user selected.",
+            "path": "Path of the page the engagement was viewed on.",
+        },
+    },
+    "feature_match_events": {
+        "description": "Feature match events, one row each time a user uses a tagged feature.",
+        "docs_url": _EVENTS_DOCS_URL,
+        "columns": {
+            **_EVENT_COLUMNS,
+            "featureId": "Identifier of the matched feature. Joins to the features table.",
         },
     },
 }
