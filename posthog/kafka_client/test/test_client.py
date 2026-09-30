@@ -10,7 +10,7 @@ from django.test import TestCase, override_settings
 from parameterized import parameterized
 
 from posthog.kafka_client.client import _KafkaProducer
-from posthog.settings.kafka import KafkaProfileSettings
+from posthog.settings.kafka import KafkaProfileSettings, _resolve_producer_settings
 
 
 def _make_profiles(**default_overrides):
@@ -179,6 +179,27 @@ class KafkaClientTestCase(TestCase):
         # Snake-case originals must not leak through to librdkafka.
         self.assertNotIn("enable_idempotence", config)
         self.assertNotIn("compression_type", config)
+
+    @parameterized.expand(
+        [
+            ("legacy_env_name", "KAFKA_PRODUCER_MAX_BLOCK_MS"),
+            ("profile_env_name", "KAFKA_DEFAULT_PRODUCER_MAX_BLOCK_MS"),
+        ]
+    )
+    @patch("posthog.kafka_client.client.ConfluentProducer")
+    def test_max_block_ms_env_does_not_reach_confluent_config(
+        self, _name: str, env_var: str, mock_producer_class: MagicMock
+    ) -> None:
+        mock_producer_class.return_value = MagicMock()
+        with patch.dict(os.environ, {env_var: "1000", "KAFKA_PRODUCER_LINGER_MS": "100"}):
+            producer_settings = _resolve_producer_settings("default")
+        with override_settings(KAFKA_PROFILES=_make_profiles(producer_settings=producer_settings)):
+            _KafkaProducer(test=False)
+        config = mock_producer_class.call_args[0][0]
+        self.assertEqual(config["linger.ms"], 100)
+        # librdkafka treats queue.buffering.max.ms as an alias of linger.ms, so any value there overrides the linger.
+        self.assertNotIn("queue.buffering.max.ms", config)
+        self.assertNotIn("max_block_ms", config)
 
     @override_settings(KAFKA_PROFILES=_make_profiles(producer_settings={"partitioner": "murmur2_random"}))
     @patch("posthog.kafka_client.client.ConfluentProducer")
