@@ -622,6 +622,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_post_feedback.assert_called_once()
         feedback_text = mock_post_feedback.call_args.args[4]
         assert "stranger@example.com" in feedback_text
+        # The install holds the identity scopes, so the reply points to linking an existing
+        # account. An invite to the Slack email can't be accepted from a different email.
+        assert "Settings > Personal integrations" in feedback_text
         assert mock_post_feedback.call_args.kwargs.get("prefer_thread_message") is True
 
         # The mention is still reported to analytics with ``posthog_user_identified=False``
