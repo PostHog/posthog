@@ -51494,28 +51494,19 @@ export namespace Schemas {
       done: boolean;
     }
 
-    export interface HogFlowCodeChangedStep {
-      /** The step id. */
-      id: string;
-      /** The step name. */
-      name: string;
-      /** The action type the step compiles to, for example delay. */
-      type: string;
-      /** The step's fields that change, as dotted paths at most two levels deep, for example config.conditions. */
-      changes: string[];
-    }
-
     /**
-     * * `create` - Create
-     * * `update` - Update
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `staged` - Staged
      * * `unchanged` - Unchanged
      */
-    export type WorkflowCodePlanResultEnum = typeof WorkflowCodePlanResultEnum[keyof typeof WorkflowCodePlanResultEnum];
+    export type WorkflowCodeApplyResultEnum = typeof WorkflowCodeApplyResultEnum[keyof typeof WorkflowCodeApplyResultEnum];
 
 
-    export const WorkflowCodePlanResultEnum = {
-      Create: 'create',
-      Update: 'update',
+    export const WorkflowCodeApplyResultEnum = {
+      Created: 'created',
+      Updated: 'updated',
+      Staged: 'staged',
       Unchanged: 'unchanged',
     } as const;
 
@@ -51539,6 +51530,22 @@ export namespace Schemas {
       status: HogFlowStateEnum;
     }
 
+    /**
+     * * `create` - Create
+     * * `update` - Update
+     * * `stage` - Stage
+     * * `unchanged` - Unchanged
+     */
+    export type WorkflowCodePlanResultEnum = typeof WorkflowCodePlanResultEnum[keyof typeof WorkflowCodePlanResultEnum];
+
+
+    export const WorkflowCodePlanResultEnum = {
+      Create: 'create',
+      Update: 'update',
+      Stage: 'stage',
+      Unchanged: 'unchanged',
+    } as const;
+
     export interface HogFlowCodeStatusChange {
       /** The status the file sets.
        *
@@ -51561,6 +51568,17 @@ export namespace Schemas {
       name: string;
       /** The action type the step compiles to, for example delay. */
       type: string;
+    }
+
+    export interface HogFlowCodeChangedStep {
+      /** The step id. */
+      id: string;
+      /** The step name. */
+      name: string;
+      /** The action type the step compiles to, for example delay. */
+      type: string;
+      /** The step's fields that change, as dotted paths at most two levels deep, for example config.conditions. */
+      changes: string[];
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -51606,10 +51624,11 @@ export namespace Schemas {
     }
 
     export interface HogFlowCodePlan {
-      /** create: no workflow has this key. update: applying the file changes the workflow. unchanged: it changes nothing.
+      /** create: no workflow has this key. update: applying the file changes the workflow. stage: applying it through MCP stages the change as a draft of the active workflow, to publish with workflows-publish. unchanged: it changes nothing.
        *
        * * `create` - Create
        * * `update` - Update
+       * * `stage` - Stage
        * * `unchanged` - Unchanged */
       result: WorkflowCodePlanResultEnum;
       /** The stored workflow with this key. Null when the file creates one. */
@@ -51652,6 +51671,22 @@ export namespace Schemas {
          * @nullable
          */
       path: string | null;
+    }
+
+    export interface HogFlowCodeApplyResponse {
+      /** created: the file made a new workflow. updated: it changed the workflow. staged: the change waits as a draft of the active workflow; publish it with workflows-publish. unchanged: nothing was written.
+       *
+       * * `created` - Created
+       * * `updated` - Updated
+       * * `staged` - Staged
+       * * `unchanged` - Unchanged */
+      result: WorkflowCodeApplyResultEnum;
+      /** The workflow with this key, as stored after the apply. */
+      workflow: HogFlowCodeWorkflow;
+      /** What the apply changed, as code_check plans it. */
+      plan: HogFlowCodePlan;
+      /** Things to look at after the apply. */
+      warnings: HogFlowCodeWarning[];
     }
 
     export interface HogFlowCodeCheckResponse {

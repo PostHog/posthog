@@ -14165,8 +14165,24 @@
         },
         "feature_flag": "engineering-analytics"
     },
+    "workflows-apply-code": {
+        "description": "Apply a workflow file (YAML, or JSON text): create the workflow when no workflow has its key, or replace the content of the one that has it. Send the whole file as content, checked first with workflows-check-code. Errors come back as 400 with the same shape workflows-check-code uses, and nothing is written. result is created (a new draft workflow), updated, unchanged (the file matches, nothing is written) or staged: an active workflow only takes the change as a draft, so show the plan to the user and put it live with workflows-publish. A file sent through MCP cannot create an active workflow or change a workflow's status; use workflows-enable and workflows-disable for that. People in a step the file removes move on as the plan's removed_steps say, so show those warnings to the user before you apply. A 409 conflict means another request created the key at the same time: apply the file again.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Apply a workflow file",
+        "title": "Apply a workflow file",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-as-code",
+        "feature_flag_behavior": "enable"
+    },
     "workflows-check-code": {
-        "description": "Check a workflow file (YAML, or JSON text) against PostHog and see what applying it would change. Writes nothing. Send the whole file as content. On a mistake it returns 400 with every error at once, each with a status, a path in the file's own field names, a line and column, and a why and fix: fix them all and check again. On success it returns a plan: result is create (no workflow has the key), update or unchanged; added_steps, changed_steps and removed_steps list what changes. A removed step keeps the people in it only if it was renamed with its old id: when a warning names people in a removed step, show it to the user, and follow its fix if the step was renamed. Get the file's schema first with workflows-get-code-schema.",
+        "description": "Check a workflow file (YAML, or JSON text) against PostHog and see what applying it would change. Writes nothing. Send the whole file as content. On a mistake it returns 400 with every error at once, each with a status, a path in the file's own field names, a line and column, and a why and fix: fix them all and check again. On success it returns a plan: result is create (no workflow has the key), update, stage (the workflow is active, so applying through MCP stages the change as a draft) or unchanged; added_steps, changed_steps and removed_steps list what changes. A removed step keeps the people in it only if it was renamed with its old id: when a warning names people in a removed step, show it to the user, and follow its fix if the step was renamed. Get the file's schema first with workflows-get-code-schema.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Check a workflow file",

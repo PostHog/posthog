@@ -3128,6 +3128,17 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ * Create the workflow a file describes, or update the one with its key. Writes nothing when the file matches.
+ */
+export const HogFlowsCodeApplyCreateBody = /* @__PURE__ */ zod.object({
+    content: zod
+        .string()
+        .describe(
+            'The workflow file as text, in YAML, or in JSON when it starts with {. At most 1048576 bytes. Get its schema from code_schema.'
+        ),
+})
+
+/**
  * Check a workflow file and plan what applying it would change. Writes nothing.
  */
 export const HogFlowsCodeCheckCreateBody = /* @__PURE__ */ zod.object({

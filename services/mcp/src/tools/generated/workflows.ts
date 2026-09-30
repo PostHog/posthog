@@ -62,6 +62,32 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
     },
 })
 
+const WorkflowsApplyCodeSchema = () => {
+    const HogFlowsCodeApplyCreateBody = orvalSchemas.HogFlowsCodeApplyCreateBody()
+    return HogFlowsCodeApplyCreateBody
+}
+
+const workflowsApplyCode = (): ToolBase<
+    ReturnType<typeof WorkflowsApplyCodeSchema>,
+    Schemas.HogFlowCodeApplyResponse
+> => ({
+    name: 'workflows-apply-code',
+    schema: WorkflowsApplyCodeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsApplyCodeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        const result = await context.api.request<Schemas.HogFlowCodeApplyResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/code_apply/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsCheckCodeSchema = () => {
     const HogFlowsCodeCheckCreateBody = orvalSchemas.HogFlowsCodeCheckCreateBody()
     return HogFlowsCodeCheckCreateBody
@@ -711,6 +737,7 @@ const workflowsUpdateSchedule = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
+    'workflows-apply-code': workflowsApplyCode,
     'workflows-check-code': workflowsCheckCode,
     'workflows-create': workflowsCreate,
     'workflows-discard-draft': workflowsDiscardDraft,

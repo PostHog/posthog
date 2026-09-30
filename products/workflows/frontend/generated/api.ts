@@ -17,6 +17,7 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowCodeApplyResponseApi,
     HogFlowCodeCheckResponseApi,
     HogFlowCodeRequestApi,
     HogFlowInvocationApi,
@@ -1286,6 +1287,26 @@ export const hogFlowsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsCodeApplyCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/code_apply/`
+}
+
+/**
+ * Create the workflow a file describes, or update the one with its key. Writes nothing when the file matches.
+ */
+export const hogFlowsCodeApplyCreate = async (
+    projectId: string,
+    hogFlowCodeRequestApi: HogFlowCodeRequestApi,
+    options?: RequestInit
+): Promise<HogFlowCodeApplyResponseApi> => {
+    return apiMutator<HogFlowCodeApplyResponseApi>(getHogFlowsCodeApplyCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowCodeRequestApi),
     })
 }
 

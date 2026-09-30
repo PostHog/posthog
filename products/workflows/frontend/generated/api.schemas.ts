@@ -1619,16 +1619,18 @@ export interface HogFlowCodeRequestApi {
 }
 
 /**
- * * `create` - Create
- * * `update` - Update
+ * * `created` - Created
+ * * `updated` - Updated
+ * * `staged` - Staged
  * * `unchanged` - Unchanged
  */
-export type WorkflowCodePlanResultEnumApi =
-    (typeof WorkflowCodePlanResultEnumApi)[keyof typeof WorkflowCodePlanResultEnumApi]
+export type WorkflowCodeApplyResultEnumApi =
+    (typeof WorkflowCodeApplyResultEnumApi)[keyof typeof WorkflowCodeApplyResultEnumApi]
 
-export const WorkflowCodePlanResultEnumApi = {
-    Create: 'create',
-    Update: 'update',
+export const WorkflowCodeApplyResultEnumApi = {
+    Created: 'created',
+    Updated: 'updated',
+    Staged: 'staged',
     Unchanged: 'unchanged',
 } as const
 
@@ -1651,6 +1653,22 @@ export interface HogFlowCodeWorkflowApi {
      * * `archived` - Archived */
     status: HogFlowStateEnumApi
 }
+
+/**
+ * * `create` - Create
+ * * `update` - Update
+ * * `stage` - Stage
+ * * `unchanged` - Unchanged
+ */
+export type WorkflowCodePlanResultEnumApi =
+    (typeof WorkflowCodePlanResultEnumApi)[keyof typeof WorkflowCodePlanResultEnumApi]
+
+export const WorkflowCodePlanResultEnumApi = {
+    Create: 'create',
+    Update: 'update',
+    Stage: 'stage',
+    Unchanged: 'unchanged',
+} as const
 
 export interface HogFlowCodeStatusChangeApi {
     /** The status the file sets.
@@ -1688,10 +1706,11 @@ export interface HogFlowCodeChangedStepApi {
 }
 
 export interface HogFlowCodePlanApi {
-    /** create: no workflow has this key. update: applying the file changes the workflow. unchanged: it changes nothing.
+    /** create: no workflow has this key. update: applying the file changes the workflow. stage: applying it through MCP stages the change as a draft of the active workflow, to publish with workflows-publish. unchanged: it changes nothing.
      *
      * * `create` - Create
      * * `update` - Update
+     * * `stage` - Stage
      * * `unchanged` - Unchanged */
     result: WorkflowCodePlanResultEnumApi
     /** The stored workflow with this key. Null when the file creates one. */
@@ -1736,10 +1755,19 @@ export interface HogFlowCodeWarningApi {
     path: string | null
 }
 
-export interface HogFlowCodeCheckResponseApi {
-    /** What applying the file would change. */
+export interface HogFlowCodeApplyResponseApi {
+    /** created: the file made a new workflow. updated: it changed the workflow. staged: the change waits as a draft of the active workflow; publish it with workflows-publish. unchanged: nothing was written.
+     *
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `staged` - Staged
+     * * `unchanged` - Unchanged */
+    result: WorkflowCodeApplyResultEnumApi
+    /** The workflow with this key, as stored after the apply. */
+    workflow: HogFlowCodeWorkflowApi
+    /** What the apply changed, as code_check plans it. */
     plan: HogFlowCodePlanApi
-    /** Things to look at before applying the file. */
+    /** Things to look at after the apply. */
     warnings: HogFlowCodeWarningApi[]
 }
 
@@ -1826,6 +1854,13 @@ export interface HogFlowCodeErrorApi {
 export interface HogFlowCodeErrorsApi {
     /** Every mistake in the file, in file order. */
     errors: HogFlowCodeErrorApi[]
+}
+
+export interface HogFlowCodeCheckResponseApi {
+    /** What applying the file would change. */
+    plan: HogFlowCodePlanApi
+    /** Things to look at before applying the file. */
+    warnings: HogFlowCodeWarningApi[]
 }
 
 /**
