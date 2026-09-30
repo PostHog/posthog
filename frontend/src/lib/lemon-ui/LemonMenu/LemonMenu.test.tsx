@@ -210,10 +210,11 @@ describe('LemonMenu', () => {
         host.remove()
     })
 
-    it('navigates portal items after opening and reopening a menu', async () => {
+    it.each([false, true])('navigates and reopens with startVisible=%s', async (startVisible) => {
         render(
             <div>
                 <LemonMenu
+                    startVisible={startVisible}
                     items={[
                         { title: <div>Available sources</div>, items: [] },
                         { label: 'First' },
@@ -228,8 +229,15 @@ describe('LemonMenu', () => {
 
         const trigger = screen.getByText('Open').closest('button')!
         for (let opening = 0; opening < 2; opening++) {
-            await userEvent.click(trigger)
+            if (!startVisible || opening > 0) {
+                await userEvent.click(trigger)
+            }
             const first = (await screen.findByText('First')).closest('button')!
+            if (startVisible && opening === 0) {
+                first.focus()
+                await userEvent.keyboard('{ArrowUp}')
+                expect(trigger).toHaveFocus()
+            }
             const second = screen.getByText('Second').closest('button')!
             await userEvent.keyboard('{ArrowDown}')
             expect(first).toHaveFocus()

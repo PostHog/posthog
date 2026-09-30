@@ -133,11 +133,12 @@ export const LemonMenu = React.forwardRef<HTMLElement, LemonMenuProps>(function 
     },
     ref
 ): JSX.Element {
-    const { itemsRef, onTriggerFocus, onTriggerKeyDown, onItemsKeyDown } = useKeyboardNavigation<HTMLButtonElement>(
-        items.flatMap((item) => (item && isLemonMenuSection(item) ? item.items : item)).length,
-        activeItemIndex,
-        { enabled: focusBasedKeyboardNavigation }
-    )
+    const { referenceRef, itemsRef, onTriggerFocus, onTriggerKeyDown, onItemsKeyDown } =
+        useKeyboardNavigation<HTMLButtonElement>(
+            items.flatMap((item) => (item && isLemonMenuSection(item) ? item.items : item)).length,
+            activeItemIndex,
+            { enabled: focusBasedKeyboardNavigation }
+        )
 
     const _onVisibilityChange = useCallback(
         (visible: boolean) => {
@@ -169,6 +170,7 @@ export const LemonMenu = React.forwardRef<HTMLElement, LemonMenuProps>(function 
                 />
             }
             closeOnClickInside
+            referenceRef={referenceRef}
             onVisibilityChange={_onVisibilityChange}
             {...dropdownProps}
         >

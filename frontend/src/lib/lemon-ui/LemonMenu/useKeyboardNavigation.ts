@@ -5,11 +5,13 @@ export function useKeyboardNavigation<I extends HTMLElement = HTMLElement>(
     activeItemIndex: number = -1,
     { enabled = true } = {}
 ): {
+    referenceRef: React.RefObject<HTMLElement>
     itemsRef: React.RefObject<React.RefObject<I>[]>
     onTriggerFocus: FocusEventHandler<HTMLElement>
     onTriggerKeyDown: KeyboardEventHandler<HTMLElement>
     onItemsKeyDown: KeyboardEventHandler<HTMLElement>
 } {
+    const referenceRef = useRef<HTMLElement>(null)
     const focusedTriggerRef = useRef<HTMLElement | null>(null)
     const itemsRef = useRef(Array.from({ length: itemCount }, () => createRef<I>()))
     // A menu can gain items after its first render, for example when its data loads.
@@ -27,7 +29,8 @@ export function useKeyboardNavigation<I extends HTMLElement = HTMLElement>(
         } else if (e.key === 'ArrowUp' && fromIndex >= 0) {
             target =
                 itemsRef.current.findLast((item, i) => i < fromIndex && item.current)?.current ??
-                focusedTriggerRef.current
+                focusedTriggerRef.current ??
+                referenceRef.current
         }
         if (target) {
             target.focus()
@@ -36,6 +39,7 @@ export function useKeyboardNavigation<I extends HTMLElement = HTMLElement>(
     }
 
     return {
+        referenceRef,
         itemsRef,
         onTriggerFocus: (e) => {
             // The positioning ref can point at a wrapper, so remember the element that actually took focus.
