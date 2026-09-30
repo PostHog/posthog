@@ -2,18 +2,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconList, IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconChat, IconList, IconLock, IconPlus } from '@posthog/icons'
+import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill'
 
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { TodayPaneRow } from './TodayPaneRow'
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodaySessionRow } from './TodaySessionRow'
 import { TodayWorkSectionId, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
-import { TodayWorkItem, shortTimeAgo } from './todayWorkItems'
+import { TodaySpacesRow } from './TodaySpacesRow'
+import { TodayWorkItem } from './todayWorkItems'
 import { useTodaySectionLayout } from './useTodaySectionLayout'
 
 export function TodaySpacesSidebar(): JSX.Element {
@@ -43,11 +41,10 @@ export function TodaySpacesSidebar(): JSX.Element {
                 surface="sidebar"
             />
         ) : (
-            <TodayPaneRow
+            <TodaySpacesRow
                 key={`${item.kind}-${item.id}`}
                 label={item.title || 'Untitled chat'}
-                icon={<span className="TodayPane__dot" data-kind={item.kind} />}
-                meta={shortTimeAgo(item.timestamp)}
+                icon={<IconChat className="text-muted-foreground" />}
                 to={urls.ai(item.id)}
                 active={location.pathname.endsWith('/ai') && searchParams.chat === item.id}
                 dataAttr={dataAttr}
@@ -77,146 +74,168 @@ export function TodaySpacesSidebar(): JSX.Element {
         }
     }
 
-    return (
-        <div className="TodayPane">
-            <button
-                type="button"
-                className="TodaySidebar__new"
-                data-attr="today-spaces-new-chat"
-                onClick={() => router.actions.push(urls.ai())}
-            >
-                <IconPlus />
-                New chat
-            </button>
-            <div className="TodayPane__sections" ref={layout.measureRefs.area}>
-                {hasPinned && (
-                    <TodayPaneSection
-                        label="Pinned"
-                        {...sectionLayout('pinned')}
-                        count={pinnedItems.length}
-                        onToggle={() => toggleSection('pinned')}
-                        dataAttr="today-section-pinned"
-                    >
-                        {pinnedItems.map((item) => renderItem(item, 'today-pinned-session'))}
-                    </TodayPaneSection>
-                )}
-                <TodayPaneSection
-                    label="Recent"
-                    {...sectionLayout('recent')}
-                    count={recentItems.length}
-                    onToggle={() => toggleSection('recent')}
-                    divider={hasPinned}
-                    dataAttr="today-section-recent"
-                >
-                    {recentLoading && !recentItems.length ? (
-                        <div className="TodayPane__state">
-                            <Spinner />
-                        </div>
-                    ) : recentTasksUnavailable && !recentItems.length ? (
-                        <div className="TodayPane__state">
-                            <span>Recent sessions didn’t load.</span>
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                onClick={() => loadRecentTasks()}
-                                data-attr="today-recent-retry"
-                            >
-                                Try again
-                            </LemonButton>
-                        </div>
-                    ) : !recentItems.length ? (
-                        <div className="TodayPane__state">Sessions and chats you open show up here.</div>
-                    ) : (
-                        <>
-                            {recentTasksUnavailable && (
-                                <div className="TodayPane__state">
-                                    <span>Some sessions didn’t load.</span>
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        onClick={() => loadRecentTasks()}
-                                        data-attr="today-recent-retry"
-                                    >
-                                        Try again
-                                    </LemonButton>
-                                </div>
-                            )}
-                            {recentGroups.map((group, index) => (
-                                <Fragment key={group.key}>
-                                    <div className={cn('TodayPane__group', index === 0 && 'TodayPane__group--first')}>
-                                        {group.label}
-                                    </div>
-                                    {group.items.map((item) =>
-                                        renderItem(
-                                            item,
-                                            item.kind === 'chat' ? 'today-recent-chat' : 'today-recent-session'
-                                        )
-                                    )}
-                                </Fragment>
-                            ))}
-                        </>
-                    )}
-                </TodayPaneSection>
-                <TodayPaneSection
-                    label="Spaces"
-                    {...sectionLayout('spaces')}
-                    count={visibleSpaces.length}
-                    onToggle={() => toggleSection('spaces')}
-                    divider
-                    dataAttr="today-section-spaces"
-                    actions={
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconList />}
-                            active={browsingSpaces}
-                            tooltip={browsingSpaces ? 'Show starred spaces only' : 'Browse all spaces'}
-                            onClick={() => setBrowsingSpaces(!browsingSpaces)}
-                            data-attr="today-spaces-browse"
-                        />
-                    }
-                >
-                    {spacesLoading && !visibleSpaces.length ? (
-                        <div className="TodayPane__state">
-                            <Spinner />
-                        </div>
-                    ) : spacesUnavailable ? (
-                        <div className="TodayPane__state">
-                            <span>Spaces didn’t load.</span>
-                            <LemonButton size="small" type="secondary" onClick={() => loadSpaces()}>
-                                Try again
-                            </LemonButton>
-                        </div>
-                    ) : !visibleSpaces.length && browsingSpaces ? (
-                        <div className="TodayPane__state">
-                            Spaces group the sessions you and your agents work on. Create one from PostHog Desktop.
-                        </div>
-                    ) : (
-                        <>
-                            {visibleSpaces.map((space) => (
-                                <TodayPaneRow
-                                    key={space.id}
-                                    label={spaceLabel(space)}
-                                    icon={<span className="TodayPane__hash">#</span>}
-                                    to={urls.taskSpace(space.id)}
-                                    active={location.pathname.includes(urls.taskSpace(space.id))}
-                                    dataAttr="today-space-row"
-                                />
-                            ))}
-                            {!browsingSpaces && visibleSpaces.length <= 1 && (
-                                <button
-                                    type="button"
-                                    className="TodayPane__add"
-                                    data-attr="today-spaces-add"
-                                    onClick={() => setBrowsingSpaces(true)}
-                                >
-                                    <IconPlus />
-                                    Add the spaces you work in
-                                </button>
-                            )}
-                        </>
-                    )}
-                </TodayPaneSection>
-            </div>
+    const loadingRows = (
+        <div className="flex flex-col gap-2 px-2 py-1">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-4 w-2/3" />
         </div>
+    )
+    const loadError = (message: string, onRetry: () => void, dataAttr: string): JSX.Element => (
+        <div className="flex flex-col items-start gap-2 px-2 py-1">
+            <Text size="xs" variant="muted">
+                {message}
+            </Text>
+            <Button variant="outline" size="sm" onClick={onRetry} data-attr={dataAttr}>
+                Try again
+            </Button>
+        </div>
+    )
+
+    return (
+        <TooltipProvider>
+            <div className="TodayPane" data-quill>
+                <button
+                    type="button"
+                    className="TodaySidebar__new"
+                    data-attr="today-spaces-new-chat"
+                    onClick={() => router.actions.push(urls.ai())}
+                >
+                    <IconPlus />
+                    New chat
+                </button>
+                <div
+                    className="mt-4 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden px-1"
+                    ref={layout.measureRefs.area}
+                >
+                    {hasPinned && (
+                        <TodayPaneSection
+                            label="Pinned"
+                            {...sectionLayout('pinned')}
+                            count={pinnedItems.length}
+                            onToggle={() => toggleSection('pinned')}
+                            dataAttr="today-section-pinned"
+                        >
+                            {pinnedItems.map((item) => renderItem(item, 'today-pinned-session'))}
+                        </TodayPaneSection>
+                    )}
+                    <TodayPaneSection
+                        label="Recent"
+                        {...sectionLayout('recent')}
+                        count={recentItems.length}
+                        onToggle={() => toggleSection('recent')}
+                        divider={hasPinned}
+                        dataAttr="today-section-recent"
+                    >
+                        {recentLoading && !recentItems.length ? (
+                            loadingRows
+                        ) : recentTasksUnavailable && !recentItems.length ? (
+                            loadError('Recent sessions didn’t load.', loadRecentTasks, 'today-recent-retry')
+                        ) : !recentItems.length ? (
+                            <Text size="xs" variant="muted" className="px-2 py-1">
+                                Sessions and chats you open show up here.
+                            </Text>
+                        ) : (
+                            <>
+                                {recentTasksUnavailable &&
+                                    loadError('Some sessions didn’t load.', loadRecentTasks, 'today-recent-retry')}
+                                {recentGroups.map((group, index) => (
+                                    <Fragment key={group.key}>
+                                        <Text
+                                            size="xs"
+                                            variant="muted"
+                                            className={cn('block px-2 pb-1', index === 0 ? 'pt-1' : 'pt-3')}
+                                        >
+                                            {group.label}
+                                        </Text>
+                                        {group.items.map((item) =>
+                                            renderItem(
+                                                item,
+                                                item.kind === 'chat' ? 'today-recent-chat' : 'today-recent-session'
+                                            )
+                                        )}
+                                    </Fragment>
+                                ))}
+                            </>
+                        )}
+                    </TodayPaneSection>
+                    <TodayPaneSection
+                        label="Spaces"
+                        {...sectionLayout('spaces')}
+                        count={visibleSpaces.length}
+                        onToggle={() => toggleSection('spaces')}
+                        divider
+                        dataAttr="today-section-spaces"
+                        actions={
+                            <Tooltip>
+                                <TooltipTrigger
+                                    delay={0}
+                                    render={
+                                        <Button
+                                            size="icon-sm"
+                                            aria-pressed={browsingSpaces}
+                                            className={cn(browsingSpaces && 'bg-fill-selected')}
+                                            onClick={() => setBrowsingSpaces(!browsingSpaces)}
+                                            aria-label={
+                                                browsingSpaces ? 'Show starred spaces only' : 'Browse all spaces'
+                                            }
+                                            data-attr="today-spaces-browse"
+                                        />
+                                    }
+                                >
+                                    <IconList />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    {browsingSpaces ? 'Show starred spaces only' : 'Browse all spaces'}
+                                </TooltipContent>
+                            </Tooltip>
+                        }
+                    >
+                        {spacesLoading && !visibleSpaces.length ? (
+                            loadingRows
+                        ) : spacesUnavailable ? (
+                            loadError('Spaces didn’t load.', loadSpaces, 'today-spaces-retry')
+                        ) : !visibleSpaces.length && browsingSpaces ? (
+                            <Text size="xs" variant="muted" className="px-2 py-1">
+                                Spaces group the sessions you and your agents work on. Create one from PostHog Desktop.
+                            </Text>
+                        ) : (
+                            <>
+                                {visibleSpaces.map((space) => (
+                                    <TodaySpacesRow
+                                        key={space.id}
+                                        label={spaceLabel(space)}
+                                        icon={
+                                            space.channel_type === 'private' ? (
+                                                <IconLock className="text-muted-foreground" />
+                                            ) : (
+                                                <span aria-hidden className="font-mono text-muted-foreground">
+                                                    #
+                                                </span>
+                                            )
+                                        }
+                                        to={urls.taskSpace(space.id)}
+                                        active={location.pathname.includes(urls.taskSpace(space.id))}
+                                        dataAttr="today-space-row"
+                                    />
+                                ))}
+                                {!browsingSpaces && visibleSpaces.length <= 1 && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="mt-1 self-start"
+                                        data-attr="today-spaces-add"
+                                        onClick={() => setBrowsingSpaces(true)}
+                                    >
+                                        <IconPlus />
+                                        Add the spaces you work in
+                                    </Button>
+                                )}
+                            </>
+                        )}
+                    </TodayPaneSection>
+                </div>
+            </div>
+        </TooltipProvider>
     )
 }
