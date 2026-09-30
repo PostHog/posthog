@@ -15,6 +15,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -295,6 +296,8 @@ class TestVercelIntegration(TestCase):
 
         new_org = new_installation.organization
         assert new_org.name == self.payload["account"]["name"]
+        record = OrganizationProvisioning.objects.get(organization=new_org)
+        assert (record.partner, record.application_id) == ("vercel", None)
 
         membership = OrganizationMembership.objects.get(user=new_user, organization=new_org)
         assert membership.level == OrganizationMembership.Level.OWNER
@@ -333,6 +336,7 @@ class TestVercelIntegration(TestCase):
         new_org = new_installation.organization
         membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
         assert membership.level == OrganizationMembership.Level.OWNER
+        assert OrganizationProvisioning.objects.get(organization=new_org).partner == "vercel"
 
         mock_report.assert_not_called()
 
