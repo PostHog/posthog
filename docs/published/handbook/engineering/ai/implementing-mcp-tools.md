@@ -462,20 +462,6 @@ and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/po
 
 ## Testing
 
-### Alert suggestions after insight calls
-
-`insight-create` and `insight-query` return `_agentNote` guidance that asks the agent to offer an alert for an actionable metric, using a threshold grounded in the query results.
-The query handler checks the saved query kind and existing alerts before attaching the note.
-It withholds the note for temporary filter or variable overrides because alerts evaluate the saved query.
-Threshold suggestions cover Trends, SQL, Funnels, and Metrics insights, including their supported wrapper nodes.
-The guidance asks the agent to skip empty results, vanity metrics, high-cardinality breakdowns, unavailable alert tools, and offers the user already declined.
-The guidance tells the agent to wait for the user to accept before creating an alert.
-
-`withAgentNote` also attaches the declared note to a result's optimized text, so the existing response pipeline carries it through `exec` and responses that keep widget data in metadata.
-An `_agentNote` field supplied by an API response is not promoted into that text.
-
-### Query response budgets
-
 The `query-llm-trace` and `query-llm-traces-list` wrappers bound the complete response to 80,000 characters for full detail and 60,000 characters for summary detail.
 The limit includes the echoed query, warnings, and serialization of the MCP text content blocks, in either TOON or JSON output.
 Summary previews use a 600-character budget per value.
