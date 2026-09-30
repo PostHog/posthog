@@ -233,16 +233,32 @@ describe("resolveModelConfigs", () => {
 });
 
 describe("fallbackModelConfigs", () => {
-  it("includes GPT-6 Astra with its gateway capabilities", () => {
+  it.each([
+    ["gpt-6-astra", 922000],
+    ["gpt-6.1-sol", 1050000],
+  ])("includes %s with its gateway capabilities", (id, contextWindow) => {
     expect(fallbackModelConfigs("us")).toContainEqual(
       expect.objectContaining({
-        id: "gpt-6-astra",
+        id,
         api: "openai-responses",
-        contextWindow: 922000,
+        contextWindow,
         maxTokens: 128000,
       }),
     );
   });
+
+  it.each(["claude-opus-5-5", "claude-sonnet-5-5"])(
+    "never offers disabled thinking for %s",
+    (id) => {
+      const config = fallbackModelConfigs("us").find((m) => m.id === id);
+      expect(config?.contextWindow).toBe(1000000);
+      expect(config?.thinkingLevelMap).toEqual({
+        off: null,
+        xhigh: "xhigh",
+        max: "max",
+      });
+    },
+  );
 
   it("produces a non-empty, region-scoped model list", () => {
     const configs = fallbackModelConfigs("us");

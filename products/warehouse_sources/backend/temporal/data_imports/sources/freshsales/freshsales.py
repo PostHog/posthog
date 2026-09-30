@@ -13,6 +13,8 @@ from requests.exceptions import (
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -40,10 +42,19 @@ class FreshsalesRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FreshsalesResumeConfig:
     next_page: int
     view_id: Optional[int] = None
+    # Parent being paged when the stream is a paginated fan-out (e.g. the list for list_contacts).
+    parent_id: Optional[int] = None
+
+
+@frozen
+class FreshsalesPage:
+    number: int
+    items: list[dict]
+    has_more: bool
 
 
 def _normalize_alias(domain: str) -> str:
@@ -125,6 +136,63 @@ def _extract_items(data: dict, object_key: str, allow_fallback: bool = False) ->
     return []
 
 
+def _iter_pages(
+    session: Any, path: str, object_key: str, logger: FilteringBoundLogger, start_page: int = 1
+) -> Iterator[FreshsalesPage]:
+    page = start_page
+    while page <= MAX_PAGES:
+        data = _fetch_page(session, f"{path}?{urlencode({'page': page, 'per_page': DEFAULT_PAGE_SIZE})}", logger)
+        items = _extract_items(data, object_key)
+        if not items:
+            return
+
+        total_pages = (data.get("meta") or {}).get("total_pages")
+        has_more = not ((total_pages is not None and page >= total_pages) or len(items) < DEFAULT_PAGE_SIZE)
+        yield FreshsalesPage(number=page, items=items, has_more=has_more)
+        if not has_more:
+            return
+        page += 1
+
+    logger.warning(f"Freshsales: reached max page cap ({MAX_PAGES}) for '{path}'; results may be truncated")
+
+
+def _get_paginated_fanout_rows(
+    session: Any,
+    root: str,
+    config: FreshsalesEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[FreshsalesResumeConfig],
+    resume: Optional[FreshsalesResumeConfig],
+) -> Iterator[list[dict]]:
+    fanout = config.selector_fanout
+    assert fanout is not None
+
+    parent_ids = [
+        parent["id"]
+        for page in _iter_pages(session, f"{root}/{fanout.parent_resource}", fanout.parent_object_key, logger)
+        for parent in page.items
+        if parent.get("id") is not None
+    ]
+
+    start_index, start_page = 0, 1
+    # A parent deleted since the saved run restarts the walk; merge dedupes the re-read rows.
+    if resume is not None and resume.parent_id in parent_ids:
+        start_index, start_page = parent_ids.index(resume.parent_id), resume.next_page
+
+    for parent_id in parent_ids[start_index:]:
+        child_url = f"{root}/{fanout.child_path.format(parent_id=parent_id)}"
+        for page in _iter_pages(session, child_url, config.object_key, logger, start_page):
+            items = page.items
+            if fanout.parent_id_column:
+                items = [{**item, fanout.parent_id_column: parent_id} for item in items]
+            yield items
+            if page.has_more:
+                resumable_source_manager.save_state(
+                    FreshsalesResumeConfig(next_page=page.number + 1, parent_id=parent_id)
+                )
+        start_page = 1
+
+
 def _get_selector_fanout_rows(
     session: Any, root: str, config: FreshsalesEndpointConfig, logger: FilteringBoundLogger
 ) -> Iterator[list[dict]]:
@@ -200,7 +268,10 @@ def get_rows(
                 raise ValueError(f"Freshsales: could not resolve a view for '{endpoint}'")
 
     if config.selector_fanout is not None:
-        yield from _get_selector_fanout_rows(session, root, config, logger)
+        if config.selector_fanout.paginated:
+            yield from _get_paginated_fanout_rows(session, root, config, logger, resumable_source_manager, resume)
+        else:
+            yield from _get_selector_fanout_rows(session, root, config, logger)
         return
 
     page = resume.next_page if resume is not None else 1

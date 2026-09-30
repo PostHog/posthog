@@ -283,8 +283,8 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
     )
 
-    # Written with the prompt by every path that sets one, see `prompt_questions`. Not version-tracked: it
-    # restates the prompt and changes nothing about how the scanner scans.
+    # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
+    # template's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
     prompt_question = models.TextField(
         blank=True,
         default="",

@@ -14,6 +14,7 @@ from typing import Any, Final, NotRequired, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 class SourceKind(StrEnum):
@@ -158,6 +159,25 @@ class MuteReason(StrEnum):
     QUIET_HOURS = "quiet_hours"
 
 
+class AlertEventKind(StrEnum):
+    """What one evaluation announced about an alert.
+
+    `CHECK` is an evaluation that announced nothing, which includes one that moved the alert while
+    a cooldown or a mute held the notification back. Read `previous_state` and `state` to find the
+    moves, because counting `RESOLVED` rows misses every recovery that was suppressed.
+
+    A source reports the kind rather than the platform deriving it: the machine already decided
+    what to announce, and deriving it again from the states would be a second implementation of
+    that decision.
+    """
+
+    CHECK = "check"
+    FIRING = "firing"
+    RESOLVED = "resolved"
+    ERRORED = "errored"
+    BROKEN = "broken"
+
+
 @frozen
 class FiringEpisode:
     """The firing a check concerns, and whether that check is the one that ended it.
@@ -183,10 +203,18 @@ class PlatformAlertOutcome:
     """
 
     configuration_id: UUID
+    evaluation_key: str
+    kind: AlertEventKind
     new_state: str
     notified: bool
     consecutive_failures: int
     firing_episode: FiringEpisode | None = None
+    value: float | None = None
+    labels: dict[str, str] = field(default_factory=dict)
+    error_message: str | None = None
+    query_duration_ms: int | None = None
+    # What a mute held back, so history separates a muted fire from a check that said nothing.
+    muted_notification: str = ""
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
@@ -273,29 +301,12 @@ class OrchestrateResult:
     deadline_reached: bool
 
 
-class DestinationType(StrEnum):
-    SLACK = "slack"
-    DISCORD = "discord"
-    WEBHOOK = "webhook"
-    TEAMS = "teams"
-
-    @property
-    def label(self) -> str:
-        """Name for this type in a message a person reads."""
-        return _DESTINATION_TYPE_LABELS[self]
-
-
-_DESTINATION_TYPE_LABELS: Final[dict[DestinationType, str]] = {
-    DestinationType.SLACK: "Slack",
-    DestinationType.DISCORD: "Discord",
-    DestinationType.WEBHOOK: "Webhook",
-    DestinationType.TEAMS: "Microsoft Teams",
-}
-
-# A type without a label would only surface as a KeyError inside a validation message a
-# person reads, so a new member without one fails the import instead.
-if _DESTINATION_TYPE_LABELS.keys() != set(DestinationType):
-    raise RuntimeError("Every DestinationType needs an entry in _DESTINATION_TYPE_LABELS.")
+class DestinationType(LabeledStrEnum):
+    # The label names the type in a message a person reads.
+    SLACK = "slack", "Slack"
+    DISCORD = "discord", "Discord"
+    WEBHOOK = "webhook", "Webhook"
+    TEAMS = "teams", "Microsoft Teams"
 
 
 class AlertDestinationData(TypedDict):
