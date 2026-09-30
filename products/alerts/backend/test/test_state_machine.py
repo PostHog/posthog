@@ -438,9 +438,9 @@ class TestOnCallLifecycle:
     @parameterized.expand(
         [
             ("clear_check", lambda s: evaluate_alert_check(s, CLEAR, NOW, policy=LOGS_ALERT_POLICY)),
-            ("disable", apply_disable),
-            ("broken_config", apply_broken_config),
-            ("threshold_change", apply_threshold_change),
+            ("disable", lambda s: apply_disable(s)),
+            ("broken_config", lambda s: apply_broken_config(s)),
+            ("threshold_change", lambda s: apply_threshold_change(s)),
             ("fifth_failure", lambda s: evaluate_alert_check(s, ERROR, NOW, policy=LOGS_ALERT_POLICY)),
             (
                 "clear_check_after_a_snooze",
@@ -462,7 +462,7 @@ class TestOnCallLifecycle:
 
     @parameterized.expand(
         [
-            ("snooze_keeps_it_open", apply_snooze),
+            ("snooze_keeps_it_open", lambda s: apply_snooze(s)),
             (
                 "a_transient_error_keeps_it_open",
                 lambda s: evaluate_alert_check(s, TRANSIENT_ERROR, NOW, policy=LOGS_ALERT_POLICY),
