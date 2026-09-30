@@ -39,6 +39,8 @@ interface VariantsPanelCreateFeatureFlagProps {
     }) => void
     disabled?: boolean
     layout?: 'horizontal' | 'vertical'
+    persistQuestionError?: string
+    onPersistQuestionShown?: () => void
 }
 
 interface RolloutPercentageControlProps {
@@ -85,6 +87,8 @@ export const VariantsPanelCreateFeatureFlag = ({
     onChange,
     disabled = false,
     layout = 'horizontal',
+    persistQuestionError,
+    onPersistQuestionShown,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
     const [isCustomSplit, setIsCustomSplit] = useState(false)
@@ -336,6 +340,8 @@ export const VariantsPanelCreateFeatureFlag = ({
                         ? 'You cannot change the persist flag across authentication steps when editing an experiment.'
                         : undefined
                 }
+                error={persistQuestionError}
+                onQuestionShown={onPersistQuestionShown}
             />
         </div>
     )

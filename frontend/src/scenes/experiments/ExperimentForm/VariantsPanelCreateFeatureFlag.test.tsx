@@ -447,14 +447,42 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(container.querySelector('.LemonSegmentedButton__option--selected')).toHaveTextContent('No')
         })
 
+        it('marks the question required and reports it shown, in the test arm of the persist question experiment', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION]: 'test',
+            })
+            const onPersistQuestionShown = jest.fn()
+            render(
+                <VariantsPanelCreateFeatureFlag
+                    experiment={defaultExperiment}
+                    onChange={mockOnChange}
+                    persistQuestionError="Choose an answer"
+                    onPersistQuestionShown={onPersistQuestionShown}
+                />
+            )
+
+            expect(screen.getByText('*')).toBeInTheDocument()
+            expect(screen.getByText('(required)')).toBeInTheDocument()
+            expect(screen.getByText('Choose an answer')).toBeInTheDocument()
+            expect(onPersistQuestionShown).toHaveBeenCalled()
+        })
+
         it('keeps the checkbox in the control arm of the persist question experiment', () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION], {
                 [FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION]: 'control',
             })
-            renderComponent(defaultExperiment)
+            const onPersistQuestionShown = jest.fn()
+            render(
+                <VariantsPanelCreateFeatureFlag
+                    experiment={defaultExperiment}
+                    onChange={mockOnChange}
+                    onPersistQuestionShown={onPersistQuestionShown}
+                />
+            )
 
             expect(screen.getByRole('checkbox')).toBeInTheDocument()
             expect(screen.queryByText(/before and after they log in/)).not.toBeInTheDocument()
+            expect(onPersistQuestionShown).not.toHaveBeenCalled()
         })
     })
 
