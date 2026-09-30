@@ -67,8 +67,23 @@ export class TuiAuth {
     rmSync(path, { force: true });
   }
 
+  get region(): CloudRegion {
+    return this.credentials.region as CloudRegion;
+  }
+
   get apiHost(): string {
-    return getCloudUrlFromRegion(this.credentials.region as CloudRegion);
+    return getCloudUrlFromRegion(this.region);
+  }
+
+  async oauthCredentials(): Promise<{
+    access: string;
+    refresh: string;
+    expires: number;
+    region: CloudRegion;
+  }> {
+    const access = await this.getAccessToken();
+    const { refresh, expires } = this.credentials;
+    return { access, refresh, expires, region: this.region };
   }
 
   async getAccessToken(): Promise<string> {

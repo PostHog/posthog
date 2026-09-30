@@ -2,13 +2,10 @@ import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import type { RootLogger } from "@posthog/di/logger";
 import { getCloudUrlFromRegion } from "@posthog/shared";
-import type {
-  AgentAuth,
-  AgentMcpApps,
-} from "@posthog/workspace-server/services/agent/ports";
-import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
 import { describe, expect, it, vi } from "vitest";
-import { DesktopPiRpcClientFactory } from "./desktop-pi-rpc-client-factory";
+import type { AgentAuth, AgentMcpApps } from "../agent/ports";
+import type { AuthProxyService } from "../auth-proxy/auth-proxy";
+import { LocalPiRpcClientFactory } from "./pi-rpc-client-factory";
 
 const createPiRpcClient = vi.hoisted(() => vi.fn());
 const createLocalRuntimeMcpServers = vi.hoisted(() =>
@@ -43,7 +40,7 @@ vi.mock("@posthog/agent/pi/rpc-client", () => ({
   createRuntimeMcpServers,
 }));
 
-describe("DesktopPiRpcClientFactory", () => {
+describe("LocalPiRpcClientFactory", () => {
   it("routes Dev Cloud Pi sessions through the hosted development gateway", async () => {
     const auth = {
       getOAuthCredentials: vi.fn(async () => ({
@@ -100,7 +97,7 @@ describe("DesktopPiRpcClientFactory", () => {
       addServerConfigs: vi.fn(),
       handleDiscovery: vi.fn(async () => {}),
     };
-    const factory = new DesktopPiRpcClientFactory(
+    const factory = new LocalPiRpcClientFactory(
       auth,
       authProxy,
       mcpServerSource,

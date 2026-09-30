@@ -15,26 +15,26 @@ import {
 } from "@posthog/shared";
 import { buildPosthogScopedPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import type { TaskContext } from "@posthog/shared/task-context";
-import { prepareContextWiki } from "@posthog/workspace-server/services/agent/context-wiki";
+import { inject, injectable } from "inversify";
+import { prepareContextWiki } from "../agent/context-wiki";
 import {
   AGENT_AUTH,
   AGENT_MCP_APPS,
   MCP_SERVER_CONNECTION_SOURCE,
-} from "@posthog/workspace-server/services/agent/identifiers";
+} from "../agent/identifiers";
 import type {
   AgentAuth,
   AgentMcpApps,
   McpServerConnectionSource,
-} from "@posthog/workspace-server/services/agent/ports";
-import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
-import { AUTH_PROXY_SERVICE } from "@posthog/workspace-server/services/auth-proxy/identifiers";
-import type { PiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/identifiers";
-import { inject, injectable } from "inversify";
+} from "../agent/ports";
+import type { AuthProxyService } from "../auth-proxy/auth-proxy";
+import { AUTH_PROXY_SERVICE } from "../auth-proxy/identifiers";
+import type { PiRpcClientFactory } from "./identifiers";
 
 const PROXY_API_KEY = "posthog-code-auth-proxy";
 
 @injectable()
-export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
+export class LocalPiRpcClientFactory implements PiRpcClientFactory {
   constructor(
     @inject(AGENT_AUTH) private readonly auth: AgentAuth,
     @inject(AUTH_PROXY_SERVICE)
