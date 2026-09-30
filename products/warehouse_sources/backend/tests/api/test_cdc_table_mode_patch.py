@@ -342,7 +342,10 @@ def test_moving_a_table_off_cdc_drops_it_from_the_publication(
     team: Team, user: User, client: HttpClient, should_sync_before: bool, new_sync_type: str | None
 ) -> None:
     _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
-    ExternalDataSchema.objects.filter(id=schema.id).update(should_sync=should_sync_before)
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        should_sync=should_sync_before,
+        sync_type_config={key: value for key, value in schema.sync_type_config.items() if key != "primary_key_columns"},
+    )
     client.force_login(user)
     with (
         mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
@@ -375,7 +378,11 @@ def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
     source.job_inputs = {**source.job_inputs, "cdc_management_mode": management_mode}
     source.save()
     ExternalDataSchema.objects.filter(id=schema.id).update(
-        sync_type_config={**schema.sync_type_config, "cdc_reset_pending": {"trigger": True}}
+        sync_type_config={
+            **schema.sync_type_config,
+            "cdc_reset_pending": {"trigger": True},
+            "cdc_snapshot_lane": "buffer",
+        }
     )
     client.force_login(user)
     with (
@@ -396,6 +403,7 @@ def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
     assert response.status_code == 200, response.content
     schema.refresh_from_db()
     assert "cdc_reset_pending" not in schema.sync_type_config
+    assert "cdc_snapshot_lane" not in schema.sync_type_config
     unpause.assert_called_once_with(str(schema.id))
 
 

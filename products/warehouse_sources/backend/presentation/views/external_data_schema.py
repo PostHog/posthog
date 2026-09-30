@@ -1109,7 +1109,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 # left at True repeats the full snapshot on every scheduled run. A capture
                 # position from an earlier CDC period belongs to a dropped slot.
                 payload["cdc_mode"] = "snapshot"
-                for stale_key in ("cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY):
+                for stale_key in (
+                    "cdc_last_log_position",
+                    "cdc_deferred_runs",
+                    CDC_RESET_PENDING_KEY,
+                    CDC_SNAPSHOT_LANE_KEY,
+                ):
                     payload.pop(stale_key, None)
                 instance.initial_sync_complete = False
                 validated_data["initial_sync_complete"] = False
@@ -1145,6 +1150,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # type that ever allowed 1min), clamp the inherited cadence to the floor so the switch
         # doesn't dead-end. The clamp flows through the sync_frequency handling below.
         resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
+        # An explicit `"sync_type": null` is saved too, so only an omitted field keeps the current type.
+        is_cdc = resulting_sync_type == ExternalDataSchema.SyncType.CDC
+        leaving_cdc = instance.sync_type == ExternalDataSchema.SyncType.CDC and not is_cdc
         resulting_frequency = sync_frequency
         if not resulting_frequency and instance.sync_frequency_interval is not None:
             resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
@@ -1228,13 +1236,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Catches a CDC schema being flipped on later when sync_type isn't changing — the
         # sync_type branch above doesn't run, so PK presence isn't enforced there.
-        effective_sync_type = sync_type or instance.sync_type
-        if (
-            should_sync is True
-            and not instance.should_sync
-            and effective_sync_type == ExternalDataSchema.SyncType.CDC
-            and not instance.primary_key_columns
-        ):
+        if should_sync is True and not instance.should_sync and is_cdc and not instance.primary_key_columns:
             raise ValidationError(
                 f"CDC requires a primary key on table '{instance.name}'. "
                 "Add a primary key on the source table and retry."
@@ -1250,11 +1252,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         )
         # cdc_only wrote the consolidated table only at its initial snapshot, so a sync type that goes on
         # from that table would skip every change since then.
-        leaves_cdc_only = (
-            sync_type != ExternalDataSchema.SyncType.CDC
-            and instance.sync_type == ExternalDataSchema.SyncType.CDC
-            and instance.cdc_table_mode == "cdc_only"
-        )
+        leaves_cdc_only = leaving_cdc and instance.cdc_table_mode == "cdc_only"
         if "sync_type" in data and (crosses_xmin or leaves_cdc_only):
             if is_any_external_data_schema_paused(instance.team_id):
                 raise ValidationError(
@@ -1312,16 +1310,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 instance.table.save(update_fields=["columns"])
 
         # CDC publication management: add/remove table when toggling should_sync
-        # An explicit `"sync_type": null` is saved too, so only an omitted field keeps the current type.
-        is_cdc = (sync_type == ExternalDataSchema.SyncType.CDC) or (
-            "sync_type" not in data and instance.sync_type == ExternalDataSchema.SyncType.CDC
-        )
-        leaving_cdc = "sync_type" in data and not is_cdc and instance.sync_type == ExternalDataSchema.SyncType.CDC
         # A reset handed to capture paused the schedule, and capture only finishes a reset for a CDC table,
         # so a table leaving CDC drops the pending reset and resumes its schedule itself.
         resume_paused_schedule = leaving_cdc and bool((instance.sync_type_config or {}).get(CDC_RESET_PENDING_KEY))
         if resume_paused_schedule:
             instance.sync_type_config.pop(CDC_RESET_PENDING_KEY, None)
+        # Capture stops buffering the table, whoever manages the publication, so a later return to CDC
+        # must empty the buffer before its new snapshot.
+        if leaving_cdc:
+            instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
         publication_removal: Callable[[], None] | None = None
         if (is_cdc or leaving_cdc) and source_type_supports_cdc(source.source_type):
             publication_removal = self._handle_cdc_publication_change(
