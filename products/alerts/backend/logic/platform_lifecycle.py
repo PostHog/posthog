@@ -132,10 +132,14 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
 def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, object]:
     """What the check was evaluated against, as a message and a comparison need to read it.
 
-    Taken from the configuration when the outcome is recorded rather than shipped with it. A
-    source's copy would cost Temporal payload on every batch, and no path writes a platform
-    configuration between an evaluation and its record: a source keeps its own control plane and
-    reaches these rows through a backfill a person runs.
+    Taken from the configuration when the outcome is recorded rather than shipped with it, because
+    a source's copy would cost Temporal payload on every batch.
+
+    One path can write a configuration between an evaluation and its record, so the snapshot is
+    evaluation-time by convention rather than by construction: `upsert_configuration`, reached
+    only through a hand-run backfill command, and only for a configuration already copied whose
+    source row changed since. The row then states the new condition beside a verdict measured
+    against the old one. Carry the snapshot on the outcome if that stops being acceptable.
     """
     return {
         "threshold_count": configuration.threshold_count,
