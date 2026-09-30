@@ -2,11 +2,13 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.scoping import team_scope
 
 from products.alerts.backend.facade.contracts import (
+    AlertEventKind,
     FiringEpisode,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
@@ -16,7 +18,7 @@ from products.alerts.backend.facade.platform_alerts import due_checks, record_ou
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
-class TestPlatformAlertLifecycle(APIBaseTest):
+class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
@@ -37,12 +39,16 @@ class TestPlatformAlertLifecycle(APIBaseTest):
     def _record(self, now: datetime | None = None, **overrides) -> None:
         fields = {
             "configuration_id": self.configuration.id,
+            "evaluation_key": f"window:{self.cutoff.isoformat()}",
+            "kind": AlertEventKind.FIRING,
             "new_state": "firing",
             "notified": True,
             "consecutive_failures": 0,
         }
         fields.update(overrides)
-        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], now or self.cutoff)
+        # History rides `transaction.on_commit`, which a `TestCase` transaction never reaches.
+        with self.captureOnCommitCallbacks(execute=True):
+            record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], now or self.cutoff)
 
     def _alert(self) -> PlatformAlert:
         with team_scope(self.team.id):
@@ -80,6 +86,45 @@ class TestPlatformAlertLifecycle(APIBaseTest):
         with team_scope(self.team.id):
             self.configuration.refresh_from_db()
         assert self.configuration.next_check_at == after_first
+
+    def test_a_recorded_check_lands_in_history_with_what_it_measured(self) -> None:
+        self._record(
+            new_state="firing",
+            value=47.0,
+            query_duration_ms=12,
+            muted_notification="fire",
+            firing_episode=FiringEpisode(started_at=self.cutoff, ended=False),
+        )
+
+        rows = sync_execute(
+            """
+            SELECT kind, previous_state, state, value, alert_name, muted_notification,
+                   JSONExtractInt(condition_snapshot, 'threshold_count'), episode_started_at
+            FROM platform_alert_events
+            WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s
+            """,
+            {"team_id": self.team.id, "configuration_id": str(self.configuration.id)},
+        )
+
+        # `insert_events` never raises, so without reading a row back a broken write is invisible.
+        assert rows == [("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10, self.cutoff)]
+
+    def test_a_resolve_row_keeps_the_firing_it_ended(self) -> None:
+        # The alert row clears the firing on a resolve, so history is the only place left holding
+        # the start a delivery needs to reply under the message that fired.
+        self._record(
+            new_state="not_firing",
+            kind=AlertEventKind.RESOLVED,
+            firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
+        )
+
+        rows = sync_execute(
+            "SELECT state, episode_started_at FROM platform_alert_events WHERE team_id = %(team_id)s",
+            {"team_id": self.team.id},
+        )
+
+        assert rows == [("not_firing", self.cutoff)]
+        assert self._alert().firing_started_at is None
 
     def test_a_copied_snooze_mutes_without_holding_back_the_check(self) -> None:
         legacy_id = uuid4()
