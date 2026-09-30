@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconHome, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { Button, Skeleton } from '@posthog/quill'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { TodayIcon } from './TodayIcon'
@@ -17,10 +17,17 @@ export function TodayHomeSidebar(): JSX.Element {
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
 
     return (
-        <div className="TodayPane">
-            <LemonButton type="primary" fullWidth center icon={<IconPlus />} to={urls.ai()} data-attr="today-new-chat">
+        <div className="TodayPane" data-quill>
+            <Button
+                variant="primary"
+                size="lg"
+                className="w-full"
+                render={<LinkPrimitive to={urls.ai()} />}
+                data-attr="today-new-chat"
+            >
+                <IconPlus />
                 New chat
-            </LemonButton>
+            </Button>
             <div className="TodayPane__scroll">
                 <div className="TodayPane__heading Today__label">Today</div>
                 <div className="TodaySidebar__list">
@@ -41,8 +48,8 @@ export function TodayHomeSidebar(): JSX.Element {
                     />
                     {topReports === null && !reportsFailed ? (
                         <>
-                            <LemonSkeleton className="h-12" />
-                            <LemonSkeleton className="h-12" />
+                            <Skeleton className="h-12" />
+                            <Skeleton className="h-12" />
                         </>
                     ) : (
                         reports.map((report) => (
