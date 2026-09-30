@@ -367,3 +367,17 @@ class ProposalVersionOutcome(TypedDict):
     target: ProposalMetric
     click_through: ProposalMetric
     guardrails: list[ProposalMetric]
+
+
+@frozen
+class EditedEmailDesign:
+    design: dict[str, Any]
+    warnings: tuple[str, ...]
+
+
+class EmailDesignRenderingNotConfigured(Exception):
+    pass
+
+
+class EmailDesignRenderFailed(Exception):
+    pass
