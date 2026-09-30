@@ -4,7 +4,7 @@ import { ConversationDetail } from '~/types'
 
 import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { buildRecentItems, groupByDay } from './todayWorkItems'
+import { buildRecentItems, groupByDay, shortTimeAgo } from './todayWorkItems'
 
 const session = (id: string, lastActivityAt: string, archived = false): TaskListItemApi =>
     ({ id, title: `Session ${id}`, last_activity_at: lastActivityAt, archived }) as TaskListItemApi
@@ -40,5 +40,14 @@ describe('todayWorkItems', () => {
         const groups = groupByDay(buildRecentItems([session('s', timestamp)], [], [], 10), now)
 
         expect(groups.map((group) => group.label)).toEqual([label])
+    })
+
+    it.each([
+        ['2026-03-10T11:30:00', '30m'],
+        ['2026-03-01T12:00:00', '1w'],
+        ['2025-12-01T12:00:00', '3mo'],
+        ['2024-03-01T12:00:00', '2y'],
+    ])('shortens the age of %s to %s', (timestamp, age) => {
+        expect(shortTimeAgo(timestamp, dayjs('2026-03-10T12:00:00'))).toEqual(age)
     })
 })
