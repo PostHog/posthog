@@ -2,59 +2,11 @@ import type { LocalMcpServerDescriptor } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   classifyLocalMcpServer,
-  isPrivateHostname,
   type LocalMcpCloudClassification,
   LocalMcpImportService,
   type LocalMcpWorkspaceClient,
   partitionLocalMcpServersForRun,
 } from "./localMcpImport";
-
-describe("isPrivateHostname", () => {
-  it.each([
-    // loopback and localhost
-    { hostname: "localhost", isPrivate: true },
-    { hostname: "LOCALHOST", isPrivate: true },
-    { hostname: "app.localhost", isPrivate: true },
-    { hostname: "127.0.0.1", isPrivate: true },
-    { hostname: "127.9.9.9", isPrivate: true },
-    { hostname: "0.0.0.0", isPrivate: true },
-    { hostname: "::1", isPrivate: true },
-    { hostname: "[::1]", isPrivate: true },
-    // RFC1918 / link-local / CGNAT
-    { hostname: "10.0.0.5", isPrivate: true },
-    { hostname: "172.16.0.1", isPrivate: true },
-    { hostname: "172.31.255.255", isPrivate: true },
-    { hostname: "192.168.1.10", isPrivate: true },
-    { hostname: "169.254.1.1", isPrivate: true },
-    { hostname: "100.64.0.1", isPrivate: true },
-    { hostname: "100.101.102.103", isPrivate: true },
-    // IPv6 private ranges
-    { hostname: "fd12:3456:789a::1", isPrivate: true },
-    { hostname: "fc00::1", isPrivate: true },
-    { hostname: "fe80::1", isPrivate: true },
-    { hostname: "::ffff:192.168.0.1", isPrivate: true },
-    // private-looking names
-    { hostname: "nas", isPrivate: true },
-    { hostname: "grafana.local", isPrivate: true },
-    { hostname: "vault.internal", isPrivate: true },
-    { hostname: "printer.lan", isPrivate: true },
-    { hostname: "server.home.arpa", isPrivate: true },
-    { hostname: "router.home", isPrivate: true },
-    { hostname: "machine.tailnet-1234.ts.net", isPrivate: true },
-    { hostname: "example.com.", isPrivate: false },
-    // public
-    { hostname: "mcp.example.com", isPrivate: false },
-    { hostname: "8.8.8.8", isPrivate: false },
-    { hostname: "172.32.0.1", isPrivate: false },
-    { hostname: "100.128.0.1", isPrivate: false },
-    { hostname: "2606:4700::6810:84e5", isPrivate: false },
-    { hostname: "::ffff:8.8.8.8", isPrivate: false },
-    { hostname: "internal.example.com", isPrivate: false },
-    { hostname: "localhost.example.com", isPrivate: false },
-  ])("$hostname -> $isPrivate", ({ hostname, isPrivate }) => {
-    expect(isPrivateHostname(hostname)).toBe(isPrivate);
-  });
-});
 
 function server(
   transport: LocalMcpServerDescriptor["transport"],

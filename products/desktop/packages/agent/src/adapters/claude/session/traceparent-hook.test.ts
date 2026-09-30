@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildTraceparentHookSettingsJson,
+  buildTraceparentHookSettings,
   traceIdFromHookStderr,
 } from "./traceparent-hook";
 
@@ -59,7 +59,9 @@ describe("traceparent hook", () => {
   });
 
   it("declares a command hook that writes to stderr, never to model context", () => {
-    const settings = JSON.parse(buildTraceparentHookSettingsJson(NONCE));
+    const settings = JSON.parse(
+      JSON.stringify(buildTraceparentHookSettings(NONCE)),
+    );
     const hook = settings.hooks.UserPromptSubmit[0].hooks[0];
     expect(hook.type).toBe("command");
     expect(hook.command).toContain("$TRACEPARENT");

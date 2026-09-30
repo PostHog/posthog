@@ -928,6 +928,44 @@ describe("buildSessionOptions", () => {
         }
       }
     });
+
+    it.each([
+      { cloudMode: true, rejected: ["posthog-local", "lan"] },
+      { cloudMode: false, rejected: undefined },
+    ])(
+      "rejects private-network .mcp.json servers when cloudMode=$cloudMode",
+      ({ cloudMode, rejected }) => {
+        const params = makeParams();
+        fs.mkdirSync(params.cwd, { recursive: true });
+        fs.writeFileSync(
+          path.join(params.cwd, ".mcp.json"),
+          JSON.stringify({
+            mcpServers: {
+              "posthog-local": {
+                type: "http",
+                url: "http://localhost:8787/mcp",
+              },
+              lan: { type: "sse", url: "http://192.168.1.10/sse" },
+              remote: { type: "http", url: "https://mcp.example.com/mcp" },
+              script: { command: "uv", args: ["run", "server.py"] },
+            },
+          }),
+        );
+        try {
+          const options = buildSessionOptions({
+            ...params,
+            gatewayEnv,
+            cloudMode,
+          });
+
+          const settings = JSON.parse(String(options.extraArgs?.settings));
+          expect(settings.disabledMcpjsonServers).toEqual(rejected);
+          expect(settings.hooks.UserPromptSubmit).toHaveLength(1);
+        } finally {
+          fs.rmSync(params.cwd, { recursive: true, force: true });
+        }
+      },
+    );
   });
 });
 

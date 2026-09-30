@@ -5,8 +5,7 @@
  * endpoint), carrier-grade NAT (100.64/10, which also covers Tailscale IPs),
  * or the benchmarking range (198.18/15). Shared by every private/public host
  * classifier in this monorepo so the range table can't drift between them —
- * see `@posthog/core`'s `isPrivateHostname` and the web-fetch tool's
- * `isBlockedHost`.
+ * see `isPrivateHostname` and the web-fetch tool's `isBlockedHost`.
  */
 export function isPrivateIpv4Octets(a: number, b: number): boolean {
   if (a === 0 || a === 10 || a === 127) return true;
@@ -47,7 +46,7 @@ function ipv4MappedOctets(
  * Whether a bracket-free, lowercased IPv6 literal is non-public: loopback
  * (`::1`), unspecified (`::`/`::0`), link-local (fe80::/10), unique-local
  * (fc00::/7), or an IPv4-mapped address whose embedded IPv4 is private. Shared
- * by `@posthog/core`'s `isPrivateHostname` and the web-fetch tool's
+ * by `isPrivateHostname` and the web-fetch tool's
  * `isBlockedHost` so the IPv6-literal kernel can't drift between them; each
  * still layers its own non-literal rules (bare intranet names, `.local`
  * suffixes) on top.
@@ -59,4 +58,46 @@ export function isPrivateIpv6Literal(host: string): boolean {
   if (/^f[cd]/.test(host)) return true; // unique-local fc00::/7
   const octets = ipv4MappedOctets(host);
   return octets ? isPrivateIpv4Octets(octets[0], octets[1]) : false;
+}
+
+function parseIpv4(host: string): [number, number, number, number] | null {
+  const match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!match) return null;
+  const octets = match.slice(1).map(Number);
+  if (octets.some((octet) => octet > 255)) return null;
+  return octets as [number, number, number, number];
+}
+
+const PRIVATE_HOST_SUFFIXES = [
+  ".local",
+  ".localhost",
+  ".internal",
+  ".lan",
+  ".home",
+  ".home.arpa",
+  ".ts.net", // Tailscale MagicDNS
+];
+
+/**
+ * Heuristic: is this hostname only reachable from the user's own machine or
+ * network? Errs toward private — a public server misclassified as private
+ * just stays desktop-only, while the reverse would ship an unreachable server
+ * to the sandbox.
+ */
+export function isPrivateHostname(hostname: string): boolean {
+  let host = hostname.toLowerCase().replace(/\.$/, "");
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+  if (host === "" || host === "localhost") return true;
+
+  // IPv6 literal: the shared kernel covers loopback/unspecified, link-local,
+  // unique-local, and IPv4-mapped (incl. the hex-group form URL normalizes to).
+  if (host.includes(":")) return isPrivateIpv6Literal(host);
+
+  const octets = parseIpv4(host);
+  if (octets) return isPrivateIpv4Octets(octets[0], octets[1]);
+
+  // Bare intranet names ("nas", "router") only resolve on the local network.
+  if (!host.includes(".")) return true;
+
+  return PRIVATE_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }

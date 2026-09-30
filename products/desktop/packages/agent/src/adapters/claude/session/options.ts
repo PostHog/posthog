@@ -52,11 +52,14 @@ import {
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
 import type { RunBudgetGuard } from "./budget-guard";
-import { loadUserClaudeJsonMcpServers } from "./mcp-config";
+import {
+  loadPrivateNetworkMcpjsonServerNames,
+  loadUserClaudeJsonMcpServers,
+} from "./mcp-config";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
 import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
-import { buildTraceparentHookSettingsJson } from "./traceparent-hook";
+import { buildTraceparentHookSettings } from "./traceparent-hook";
 
 export interface ProcessSpawnedInfo {
   pid: number;
@@ -619,13 +622,30 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
   // option or a raw `extraArgs` flag — both reach the same CLI flag, and the
   // SDK silently drops the extraArgs one on collision) rather than clobbering
   // it. The hook command is POSIX shell, so Windows Desktop hosts skip it.
+  const canSetFlagSettings =
+    params.userProvidedOptions?.settings === undefined &&
+    params.userProvidedOptions?.extraArgs?.settings === undefined;
   const traceparentHookSettings =
     params.gatewayEnv?.anthropicBaseUrl &&
     params.traceparentHookNonce &&
     process.platform !== "win32" &&
-    params.userProvidedOptions?.settings === undefined &&
-    params.userProvidedOptions?.extraArgs?.settings === undefined
-      ? buildTraceparentHookSettingsJson(params.traceparentHookNonce)
+    canSetFlagSettings
+      ? buildTraceparentHookSettings(params.traceparentHookNonce)
+      : undefined;
+  // Cloud runs check out repos whose .mcp.json can point at the developer's
+  // own machine. Reject those servers so the CLI does not try to connect.
+  const unreachableMcpjsonServers =
+    params.cloudMode && canSetFlagSettings
+      ? loadPrivateNetworkMcpjsonServerNames(params.cwd, params.logger)
+      : [];
+  const flagSettings: Settings | undefined =
+    traceparentHookSettings || unreachableMcpjsonServers.length > 0
+      ? {
+          ...traceparentHookSettings,
+          ...(unreachableMcpjsonServers.length > 0 && {
+            disabledMcpjsonServers: unreachableMcpjsonServers,
+          }),
+        }
       : undefined;
 
   // Resolve which built-in tools to expose.
@@ -664,7 +684,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     extraArgs: {
       ...params.userProvidedOptions?.extraArgs,
       "replay-user-messages": "",
-      ...(traceparentHookSettings && { settings: traceparentHookSettings }),
+      ...(flagSettings && { settings: JSON.stringify(flagSettings) }),
     },
     // Surfaces the traceparent hook's output as `hook_response` messages.
     includeHookEvents:
