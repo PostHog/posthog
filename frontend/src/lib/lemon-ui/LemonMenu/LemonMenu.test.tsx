@@ -161,6 +161,24 @@ describe('LemonMenu', () => {
         expect(trigger).toHaveFocus()
     })
 
+    it('navigates to items added after the menu opens', async () => {
+        const { rerender } = render(
+            <LemonMenu items={[{ label: 'First' }]}>
+                <LemonButton>Open</LemonButton>
+            </LemonMenu>
+        )
+
+        await userEvent.click(screen.getByText('Open'))
+        await screen.findByText('First')
+        rerender(
+            <LemonMenu items={[{ label: 'First' }, { label: 'Second' }]}>
+                <LemonButton>Open</LemonButton>
+            </LemonMenu>
+        )
+        await userEvent.keyboard('{ArrowDown}{ArrowDown}')
+        expect(screen.getByText('Second').closest('button')).toHaveFocus()
+    })
+
     it('navigates portal items inside a shadow root', async () => {
         const host = document.createElement('div')
         document.body.appendChild(host)

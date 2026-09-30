@@ -11,6 +11,10 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
 } {
     const referenceRef = useRef<R>(null)
     const itemsRef = useRef(Array.from({ length: itemCount }, () => createRef<I>()))
+    // A menu can gain items after its first render, for example when its data loads.
+    while (itemsRef.current.length < itemCount) {
+        itemsRef.current.push(createRef<I>())
+    }
 
     function focus(itemIndex: number): void {
         if (itemIndex > -1) {
