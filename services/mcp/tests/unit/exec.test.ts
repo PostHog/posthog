@@ -16,7 +16,6 @@ import {
     createExecTool,
     describeApiValidationError,
     describeExecCommand,
-    describeInputKeys,
     describeInputShape,
     describeValidationError,
     type ExecCommandMeta,
@@ -2062,10 +2061,13 @@ describe('exec tool', () => {
         })
     })
 
-    describe('describeInputKeys', () => {
+    describe('describeInputShape', () => {
+        const inputKeys = (input: unknown, schema?: z.ZodType): unknown =>
+            describeInputShape(input, schema).$mcp_input_keys
+
         it('lists the top-level keys sorted, without values', () => {
             const schema = z.object({ zeta: z.string(), alpha: z.number(), mid: z.object({ nested: z.string() }) })
-            const keys = describeInputKeys({ zeta: 'secret-value', alpha: 1, mid: { nested: 'also-secret' } }, schema)
+            const keys = inputKeys({ zeta: 'secret-value', alpha: 1, mid: { nested: 'also-secret' } }, schema)
 
             expect(keys).toEqual(['alpha', 'mid', 'zeta'])
             expect(JSON.stringify(keys)).not.toContain('secret')
@@ -2074,36 +2076,35 @@ describe('exec tool', () => {
         it('caps the count at 20 and masks a key longer than 64 characters', () => {
             const wide = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${String(i).padStart(2, '0')}`, i]))
             const schema = z.object(Object.fromEntries(Object.keys(wide).map((key) => [key, z.number()])))
-            expect(describeInputKeys(wide, schema)).toHaveLength(20)
+            expect(inputKeys(wide, schema)).toHaveLength(20)
 
             // A 100-character key is not a parameter spelling; it is recorded as masked, not truncated.
             const long = 'x'.repeat(100)
-            expect(describeInputKeys({ [long]: 1 })).toEqual(['[redacted]'])
+            expect(inputKeys({ [long]: 1 })).toEqual(['[redacted]'])
         })
 
         // `params.arguments` is an unvalidated cast until the schema runs; a string or
         // array there is not an argument object, and walking one builds an entry per
         // character or element.
         it('records nothing for input that is not a plain object', () => {
-            expect(describeInputKeys('a'.repeat(1000))).toEqual([])
-            expect(describeInputKeys(['a', 'b'])).toEqual([])
-            expect(describeInputKeys(null)).toEqual([])
+            expect(inputKeys('a'.repeat(1000))).toBeUndefined()
+            expect(inputKeys(['a', 'b'])).toBeUndefined()
+            expect(inputKeys(null)).toBeUndefined()
         })
 
         it('drops SDK-injected keys and masks a key that is not identifier-shaped', () => {
             expect(
-                describeInputKeys(
-                    { context: {}, llm_model: 'x', conversation_id: 'c', id: 1 },
-                    z.object({ id: z.number() })
-                )
+                inputKeys({ context: {}, llm_model: 'x', conversation_id: 'c', id: 1 }, z.object({ id: z.number() }))
             ).toEqual(['id'])
-            expect(
-                describeInputKeys({ context: {}, id: 1 }, z.object({ context: z.string(), id: z.number() }))
-            ).toEqual(['context', 'id'])
+            expect(inputKeys({ context: {}, id: 1 }, z.object({ context: z.string(), id: z.number() }))).toEqual([
+                'context',
+                'id',
+            ])
             // Free text in a key name is caller text; the property records names only.
-            expect(
-                describeInputKeys({ 'drop table users; --': 1, ok_key: 2 }, z.object({ ok_key: z.number() }))
-            ).toEqual(['ok_key', '[redacted]'])
+            expect(inputKeys({ 'drop table users; --': 1, ok_key: 2 }, z.object({ ok_key: z.number() }))).toEqual([
+                'ok_key',
+                '[redacted]',
+            ])
         })
 
         it('records declared names before misspelled ones when the limit is reached', () => {
@@ -2114,11 +2115,11 @@ describe('exec tool', () => {
                 (value) => value,
                 z.object(Object.fromEntries(Object.keys(declared).map((key) => [key, z.number()])))
             )
-            const keys = describeInputKeys({ aaa_misspelled: 1, ...declared }, schema)
+            const keys = inputKeys({ aaa_misspelled: 1, ...declared }, schema)
             expect(keys).toEqual(Object.keys(declared))
         })
 
-        describe('describeInputShape', () => {
+        describe('aliases', () => {
             const schema = z.preprocess(
                 normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
                 z.preprocess(normalizeParamAliases({ key: ['flagKey'] }), z.object({ id: z.number(), key: z.string() }))

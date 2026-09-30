@@ -1,6 +1,7 @@
-import { getToolInputProperties } from '@posthog/mcp-analytics'
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
+
+import { getToolInputProperties } from '@posthog/mcp-analytics'
 
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
@@ -20,7 +21,6 @@ import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
-
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
@@ -1514,22 +1514,14 @@ export function describeValidationError(error: z.ZodError, schema: z.ZodType): {
  * values. The alias map comes from the schema's own `normalizeParamAliases` layers, so
  * alias names count as declared and each alias the normaliser relied on is recorded as
  * `alias:canonical`. The SDK owns the limits (20 names, 64 characters), declared-names-first
- * ordering, the single `[redacted]` marker, and dropping its injected `context`, `llm_model`,
- * and `conversation_id` unless the schema declares them.
+ * ordering, and dropping its injected `context`, `llm_model`, and `conversation_id` unless the
+ * schema declares them. Undeclared names become one `[redacted]` marker because caller-controlled
+ * names can contain credentials or personal data.
  */
 export function describeInputShape(input: unknown, schema?: z.ZodType): Record<string, unknown> {
     return getToolInputProperties(input, schema, {
         inputAliases: schema ? readParamAliases(schema) : undefined,
     })
-}
-
-/**
- * The `$mcp_input_keys` part of `describeInputShape`. Shared by the validation descriptors
- * and the per-call property so both record the same shape of the same request.
- */
-export function describeInputKeys(input: unknown, schema?: z.ZodType): string[] {
-    const keys = describeInputShape(input, schema).$mcp_input_keys
-    return Array.isArray(keys) ? (keys as string[]) : []
 }
 
 /** Whether the tool's input schema declares an `output_format` field. Unwraps

@@ -558,9 +558,9 @@ export class ToolExecutor {
         // arguments; the schema comes from this connection's catalog when the
         // target resolved to a tool in it.
         const execInputShape = execInputShapeAnalyticsProperties(toolArgs, execShape, state)
-        const wrapperInputShape = inputShapeAnalyticsProperties(toolArgs, resolved.schema)
         const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
+            const wrapperInputShape = inputShapeAnalyticsProperties(toolArgs, resolved.schema)
             toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
             const message = formatInputValidationError(resolved.name, validation.error)
             const rejection = new ToolInputValidationError(
@@ -1096,8 +1096,8 @@ function recordedTargetTool(execShape: Record<string, unknown>): string | undefi
  * The exec-mode counterpart of `inputShapeAnalyticsProperties`: the inner arguments
  * live as JSON inside `command`, so they are parsed with the dispatcher's own parser.
  * Verbs other than `call` carry no arguments and get no keys. The schema is looked up
- * only among the tools this connection can see; a gated or retired target records
- * its keys but no aliases.
+ * only among the tools this connection can see. A gated or retired target has no schema,
+ * so its keys become one `[redacted]` marker and its aliases stay absent.
  */
 function execInputShapeAnalyticsProperties(
     execArgs: unknown,
