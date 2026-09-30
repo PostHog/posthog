@@ -259,7 +259,7 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
                 WHERE name = '{_GITHUB_RELAY_JOB}'
                     AND created_at >= (SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})
                 GROUP BY run_id
-                HAVING argMax(conclusion, tuple(run_attempt, id)) = 'success'
+                HAVING argMax(ifNull(conclusion, ''), tuple(run_attempt, id)) = 'success'
             )
     """
 

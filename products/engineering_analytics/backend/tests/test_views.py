@@ -265,6 +265,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     (904, "abc123", 101992, "success"),
                     (905, "abc123", 101991, "failure"),
                     (906, "abc123", 101991, "failure"),
+                    (907, "abc123", 101991, "success"),
                 )
             ],
         )
@@ -283,6 +284,10 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 _job_row(9061, 906, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
                 _job_row(9062, 906, "Django Tests Pass", "success", head_sha="abc123"),
                 _job_row(9063, 906, "Django Tests Pass", "failure", head_sha="abc123", run_attempt=2),
+                _job_row(9071, 907, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9072, 907, "Django Tests Pass", "success", head_sha="abc123"),
+                _job_row(9073, 907, "Django Tests Pass", "", head_sha="abc123", run_attempt=2)
+                | {"status": "in_progress", "conclusion": None},
             ],
         )
 
@@ -444,6 +449,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (904, "Backend CI", "success", 101992, "main", 900, "PostHog", 1),
             (905, "Backend CI", "failure", 101991, "main", 900, "PostHog", 1),
             (906, "Backend CI", "failure", 101991, "main", 900, "PostHog", 2),
+            (907, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
             (80213453736890, "Backend CI on Depot", "success", 101991, "feature/depot", 600, "PostHog", 2),
             (101808620689656, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 1),
             (223978965517241, "Monitor", "success", 0, None, 600, "PostHog", 1),
@@ -457,6 +463,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (904,),
             (905,),
             (906,),
+            (907,),
             (80213453736890,),
             (101808620689656,),
             (223978965517241,),
