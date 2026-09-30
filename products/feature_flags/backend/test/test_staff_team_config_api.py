@@ -14,8 +14,10 @@ from products.feature_flags.backend.api.staff_team_config import (
     StaffTeamConfigMutationSerializer,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.team_feature_flags_config import (
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
+    FlagEvaluationsMode,
     PropertyMatchingVersion,
     TeamFeatureFlagsConfig,
 )
@@ -58,6 +60,9 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         )
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-1", filters={"groups": []})
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-2", filters={"groups": []})
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
 
         missing_id = other_team.id + 9999
         response = self.client.get(_list_url([self.team.id, other_team.id, missing_id]))
@@ -69,6 +74,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 row["property_matching_version"],
                 row["max_feature_flags_override"],
                 row["effective_max_feature_flags"],
+                row["flag_evaluations_mode"],
                 row["feature_flag_count"],
             )
             for row in response.json()["results"]
@@ -80,15 +86,16 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(
             results,
             {
-                self.team.id: (False, 1, None, 2000, 0),
-                other_team.id: (True, 2, 5000, 5000, 2),
+                self.team.id: (False, 1, None, 2000, 1, 0),
+                other_team.id: (True, 2, 5000, 5000, 1, 2),
             },
         )
 
     def test_list_defaults_to_false_when_config_row_is_missing(self):
-        # Models a legacy team that predates this extension (no auto-created row). list() must
-        # fall back to defaults rather than 500ing on the missing row.
+        # Models a legacy team and organization that predate these extensions (no auto-created rows).
+        # list() must fall back to defaults rather than 500ing on the missing rows.
         TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).delete()
 
         response = self.client.get(_list_url([self.team.id]))
 
@@ -102,6 +109,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                     "property_matching_version": 1,
                     "max_feature_flags_override": None,
                     "effective_max_feature_flags": 2000,
+                    "flag_evaluations_mode": 0,
                     "feature_flag_count": 0,
                 }
             ],
@@ -120,6 +128,10 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
 
     @parameterized.expand([(True,), (False,)])
     def test_set_updates_db_value_and_enqueues_cache_refresh_tasks(self, new_value):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
+
         with (
             patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_metadata_task,
             patch("products.feature_flags.backend.tasks.update_team_flags_cache") as mock_flags_task,
@@ -137,6 +149,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 "property_matching_version": 1,
                 "max_feature_flags_override": None,
                 "effective_max_feature_flags": 2000,
+                "flag_evaluations_mode": 1,
                 "feature_flag_count": 0,
             },
         )
