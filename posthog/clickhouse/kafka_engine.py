@@ -55,7 +55,6 @@ CONSUMER_GROUP_SESSION_REPLAY_EVENTS_WS = "clickhouse_session_replay_events_ws"
 CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS = "clickhouse_session_replay_features_ws"
 # The ws2 suffix keeps this group distinct from the retired hand-managed pipeline.
 CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS = "clickhouse_raw_sessions_v3_events_json_ws2"
-CONSUMER_GROUP_COHORT_MEMBERSHIP_WS = "clickhouse_cohort_membership_ws"
 
 # WarpStream-shared consumer groups (topics moved to warpstream-shared VC; coexist with MSK
 # groups during the cut-over so both Kafka tables can run in parallel until the MSK side is
