@@ -327,10 +327,29 @@ pub fn build_client(config: &Config) -> Result<ClickHouseClient, ClickHouseClien
             config.seeder_ch_max_bytes_in_set.to_string(),
         )
         .with_option("join_algorithm", join_algorithm.as_str());
+    let client = optional_settings(config)
+        .into_iter()
+        .fold(client, |client, (name, value)| {
+            client.with_option(name, value.to_string())
+        });
     Ok(ClickHouseClient::new(
         client,
         ClickHouseCredential::from_config(config),
     ))
+}
+
+fn optional_settings(config: &Config) -> Vec<(&'static str, u64)> {
+    [
+        ("max_threads", config.seeder_ch_max_threads),
+        ("max_memory_usage", config.seeder_ch_max_memory_usage),
+        (
+            "distributed_replica_max_ignored_errors",
+            config.seeder_ch_distributed_replica_max_ignored_errors,
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(name, value)| value.map(|value| (name, value)))
+    .collect()
 }
 
 #[cfg(test)]
@@ -432,6 +451,33 @@ LaIcbwSaQpbb1SSltcQ0krF2y351IH79a2fmV57qw3VZ5u17KbO4
                 algorithm
             );
         }
+    }
+
+    #[test]
+    fn profile_constrained_settings_are_sent_only_when_configured() {
+        assert_eq!(optional_settings(&default_config()), Vec::new());
+
+        // Parsed from env names, so a renamed field fails here.
+        let config = Config::init_from_hashmap(&HashMap::from([
+            ("SEEDER_CH_MAX_THREADS".to_string(), "4".to_string()),
+            (
+                "SEEDER_CH_MAX_MEMORY_USAGE".to_string(),
+                "8589934592".to_string(),
+            ),
+            (
+                "SEEDER_CH_DISTRIBUTED_REPLICA_MAX_IGNORED_ERRORS".to_string(),
+                "1000".to_string(),
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(
+            optional_settings(&config),
+            vec![
+                ("max_threads", 4),
+                ("max_memory_usage", 8_589_934_592),
+                ("distributed_replica_max_ignored_errors", 1000),
+            ]
+        );
     }
 
     #[test]

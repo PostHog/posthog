@@ -14,13 +14,16 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::clickhouse::scanner::ChunkScanner;
+use crate::clickhouse::ResourceError;
 use crate::domain::{
     ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, ProducedChunk,
     RetryBackoffPolicy, ScannedChunk, StreamedChunk,
 };
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
-use crate::observability::metrics::{CHUNKS_CONFIRMED, CHUNKS_FAILED, TILES_PRODUCED};
+use crate::observability::metrics::{
+    CHUNKS_CONFIRMED, CHUNKS_FAILED, CLICKHOUSE_RESOURCE_ERRORS, TILES_PRODUCED,
+};
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::lease::LeaseHandle;
 use crate::store::runs::RunKind;
@@ -193,7 +196,7 @@ impl FailureDisposition {
 /// The retry wait is drawn from the chunk's own attempt count, so a chunk failing repeatedly waits
 /// longer each time while a first failure retries almost immediately. An unclaim draws none: it
 /// refunds the attempt and is not a failure.
-pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
+pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error + 'static>(
     store: &PgChunkStore,
     halt: Halted<S, E>,
     shutdown: &CancellationToken,
@@ -202,12 +205,17 @@ pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
     let spec = halt.state.spec();
     let lease = spec.lease;
     let detail = render_reason(&halt.reason);
+    let resource = match &halt.reason {
+        HaltReason::Failed(error) => ResourceError::classify(error),
+        HaltReason::Cancelled(_) => None,
+    };
     match FailureDisposition::resolve(S::STAGE, shutdown.is_cancelled()) {
         FailureDisposition::Unclaim => match store.unclaim(lease).await {
             Ok(()) => ChunkOutcome::Unclaimed { lease },
             Err(recovery) => ChunkOutcome::RecoveryFailed {
                 lease,
                 detail: detail.as_str().to_string(),
+                resource,
                 recovery,
             },
         },
@@ -217,11 +225,13 @@ pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
                 Ok(()) => ChunkOutcome::Failed {
                     lease,
                     detail: detail.as_str().to_string(),
+                    resource,
                     retry_delay,
                 },
                 Err(recovery) => ChunkOutcome::RecoveryFailed {
                     lease,
                     detail: detail.as_str().to_string(),
+                    resource,
                     recovery,
                 },
             }
@@ -265,20 +275,34 @@ pub(super) enum ChunkOutcome {
     Failed {
         lease: ChunkLease,
         detail: String,
+        resource: Option<ResourceError>,
         retry_delay: Duration,
     },
     Unclaimed {
         lease: ChunkLease,
     },
+    /// The failure still counts toward the breaker like `Failed`.
     RecoveryFailed {
         lease: ChunkLease,
         detail: String,
+        resource: Option<ResourceError>,
         recovery: ChunkStoreError,
     },
 }
 
+impl ChunkOutcome {
+    pub(super) fn run_id(&self) -> crate::domain::RunId {
+        match self {
+            Self::Confirmed { lease, .. }
+            | Self::Failed { lease, .. }
+            | Self::Unclaimed { lease }
+            | Self::RecoveryFailed { lease, .. } => lease.run_id(),
+        }
+    }
+}
+
 pub(super) fn record_task_result(
-    result: Result<ChunkOutcome, tokio::task::JoinError>,
+    result: &Result<ChunkOutcome, tokio::task::JoinError>,
     kind: RunKind,
 ) {
     match result {
@@ -304,12 +328,15 @@ pub(super) fn record_task_result(
         Ok(ChunkOutcome::Failed {
             lease,
             detail,
+            resource,
             retry_delay,
         }) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
+            record_resource_error(kind, *resource);
             warn!(
                 ?lease,
                 error = %detail,
+                clickhouse_resource_code = resource.map(ResourceError::as_str),
                 retry_delay_secs = retry_delay.as_secs_f64(),
                 "chunk failed and was released for retry"
             );
@@ -320,15 +347,28 @@ pub(super) fn record_task_result(
         Ok(ChunkOutcome::RecoveryFailed {
             lease,
             detail,
+            resource,
             recovery,
         }) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
+            record_resource_error(kind, *resource);
             warn!(?lease, error = %detail, recovery_error = %recovery, "chunk recovery update did not apply");
         }
         Err(error) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
             warn!(error = %error, "chunk task failed unexpectedly");
         }
+    }
+}
+
+fn record_resource_error(kind: RunKind, resource: Option<ResourceError>) {
+    if let Some(resource) = resource {
+        counter!(
+            CLICKHOUSE_RESOURCE_ERRORS,
+            "kind" => kind.as_str(),
+            "code" => resource.as_str(),
+        )
+        .increment(1);
     }
 }
 

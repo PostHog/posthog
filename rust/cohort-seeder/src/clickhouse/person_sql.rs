@@ -1,21 +1,27 @@
 //! ClickHouse person-scan SQL: the byte-frozen renderers for the boundary and range scans over the
 //! `person` table. Depends on `domain`; never on `store`.
 //!
-//! Both queries read the ReplacingMergeTree's latest row per person (`GROUP BY p.id` + `argMax(…,
-//! version)`) with `team_id` equality-fixed. Range predicates are defined in ClickHouse's UUID
-//! order. Every column reference is table-qualified because the output alias is itself named `id`:
-//! ClickHouse binds a bare `id` in `WHERE`, `GROUP BY`, or `ORDER BY` to that alias rather than to
-//! the column, so an unqualified `id >= toUUID(…)` compares `String` against `UUID` (no supertype,
-//! so the query cannot execute) and an unqualified `ORDER BY id` streams boundaries in text order
-//! while the range predicates read them back in UUID order. The horizon appears twice on purpose:
-//! the `p.id IN (…)` prefilter keeps the `_timestamp` minmax skip index usable (a bare `HAVING`
-//! would decompress every historical version of every person), while the `HAVING` clause states the
-//! update-recency semantics against the group — `argMax` still sees all versions of the surviving
-//! ids. That prefilter is the one unbounded structure here: the boundary query's set spans a whole
-//! team, so the client caps it with `max_bytes_in_set`. `optimize_aggregation_in_order = 1` keeps
-//! the streaming aggregation bounded; the client's external-group-by spill guard backstops a silent
-//! optimizer fallback. Only the boundary query orders its output — the range scan's fold is
-//! order-independent, and an unneeded `ORDER BY` would materialize the whole chunk result.
+//! Both queries group by person with `team_id` equality-fixed, and range predicates are defined in
+//! ClickHouse's UUID order. Every column reference is table-qualified because the output alias is
+//! itself named `id`: ClickHouse binds a bare `id` in `WHERE`, `GROUP BY`, or `ORDER BY` to that
+//! alias rather than to the column, so an unqualified `id >= toUUID(…)` compares `String` against
+//! `UUID` (no supertype, so the query cannot execute) and an unqualified `ORDER BY id` streams
+//! boundaries in text order while the range predicates read them back in UUID order.
+//! `optimize_aggregation_in_order = 1` keeps both aggregations streaming; the client's
+//! external-group-by spill guard backstops a silent optimizer fallback.
+//!
+//! The range scan reads the ReplacingMergeTree's latest row per person (`argMax(…, version)`). Its
+//! horizon appears twice on purpose: the `p.id IN (…)` prefilter keeps the `_timestamp` minmax skip
+//! index usable (a bare `HAVING` would decompress every historical version of every person), while
+//! the `HAVING` clause states the update-recency semantics against the group, so `argMax` still sees
+//! all versions of the surviving ids. The prefilter's set holds one chunk's range of ids, and the
+//! client caps it with `max_bytes_in_set`.
+//!
+//! The boundary query only sizes the chunks, since the ranges tile the whole UUID space and each
+//! range scan applies the exact predicate. So it filters versions by `_timestamp` without collapsing
+//! them, counting deleted persons toward the stride, and builds no whole-team id set. Only the
+//! boundary query orders its output; the range scan's fold is order-independent, and an unneeded
+//! `ORDER BY` would materialize the whole chunk result.
 //!
 //! The range scan may also carry a key-presence filter, which drops a person whose latest blob is a
 //! JSON object holding none of the keys the run's conditions read — a person the fold would prune
@@ -112,7 +118,7 @@ impl PersonScanSpec {
 
 pub fn person_boundaries_sql(team_id: TeamId, scan_since: UtcMillis) -> String {
     format!(
-        "SELECT toString(p.id) AS id\nFROM person AS p\nWHERE p.team_id = {team} AND p.id IN (\n    SELECT recent.id FROM person AS recent\n    WHERE recent.team_id = {team} AND recent._timestamp >= fromUnixTimestamp64Milli({since})\n)\nGROUP BY p.id\nHAVING argMax(p.is_deleted, p.version) = 0 AND max(p._timestamp) >= fromUnixTimestamp64Milli({since})\nORDER BY p.id\nSETTINGS optimize_aggregation_in_order = 1",
+        "SELECT toString(p.id) AS id\nFROM person AS p\nWHERE p.team_id = {team} AND p._timestamp >= fromUnixTimestamp64Milli({since})\nGROUP BY p.id\nORDER BY p.id\nSETTINGS optimize_aggregation_in_order = 1",
         team = team_id.0,
         since = scan_since.as_i64(),
     )
@@ -194,11 +200,12 @@ mod tests {
             .expect("the test key sets are non-empty")
     }
 
+    /// The boundary query spans a whole team, so it must not build an `IN (SELECT …)` set.
     #[test]
     fn boundaries_sql_is_byte_frozen() {
         assert_eq!(
             person_boundaries_sql(TeamId(2), SINCE),
-            "SELECT toString(p.id) AS id\nFROM person AS p\nWHERE p.team_id = 2 AND p.id IN (\n    SELECT recent.id FROM person AS recent\n    WHERE recent.team_id = 2 AND recent._timestamp >= fromUnixTimestamp64Milli(1780000000000)\n)\nGROUP BY p.id\nHAVING argMax(p.is_deleted, p.version) = 0 AND max(p._timestamp) >= fromUnixTimestamp64Milli(1780000000000)\nORDER BY p.id\nSETTINGS optimize_aggregation_in_order = 1"
+            "SELECT toString(p.id) AS id\nFROM person AS p\nWHERE p.team_id = 2 AND p._timestamp >= fromUnixTimestamp64Milli(1780000000000)\nGROUP BY p.id\nORDER BY p.id\nSETTINGS optimize_aggregation_in_order = 1"
         );
     }
 

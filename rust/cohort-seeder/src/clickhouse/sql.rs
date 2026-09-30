@@ -1,14 +1,24 @@
 //! ClickHouse scan planning: the `Vacuous`-vs-`Scan` parse and the byte-frozen SQL renderer. Depends
 //! on `domain` (the proven range/band/event-name inputs) and `cohort-core`; never on `store`.
 
+use std::collections::BTreeSet;
 use std::num::NonZeroU32;
 
 use cohort_core::filters::TeamId;
+use cohort_core::hogvm::analysis::PropertyAlternatives;
 
+use super::materialized::MaterializedColumns;
 use crate::domain::{
     BandSpec, BlobSource, ChunkProjection, ColumnPlan, EventNameSet, ProjectedKeys, ScalarColumn,
-    SeedDomain,
+    ScanRowFilter, SeedDomain,
 };
+
+/// The crate sends a longer query by POST with `readonly=1`, which the `cohort_seeder` profile's
+/// `readonly=2` refuses because the seeder sends settings with every query.
+const MAX_GET_QUERY_BYTES: usize = 8192;
+
+/// Appended by the crate's `fetch` before it measures the query.
+const FETCH_FORMAT_CLAUSE: &str = " FORMAT RowBinary";
 
 /// The rendered scan's inputs, proven complete: constructed only by [`plan_scan`] from already-proven
 /// types, so [`scan_sql`] never re-validates. Fields stay private — the SQL text is the only output.
@@ -21,6 +31,22 @@ pub struct ScanSpec {
     event_names: Vec<String>,
     band: u32,
     num_bands: NonZeroU32,
+    row_filter: Option<String>,
+}
+
+impl ScanSpec {
+    /// On the spec rather than the projection, so both shadow-compare arms read the same rows.
+    pub fn with_row_filter(self, row_filter: String) -> Self {
+        Self {
+            row_filter: Some(row_filter),
+            ..self
+        }
+    }
+}
+
+/// Measured before the client collapses `??` to `?`, so the sent query is never longer.
+pub fn fits_client_get(sql: &str) -> bool {
+    sql.len() + FETCH_FORMAT_CLAUSE.len() <= MAX_GET_QUERY_BYTES
 }
 
 /// Whether a chunk has anything to scan. `plan_scan` collapses the empty-domain and empty-event-name
@@ -51,6 +77,7 @@ pub fn plan_scan(
         event_names: event_names.as_slice().to_vec(),
         band: band.band(),
         num_bands: band.num_bands(),
+        row_filter: None,
     })
 }
 
@@ -74,6 +101,11 @@ pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
         .map(|name| clickhouse_string_literal(name))
         .collect::<Vec<_>>()
         .join(", ");
+    let row_filter = spec
+        .row_filter
+        .as_ref()
+        .map(|row_filter| format!("\n  AND {row_filter}"))
+        .unwrap_or_default();
     let band_predicate = if spec.num_bands.get() > 1 {
         format!(
             "\n  AND cityHash64(toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)))\n      % {} = {}",
@@ -84,7 +116,7 @@ pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
     };
 
     format!(
-        "SELECT {}\nFROM events AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = {}\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE e.team_id = {}\n  AND e.timestamp >= fromUnixTimestamp64Milli({})\n  AND e.timestamp < fromUnixTimestamp64Milli({})\n  AND e.event IN ({})\n  AND coalesce(e.inserted_at, e._timestamp) < fromUnixTimestamp64Milli({}){}",
+        "SELECT {}\nFROM events AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = {}\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE e.team_id = {}\n  AND e.timestamp >= fromUnixTimestamp64Milli({})\n  AND e.timestamp < fromUnixTimestamp64Milli({})\n  AND e.event IN ({})\n  AND coalesce(e.inserted_at, e._timestamp) < fromUnixTimestamp64Milli({}){}{}",
         select_list,
         spec.team_id.0,
         spec.team_id.0,
@@ -92,8 +124,101 @@ pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
         spec.day_end_ms,
         event_names,
         spec.s_chunk_ms,
+        row_filter,
         band_predicate,
     )
+}
+
+/// Renders a superset of HogVM equality (see [`cohort_core::hogvm::analysis::EventRowFilter`]) over
+/// the value's raw JSON text without its outer quotes. The string `value` reads as itself, or holds a
+/// backslash when JSON escapes one of its characters; a boolean reads as `true` or `false`; an object
+/// starts with `{`. Assumes a blob holds each key once, since ClickHouse reads the first value and
+/// `serde_json` the last.
+pub fn row_filter_sql(filter: &ScanRowFilter, columns: &MaterializedColumns) -> String {
+    let filtered_events = filter
+        .events()
+        .map(|(event, _)| clickhouse_string_literal(event))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut terms = vec![format!("e.event NOT IN ({filtered_events})")];
+    for (event, conditions) in filter.events() {
+        let conditions = conditions
+            .iter()
+            .map(|conjuncts| {
+                join_terms(
+                    conjuncts
+                        .iter()
+                        .map(|alternatives| alternatives_sql(alternatives, columns)),
+                    "AND",
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        terms.push(format!(
+            "(e.event = {} AND {})",
+            clickhouse_string_literal(event),
+            join_terms(conditions.into_iter(), "OR"),
+        ));
+    }
+    format!("({})", terms.join(" OR "))
+}
+
+fn alternatives_sql(alternatives: &PropertyAlternatives, columns: &MaterializedColumns) -> String {
+    join_terms(
+        alternatives
+            .iter()
+            .map(|(key, values)| property_value_sql(key, values, columns)),
+        "OR",
+    )
+}
+
+fn property_value_sql(
+    key: &str,
+    values: &BTreeSet<String>,
+    columns: &MaterializedColumns,
+) -> String {
+    let value = match columns.column_for(key) {
+        Some(column) => format!("e.{}", clickhouse_identifier(column)),
+        None => format!(
+            "replaceRegexpAll(JSONExtractRaw(e.properties, {}), '^\"|\"$', '')",
+            clickhouse_string_literal(key)
+        ),
+    };
+    let literals = values
+        .iter()
+        .map(String::as_str)
+        .chain(["true", "false"])
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(clickhouse_string_literal)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "({value} IN ({literals}) OR position({value}, '\\\\') > 0 OR startsWith({value}, '{{'))"
+    )
+}
+
+fn join_terms(terms: impl Iterator<Item = String>, operator: &str) -> String {
+    let terms = terms.collect::<Vec<_>>();
+    match terms.as_slice() {
+        [single] => single.clone(),
+        _ => format!("({})", terms.join(&format!(" {operator} "))),
+    }
+}
+
+/// Escaped for the server and for the client's template parser, which reads a bare `?` as a bind.
+fn clickhouse_identifier(name: &str) -> String {
+    let mut escaped = String::with_capacity(name.len() + 2);
+    escaped.push('`');
+    for character in name.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '`' => escaped.push_str("\\`"),
+            '?' => escaped.push_str("??"),
+            character => escaped.push(character),
+        }
+    }
+    escaped.push('`');
+    escaped
 }
 
 /// The eight-column select list. `event`, `timestamp`, `distinct_id`, and the override-resolved
@@ -395,6 +520,64 @@ mod tests {
             "{sql}"
         );
         assert!(select_list_of(&sql).ends_with("e.elements_chain"), "{sql}");
+    }
+
+    #[test]
+    fn the_row_filter_passes_other_events_and_reads_materialized_columns() {
+        use crate::domain::row_filter::test_catalog::{catalog, event_and_property, hash, Leaf};
+        use crate::domain::{ActiveConditions, ConditionAnalyses, Lookback, PinnedCondition};
+        use cohort_core::filters::CohortId;
+
+        let leaves = [
+            Leaf {
+                cohort: 1,
+                key: "$feature_flag_called",
+                hash: "aaaaaaaaaaaaaaaa",
+                body: event_and_property("$feature_flag_called", "$feature_flag", "a"),
+            },
+            Leaf {
+                cohort: 2,
+                key: "$pageview",
+                hash: "cccccccccccccccc",
+                body: event_and_property("$pageview", "$current_url", "https://example.com/"),
+            },
+        ];
+        let filters = catalog(&leaves);
+        let conditions = leaves
+            .iter()
+            .map(|leaf| PinnedCondition {
+                cohort_id: CohortId(leaf.cohort),
+                hash: hash(leaf.hash),
+                event_name: leaf.key.to_owned(),
+                lookback: Lookback::SlidingDays(7),
+            })
+            .collect::<Vec<_>>();
+        let event_names =
+            EventNameSet::new(["$feature_flag_called", "$pageview", "purchase"].map(str::to_owned));
+        let row_filter = ConditionAnalyses::build(&conditions, &filters).row_filter(
+            &event_names,
+            &filters,
+            &ActiveConditions::new(leaves.iter().map(|leaf| hash(leaf.hash))),
+        );
+        let columns = MaterializedColumns::from_iter([(
+            "$feature_flag".to_owned(),
+            "mat_$feature_flag".to_owned(),
+        )]);
+        let rendered = row_filter_sql(&row_filter, &columns);
+        assert_eq!(
+            rendered,
+            "(e.event NOT IN ('$feature_flag_called', '$pageview') OR (e.event = '$feature_flag_called' AND (e.`mat_$feature_flag` IN ('a', 'false', 'true') OR position(e.`mat_$feature_flag`, '\\\\') > 0 OR startsWith(e.`mat_$feature_flag`, '{'))) OR (e.event = '$pageview' AND (replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', '') IN ('false', 'https://example.com/', 'true') OR position(replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', ''), '\\\\') > 0 OR startsWith(replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', ''), '{'))))"
+        );
+
+        let banded = spec(event_names.into_vec(), BandSpec::new(1, 2).unwrap());
+        let unfiltered = full_sql(&banded);
+        assert_eq!(
+            full_sql(&banded.with_row_filter(rendered.clone())),
+            unfiltered.replace(
+                "\n  AND cityHash64",
+                &format!("\n  AND {rendered}\n  AND cityHash64")
+            )
+        );
     }
 
     /// The wide arm and the plan that keeps every column render the same text, which is what makes

@@ -116,6 +116,7 @@ WHERE team_id = <team>
   AND timestamp in [start of day, start of next day) in the run's timezone
   AND event IN (<event names of the conditions whose window still covers this day>)
   AND coalesce(inserted_at, _timestamp) < S_chunk
+  [AND <row filter>]
   [AND hash(person) % bands = band]
 ```
 
@@ -124,6 +125,8 @@ WHERE team_id = <team>
 - **Arrival bound.** Only events that reached ClickHouse before `S_chunk` count.
 - **Active conditions.** Conditions whose window has slid past this day by scan time are left out.
   If none remain, the chunk is done without a query.
+- **Row filter.** When every active condition on an event name compares event properties to string values, only rows that can match one of them leave ClickHouse.
+  See [Row filter](#row-filter).
 
 ### Evaluating and producing
 
@@ -176,6 +179,26 @@ A reclaimed chunk is scanned and produced again from scratch.
 The duplicate tiles are absorbed by max-merge.
 A graceful shutdown before a chunk is marked produced returns it to `pending`, even if some of its tiles already reached Kafka.
 
+### Resource breaker
+
+The retry backoff delays one failed chunk, while the run's other pending chunks stay claimable at once.
+So a run whose scans do not fit ClickHouse would refill every freed slot with a new scan that fails the same way, and each of those scans takes memory from the other tenants of the cluster until it fails.
+
+The seeder classifies each chunk failure by the ClickHouse error behind it.
+Codes 241 (memory limit), 159 (timeout), 160 (too slow) and 202 (too many simultaneous queries) are resource errors.
+Per run:
+
+1. After `SEEDER_CH_BREAKER_THRESHOLD` resource failures in a row (default 3), the seeder stops claiming the run's chunks for a cooldown (`SEEDER_CH_BREAKER_COOLDOWN_BASE_SECS`, default 300 s).
+   Chunks already running finish, and their failures do not count again.
+2. After the cooldown, the seeder scans one chunk of the run.
+   A confirmed chunk closes the breaker and resets its count.
+   A resource failure opens it again for twice as long, up to `SEEDER_CH_BREAKER_COOLDOWN_CAP_SECS` (default 1800 s).
+3. The opening that reaches `SEEDER_CH_BREAKER_MAX_TRIPS` (default 4) without a confirmed chunk in between fails the run, with the last error code in its `error`.
+
+Any other failure leaves the breaker as it is.
+The breaker lives in the seeder process, so a restart closes every breaker.
+`seeder_clickhouse_resource_errors_total`, `seeder_run_breaker_trips_total`, `seeder_runs_failed_breaker_total` and `seeder_run_breakers_open` report it.
+
 ## Person-property runs
 
 A person run seeds the person record instead of behavioral leaves.
@@ -186,6 +209,10 @@ It scans persons whose record changed within the run's **horizon**, a pinned num
 Planning a person run needs a scan, so it runs off the poll loop, one at a time per replica, under a cluster-wide advisory lock per run.
 The seeder streams the ids of the team's persons that changed within the horizon, keeps every Nth id as a boundary, and inserts chunks that tile the whole id space.
 The insert is all or nothing.
+
+The boundaries only size the chunks, because the chunks tile the whole id space and each chunk's scan applies the exact person predicate.
+So the boundary scan filters person versions by `_timestamp` and does not collapse them: deleted persons count toward the stride, which only makes some chunks smaller.
+It builds no set of ids, so its memory does not grow with the team.
 
 Person chunks have their own claim slots, so they run alongside behavioral work.
 If a person run has no surviving condition at all while a participation is active, the seeder fails it.
@@ -266,6 +293,8 @@ Then each participation is marked complete, retryable, or superseded, and the ru
   It is on by default in code, adds a full-width query per chunk and roughly doubles scan memory, so it is meant to be turned off once projection is proven.
 - **Scan-time window gate.**
   A chunk whose day has slid out of every active window issues no query.
+- **Row filter.**
+  See [Row filter](#row-filter).
 - **Bands.**
   Splitting a day by person hash bounds one chunk's memory, at the cost of reading the day once per band.
 - **Pacing.**
@@ -309,6 +338,43 @@ p-1 hashes to partition 26.
    The true count is 5, which is the bounded under-count from a late arrival, and p-1 still enters.
 7. **Completion.**
    When the other six chunks confirm, the seeder moves R to `reconciling` and sends 64 reconcile requests for cohort 42.
+
+### Row filter
+
+A behavioral chunk's scan can leave rows in ClickHouse that no active condition can match.
+The accumulator evaluates a row only against the active conditions of the row's event name, and a row no condition matches adds nothing to any tile, so dropping such a row changes no tile.
+
+1. **Recognizing a condition.**
+   A static pass over each condition's bytecode recognizes one exact shape: `event == '<name>'` in an `AND` with equalities of event properties to string literals, alone or in an `OR` of such equalities.
+   This is what the compiler emits for an event filter with the `exact` operator.
+   Any other opcode leaves the condition without a filter.
+   Another comparison in the same `AND`, such as a person property, is allowed and ignored.
+2. **Deriving the chunk's filter.**
+   An event name is filtered only when every active condition on it has a filter whose event is that name.
+   One condition without a filter keeps every row of the event.
+3. **Rendering it.**
+   The filter is one more `WHERE` conjunct: every unfiltered event passes, and a row of a filtered event passes when some condition's property test holds.
+
+HogVM equality coerces across types, so the property test is a superset of it.
+The test reads `replaceRegexpAll(JSONExtractRaw(properties, key), '^"|"$', '')`, the value's raw JSON text without its outer quotes.
+It admits the value itself, `true` and `false` (the VM equates a JSON boolean with a string), text holding a backslash (an escaped string), and text starting with `{` (the VM compares a temporal object by epoch).
+A value that parses as a number is never filtered on, because the VM also equates it with a JSON number.
+Ingestion writes event properties with `JSON.stringify` of a parsed object, so a key appears once and the first-value and last-value readings of ClickHouse and `serde_json` agree.
+`tests/ch_event_row_filter.rs` checks all of this against a live ClickHouse, with the VM as the oracle.
+
+Where possible, the test reads a materialized column instead of the blob.
+Before each filtered chunk, the seeder looks in `system.columns` for a `String` column of `sharded_events` whose default expression is exactly that extraction for the key, and that also exists on `events`.
+Only such a column is used, because a column with another expression, such as a typed `JSONExtract`, reads different values for the same row.
+Without one, the test extracts from the blob: ClickHouse still decompresses the blob for the event's rows, but only the matching rows are transferred and evaluated.
+The filter is dropped when the query would grow past the 8192 bytes the client sends by GET, since the `cohort_seeder` profile refuses the POST form.
+`seeder_scan_row_filter_total{outcome}` reports per chunk whether the filter read materialized columns, read the blob, did not apply, or was dropped for length.
+
+### ClickHouse settings
+
+The client sends `max_execution_time`, the two external-spill byte thresholds, `max_bytes_in_set` and `join_algorithm` with every query.
+It also sends `max_threads` (`SEEDER_CH_MAX_THREADS`), `max_memory_usage` (`SEEDER_CH_MAX_MEMORY_USAGE`) and `distributed_replica_max_ignored_errors` (`SEEDER_CH_DISTRIBUTED_REPLICA_MAX_IGNORED_ERRORS`), but only when set.
+These three have no default because the `cohort_seeder` profile can constrain them, and ClickHouse fails a query that sends a value above a constraint's maximum or a disallowed value.
+Set them only to go below the profile.
 
 ## Things that surprise people
 
