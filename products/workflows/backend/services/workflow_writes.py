@@ -79,6 +79,19 @@ def _parse_client_timestamp(raw: Optional[str]) -> Optional[datetime]:
     return parsed
 
 
+def _staleness_baseline(row: HogFlow, *, stage_as_draft: bool) -> Optional[datetime]:
+    # Draft edits race against other draft edits, not against the live row (which they don't
+    # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
+    if stage_as_draft and row.draft_updated_at:
+        return row.draft_updated_at
+    return row.updated_at
+
+
+def _reject_if_newer(baseline: Optional[datetime], loaded_at: Optional[datetime]) -> None:
+    if loaded_at and baseline and baseline > loaded_at:
+        raise StaleWorkflowWrite()
+
+
 @frozen
 class WorkflowWriter:
     """The save path for workflows: every write that changes a workflow's live content or its staged
@@ -112,11 +125,9 @@ class WorkflowWriter:
             except HogFlow.DoesNotExist:
                 before_update = None
 
-            # Draft edits race against other draft edits, not against the live row (which they don't
-            # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
-            guard_timestamp = before_update.updated_at if before_update else None
-            if options.stage_as_draft and before_update and before_update.draft_updated_at:
-                guard_timestamp = before_update.draft_updated_at
+            guard_timestamp = (
+                _staleness_baseline(before_update, stage_as_draft=options.stage_as_draft) if before_update else None
+            )
             # The draft is only cleared on the caller's explicit signal, so an API caller that resends live
             # content never loses a draft.
             clears_staged_draft = (
@@ -133,8 +144,7 @@ class WorkflowWriter:
                     guard_timestamp is None or before_update.draft_updated_at > guard_timestamp
                 ):
                     guard_timestamp = before_update.draft_updated_at
-            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
-                raise StaleWorkflowWrite()
+            _reject_if_newer(guard_timestamp, base_updated_at)
 
             if options.stage_as_draft:
                 assert before_update is not None
@@ -178,14 +188,10 @@ class WorkflowWriter:
         return locked
 
     def check_fresh(self, locked: HogFlow, base_updated_at: Optional[str], *, stage_as_draft: bool) -> None:
-        """Raise `StaleWorkflowWrite` when `locked` changed after the client loaded it at `base_updated_at`.
-        Draft edits race against other draft edits, so the baseline is the draft's stamp once a draft exists."""
-        loaded_at = _parse_client_timestamp(base_updated_at)
-        guard_timestamp = locked.updated_at
-        if stage_as_draft and locked.draft_updated_at:
-            guard_timestamp = locked.draft_updated_at
-        if loaded_at and guard_timestamp and guard_timestamp > loaded_at:
-            raise StaleWorkflowWrite()
+        """Raise `StaleWorkflowWrite` when `locked` changed after the client loaded it at `base_updated_at`."""
+        _reject_if_newer(
+            _staleness_baseline(locked, stage_as_draft=stage_as_draft), _parse_client_timestamp(base_updated_at)
+        )
 
     def write_live(
         self, target: HogFlow, before: Optional[HogFlow], validated: ValidatedWorkflow, **fields: Any
