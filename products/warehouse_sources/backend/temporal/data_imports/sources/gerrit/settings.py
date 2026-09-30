@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class GerritFanoutConfig:
     # Child path; `{key}` is replaced with the parent row's `key_field` value.
     path: str
