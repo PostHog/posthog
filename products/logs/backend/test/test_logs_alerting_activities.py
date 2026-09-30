@@ -1,10 +1,13 @@
 import json
 import time
+import uuid
 import asyncio
+import logging
 import datetime as dt
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import parse_qs
 
 import unittest
 import time_machine
@@ -17,17 +20,27 @@ from hypothesis import (
     strategies as st,
 )
 from parameterized import parameterized
+from temporalio import activity
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import QueryErrorCategory
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.slo.types import SloOperation, SloOutcome
 
-from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBucketedResult, BucketedCount
+from products.logs.backend.alert_check_query import (
+    AlertCheckQuery,
+    BatchedAlertCheckQuery,
+    BatchedBucketedResult,
+    BucketedCount,
+)
 from products.logs.backend.alert_signal_emitter import AlertSignalAction, NotifiedAlert
 from products.logs.backend.alert_state_machine import AlertCheckOutcome, AlertState, CheckResult, NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import (
+    CheckAlertsInput,
+    CheckAlertsOutput,
     EmitAlertSignalsInput,
     _AlertCohort,
     _AlertEvaluation,
@@ -38,8 +51,11 @@ from products.logs.backend.temporal.activities import (
     _evaluate_single_alert,
     _finalize_alert,
     _save_cohort_outcomes,
+    discover_cohorts_activity,
     emit_alert_signals_activity,
+    evaluate_cohort_batch_activity,
 )
+from products.logs.backend.temporal.workflow import LogsAlertCheckWorkflow
 
 
 def _evaluate_and_save_one(
@@ -2360,6 +2376,98 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
             assert result.busy_cohorts == []
             assert alert.next_check_at is not None
             assert LogsAlertEvent.objects.get(alert=alert).error_message.startswith("PostHog is temporarily busy")
+
+    @time_machine.travel("2026-05-05T10:05:00Z", tick=False)
+    def test_busy_workflow_recovers_with_one_notification_for_original_window(self) -> None:
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="busy recovery",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["example-service"]},
+            enabled=True,
+            next_check_at=None,
+        )
+        original = LogsAlertConfiguration.objects.values().get(id=alert.id)
+        date_to = datetime(2026, 5, 5, 10, 4, tzinfo=UTC)
+        date_from = date_to - timedelta(minutes=5)
+        query_windows: list[tuple[datetime, datetime]] = []
+        notified: list[NotifiedAlert] = []
+
+        def query_result(query: BatchedAlertCheckQuery, **kwargs: object) -> BatchedBucketedResult:
+            query_windows.append((query.date_from, query.date_to))
+            assert kwargs["nca"] == date_to
+            assert LogsAlertConfiguration.objects.values().get(id=alert.id) == original
+            assert not LogsAlertEvent.objects.filter(alert=alert).exists()
+            mock_produce.assert_not_called()
+            if len(query_windows) == 1:
+                raise ClickHouseAtCapacity()
+            return BatchedBucketedResult(
+                per_alert={str(alert.id): [BucketedCount(timestamp=date_from, count=5)]}, query_duration_ms=1
+            )
+
+        @activity.defn(name="emit_alert_signals_activity")
+        async def capture_signals(input: EmitAlertSignalsInput) -> int:
+            notified.extend(input.notified)
+            return len(input.notified)
+
+        async def run_workflow() -> CheckAlertsOutput:
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with Worker(
+                    env.client,
+                    task_queue="logs-alerting-recovery-test",
+                    workflows=[LogsAlertCheckWorkflow],
+                    activities=[discover_cohorts_activity, evaluate_cohort_batch_activity, capture_signals],
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                ):
+                    return await env.client.execute_workflow(
+                        LogsAlertCheckWorkflow.run,
+                        CheckAlertsInput(),
+                        id=f"test-busy-recovery-{uuid.uuid4()}",
+                        task_queue="logs-alerting-recovery-test",
+                        execution_timeout=timedelta(minutes=2),
+                    )
+
+        with (
+            patch.object(logging.getLogger("temporalio.workflow"), "level", logging.INFO),
+            patch.object(logging.getLogger("temporalio.activity"), "level", logging.INFO),
+            patch("products.logs.backend.temporal.activities.fetch_live_logs_checkpoint", return_value=date_to),
+            patch.object(BatchedAlertCheckQuery, "execute_rolling_checks", autospec=True, side_effect=query_result),
+            patch("products.logs.backend.temporal.activities.produce_alert_internal_event") as mock_produce,
+            patch("products.logs.backend.temporal.activities.flush_alert_internal_events"),
+            patch("products.logs.backend.temporal.activities.BUSY_COHORT_ATTEMPTS", 3),
+            patch("products.logs.backend.temporal.metrics.get_metric_meter") as mock_meter,
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("posthog.slo.context.emit_slo_started"),
+            patch("posthog.slo.context.emit_slo_completed"),
+        ):
+            result = asyncio.run(run_workflow())
+
+        assert result == CheckAlertsOutput(alerts_checked=1, alerts_fired=1, alerts_resolved=0, alerts_errored=0)
+        assert query_windows == [(date_from, date_to), (date_from, date_to)]
+        mock_produce.assert_called_once()
+        assert mock_produce.call_args.kwargs["event_name"] == "$logs_alert_firing"
+        params = parse_qs(mock_produce.call_args.kwargs["properties"]["logs_url_params"])
+        assert json.loads(params["dateRange"][0]) == {
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+        }
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.FIRING
+        assert alert.consecutive_failures == 0
+        assert alert.last_checked_at is not None
+        assert alert.last_notified_at is not None
+        assert alert.next_check_at > alert.last_checked_at
+        event = LogsAlertEvent.objects.get(alert=alert)
+        assert event.state_after == LogsAlertConfiguration.State.FIRING
+        assert event.result_count == 5
+        assert [entry.alert_id for entry in notified] == [str(alert.id)]
+        attributes = [call.args[0] for call in mock_meter.call_args_list if call.args]
+        assert {"outcome": "busy", "attempt": "1"} in attributes
+        assert {"outcome": "recovered", "attempt": "2"} in attributes
+        assert not any(attrs.get("outcome") == "exhausted" for attrs in attributes)
 
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US")

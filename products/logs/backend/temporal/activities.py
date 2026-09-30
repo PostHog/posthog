@@ -78,6 +78,7 @@ from products.logs.backend.temporal.constants import (
     NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
 )
 from products.logs.backend.temporal.metrics import (
+    increment_busy_cohort_outcome,
     increment_check_errors,
     increment_checkpoint_unavailable,
     increment_checks_total,
@@ -345,6 +346,7 @@ class EvaluateCohortBatchInput:
     # Hand cohorts ClickHouse rejected as busy back to the workflow unsaved, so it can
     # retry them this cycle rather than skip their window until the next scheduled check.
     defer_busy_cohorts: bool = False
+    busy_cohort_attempt: int = 1
 
 
 @dataclasses.dataclass(frozen=True)
@@ -684,10 +686,23 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     local_stats["errored"] += len(cohort.alerts)
                     return local_stats, local_notified, None
 
-                if input.defer_busy_cohorts and query_result.rejected_as_busy():
-                    for slo_handle in slo_handles.values():
-                        slo_handle.completion_properties["deferred_as_busy"] = True
-                    return local_stats, local_notified, manifest
+                if query_result.rejected_as_busy():
+                    _safe_record(
+                        "busy cohort counter", increment_busy_cohort_outcome, "busy", input.busy_cohort_attempt
+                    )
+                    if input.defer_busy_cohorts:
+                        for slo_handle in slo_handles.values():
+                            slo_handle.completion_properties["deferred_as_busy"] = True
+                        return local_stats, local_notified, manifest
+                    _safe_record(
+                        "busy cohort counter", increment_busy_cohort_outcome, "exhausted", input.busy_cohort_attempt
+                    )
+                elif input.busy_cohort_attempt > 1 and all(
+                    result.error is None for result in query_result.per_alert.values()
+                ):
+                    _safe_record(
+                        "busy cohort counter", increment_busy_cohort_outcome, "recovered", input.busy_cohort_attempt
+                    )
 
                 evaluations: list[_AlertEvaluation] = []
                 eval_starts: list[float] = []
@@ -699,7 +714,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                             _evaluate_single_alert(
                                 alert,
                                 now,
-                                checkpoint=None,
+                                date_to=cohort.date_to,
                                 prefetched=query_result.for_alert(alert),
                             )
                         )
@@ -1394,6 +1409,7 @@ def _evaluate_single_alert(
     *,
     checkpoint: datetime | None = None,
     prefetched: _PrefetchedQuery | None = None,
+    date_to: datetime | None = None,
 ) -> _AlertEvaluation:
     """Phase 1: run the CH query (or use prefetched buckets), apply the state machine, return the outcome.
 
@@ -1413,7 +1429,8 @@ def _evaluate_single_alert(
     original_next_check_at = alert.next_check_at
 
     nca = alert.next_check_at if alert.next_check_at is not None else now
-    date_to = resolve_alert_date_to(nca, checkpoint)
+    if date_to is None:
+        date_to = resolve_alert_date_to(nca, checkpoint)
     date_from = date_to - timedelta(
         minutes=rolling_check_lookback_minutes(
             alert.window_minutes, alert.check_interval_minutes, alert.evaluation_periods

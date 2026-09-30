@@ -29,6 +29,7 @@ with workflow.unsafe.imports_passed_through():
         emit_alert_signals_activity,
         evaluate_cohort_batch_activity,
     )
+    from products.logs.backend.temporal.metrics import record_workflow_duration
 
 from products.logs.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
@@ -38,6 +39,7 @@ from products.logs.backend.temporal.constants import (
 )
 
 RETRY_BUSY_COHORTS_PATCH = "logs-alert-check-retry-busy-cohorts"
+BUSY_COHORT_BACKOFF_PATCH = "logs-alert-check-busy-cohort-backoff"
 
 
 @temporalio.workflow.defn(name=WORKFLOW_NAME)
@@ -57,6 +59,16 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, input: CheckAlertsInput) -> CheckAlertsOutput:
+        started_at = workflow.now()
+        try:
+            return await self._run(input)
+        finally:
+            try:
+                record_workflow_duration(int((workflow.now() - started_at).total_seconds() * 1000))
+            except Exception:
+                workflow.logger.warning("Failed to record logs alert workflow duration", exc_info=True)
+
+    async def _run(self, input: CheckAlertsInput) -> CheckAlertsOutput:
         discovery: DiscoverCohortsOutput = await workflow.execute_activity(
             discover_cohorts_activity,
             DiscoverCohortsInput(),
@@ -92,7 +104,9 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
                 *(
                     workflow.execute_activity(
                         evaluate_cohort_batch_activity,
-                        dataclasses.replace(batch, defer_busy_cohorts=defer_busy_cohorts),
+                        dataclasses.replace(
+                            batch, defer_busy_cohorts=defer_busy_cohorts, busy_cohort_attempt=attempt + 1
+                        ),
                         start_to_close_timeout=ACTIVITY_TIMEOUT,
                         retry_policy=ACTIVITY_RETRY_POLICY,
                     )
@@ -128,6 +142,9 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
                 "Retrying cohorts ClickHouse rejected as busy",
                 extra={"cohort_count": len(busy_cohorts), "attempt": attempt + 2},
             )
+            # Histories from the retry-only workflow have no timer between rounds.
+            if workflow.patched(BUSY_COHORT_BACKOFF_PATCH):
+                await workflow.sleep(5 if attempt == 0 else 15)
             batches = [
                 EvaluateCohortBatchInput(manifests=list(chunk))
                 for chunk in batched(busy_cohorts, discovery.batch_size, strict=False)
