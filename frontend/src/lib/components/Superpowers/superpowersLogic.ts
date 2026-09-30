@@ -20,9 +20,9 @@ export const EXCLUDED_FROM_POSTHOG_TEAM_COHORT_PROPERTY = 'excluded_from_posthog
 export interface superpowersLogicValues {
     dismissedSurfaces: Record<string, true> // mcpHintLogic
     effectiveOptOut: boolean // mcpHintLogic
-    excludedFromPostHogTeamCohort: boolean
     preflight: PreflightStatus | null // preflightLogic
     user: UserType | null // userLogic
+    excludedFromPostHogTeamCohort: boolean
     fakeBillingAlert: FakeBillingAlert
     fakeStatusOverride: FakeStatusOverride
     isSuperpowersOpen: boolean
@@ -41,14 +41,14 @@ export interface superpowersLogicActions {
     openSuperpowers: () => {
         value: true
     }
+    setExcludedFromPostHogTeamCohort: (excluded: boolean) => {
+        excluded: boolean
+    }
     setFakeBillingAlert: (alert: FakeBillingAlert) => {
         alert: FakeBillingAlert
     }
     setFakeStatusOverride: (status: FakeStatusOverride) => {
         status: FakeStatusOverride
-    }
-    setExcludedFromPostHogTeamCohort: (excluded: boolean) => {
-        excluded: boolean
     }
 }
 
