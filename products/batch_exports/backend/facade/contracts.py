@@ -32,7 +32,6 @@ BATCH_EXPORT_MODEL_LABEL = "batch_exports.BatchExport"
 
 
 class DestinationType(StrEnum):
-    S3 = "S3"
     AWS_S3 = "AwsS3"
     S3_COMPATIBLE = "S3Compatible"
     SNOWFLAKE = "Snowflake"

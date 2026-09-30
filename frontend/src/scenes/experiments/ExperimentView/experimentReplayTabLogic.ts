@@ -16,6 +16,7 @@ import {
 import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -99,6 +100,16 @@ import {
     isFunnelMode,
     parseExperimentRecordingsDeepLink,
 } from './experimentRecordingsDeepLink'
+
+function reportExperimentRecordingsTabViewed(
+    experimentId: ExperimentIdType,
+    context: ExperimentRecordingsTabContext
+): void {
+    posthog.capture('experiment recordings tab viewed', {
+        experiment_id: experimentId,
+        ...context,
+    })
+}
 
 export interface ExperimentReplayTabLogicProps {
     experiment: Experiment
@@ -510,13 +521,6 @@ export interface experimentReplayTabLogicActions {
         context: ExperimentRecordingsListRenderedContext
         experimentId: ExperimentIdType
     } // eventUsageLogic
-    reportExperimentRecordingsTabViewed: (
-        experimentId: ExperimentIdType,
-        context: ExperimentRecordingsTabContext
-    ) => {
-        context: ExperimentRecordingsTabContext
-        experimentId: ExperimentIdType
-    } // eventUsageLogic
     reportExperimentWatchCardSelected: (
         experimentId: ExperimentIdType,
         context: ExperimentWatchCardContext
@@ -887,7 +891,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             ['loadSeenTogetherSuccess', 'loadSeenTogetherFailure'],
             eventUsageLogic,
             [
-                'reportExperimentRecordingsTabViewed',
                 'reportExperimentRecordingsBucketLoaded',
                 'reportExperimentRecordingsBucketFailed',
                 'reportExperimentRecordingsListRendered',
@@ -2189,7 +2192,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 return
             }
             cache.reportedTabView = true
-            actions.reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
+            reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
         },
         scannerCrossSellClicked: () => {
             void addProductIntentForCrossSell({
@@ -2309,7 +2312,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // The dedup cache keeps an already-sent report from repeating.
         if (!cache.reportedTabView) {
             cache.reportedTabView = true
-            actions.reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
+            reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
         }
         // A visit that ends before the first page arrives or fails is the largest part of the
         // "tab viewed, no list" gap: the playlist waits out a debounce and then a request, and it

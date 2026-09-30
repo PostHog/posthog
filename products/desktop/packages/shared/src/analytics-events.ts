@@ -320,6 +320,8 @@ export interface SidebarNavItemClickedProperties {
    * them is the whole point of running one behind a flag.
    */
   layout?: SidebarLayout;
+  /** How a rail destination was picked. Only the channels rail sends it. */
+  source?: "click" | "shortcut";
 }
 
 /** Every row of the account / project / org menu, plus opening it. */

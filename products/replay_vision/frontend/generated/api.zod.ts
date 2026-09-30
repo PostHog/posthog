@@ -465,8 +465,8 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
- * Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
- * refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read.
+ * Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
+ * scanners first, so the stamp lives on a CSRF-protected POST rather than the read.
  */
 export const VisionObservationsSearchViewedCreateBody = /* @__PURE__ */ zod.object({
     scanner_id: zod

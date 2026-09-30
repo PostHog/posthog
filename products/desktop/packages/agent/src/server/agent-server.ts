@@ -76,6 +76,7 @@ import {
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
+import type { InitializationPhase } from "../adapters/claude/session/initialization";
 import {
   getSessionJsonlPath,
   hydrateSessionJsonl,
@@ -544,6 +545,7 @@ export class AgentServer {
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
   private slackReplyContext = false;
+  private mobileClient = false;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -575,6 +577,7 @@ export class AgentServer {
     typeof createAcpConnection
   > | null = null;
   private initializationFailureCode: string | undefined;
+  private initializationPhase: InitializationPhase | undefined;
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
@@ -792,6 +795,7 @@ export class AgentServer {
         status: "ok",
         hasSession: !!this.session,
         readiness: boot.state,
+        initializationPhase: this.initializationPhase,
         failureCode: this.initializationFailureCode,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
@@ -2128,6 +2132,7 @@ export class AgentServer {
     this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
     this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
     this.slackReplyContext = preTaskRun?.state.slack_reply_context === true;
+    this.mobileClient = preTaskRun?.state.client_platform === "mobile";
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -4563,6 +4568,7 @@ export class AgentServer {
       createPr: this.config.createPr,
       hasGithubToken: Boolean(resolveGithubToken()),
       isAutomatedOrigin: this.isAutomatedOrigin(),
+      mobileClient: this.mobileClient,
       isSlack: this.isSlackReplyContext(),
       projectId: this.config.projectId,
       repositoryAttached: Boolean(this.config.repositoryPath),
@@ -5042,6 +5048,13 @@ export class AgentServer {
         method: string,
         params: Record<string, unknown>,
       ) => {
+        if (
+          method === POSTHOG_NOTIFICATIONS.STATUS &&
+          (params.status === "sdk_initialization" ||
+            params.status === "setup_hooks")
+        ) {
+          this.initializationPhase = params.status;
+        }
         this.logger.debug("Extension notification", { method, params });
       },
       sessionUpdate: async (params: {

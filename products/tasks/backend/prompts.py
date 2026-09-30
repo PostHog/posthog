@@ -171,7 +171,7 @@ This PR adds PostHog analytics to the app using the `posthog-js` SDK (installed 
 
 1. Deploy this branch (or run it locally after setting the env vars from the section below).
 2. Open the app and click around.
-3. In PostHog, open [Activity](https://app.posthog.com/activity/explore) - you should see
+3. In PostHog, open [Activity](https://app.posthog.com/activity/events) - you should see
    `$pageview` events arriving within a minute.
 
 ## Environment variables

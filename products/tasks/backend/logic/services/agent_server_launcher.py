@@ -39,6 +39,7 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.sandbox import (
+    CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     WORKING_DIR,
     SandboxBase,
@@ -238,6 +239,26 @@ def build_agent_server_preflight_script(*, probe_health: bool, executable_paths:
     return "\n".join(lines)
 
 
+CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER = "claude_credential_unavailable"
+CODEX_CREDENTIAL_UNAVAILABLE_MARKER = "codex_credential_unavailable"
+
+
+def _credential_marker(*sources: str) -> str | None:
+    for marker in (CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER, CODEX_CREDENTIAL_UNAVAILABLE_MARKER):
+        if any(marker in source for source in sources):
+            return marker
+    return None
+
+
+def _health_initialization_phase(health_response: str) -> str | None:
+    try:
+        payload = json.loads(health_response or "{}")
+    except ValueError:
+        return None
+    phase = payload.get("initializationPhase") if isinstance(payload, dict) else None
+    return phase if isinstance(phase, str) else None
+
+
 def _health_duration_ms(stdout: str) -> int | None:
     for line in stdout.splitlines():
         if line.startswith(AGENT_SERVER_HEALTH_DURATION_PREFIX):
@@ -422,11 +443,19 @@ class AgentServerLaunchMixin(SandboxBase):
             diagnostics["log"] = log_result.stdout
             if len(log_result.stdout.encode()) >= STARTUP_LOG_MAX_BYTES:
                 diagnostics["log_truncated"] = "true"
+            if _credential_marker(log_result.stdout) is not None:
+                diagnostics["failure_reason"] = "agent-server reported a missing subscription token"
+                return diagnostics
             health_result = self.execute(
                 f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo 'no-health-response'",
                 timeout_seconds=5,
             )
             diagnostics["health_response"] = health_result.stdout.strip()[:500]
+            if _health_initialization_phase(health_result.stdout) == "setup_hooks":
+                diagnostics["failure_reason"] = (
+                    "agent server still running the repository's SessionStart hooks when the startup budget ended"
+                )
+                return diagnostics
 
             egress = self._probe_session_init_egress()
             diagnostics["egress_probe"] = egress
@@ -514,7 +543,7 @@ class AgentServerLaunchMixin(SandboxBase):
             )
         if result.exit_code == AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE:
             raise ProcessTaskFatalError(
-                "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+                CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
                 {"sandbox_id": self.id},
                 RuntimeError("Claude token unavailable"),
                 capture=False,
@@ -567,26 +596,11 @@ class AgentServerLaunchMixin(SandboxBase):
             health_duration_ms = _health_duration_ms(launch_result.stdout)
             if wait_for_health and health_duration_ms is not None:
                 diagnostics = self._diagnose_startup_failure(allowed_domains)
-                if (
-                    "claude_credential_unavailable" in launch_result.stdout
-                    or "claude_credential_unavailable" in diagnostics.get("log", "")
-                ):
-                    raise ProcessTaskFatalError(
-                        "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
-                        {"task_id": task_id, "run_id": run_id},
-                        RuntimeError("Claude token unavailable"),
-                        capture=False,
-                    )
-                if (
-                    "codex_credential_unavailable" in launch_result.stdout
-                    or "codex_credential_unavailable" in diagnostics.get("log", "")
-                ):
-                    raise ProcessTaskFatalError(
-                        CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
-                        {"task_id": task_id, "run_id": run_id},
-                        RuntimeError("ChatGPT token unavailable"),
-                        capture=False,
-                    )
+                credential_error = self._credential_unavailable_error(
+                    launch_result.stdout, diagnostics.get("log", ""), context={"task_id": task_id, "run_id": run_id}
+                )
+                if credential_error is not None:
+                    raise credential_error
                 raise SandboxExecutionError(
                     "Agent-server failed to start",
                     {
@@ -767,16 +781,51 @@ class AgentServerLaunchMixin(SandboxBase):
             logger.info(f"Agent-server ready in sandbox {self.id}")
             return
         diagnostics = self._diagnose_startup_failure(allowed_domains)
+        credential_error = self._credential_unavailable_error(
+            diagnostics.get("log", ""), context={"sandbox_id": self.id}
+        )
+        if credential_error is not None:
+            raise credential_error
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, **diagnostics},
             cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
         )
 
+    def _credential_unavailable_error(self, *sources: str, context: dict[str, str]) -> ProcessTaskFatalError | None:
+        """Turn a missing subscription token into a non-retryable error.
+
+        The health poll sees the marker only while the agent-server still answers. After the
+        relay timeout ends the session, the marker survives only in the log. Checking the log
+        too means the run fails at once, instead of relaunching and waiting out the same
+        timeout again for a token the user has to supply.
+        """
+        marker = _credential_marker(*sources)
+        if marker == CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER:
+            return ProcessTaskFatalError(
+                CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
+                context,
+                RuntimeError("Claude token unavailable"),
+                capture=False,
+            )
+        if marker == CODEX_CREDENTIAL_UNAVAILABLE_MARKER:
+            return ProcessTaskFatalError(
+                CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
+                context,
+                RuntimeError("ChatGPT token unavailable"),
+                capture=False,
+            )
+        return None
+
     def _startup_timeout_with_diagnostics(
         self, allowed_domains: list[str] | None, timeout_seconds: int
-    ) -> SandboxTimeoutError:
+    ) -> SandboxTimeoutError | ProcessTaskFatalError:
         diagnostics = self._diagnose_startup_failure(allowed_domains)
+        credential_error = self._credential_unavailable_error(
+            diagnostics.get("log", ""), context={"sandbox_id": self.id}
+        )
+        if credential_error is not None:
+            return credential_error
         logger.warning(
             "Agent-server health poll timed out in sandbox %s after %ss: %s",
             self.id,

@@ -171,6 +171,9 @@ class PostgresCDCAdapter:
     def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None:
         drop_slot_and_publication(conn, slot_name, pub_name)
 
+    def slot_exists(self, conn: Any, slot_name: str) -> bool:
+        return slot_exists(conn, slot_name)
+
     def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None:
         return get_slot_lag_bytes(conn, slot_name)
 
@@ -242,8 +245,8 @@ class PostgresCDCAdapter:
             _recreate, _retry_logger, is_retryable=_is_dropped_or_connect_timeout
         )
 
-        # Every schema is reset to snapshot before this runs, so no change from the dead slot is owed
-        # to the legacy lane: the new slot starts on the buffer, as a new source does.
+        # Every schema is reset to snapshot before this runs, so nothing from the dead slot is owed:
+        # the new slot starts on the buffer, as a new source does, and capture has nothing to convert.
         return {"cdc_consistent_point": consistent_point, "cdc_ingest_mode": "buffered"}
 
     def setup_resources(
@@ -270,8 +273,8 @@ class PostgresCDCAdapter:
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
             "cdc_publication_name": pub_name,
-            # Written with the slot, before capture first runs, so no change reaches the buffer that a
-            # legacy batch already delivered.
+            # Written with the slot, before capture first runs, so capture never treats the new source
+            # as one the retired legacy lane still delivered for.
             "cdc_ingest_mode": "buffered",
         }
 
@@ -384,34 +387,37 @@ class PostgresCDCAdapter:
         }
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        """Best-effort ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication."""
+        """ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication. Raises on failure."""
         self._alter_publication_membership(source, schema, table, add=True)
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
         """Best-effort ALTER PUBLICATION DROP TABLE. No-op for self-managed / no publication."""
-        self._alter_publication_membership(source, schema, table, add=False)
+        try:
+            self._alter_publication_membership(source, schema, table, add=False)
+        except Exception:
+            logger.exception(
+                "Failed to remove table %s.%s from CDC publication (best-effort), source_id=%s",
+                schema,
+                table,
+                source.id,
+            )
 
     def _alter_publication_membership(self, source: ExternalDataSource, schema: str, table: str, add: bool) -> None:
+        publication_name = self._managed_publication_name(source)
+        if publication_name is None:
+            return
+        with cdc_pg_connection(source) as conn:
+            if add:
+                add_table_to_publication(conn, publication_name, schema, table)
+            else:
+                remove_table_from_publication(conn, publication_name, schema, table)
+
+    def _managed_publication_name(self, source: ExternalDataSource) -> str | None:
         cdc_config = self.parse_cdc_config(source)
         # PostHog only manages the publication in posthog-managed mode.
         if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
-            return
-        try:
-            with cdc_pg_connection(source) as conn:
-                if add:
-                    add_table_to_publication(conn, cdc_config.publication_name, schema, table)
-                else:
-                    remove_table_from_publication(conn, cdc_config.publication_name, schema, table)
-        except Exception:
-            logger.exception(
-                "Failed to %s table %s.%s %s CDC publication '%s' (best-effort), source_id=%s",
-                "add" if add else "remove",
-                schema,
-                table,
-                "to" if add else "from",
-                cdc_config.publication_name,
-                source.id,
-            )
+            return None
+        return cdc_config.publication_name
 
     def _resolve_schema(self, source: ExternalDataSource) -> str:
         raw = (source.job_inputs or {}).get("schema")

@@ -80,7 +80,7 @@ class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConf
 You can find your public and private keys in the [Braintree control panel](https://www.braintreegateway.com/) under Settings > API Keys. Sandbox and production use separate keys — make sure the environment matches.""",
             iconPath="/static/services/braintree.png",
             docsUrl="https://posthog.com/docs/cdp/sources/braintree",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

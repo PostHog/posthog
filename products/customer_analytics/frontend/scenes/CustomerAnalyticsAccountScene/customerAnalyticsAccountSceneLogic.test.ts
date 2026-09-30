@@ -41,6 +41,7 @@ const mockAccountsPresenceCreate = accountsPresenceCreate as jest.MockedFunction
 const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 
 const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
+const ACCOUNT_VIEW_TAB = 'view:11111111-2222-4333-8444-555555555555'
 const PROJECT_ID = 999
 const account: AccountApi = {
     id: ACCOUNT_ID,
@@ -273,6 +274,100 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         resolveAccount!(account)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.account).toEqual(account)
+    })
+
+    describe('account editor', () => {
+        beforeEach(async () => {
+            mockAccountsRetrieve.mockResolvedValue(account)
+            mountLogic()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('saves only edited fields without replacing concurrent or unrelated properties', async () => {
+            const currentAccount = {
+                ...account,
+                properties: {
+                    hubspot_deal_id: 'deal-1',
+                    usage_dashboard_link: 'https://example.com/usage',
+                    metabase_link: 'https://example.com/metabase',
+                    stripe_customer_id: 'stripe-old',
+                    sfdc_id: 'salesforce-concurrent',
+                    billing_id: 'billing-concurrent',
+                    known_emails: ['concurrent@example.com'],
+                },
+            }
+            const updatedAccount = {
+                ...currentAccount,
+                name: 'Renamed account',
+            }
+            mockAccountsRetrieve.mockResolvedValueOnce(currentAccount)
+            mockAccountsPartialUpdate.mockResolvedValue(updatedAccount)
+
+            logic.actions.openAccountEditor()
+            expect(logic.values.accountForm.name).toBe(account.name)
+            logic.actions.loadAccountSuccess(currentAccount)
+            logic.actions.setAccountFormValues({
+                name: '  Renamed account  ',
+                website_domain: 'example.com',
+                billing_id: '',
+                slack_channel_id: 'C123',
+                sfdc_id: '',
+                stripe_customer_id: 'stripe-new',
+                email_domains: [' @Example.com', 'example.com'],
+                known_emails: [],
+            })
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
+                name: 'Renamed account',
+                properties: {
+                    hubspot_deal_id: 'deal-1',
+                    usage_dashboard_link: 'https://example.com/usage',
+                    metabase_link: 'https://example.com/metabase',
+                    stripe_customer_id: 'stripe-new',
+                    website_domain: 'example.com',
+                    billing_id: 'billing-concurrent',
+                    slack_channel_id: 'C123',
+                    sfdc_id: 'salesforce-concurrent',
+                    known_emails: ['concurrent@example.com'],
+                    email_domains: ['example.com'],
+                },
+            })
+            expect(logic.values.accountEditorOpen).toBe(false)
+            expect(logic.values.breadcrumbs.at(-1)?.name).toBe('Renamed account')
+        })
+
+        it('leaves untouched email lists alone when stored values are not normalized', async () => {
+            const storedAccount = { ...account, properties: { known_emails: ['USER@example.com'] } }
+            logic.actions.loadAccountSuccess(storedAccount)
+            mockAccountsRetrieve.mockResolvedValueOnce(storedAccount)
+            mockAccountsPartialUpdate.mockResolvedValue(storedAccount)
+
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValue('name', 'Renamed account')
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
+                name: 'Renamed account',
+                properties: { known_emails: ['USER@example.com'] },
+            })
+        })
+
+        it('keeps the draft open when the save fails', async () => {
+            mockAccountsPartialUpdate.mockRejectedValue(new ApiError('Unavailable', 500))
+            jest.spyOn(posthog, 'captureException').mockImplementation()
+
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValue('name', 'Draft account')
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountEditorOpen).toBe(true)
+            expect(logic.values.accountForm.name).toBe('Draft account')
+            expect(logic.values.account?.name).toBe(account.name)
+        })
     })
 
     describe('tag updates', () => {
@@ -604,9 +699,18 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(router.values.currentLocation.hashParams).toEqual(hashParams)
             expect(capture).toHaveBeenCalledWith(AccountsEvents.TabViewed, { tab: 'usage' })
 
+            logic.actions.setActiveTab(ACCOUNT_VIEW_TAB)
+
+            expect(router.values.location.pathname).toBe(
+                urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID, ACCOUNT_VIEW_TAB))
+            )
+            expect(logic.values.requestedTab).toBe(ACCOUNT_VIEW_TAB)
+
             logic.actions.setActiveTab('notes')
 
-            expect(router.values.location.pathname).toBe(urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID)))
+            expect(router.values.location.pathname).toBe(
+                urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID, 'notes'))
+            )
             expect(router.values.currentLocation.searchParams).toEqual(searchParams)
             expect(router.values.currentLocation.hashParams).toEqual(hashParams)
         })

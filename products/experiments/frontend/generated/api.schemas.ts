@@ -1601,8 +1601,16 @@ export interface ExperimentWriteApi {
      * @nullable
      */
     repository?: string | null
-    primary_metrics_ordered_uuids?: unknown
-    secondary_metrics_ordered_uuids?: unknown
+    /**
+     * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    primary_metrics_ordered_uuids?: string[] | null
+    /**
+     * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    secondary_metrics_ordered_uuids?: string[] | null
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
@@ -1744,8 +1752,16 @@ export interface ExperimentApi {
      * @nullable
      */
     repository?: string | null
-    primary_metrics_ordered_uuids?: unknown
-    secondary_metrics_ordered_uuids?: unknown
+    /**
+     * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    primary_metrics_ordered_uuids?: string[] | null
+    /**
+     * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    secondary_metrics_ordered_uuids?: string[] | null
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
@@ -1883,8 +1899,16 @@ export interface PatchedExperimentWriteApi {
      * @nullable
      */
     repository?: string | null
-    primary_metrics_ordered_uuids?: unknown
-    secondary_metrics_ordered_uuids?: unknown
+    /**
+     * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    primary_metrics_ordered_uuids?: string[] | null
+    /**
+     * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    secondary_metrics_ordered_uuids?: string[] | null
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
@@ -2190,30 +2214,48 @@ export const MetricsRecalculationStatusEnumApi = {
 } as const
 
 /**
- * Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results.
+ * POST response: the job just queued, or the one already active. It carries no results or live progress yet.
  */
-export interface ActiveRecalculationRunApi {
-    /** Identifier of the run that is still executing */
+export interface ExperimentMetricsRecalculationJobApi {
+    /** Unique identifier for this recalculation job */
     readonly id: string
-    /** Status of the executing run (pending or in_progress)
+    /** ID of the experiment being recalculated */
+    readonly experiment_id: number
+    /** Current status of the recalculation job
      *
      * * `pending` - Pending
      * * `in_progress` - In Progress
      * * `completed` - Completed
      * * `failed` - Failed */
     readonly status: MetricsRecalculationStatusEnumApi
+    /** Total number of metrics to recalculate */
+    readonly total_metrics: number
+    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+    readonly completed_metrics: number
+    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+    readonly failed_metrics: number
+    /** Map of metric_uuid to error details */
+    readonly metric_errors: unknown
+    /** When the job was created */
+    readonly created_at: string
+    /**
+     * When processing started
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When processing completed
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /**
+     * Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts
+     * @nullable
+     */
+    readonly query_to: string | null
+    /** True if returning an existing job rather than a newly created one */
+    readonly is_existing: boolean
 }
-
-/**
- * * `recalculation` - recalculation
- * * `timeseries_fallback` - timeseries_fallback
- */
-export type ResultSourceEnumApi = (typeof ResultSourceEnumApi)[keyof typeof ResultSourceEnumApi]
-
-export const ResultSourceEnumApi = {
-    Recalculation: 'recalculation',
-    TimeseriesFallback: 'timeseries_fallback',
-} as const
 
 /**
  * * `pending` - pending
@@ -2251,9 +2293,9 @@ export interface MetricRecalculationResultApi {
 }
 
 /**
- * Serializer for metrics recalculation status responses.
+ * GET by id: one run with its per-metric results, retry state and live query progress.
  */
-export interface ExperimentMetricsRecalculationApi {
+export interface ExperimentMetricsRecalculationRunApi {
     /** Unique identifier for this recalculation job */
     readonly id: string
     /** ID of the experiment being recalculated */
@@ -2273,23 +2315,6 @@ export interface ExperimentMetricsRecalculationApi {
     readonly failed_metrics: number
     /** Map of metric_uuid to error details */
     readonly metric_errors: unknown
-    /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
-    readonly metric_retries: unknown
-    /** What triggered this recalculation
-     *
-     * * `manual` - Manual
-     * * `agent_mcp` - Agent (MCP)
-     * * `cold_run` - Cold Run
-     * * `stale_refresh` - Stale Refresh
-     * * `auto_refresh` - Auto Refresh
-     * * `experiment_config_change` - Experiment Config Change
-     * * `metric_config_change` - Metric Config Change
-     * * `config_change` - Config Change
-     * * `experiment_launch` - Experiment Launch
-     * * `experiment_stop` - Experiment Stop
-     * * `experiment_update` - Experiment Update
-     * * `timeseries_sync` - Timeseries Sync */
-    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
     /** When the job was created */
     readonly created_at: string
     /**
@@ -2307,15 +2332,8 @@ export interface ExperimentMetricsRecalculationApi {
      * @nullable
      */
     readonly query_to: string | null
-    /** True if returning an existing job rather than a newly created one */
-    readonly is_existing: boolean
-    /** Run currently executing for this experiment, if any; poll it by id for live progress */
-    readonly active_run: ActiveRecalculationRunApi | null
-    /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
-     *
-     * * `recalculation` - recalculation
-     * * `timeseries_fallback` - timeseries_fallback */
-    readonly result_source: ResultSourceEnumApi
+    /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
+    readonly metric_retries: unknown
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
     readonly results: readonly MetricRecalculationResultApi[]
     /**
@@ -2328,6 +2346,95 @@ export interface ExperimentMetricsRecalculationApi {
      * @nullable
      */
     estimated_rows_total?: number | null
+}
+
+/**
+ * Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results.
+ */
+export interface ActiveRecalculationRunApi {
+    /** Identifier of the run that is still executing */
+    readonly id: string
+    /** Status of the executing run (pending or in_progress)
+     *
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: MetricsRecalculationStatusEnumApi
+}
+
+/**
+ * * `recalculation` - recalculation
+ * * `timeseries_fallback` - timeseries_fallback
+ */
+export type ResultSourceEnumApi = (typeof ResultSourceEnumApi)[keyof typeof ResultSourceEnumApi]
+
+export const ResultSourceEnumApi = {
+    Recalculation: 'recalculation',
+    TimeseriesFallback: 'timeseries_fallback',
+} as const
+
+/**
+ * GET latest: the newest terminal run, or the timeseries fallback, plus a pointer to any active run.
+ */
+export interface ExperimentMetricsRecalculationLatestApi {
+    /** Unique identifier for this recalculation job */
+    readonly id: string
+    /** ID of the experiment being recalculated */
+    readonly experiment_id: number
+    /** Current status of the recalculation job
+     *
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: MetricsRecalculationStatusEnumApi
+    /** Total number of metrics to recalculate */
+    readonly total_metrics: number
+    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+    readonly completed_metrics: number
+    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+    readonly failed_metrics: number
+    /** Map of metric_uuid to error details */
+    readonly metric_errors: unknown
+    /** When the job was created */
+    readonly created_at: string
+    /**
+     * When processing started
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When processing completed
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /**
+     * Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts
+     * @nullable
+     */
+    readonly query_to: string | null
+    /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
+    readonly metric_retries: unknown
+    /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+    readonly results: readonly MetricRecalculationResultApi[]
+    /**
+     * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
+     * @nullable
+     */
+    rows_read?: number | null
+    /**
+     * ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+     * @nullable
+     */
+    estimated_rows_total?: number | null
+    /** Run currently executing for this experiment, if any; poll it by id for live progress */
+    readonly active_run: ActiveRecalculationRunApi | null
+    /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
+     *
+     * * `recalculation` - recalculation
+     * * `timeseries_fallback` - timeseries_fallback */
+    readonly result_source: ResultSourceEnumApi
 }
 
 /**
