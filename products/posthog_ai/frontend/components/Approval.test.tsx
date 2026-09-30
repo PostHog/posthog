@@ -22,7 +22,6 @@ jest.mock('../logics/runStreamLogic', () => ({
     runStreamLogic: jest.fn(() => ({ __mock: 'runStreamLogicInstance' })),
 }))
 
-jest.mock('../hooks/useThreadSkin', () => ({ useThreadSkin: () => 'lemon' }))
 jest.mock('../messages/MarkdownMessage', () => ({
     MarkdownMessage: ({ content }: { content: string }) => <div data-attr="markdown">{content}</div>,
 }))

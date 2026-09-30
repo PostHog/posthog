@@ -6,8 +6,6 @@ import { InitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/
 
 import { ComposerModePicker } from './ComposerModePicker'
 
-jest.mock('../../hooks/useThreadSkin', () => ({ useThreadSkin: () => 'lemon' }))
-
 describe('ComposerModePicker', () => {
     afterEach(() => {
         cleanup()
