@@ -323,12 +323,13 @@ class MetricResultStore:
         error_message: str | None,
         query_id: str | None,
     ) -> None:
+        team_id = spec.settings.team_id
         with transaction.atomic():
             # Match request_recalculation's lock order; result inserts also take an experiment FK lock.
-            Experiment.objects.select_for_update(no_key=True).filter(id=self.experiment_id).exists()
+            Experiment.objects.select_for_update(no_key=True).filter(id=self.experiment_id, team_id=team_id).exists()
             current_status = (
                 ExperimentMetricsRecalculation.objects.select_for_update()
-                .filter(id=recalculation_id, experiment_id=self.experiment_id)
+                .filter(id=recalculation_id, experiment_id=self.experiment_id, team_id=team_id)
                 .values_list("status", flat=True)
                 .first()
             )
