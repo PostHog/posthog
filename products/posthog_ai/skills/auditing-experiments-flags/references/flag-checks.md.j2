@@ -11,6 +11,8 @@ Detects active boolean flags that are effectively permanent and can be removed f
 
 **Look at**: `active`, `filters.multivariate` (should be absent or null for boolean flags), `filters.groups`, `last_called_at`
 
+A `feature-flag-get-all` row carries `status`, `last_called_at`, `active` and `created_at`, so fetch the definition only for `filters` and the rollout details.
+
 **Findings**:
 
 - **Fully rolled out boolean flag**: Flag is `active: true`, has no multivariate config, and at least one release condition (`filters.groups` entry) with `rollout_percentage: 100` and no `properties` (empty array or missing). This flag always evaluates to true.

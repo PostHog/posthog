@@ -24,6 +24,8 @@ When the user asks about a specific experiment or flag:
 When the user asks to audit all experiments or all flags:
 
 1. Bulk-fetch via `experiment-list` or `feature-flag-get-all`.
+   For staleness, call `feature-flag-get-all` with `active: "STALE"` and take the verdict from each row's `status`, instead of running the staleness checks against every flag definition.
+   That filter covers enabled flags only, and it skips a never-called flag whose `filters` holds an empty `groups` list, so a flag the per-flag checks call stale can be missing from the result.
 2. Run all checks for that domain against each entity.
 3. Group findings by severity, then by entity.
 4. Report as inline markdown.
