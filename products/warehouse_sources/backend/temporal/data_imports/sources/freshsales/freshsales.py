@@ -40,7 +40,7 @@ class FreshsalesRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FreshsalesResumeConfig:
     next_page: int
     view_id: Optional[int] = None
