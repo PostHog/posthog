@@ -28,17 +28,14 @@ def build_fact_sheet(
     first_name: str,
     local_day: date,
     items: list[RankedItem],
-    reports_for_me_count: int,
     failed_sources: list[str],
 ) -> dict[str, Any]:
-    reports_in_bar = sum(1 for item in items if item.candidate.group == ItemGroup.REPORT)
     return {
         "first_name": first_name,
         "local_day": local_day.isoformat(),
         "counts": {
             "items_in_text": sum(1 for i in items if i.in_text),
             "reports_in_text": sum(1 for i in items if i.in_text and i.candidate.group == ItemGroup.REPORT),
-            "more_reports_for_you": max(reports_for_me_count - reports_in_bar, 0),
         },
         "failed_sources": failed_sources,
         "urgency_scale": URGENCY_LABELS,

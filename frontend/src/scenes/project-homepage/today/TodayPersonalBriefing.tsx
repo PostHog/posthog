@@ -85,7 +85,7 @@ export function TodayPersonalBriefing(): JSX.Element | null {
             </>
         )
     }
-    const moreCount = personalBriefing.more_reports_count
+    const { more_reports_count: moreCount, open_reports_count: openCount } = personalBriefing
 
     return (
         <>
@@ -101,14 +101,21 @@ export function TodayPersonalBriefing(): JSX.Element | null {
                 </p>
             ))}
             <p className="TodayHome__foot">
-                {moreCount > 0 && (
+                {moreCount > 0 ? (
                     <>
                         <Link to={urls.inbox()} data-attr="today-briefing-inbox">
                             {`${moreCount} more for you in the Inbox`}
                         </Link>
                         <span>. </span>
                     </>
-                )}
+                ) : openCount > 0 ? (
+                    <>
+                        <Link to={urls.inbox()} data-attr="today-briefing-inbox">
+                            {`${openCount} other open ${openCount === 1 ? 'report' : 'reports'} in the Inbox`}
+                        </Link>
+                        <span>. </span>
+                    </>
+                ) : null}
                 <span>Or </span>
                 <button
                     type="button"

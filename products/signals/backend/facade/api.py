@@ -31,6 +31,7 @@ from products.signals.backend.briefing_reports import (
     BriefingReport as BriefingReport,
     BriefingReportRelation as BriefingReportRelation,
     ReportState as ReportState,
+    open_reports_count as open_reports_count,
     report_states as report_states,
     reports_for_briefing as reports_for_briefing,
     reports_for_me_count as reports_for_me_count,

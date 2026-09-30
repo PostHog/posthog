@@ -167,6 +167,8 @@ export interface BriefingApi {
     items: BriefingItemApi[]
     /** Other open reports for the person that are not in the left bar. */
     more_reports_count: number
+    /** Open reports in the whole project that are not in the left bar, whoever they are for. */
+    open_reports_count: number
     status: BriefingStatusEnumApi
     writer: WriterEnumApi | null
     /** 'morning' from 8:00, or 'midday' from 12:00, in the person's timezone.

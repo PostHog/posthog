@@ -60,6 +60,9 @@ class BriefingSerializer(DataclassSerializer):
     more_reports_count = serializers.IntegerField(
         help_text="Other open reports for the person that are not in the left bar."
     )
+    open_reports_count = serializers.IntegerField(
+        help_text="Open reports in the whole project that are not in the left bar, whoever they are for."
+    )
 
     class Meta:
         dataclass = Briefing

@@ -34,7 +34,7 @@ from .candidates import SourceContext
 from .eligibility import EditionSlot, current_edition, resolve_timezone
 from .fact_sheet import build_fact_sheet
 from .ranking import rank_candidates, select
-from .sources import collect_all, reports
+from .sources import collect_all
 
 logger = structlog.get_logger(__name__)
 
@@ -119,6 +119,21 @@ def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> Da
     return briefing
 
 
+def _inbox_counts(team: Team, user_id: int, items: list[dict[str, Any]]) -> tuple[int, int]:
+    """Open reports beyond the left bar, for the person and for the whole project, counted now.
+
+    The briefing itself is hours old, so these come from the live tables rather than the fact sheet.
+    """
+    reports_in_bar = sum(1 for item in items if item["group"] == ItemGroup.REPORT.value)
+    try:
+        for_me = signals.reports_for_me_count(team_id=team.id, user_id=user_id)
+        in_project = signals.open_reports_count(team_id=team.id)
+    except Exception as error:
+        capture_exception(error, {"team_id": team.id, "product": "today"})
+        return 0, 0
+    return max(for_me - reports_in_bar, 0), max(in_project - reports_in_bar, 0)
+
+
 def _live_states(team: Team, items: list[dict[str, Any]]) -> dict[str, ItemState]:
     report_ids = [item["key"].split(":", 1)[1] for item in items if item["key"].startswith("report:")]
     states: dict[str, ItemState] = {}
@@ -137,6 +152,7 @@ def to_contract(briefing: DailyBriefing, team: Team) -> contracts.Briefing:
     labels = content.get("labels") or {}
     signals_by_key = content.get("signals") or {}
     states = _live_states(team, fact_items)
+    more_for_you, open_in_project = _inbox_counts(team, briefing.user_id, fact_items)
     return contracts.Briefing(
         id=str(briefing.id),
         status=BriefingStatus(briefing.status),
@@ -172,13 +188,15 @@ def to_contract(briefing: DailyBriefing, team: Team) -> contracts.Briefing:
             )
             for item in fact_items
         ],
-        more_reports_count=int(((briefing.facts or {}).get("counts") or {}).get("more_reports_for_you") or 0),
+        more_reports_count=more_for_you,
+        open_reports_count=open_in_project,
         created_at=briefing.created_at,
         ready_at=briefing.ready_at,
     )
 
 
-def _facts_to_candidates(fact_sheet: dict[str, Any], day: date) -> contracts.CandidateList:
+def _facts_to_candidates(fact_sheet: dict[str, Any], day: date, *, team: Team, user: User) -> contracts.CandidateList:
+    more_for_you, _ = _inbox_counts(team, user.id, fact_sheet.get("items") or [])
     return contracts.CandidateList(
         local_day=day,
         candidates=[
@@ -199,7 +217,7 @@ def _facts_to_candidates(fact_sheet: dict[str, Any], day: date) -> contracts.Can
             )
             for item in fact_sheet.get("items") or []
         ],
-        more_reports_count=int((fact_sheet.get("counts") or {}).get("more_reports_for_you") or 0),
+        more_reports_count=more_for_you,
         failed_sources=list(fact_sheet.get("failed_sources") or []),
     )
 
@@ -211,14 +229,13 @@ def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> con
     day = slot.local_day
     briefing = _current(team, user, slot)
     if briefing is not None and (briefing.facts or {}).get("items") is not None:
-        return _facts_to_candidates(briefing.facts, day)
+        return _facts_to_candidates(briefing.facts, day, team=team, user=user)
     ctx = SourceContext(team=team, user=user, now=timezone.now())
     collected = collect_all(ctx)
     fact_sheet = build_fact_sheet(
         first_name=user.first_name,
         local_day=day,
         items=select(rank_candidates(collected.candidates)),
-        reports_for_me_count=reports.reports_for_me_count(ctx),
         failed_sources=collected.failed_sources,
     )
-    return _facts_to_candidates(fact_sheet, day)
+    return _facts_to_candidates(fact_sheet, day, team=team, user=user)

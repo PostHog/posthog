@@ -63,7 +63,8 @@ export function TodayHomeSidebar(): JSX.Element {
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
 
     const loading = personalBriefingPending || (topReports === null && !reportsFailed)
-    const moreCount = showPersonalBriefing ? (personalBriefing?.more_reports_count ?? 0) : moreReportCount
+    const moreForYou = showPersonalBriefing ? (personalBriefing?.more_reports_count ?? 0) : 0
+    const moreCount = showPersonalBriefing ? moreForYou || (personalBriefing?.open_reports_count ?? 0) : moreReportCount
     const homeMeta = showPersonalBriefing
         ? (personalBriefing?.headline ?? '')
         : loading
@@ -123,9 +124,7 @@ export function TodayHomeSidebar(): JSX.Element {
                 </div>
                 {moreCount > 0 && (
                     <Link to={urls.inbox()} className="TodaySidebar__more" data-attr="today-nav-inbox">
-                        {showPersonalBriefing
-                            ? `${moreCount} more for you in the Inbox`
-                            : `${moreCount} more in the Inbox`}
+                        {moreForYou > 0 ? `${moreCount} more for you in the Inbox` : `${moreCount} more in the Inbox`}
                     </Link>
                 )}
             </div>

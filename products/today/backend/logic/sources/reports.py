@@ -85,7 +85,3 @@ class ReportsSource(Source):
             )
             for report in reports
         ]
-
-
-def reports_for_me_count(ctx: SourceContext) -> int:
-    return signals.reports_for_me_count(team_id=ctx.team.id, user_id=ctx.user.id)

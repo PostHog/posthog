@@ -190,6 +190,9 @@ export const BriefingApi = zod.object({
         )
         .describe('The left bar: up to 10 items in rank order.'),
     more_reports_count: zod.number().describe('Other open reports for the person that are not in the left bar.'),
+    open_reports_count: zod
+        .number()
+        .describe('Open reports in the whole project that are not in the left bar, whoever they are for.'),
     status: zod
         .enum(['collecting', 'writing', 'ready', 'failed'])
         .describe('\* `collecting` - COLLECTING\n\* `writing` - WRITING\n\* `ready` - READY\n\* `failed` - FAILED'),

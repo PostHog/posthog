@@ -36,6 +36,7 @@ function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
             },
         ],
         more_reports_count: 0,
+        open_reports_count: 0,
         status: 'ready',
         writer: 'llm',
         created_at: '2026-09-30T06:00:00Z',

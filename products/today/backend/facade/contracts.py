@@ -42,6 +42,7 @@ class Briefing:
     paragraphs: list[list[BriefingSegment]]
     items: list[BriefingItem]
     more_reports_count: int
+    open_reports_count: int
     created_at: datetime
     ready_at: datetime | None
 

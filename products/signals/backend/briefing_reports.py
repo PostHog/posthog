@@ -202,6 +202,15 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int 
     return results
 
 
+def open_reports_count(*, team_id: int) -> int:
+    """How many open, actionable reports the project has, the count the Today footer falls back to."""
+    return (
+        SignalReport.objects.filter(team_id=team_id, status__in=_OPEN_STATUSES)
+        .exclude(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
+        .count()
+    )
+
+
 def reports_for_me_count(*, team_id: int, user_id: int) -> int:
     """How many open, actionable reports name this person, the count the Today footer shows."""
     user = User.objects.get(id=user_id)

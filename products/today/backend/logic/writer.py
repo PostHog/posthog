@@ -41,7 +41,7 @@ Rules:
 7. Never name a time of day (this morning, this afternoon, tonight). The page greets the person with the time of day, and the text stays up for hours.
 
 What to write:
-- "headline": one sentence that counts what is in the text. With report items, count them (counts.reports_in_text), for example "Three reports need your input". Without report items, count every text item (counts.items_in_text), for example "Four things need your attention". Never use more_reports_for_you; the page shows it in its own footer.
+- "headline": one sentence that counts what is in the text. With report items, count them (counts.reports_in_text), for example "Three reports need your input". Without report items, count every text item (counts.items_in_text), for example "Four things need your attention".
 - "paragraphs": 2 or 3 short paragraphs, in rank order, each a list of segments {"text", "item_key", "highlight"}.
   - The first paragraph opens with the top item: what it is, why it needs the person (from its reason and facts), and its key number when there is one.
   - Every other text item gets a full sentence of its own that says what it is and why it matters now. Two items may share one sentence only when they are the same kind and the sentence still reads naturally.

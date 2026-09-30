@@ -15,7 +15,7 @@ from .checks import check_content
 from .draft import build_draft
 from .fact_sheet import build_fact_sheet
 from .ranking import rank_candidates, select
-from .sources import SOURCES_BY_NAME, reports
+from .sources import SOURCES_BY_NAME
 from .writer import WriterError, write
 
 logger = structlog.get_logger(__name__)
@@ -50,18 +50,11 @@ def draft_briefing(*, team_id: int, briefing_id: str, candidates: list[Candidate
     if not is_enabled_for(user, team):
         briefing.delete()
         return False
-    ctx = SourceContext(team=team, user=user, now=timezone.now())
     items = select(rank_candidates(candidates))
-    try:
-        reports_count = reports.reports_for_me_count(ctx)
-    except Exception as error:
-        capture_exception(error, {"team_id": team.id, "product": "today"})
-        reports_count = 0
     fact_sheet = build_fact_sheet(
         first_name=user.first_name,
         local_day=briefing.local_day,
         items=items,
-        reports_for_me_count=reports_count,
         failed_sources=failed_sources,
     )
     draft = build_draft(fact_sheet)

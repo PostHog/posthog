@@ -11,7 +11,7 @@ from products.today.backend.logic.draft import build_draft
 FACT_SHEET: dict[str, Any] = {
     "first_name": "Ada",
     "local_day": "2026-09-30",
-    "counts": {"reports_in_text": 1, "more_reports_for_you": 12},
+    "counts": {"reports_in_text": 1},
     "failed_sources": [],
     "items": [
         {
