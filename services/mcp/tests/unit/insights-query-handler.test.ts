@@ -29,6 +29,7 @@ interface QueryResult {
     results: unknown
     insight: { url: string }
     _posthogUrl: string
+    _agentNote?: string
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }
 
@@ -191,7 +192,9 @@ describe('queryHandler — result shape for UI rendering', () => {
         // The UI app's structuredContent must carry the structured shape its guards expect,
         // not the formatted string — otherwise the table can't render.
         expect(result.results).toEqual({ columns: ['c'], results: [[1]] })
-        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(formatted)
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(
+            `${formatted}\n\n_agentNote: ${JSON.stringify(result._agentNote)}`
+        )
     })
 
     it('keeps structured results for a DataVisualizationNode-wrapped HogQL insight in optimized output', async () => {
@@ -207,7 +210,9 @@ describe('queryHandler — result shape for UI rendering', () => {
         const result = (await queryHandler(context, { insightId: '42', output_format: 'optimized' })) as QueryResult
 
         expect(result.results).toEqual({ columns: ['org_id', 'cost'], results: [['a', 1]] })
-        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(formatted)
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(
+            `${formatted}\n\n_agentNote: ${JSON.stringify(result._agentNote)}`
+        )
     })
 
     it('does not surface the formatted override in json output', async () => {
@@ -236,7 +241,9 @@ describe('queryHandler — result shape for UI rendering', () => {
 
         expect(result.results).toBe(trendsResults)
         expect(result.query).toEqual({ kind: 'TrendsQuery' })
-        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(formatted)
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(
+            `${formatted}\n\n_agentNote: ${JSON.stringify(result._agentNote)}`
+        )
     })
 
     it.each([

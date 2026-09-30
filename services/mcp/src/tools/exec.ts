@@ -22,7 +22,6 @@ import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
-import { appendAgentNote } from './tool-utils'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -2113,10 +2112,7 @@ export function createExecTool(
                         // `results`/`_posthogUrl` payload would otherwise duplicate the table
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
-                        outputText =
-                            typeof formattedOverride === 'string'
-                                ? appendAgentNote(formattedOverride, result)
-                                : formatResponse(result)
+                        outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,

@@ -471,8 +471,7 @@ Threshold suggestions cover Trends, SQL, Funnels, and Metrics insights, includin
 The guidance asks the agent to skip empty results, vanity metrics, high-cardinality breakdowns, unavailable alert tools, and offers the user already declined.
 The guidance tells the agent to wait for the user to accept before creating an alert.
 
-When optimized formatting replaces the serialized tool result, the response builder preserves tool-declared notes in the model-visible text if structured content is unavailable to the model.
-This includes calls through `exec` and responses that keep widget data in metadata.
+`withAgentNote` also attaches the declared note to a result's optimized text, so the existing response pipeline carries it through `exec` and responses that keep widget data in metadata.
 An `_agentNote` field supplied by an API response is not promoted into that text.
 
 ### Query response budgets

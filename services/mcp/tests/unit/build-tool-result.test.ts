@@ -269,7 +269,7 @@ describe('buildToolResultPayload — agent notes', () => {
             name: 'formatted table, structuredContent kept',
             withFormatted: true,
             options: { suppressStructuredContentForFormattedResults: false },
-            noteInText: false,
+            noteInText: true,
             noteInStructured: true,
         },
         {
@@ -300,7 +300,7 @@ describe('buildToolResultPayload — agent notes', () => {
         'preserves the note across response channels — $name',
         ({ withFormatted, options, params, noteInText, noteInStructured }) => {
             const payload = buildToolResultPayload({
-                handlerResult: withAgentNote(queryTrendsHandlerResult(withFormatted), AGENT_NOTE),
+                handlerResult: { ...withAgentNote(queryTrendsHandlerResult(withFormatted), AGENT_NOTE) },
                 toolMeta: queryTrendsToolMeta,
                 toolName: 'query-trends',
                 params: params ?? {},
@@ -326,8 +326,6 @@ describe('buildToolResultPayload — agent notes', () => {
         expect(JSON.parse(payload.content[0]!.text)).toMatchObject({ _agentNote: AGENT_NOTE })
     })
 
-    // The pointer string is an exact-match sentinel: append anything and estimateResponseTokens
-    // silently measures the pointer instead of the payload it stands for.
     it('counts the structured payload for token estimation when a note is present', () => {
         const payload = buildToolResultPayload({
             handlerResult: withAgentNote(queryTrendsHandlerResult(false), AGENT_NOTE),
@@ -342,7 +340,7 @@ describe('buildToolResultPayload — agent notes', () => {
         expect(estimateResponseTokens(payload)).toBe(estimateTokens(payload.structuredContent))
     })
 
-    it('ignores an _agentNote this module did not attach', () => {
+    it('does not add an API-supplied _agentNote to the formatted text', () => {
         const payload = buildToolResultPayload({
             handlerResult: { ...queryTrendsHandlerResult(), _agentNote: 'from an API response' },
             toolMeta: queryTrendsToolMeta,

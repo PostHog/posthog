@@ -4,7 +4,6 @@ import { type DiscoveryHint, type DiscoveryHintKind, getDiscoveryHint, isEmptyTo
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
-import { appendAgentNote } from '@/tools/tool-utils'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
@@ -225,21 +224,10 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         !useJson &&
         formattedResults === undefined
 
-    let body = structuredContentOnly
+    const body = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT
         : ((includeAppData && useJson ? undefined : formattedResults) ??
           (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
-
-    // A formatted result replaces the serialized payload. Preserve its declared note when
-    // structuredContent is unavailable to the model, including native widget responses.
-    if (
-        !isStringResult &&
-        !useJson &&
-        formattedResults !== undefined &&
-        !(hasUiResource && !suppressStructuredContent)
-    ) {
-        body = appendAgentNote(body, handlerResult)
-    }
 
     const footers: string[] = []
 
