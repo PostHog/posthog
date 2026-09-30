@@ -142,6 +142,10 @@ pub struct Config {
     #[envconfig(default = "30000")]
     pub identity_timeout_ms: u64,
 
+    /// Number of gRPC channels to open to each leader pod (leader mode only)
+    #[envconfig(default = "4")]
+    pub leader_channels: usize,
+
     /// Timeout for backend requests in milliseconds
     #[envconfig(default = "5000")]
     pub backend_timeout_ms: u64,
