@@ -3,6 +3,9 @@
 
 Run these checks against each flag fetched via `feature-flag-get-definition` or `feature-flag-get-all`.
 
+A `feature-flag-get-all` row carries `status`, `last_called_at`, `active` and `created_at`.
+It does not carry `filters` or `experiment_set`, so fetch the definition for any check that reads those.
+
 ---
 
 ## 1. Staleness: fully rolled out
@@ -10,8 +13,6 @@ Run these checks against each flag fetched via `feature-flag-get-definition` or 
 Detects active boolean flags that are effectively permanent and can be removed from code.
 
 **Look at**: `active`, `filters.multivariate` (should be absent or null for boolean flags), `filters.groups`, `last_called_at`
-
-A `feature-flag-get-all` row carries `status`, `last_called_at`, `active` and `created_at`, so fetch the definition only for `filters` and the rollout details.
 
 **Findings**:
 
