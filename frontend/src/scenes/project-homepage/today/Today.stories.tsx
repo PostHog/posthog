@@ -269,6 +269,31 @@ export const SpacesPane: Story = {
     },
 }
 
+async function selectTwoSessions({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByLabelText('Spaces'))
+    await userEvent.keyboard('{Meta>}')
+    await userEvent.click(await canvas.findByText('Fix the flaky checkout test'))
+    await userEvent.keyboard('{/Meta}{Shift>}')
+    await userEvent.click(await canvas.findByText('Add a retry to the billing webhook'))
+    await userEvent.keyboard('{/Shift}')
+}
+
+export const SpacesPaneWithSelectedSessions: Story = {
+    play: selectTwoSessions,
+}
+
+export const SpacesPaneWithSelectedSessionsNarrow: Story = {
+    decorators: [
+        (Story) => {
+            // The resizer's persisted width, set to the sidebar minimum.
+            window.localStorage.setItem('components.resizer.resizerLogic.today-sidebar.size', '240')
+            return <Story />
+        },
+    ],
+    play: selectTwoSessions,
+}
+
 export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }

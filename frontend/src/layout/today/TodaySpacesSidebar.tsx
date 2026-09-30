@@ -13,6 +13,7 @@ import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
 import { TodayRecentSearchField } from './TodayRecentSearchField'
+import { TodaySessionBulkBar } from './TodaySessionBulkBar'
 import { TodaySessionRow } from './TodaySessionRow'
 import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
@@ -291,6 +292,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                         )}
                     </TodayPaneSection>
                 </div>
+                <TodaySessionBulkBar />
             </div>
         </TooltipProvider>
     )

@@ -1,5 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { MouseEvent } from 'react'
 
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -9,6 +10,7 @@ import { TaskPullRequestChip } from 'products/tasks/frontend/spaces/TaskPullRequ
 import { TodaySessionMenu } from './TodaySessionMenu'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionRenameInput } from './TodaySessionRenameInput'
+import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
 import { TodaySessionStatusIcon } from './TodaySessionStatusIcon'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem, activeCloudRunId, analysisRunId, canHandOff } from './todayWorkItems'
@@ -24,8 +26,21 @@ export function TodaySessionRow({ item, pinned, dataAttr, surface }: TodaySessio
     const { renaming } = useValues(todaySessionMenuLogic)
     const { location, searchParams } = useValues(router)
     const { user } = useValues(userLogic)
+    const { visibleSelectedIds } = useValues(todaySessionSelectionLogic)
+    const { toggleSession, selectRange } = useActions(todaySessionSelectionLogic)
 
     const [pullRequest] = item.pullRequests
+
+    // While some rows are selected, a plain click also toggles, so the selection is not lost to a navigation.
+    const onLinkClick = (event: MouseEvent<HTMLElement>): void => {
+        if (event.shiftKey) {
+            event.preventDefault()
+            selectRange(item.id)
+        } else if (event.metaKey || event.ctrlKey || visibleSelectedIds.length > 0) {
+            event.preventDefault()
+            toggleSession(item.id)
+        }
+    }
 
     if (renaming?.sessionId === item.id && renaming.surface === surface) {
         return <TodaySessionRenameInput sessionId={item.id} title={item.title} />
@@ -37,6 +52,8 @@ export function TodaySessionRow({ item, pinned, dataAttr, surface }: TodaySessio
             to={urls.aiTask(item.id)}
             active={location.pathname.endsWith('/ai') && searchParams.task === item.id}
             dataAttr={dataAttr}
+            selected={visibleSelectedIds.includes(item.id)}
+            onLinkClick={onLinkClick}
             badge={
                 pullRequest ? (
                     <TaskPullRequestChip
