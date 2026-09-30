@@ -5,13 +5,13 @@ from django.db import migrations
 
 # A frozen copy of the alerts naming rule, so later edits to the product code cannot change what
 # this migration did.
-# The first branch takes the URL the builder appended, which runs to the end of the name. It is
-# tried first because an apostrophe and a double quote are both legal in a URL path and query
-# (RFC 3986 sub-delims), so the bounded branch would stop at one and leave the rest of the
-# credential in the name. The bounded branch then covers a URL the alert's own name carried,
-# which has text after it, and ends on a non-punctuation character so a following bracket or
-# comma stays in the text.
-_URL_IN_NAME_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://(?:\S*$|[^\s'\"]*[^\s'\".,;:!?)\]}>])")
+# An apostrophe and a double quote are both legal in a URL path and query (RFC 3986 sub-delims),
+# so neither ends a URL. Both branches run through them.
+# The first branch takes the URL the builder appended, which runs to the end of the name, and so
+# keeps a credential that ends in a quote. The second covers a URL the alert's own name carried,
+# which has text after it. It ends on a non-punctuation character, so a bracket or comma that
+# closes the surrounding sentence stays in the text rather than being read as part of the URL.
+_URL_IN_NAME_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://(?:\S*$|\S*[^\s'\".,;:!?)\]}>])")
 _FILE_SYSTEM_TYPE = "hog_function/internal_destination"
 
 

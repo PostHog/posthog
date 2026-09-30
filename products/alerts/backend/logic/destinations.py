@@ -342,9 +342,12 @@ def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_even
 # receipt in the API, the History tooltip, or a read surface in another product — must
 # keep only the host.
 # No leading word boundary: a scheme glued to a word character (`hook_https://…`) is still
-# a URL, and skipping it would leave the credential in the name. The match ends on a
-# non-punctuation character, so a bracket or comma after the URL stays in the text.
-_URL_IN_NAME_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s'\"]*[^\s'\".,;:!?)\]}>]")
+# a URL, and skipping it would leave the credential in the name. The match runs through an
+# apostrophe and a double quote, because both are legal in a URL path and query (RFC 3986
+# sub-delims) and stopping at one leaves the rest of the credential behind. It ends on a
+# non-punctuation character, so a bracket or comma after the URL stays in the text, and a URL
+# written inside real quotes keeps its closing quote.
+_URL_IN_NAME_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://\S*[^\s'\".,;:!?)\]}>]")
 
 _DESTINATION_NAME_SEPARATOR = " → "
 

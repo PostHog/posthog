@@ -54,6 +54,10 @@ class TestRedactWebhookUrlsInDestinationNames(TestMigrations):
             "Logs — Errors (firing) → Webhook https://hooks.example.com/hook?token='s3cr3t",
             ALERT_FILTERS,
         )
+        self.quoted_in_alert_name = make(
+            "Logs — https://hooks.example.com/h?t='s3cr3t (firing) → Webhook https://hooks.example.com/other",
+            ALERT_FILTERS,
+        )
 
     def test_only_alert_managed_webhook_names_are_redacted(self) -> None:
         assert self.apps is not None
@@ -67,5 +71,10 @@ class TestRedactWebhookUrlsInDestinationNames(TestMigrations):
         assert FileSystemShortcut.objects.get(id=self.shortcut.id).path == REDACTED_NAME
         assert HogFunction.objects.get(id=self.user_webhook.id).name == self.user_webhook_name
         # An apostrophe is legal in a URL query, and treating it as the end of the URL used to
-        # leave everything after it in the name.
+        # leave everything after it in the name. That holds for the URL the builder appended and
+        # for one the alert's own name carried, which has text after it.
         assert HogFunction.objects.get(id=self.quoted_webhook.id).name == REDACTED_NAME
+        assert (
+            HogFunction.objects.get(id=self.quoted_in_alert_name.id).name
+            == "Logs — hooks.example.com (firing) → Webhook hooks.example.com"
+        )
