@@ -14871,6 +14871,22 @@
             "readOnlyHint": true
         }
     },
+    "workflows-check-code": {
+        "description": "Check a workflow file (YAML, or JSON text) against PostHog and see what applying it would change. Writes nothing. Send the whole file as content. On a mistake it returns 400 with every error at once, each with a status, a path in the file's own field names, a line and column, and a why and fix: fix them all and check again. On success it returns a plan: result is create (no workflow has the key), update or unchanged; added_steps, changed_steps and removed_steps list what changes. A removed step keeps the people in it only if it was renamed with its old id: when a warning names people in a removed step, show it to the user, and follow its fix if the step was renamed. Get the file's schema first with workflows-get-code-schema.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Check a workflow file",
+        "title": "Check a workflow file",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-as-code",
+        "feature_flag_behavior": "enable"
+    },
     "workflows-create": {
         "description": "Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real people, and further content edits stage as a draft you must publish (workflows-publish) to take effect. Provide an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|schedule|tracking_pixel) plus action nodes (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...) connected by edges. A webhook or manual trigger also needs config.template_id set to the literal 'template-source-webhook', and a tracking_pixel trigger needs 'template-source-webhook-pixel'; without it the create is rejected with 'Template not found' against the trigger node. Read the building-workflows skill for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server compiles it. For '$account_custom_property_changed', current_value is polymorphic. To target multiple property types, repeat that event in filters.events: nested properties in each event entry are ANDed, while event entries are ORed. For example, one entry can pair property_name=Plan with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do not put one shared current_value condition in top-level properties. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence, so attach its cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.",
         "category": "Workflows",
@@ -14940,6 +14956,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "workflows-get-code-schema": {
+        "description": "Get the JSON Schema of a workflow file: one YAML file per workflow with version, key, name, trigger and steps. Every field carries a description, and each trigger and step is picked by its type. Read it before writing a file, then check the file with workflows-check-code. A file cannot carry secrets, so leave secret inputs out.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get the workflow file schema",
+        "title": "Get the workflow file schema",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-as-code",
+        "feature_flag_behavior": "enable"
     },
     "workflows-get-email-template": {
         "description": "Get an email template by ID, including content.email (subject, text, design). Use this to fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build your update payload from this response. To display a template to the user, use workflows-show-email-template instead.",

@@ -207,6 +207,7 @@ export class ToolDomainExtractor {
         'run',
         'archive',
         'calculate',
+        'check',
         'claim',
         'complete',
         'copy',

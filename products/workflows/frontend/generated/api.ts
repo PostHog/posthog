@@ -17,6 +17,8 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowCodeCheckResponseApi,
+    HogFlowCodeRequestApi,
     HogFlowInvocationApi,
     HogFlowOptimizationApi,
     HogFlowPublishRequestApi,
@@ -32,6 +34,7 @@ import type {
     HogFlowUpdateApi,
     HogFlowsAssetContentRetrieveParams,
     HogFlowsAssetsRetrieveParams,
+    HogFlowsCodeSchemaRetrieve200,
     HogFlowsInvocationResultsCountRetrieveParams,
     HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
@@ -262,6 +265,9 @@ export const getHogFlowsListUrl = (projectId: string, params?: HogFlowsListParam
         : `/api/projects/${projectId}/hog_flows/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsList = async (
     projectId: string,
     params?: HogFlowsListParams,
@@ -277,6 +283,9 @@ export const getHogFlowsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsCreate = async (
     projectId: string,
     hogFlowApi: NonReadonly<HogFlowApi>,
@@ -294,6 +303,9 @@ export const getHogFlowsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<HogFlowApi> => {
     return apiMutator<HogFlowApi>(getHogFlowsRetrieveUrl(projectId, id), {
         ...options,
@@ -305,6 +317,9 @@ export const getHogFlowsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsUpdate = async (
     projectId: string,
     id: string,
@@ -323,6 +338,9 @@ export const getHogFlowsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -341,6 +359,9 @@ export const getHogFlowsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getHogFlowsDestroyUrl(projectId, id), {
         ...options,
@@ -352,6 +373,9 @@ export const getHogFlowsActionsEmailPartialUpdateUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/hog_flows/${id}/actions/${actionId}/email/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsActionsEmailPartialUpdate = async (
     projectId: string,
     id: string,
@@ -383,6 +407,9 @@ export const getHogFlowsAssetsRetrieveUrl = (projectId: string, id: string, para
         : `/api/projects/${projectId}/hog_flows/${id}/assets/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsAssetsRetrieve = async (
     projectId: string,
     id: string,
@@ -415,6 +442,9 @@ export const getHogFlowsAssetContentRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flows/${id}/assets/content/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsAssetContentRetrieve = async (
     projectId: string,
     id: string,
@@ -431,6 +461,9 @@ export const getHogFlowsBatchJobsListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsBatchJobsList = async (
     projectId: string,
     id: string,
@@ -446,6 +479,9 @@ export const getHogFlowsBatchJobsCreateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsBatchJobsCreate = async (
     projectId: string,
     id: string,
@@ -491,6 +527,9 @@ export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/hog_flows/${id}/discard_draft/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsDiscardDraftCreate = async (
     projectId: string,
     id: string,
@@ -506,6 +545,9 @@ export const getHogFlowsGraphPartialUpdateUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/hog_flows/${id}/graph/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsGraphPartialUpdate = async (
     projectId: string,
     id: string,
@@ -540,6 +582,9 @@ export const getHogFlowsInvocationResultsRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flows/${id}/invocation_results/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsInvocationResultsRetrieve = async (
     projectId: string,
     id: string,
@@ -556,6 +601,9 @@ export const getHogFlowsInvocationResultRetrieveUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/hog_flows/${id}/invocation_results/${invocationId}/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsInvocationResultRetrieve = async (
     projectId: string,
     id: string,
@@ -614,6 +662,9 @@ export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/hog_flows/${id}/invocations/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsInvocationsCreate = async (
     projectId: string,
     id: string,
@@ -670,6 +721,9 @@ export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string, params
         : `/api/projects/${projectId}/hog_flows/${id}/logs/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsLogsRetrieve = async (
     projectId: string,
     id: string,
@@ -702,6 +756,9 @@ export const getHogFlowsMetricsRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flows/${id}/metrics/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsMetricsRetrieve = async (
     projectId: string,
     id: string,
@@ -734,6 +791,9 @@ export const getHogFlowsMetricsTotalsRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flows/${id}/metrics/totals/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsMetricsTotalsRetrieve = async (
     projectId: string,
     id: string,
@@ -853,6 +913,9 @@ export const getHogFlowsProposalsRetrieveUrl = (projectId: string, id: string, p
     return `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsProposalsRetrieve = async (
     projectId: string,
     id: string,
@@ -869,6 +932,9 @@ export const getHogFlowsProposalsApproveCreateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/approve/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsProposalsApproveCreate = async (
     projectId: string,
     id: string,
@@ -934,6 +1000,9 @@ export const getHogFlowsProposalsRejectCreateUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/reject/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsProposalsRejectCreate = async (
     projectId: string,
     id: string,
@@ -950,6 +1019,9 @@ export const getHogFlowsPublishCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/publish/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsPublishCreate = async (
     projectId: string,
     id: string,
@@ -1031,6 +1103,9 @@ export const getHogFlowsRevisionsListUrl = (projectId: string, id: string, param
         : `/api/projects/${projectId}/hog_flows/${id}/revisions/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsRevisionsList = async (
     projectId: string,
     id: string,
@@ -1047,6 +1122,9 @@ export const getHogFlowsRevisionsRetrieveUrl = (projectId: string, id: string, v
     return `/api/projects/${projectId}/hog_flows/${id}/revisions/${version}/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsRevisionsRetrieve = async (
     projectId: string,
     id: string,
@@ -1063,6 +1141,9 @@ export const getHogFlowsRevisionsRestoreCreateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/hog_flows/${id}/revisions/${version}/restore/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsRevisionsRestoreCreate = async (
     projectId: string,
     id: string,
@@ -1112,6 +1193,9 @@ export const getHogFlowsSchedulesListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/schedules/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsSchedulesList = async (
     projectId: string,
     id: string,
@@ -1127,6 +1211,9 @@ export const getHogFlowsSchedulesCreateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/hog_flows/${id}/schedules/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsSchedulesCreate = async (
     projectId: string,
     id: string,
@@ -1145,6 +1232,9 @@ export const getHogFlowsSchedulesPartialUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/hog_flows/${id}/schedules/${scheduleId}/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsSchedulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1164,6 +1254,9 @@ export const getHogFlowsSchedulesDestroyUrl = (projectId: string, id: string, sc
     return `/api/projects/${projectId}/hog_flows/${id}/schedules/${scheduleId}/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsSchedulesDestroy = async (
     projectId: string,
     id: string,
@@ -1180,6 +1273,9 @@ export const getHogFlowsBulkDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/bulk_delete/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsBulkDeleteCreate = async (
     projectId: string,
     hogFlowApi: NonReadonly<HogFlowApi>,
@@ -1190,6 +1286,43 @@ export const hogFlowsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsCodeCheckCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/code_check/`
+}
+
+/**
+ * Check a workflow file and plan what applying it would change. Writes nothing.
+ */
+export const hogFlowsCodeCheckCreate = async (
+    projectId: string,
+    hogFlowCodeRequestApi: HogFlowCodeRequestApi,
+    options?: RequestInit
+): Promise<HogFlowCodeCheckResponseApi> => {
+    return apiMutator<HogFlowCodeCheckResponseApi>(getHogFlowsCodeCheckCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowCodeRequestApi),
+    })
+}
+
+export const getHogFlowsCodeSchemaRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/code_schema/`
+}
+
+/**
+ * The JSON Schema of a workflow file (draft 2020-12). Every field carries a description.
+ */
+export const hogFlowsCodeSchemaRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HogFlowsCodeSchemaRetrieve200> => {
+    return apiMutator<HogFlowsCodeSchemaRetrieve200>(getHogFlowsCodeSchemaRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1231,6 +1364,9 @@ export const getHogFlowsMetricsGlobalRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flows/metrics/global/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsMetricsGlobalRetrieve = async (
     projectId: string,
     params?: HogFlowsMetricsGlobalRetrieveParams,
@@ -1279,6 +1415,9 @@ export const getHogFlowsUserBlastRadiusCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/user_blast_radius/`
 }
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsUserBlastRadiusCreate = async (
     projectId: string,
     blastRadiusRequestApi: BlastRadiusRequestApi,

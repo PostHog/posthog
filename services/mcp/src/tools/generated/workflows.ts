@@ -62,6 +62,32 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
     },
 })
 
+const WorkflowsCheckCodeSchema = () => {
+    const HogFlowsCodeCheckCreateBody = orvalSchemas.HogFlowsCodeCheckCreateBody()
+    return HogFlowsCodeCheckCreateBody
+}
+
+const workflowsCheckCode = (): ToolBase<
+    ReturnType<typeof WorkflowsCheckCodeSchema>,
+    Schemas.HogFlowCodeCheckResponse
+> => ({
+    name: 'workflows-check-code',
+    schema: WorkflowsCheckCodeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsCheckCodeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        const result = await context.api.request<Schemas.HogFlowCodeCheckResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/code_check/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
     return HogFlowsCreateBody
@@ -153,6 +179,21 @@ const workflowsGet = (): ToolBase<ReturnType<typeof WorkflowsGetSchema>, WithPos
             return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
         },
     })
+
+const WorkflowsGetCodeSchemaSchema = () => z.object({})
+
+const workflowsGetCodeSchema = (): ToolBase<ReturnType<typeof WorkflowsGetCodeSchemaSchema>, unknown> => ({
+    name: 'workflows-get-code-schema',
+    schema: WorkflowsGetCodeSchemaSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsGetCodeSchemaSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/code_schema/`,
+        })
+        return result
+    },
+})
 
 const WorkflowsGetInvocationSchema = () => {
     const HogFlowsInvocationResultRetrieveParams = orvalSchemas.HogFlowsInvocationResultRetrieveParams()
@@ -670,9 +711,11 @@ const workflowsUpdateSchedule = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
+    'workflows-check-code': workflowsCheckCode,
     'workflows-create': workflowsCreate,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-get': workflowsGet,
+    'workflows-get-code-schema': workflowsGetCodeSchema,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-get-revision': workflowsGetRevision,
     'workflows-global-stats': workflowsGlobalStats,

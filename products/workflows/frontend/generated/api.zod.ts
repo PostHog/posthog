@@ -403,6 +403,9 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
         'Serializer for creating hog flow templates.\nValidates and sanitizes the workflow before creating it as a template.'
     )
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsCreateBodyNameMax = 400
 
 export const hogFlowsCreateBodyDescriptionDefault = ``
@@ -808,6 +811,9 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsUpdateBodyNameMax = 400
 
 export const hogFlowsUpdateBodyDescriptionDefault = ``
@@ -1204,6 +1210,9 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsPartialUpdateBodyNameMax = 400
 
 export const hogFlowsPartialUpdateBodyDescriptionDefault = ``
@@ -1608,6 +1617,9 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object({
     base_updated_at: zod.iso
         .datetime({ offset: true })
@@ -1682,6 +1694,9 @@ export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object(
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed'])
@@ -1696,6 +1711,9 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
     variables: zod.unknown().optional().describe('Variable value overrides applied to this run.'),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
     base_updated_at: zod.iso
         .datetime({ offset: true })
@@ -1787,6 +1805,9 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
@@ -2486,6 +2507,9 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsProposalsApproveCreateBodyOverwriteDefault = false
 
 export const HogFlowsProposalsApproveCreateBody = /* @__PURE__ */ zod.object({
@@ -2503,6 +2527,9 @@ export const HogFlowsProposalsApproveCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsPublishCreateBodyConfirmDefault = false
 
 export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
@@ -2599,6 +2626,9 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
     })
     .describe('Rerun invocations of a hog function or hog flow from their stored payloads.')
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsRevisionsRestoreCreateBodyOverwriteDefault = false
 
 export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
@@ -2635,6 +2665,9 @@ export const HogFlowsRunCreateBody = /* @__PURE__ */ zod.object({
         .describe("Variable value overrides, merged with the workflow's own variable defaults for this run only."),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsSchedulesCreateBodyTimezoneMax = 64
 
 export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
@@ -2655,6 +2688,9 @@ export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsSchedulesPartialUpdateBodyTimezoneMax = 64
 
 export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -2676,6 +2712,9 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
@@ -3088,6 +3127,20 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Check a workflow file and plan what applying it would change. Writes nothing.
+ */
+export const HogFlowsCodeCheckCreateBody = /* @__PURE__ */ zod.object({
+    content: zod
+        .string()
+        .describe(
+            'The workflow file as text, in YAML, or in JSON when it starts with {. At most 1048576 bytes. Get its schema from code_schema.'
+        ),
+})
+
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const hogFlowsUserBlastRadiusCreateBodySendsEmailDefault = true
 
 export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({

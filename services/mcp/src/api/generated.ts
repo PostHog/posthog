@@ -51494,6 +51494,263 @@ export namespace Schemas {
       done: boolean;
     }
 
+    export interface HogFlowCodeChangedStep {
+      /** The step id. */
+      id: string;
+      /** The step name. */
+      name: string;
+      /** The action type the step compiles to, for example delay. */
+      type: string;
+      /** The step's fields that change, as dotted paths at most two levels deep, for example config.conditions. */
+      changes: string[];
+    }
+
+    /**
+     * * `create` - Create
+     * * `update` - Update
+     * * `unchanged` - Unchanged
+     */
+    export type WorkflowCodePlanResultEnum = typeof WorkflowCodePlanResultEnum[keyof typeof WorkflowCodePlanResultEnum];
+
+
+    export const WorkflowCodePlanResultEnum = {
+      Create: 'create',
+      Update: 'update',
+      Unchanged: 'unchanged',
+    } as const;
+
+    export interface HogFlowCodeWorkflow {
+      /** The workflow id. */
+      id: string;
+      /** The key the file names. */
+      key: string;
+      /**
+         * The stored workflow name.
+         * @nullable
+         */
+      name: string | null;
+      /** The stored workflow version. */
+      version: number;
+      /** The stored workflow status.
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      status: HogFlowStateEnum;
+    }
+
+    export interface HogFlowCodeStatusChange {
+      /** The status the file sets.
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      to: HogFlowStateEnum;
+      /** The stored status. Null when the file creates the workflow.
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      from: HogFlowStateEnum | null;
+    }
+
+    export interface HogFlowCodeStep {
+      /** The step id. */
+      id: string;
+      /** The step name. */
+      name: string;
+      /** The action type the step compiles to, for example delay. */
+      type: string;
+    }
+
+    export interface HogFlowPublishImpactMoveTarget {
+      /** Id of the surviving step runs will continue at. */
+      action_id: string;
+      /** Name of the surviving step. */
+      name: string;
+    }
+
+    export interface HogFlowPublishImpactDeletedStep {
+      /** Id of the step this publish deletes. */
+      action_id: string;
+      /** Name of the deleted step. */
+      name: string;
+      /**
+         * About how many in-flight runs are parked on this step. Null when the count is unavailable.
+         * @nullable
+         */
+      runs: number | null;
+      /** Where those runs continue (skip-forward). Null when nothing downstream survives. */
+      moves_to: HogFlowPublishImpactMoveTarget | null;
+      /** True when runs parked here exit the workflow instead of moving forward. */
+      exits: boolean;
+    }
+
+    export interface HogFlowPublishImpactEmptyVariable {
+      /** Variable that renders empty for runs already past its producer. */
+      variable: string;
+      /**
+         * Id of the new action that sets it; null when the draft newly declares it as a workflow variable.
+         * @nullable
+         */
+      set_by: string | null;
+      /** Ids of steps whose content references the variable. */
+      referenced_by: string[];
+    }
+
+    export interface HogFlowPublishImpactScheduleConflict {
+      /** Schedule whose variable overrides reference removed variables. */
+      schedule_id: string;
+      /** Override keys the draft no longer declares as workflow variables. */
+      variables: string[];
+    }
+
+    export interface HogFlowCodePlan {
+      /** create: no workflow has this key. update: applying the file changes the workflow. unchanged: it changes nothing.
+       *
+       * * `create` - Create
+       * * `update` - Update
+       * * `unchanged` - Unchanged */
+      result: WorkflowCodePlanResultEnum;
+      /** The stored workflow with this key. Null when the file creates one. */
+      workflow: HogFlowCodeWorkflow | null;
+      /** Workflow-level fields that change: name, description, exit_condition, variables, edges, trigger or exit. */
+      changed_fields: string[];
+      /** The status before and after applying the file. */
+      status: HogFlowCodeStatusChange;
+      /** Steps the file adds. */
+      added_steps: HogFlowCodeStep[];
+      /** Steps whose content changes. */
+      changed_steps: HogFlowCodeChangedStep[];
+      /**
+         * Runs in the workflow now. Null when PostHog could not count them.
+         * @nullable
+         */
+      in_flight_runs: number | null;
+      /**
+         * Runs whose current step is unknown. Null when PostHog could not count them.
+         * @nullable
+         */
+      position_unknown: number | null;
+      /** True when the workflow has a staged draft that applying the file would throw away. */
+      discards_draft: boolean;
+      /** Steps the file removes, with the people in each and where they go. */
+      removed_steps: HogFlowPublishImpactDeletedStep[];
+      /** Variables that are empty for runs that started before the step that sets them. */
+      empty_variables: HogFlowPublishImpactEmptyVariable[];
+      /** Schedules that set variables the file removes. */
+      schedule_conflicts: HogFlowPublishImpactScheduleConflict[];
+    }
+
+    export interface HogFlowCodeWarning {
+      /** What applying the file would do that needs attention. */
+      message: string;
+      /** What to change if that is not what you want. */
+      fix: string;
+      /**
+         * Where in the file, when the warning concerns one place.
+         * @nullable
+         */
+      path: string | null;
+    }
+
+    export interface HogFlowCodeCheckResponse {
+      /** What applying the file would change. */
+      plan: HogFlowCodePlan;
+      /** Things to look at before applying the file. */
+      warnings: HogFlowCodeWarning[];
+    }
+
+    /**
+     * * `invalid_yaml` - Invalid Yaml
+     * * `yaml_feature_not_allowed` - Yaml Feature Not Allowed
+     * * `duplicate_key` - Duplicate Key
+     * * `content_too_large` - Content Too Large
+     * * `unsupported_version` - Unsupported Version
+     * * `missing_field` - Missing Field
+     * * `unknown_field` - Unknown Field
+     * * `invalid_value` - Invalid Value
+     * * `unknown_type` - Unknown Type
+     * * `duplicate_step_id` - Duplicate Step Id
+     * * `secret_input` - Secret Input
+     * * `unknown_template` - Unknown Template
+     * * `invalid_workflow` - Invalid Workflow
+     * * `status_change_not_allowed` - Status Change Not Allowed
+     * * `conflict` - Conflict
+     */
+    export type WorkflowCodeErrorStatusEnum = typeof WorkflowCodeErrorStatusEnum[keyof typeof WorkflowCodeErrorStatusEnum];
+
+
+    export const WorkflowCodeErrorStatusEnum = {
+      InvalidYaml: 'invalid_yaml',
+      YamlFeatureNotAllowed: 'yaml_feature_not_allowed',
+      DuplicateKey: 'duplicate_key',
+      ContentTooLarge: 'content_too_large',
+      UnsupportedVersion: 'unsupported_version',
+      MissingField: 'missing_field',
+      UnknownField: 'unknown_field',
+      InvalidValue: 'invalid_value',
+      UnknownType: 'unknown_type',
+      DuplicateStepId: 'duplicate_step_id',
+      SecretInput: 'secret_input',
+      UnknownTemplate: 'unknown_template',
+      InvalidWorkflow: 'invalid_workflow',
+      StatusChangeNotAllowed: 'status_change_not_allowed',
+      Conflict: 'conflict',
+    } as const;
+
+    export interface HogFlowCodeError {
+      /** A machine-readable code for the kind of mistake.
+       *
+       * * `invalid_yaml` - Invalid Yaml
+       * * `yaml_feature_not_allowed` - Yaml Feature Not Allowed
+       * * `duplicate_key` - Duplicate Key
+       * * `content_too_large` - Content Too Large
+       * * `unsupported_version` - Unsupported Version
+       * * `missing_field` - Missing Field
+       * * `unknown_field` - Unknown Field
+       * * `invalid_value` - Invalid Value
+       * * `unknown_type` - Unknown Type
+       * * `duplicate_step_id` - Duplicate Step Id
+       * * `secret_input` - Secret Input
+       * * `unknown_template` - Unknown Template
+       * * `invalid_workflow` - Invalid Workflow
+       * * `status_change_not_allowed` - Status Change Not Allowed
+       * * `conflict` - Conflict */
+      status: WorkflowCodeErrorStatusEnum;
+      /** What is wrong, and where. */
+      message: string;
+      /** Why PostHog refuses it. */
+      why: string;
+      /** What to change in the file. */
+      fix: string;
+      /**
+         * Where the mistake is, in the file's own field names, for example steps[1].arms[0].then[0].subject. Null when it concerns the whole file.
+         * @nullable
+         */
+      path: string | null;
+      /**
+         * The 1-based line of the mistake. Null for JSON content and whole-file mistakes.
+         * @nullable
+         */
+      line: number | null;
+      /**
+         * The 1-based column of the mistake. Null for JSON content and whole-file mistakes.
+         * @nullable
+         */
+      column: number | null;
+    }
+
+    export interface HogFlowCodeErrors {
+      /** Every mistake in the file, in file order. */
+      errors: HogFlowCodeError[];
+    }
+
+    export interface HogFlowCodeRequest {
+      /** The workflow file as text, in YAML, or in JSON when it starts with {. At most 1048576 bytes. Get its schema from code_schema. */
+      content: string;
+    }
+
     /**
      * * `update_action` - update_action
      * * `add_action` - add_action
@@ -51593,48 +51850,6 @@ export namespace Schemas {
     export interface HogFlowOptimization {
       /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
       enabled: boolean;
-    }
-
-    export interface HogFlowPublishImpactMoveTarget {
-      /** Id of the surviving step runs will continue at. */
-      action_id: string;
-      /** Name of the surviving step. */
-      name: string;
-    }
-
-    export interface HogFlowPublishImpactDeletedStep {
-      /** Id of the step this publish deletes. */
-      action_id: string;
-      /** Name of the deleted step. */
-      name: string;
-      /**
-         * About how many in-flight runs are parked on this step. Null when the count is unavailable.
-         * @nullable
-         */
-      runs: number | null;
-      /** Where those runs continue (skip-forward). Null when nothing downstream survives. */
-      moves_to: HogFlowPublishImpactMoveTarget | null;
-      /** True when runs parked here exit the workflow instead of moving forward. */
-      exits: boolean;
-    }
-
-    export interface HogFlowPublishImpactEmptyVariable {
-      /** Variable that renders empty for runs already past its producer. */
-      variable: string;
-      /**
-         * Id of the new action that sets it; null when the draft newly declares it as a workflow variable.
-         * @nullable
-         */
-      set_by: string | null;
-      /** Ids of steps whose content references the variable. */
-      referenced_by: string[];
-    }
-
-    export interface HogFlowPublishImpactScheduleConflict {
-      /** Schedule whose variable overrides reference removed variables. */
-      schedule_id: string;
-      /** Override keys the draft no longer declares as workflow variables. */
-      variables: string[];
     }
 
     export interface HogFlowPublishImpact {
@@ -89770,20 +89985,6 @@ export namespace Schemas {
       agent_response?: string;
     }
 
-    /**
-     * * `accepted` - accepted
-     * * `target_finished` - target_finished
-     * * `rejected` - rejected
-     */
-    export type ResultEnum = typeof ResultEnum[keyof typeof ResultEnum];
-
-
-    export const ResultEnum = {
-      Accepted: 'accepted',
-      TargetFinished: 'target_finished',
-      Rejected: 'rejected',
-    } as const;
-
     export interface ResultReceipt {
       /** Accepted item UUID. */
       id: string;
@@ -102061,13 +102262,27 @@ export namespace Schemas {
       artifact_ids?: string[];
     }
 
+    /**
+     * * `accepted` - accepted
+     * * `target_finished` - target_finished
+     * * `rejected` - rejected
+     */
+    export type TaskRunPeerMessageResponseResultEnum = typeof TaskRunPeerMessageResponseResultEnum[keyof typeof TaskRunPeerMessageResponseResultEnum];
+
+
+    export const TaskRunPeerMessageResponseResultEnum = {
+      Accepted: 'accepted',
+      TargetFinished: 'target_finished',
+      Rejected: 'rejected',
+    } as const;
+
     export interface TaskRunPeerMessageResponse {
       /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
        *
        * * `accepted` - accepted
        * * `target_finished` - target_finished
        * * `rejected` - rejected */
-      result: ResultEnum;
+      result: TaskRunPeerMessageResponseResultEnum;
       /** Human-readable explanation of the result. */
       detail: string;
       /**
@@ -116152,6 +116367,8 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type HogFlowsCodeSchemaRetrieve200 = { [key: string]: unknown };
 
     export type HogFlowsMetricsGlobalRetrieveParams = {
     /**

@@ -174,6 +174,26 @@ tools:
     internal-hog-flows-user-blast-radius-persons-create:
         operation: internal_hog_flows_user_blast_radius_persons_create
         enabled: false
+    workflows-check-code:
+        operation: hog_flows_code_check_create
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Check a workflow file
+        description: >
+            Check a workflow file (YAML, or JSON text) against PostHog and see what applying it would change. Writes
+            nothing. Send the whole file as content. On a mistake it returns 400 with every error at once, each with a
+            status, a path in the file's own field names, a line and column, and a why and fix: fix them all and check
+            again. On success it returns a plan: result is create (no workflow has the key), update or unchanged;
+            added_steps, changed_steps and removed_steps list what changes. A removed step keeps the people in it only
+            if it was renamed with its old id: when a warning names people in a removed step, show it to the user, and
+            follow its fix if the step was renamed. Get the file's schema first with workflows-get-code-schema.
+        feature_flag: workflows-as-code
+        feature_flag_behavior: enable
     workflows-create:
         operation: hog_flows_create
         enabled: true
@@ -244,6 +264,23 @@ tools:
             awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
             running.
         ui_app: workflow
+    workflows-get-code-schema:
+        operation: hog_flows_code_schema_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the workflow file schema
+        description: >
+            Get the JSON Schema of a workflow file: one YAML file per workflow with version, key, name, trigger and
+            steps. Every field carries a description, and each trigger and step is picked by its type. Read it before
+            writing a file, then check the file with workflows-check-code. A file cannot carry secrets, so leave secret
+            inputs out.
+        feature_flag: workflows-as-code
+        feature_flag_behavior: enable
     workflows-get-invocation:
         operation: hog_flows_invocation_result_retrieve
         enabled: true

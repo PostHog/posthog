@@ -1613,6 +1613,221 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
+export interface HogFlowCodeRequestApi {
+    /** The workflow file as text, in YAML, or in JSON when it starts with {. At most 1048576 bytes. Get its schema from code_schema. */
+    content: string
+}
+
+/**
+ * * `create` - Create
+ * * `update` - Update
+ * * `unchanged` - Unchanged
+ */
+export type WorkflowCodePlanResultEnumApi =
+    (typeof WorkflowCodePlanResultEnumApi)[keyof typeof WorkflowCodePlanResultEnumApi]
+
+export const WorkflowCodePlanResultEnumApi = {
+    Create: 'create',
+    Update: 'update',
+    Unchanged: 'unchanged',
+} as const
+
+export interface HogFlowCodeWorkflowApi {
+    /** The workflow id. */
+    id: string
+    /** The key the file names. */
+    key: string
+    /**
+     * The stored workflow name.
+     * @nullable
+     */
+    name: string | null
+    /** The stored workflow version. */
+    version: number
+    /** The stored workflow status.
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
+    status: HogFlowStateEnumApi
+}
+
+export interface HogFlowCodeStatusChangeApi {
+    /** The status the file sets.
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
+    to: HogFlowStateEnumApi
+    /** The stored status. Null when the file creates the workflow.
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
+    from: HogFlowStateEnumApi | null
+}
+
+export interface HogFlowCodeStepApi {
+    /** The step id. */
+    id: string
+    /** The step name. */
+    name: string
+    /** The action type the step compiles to, for example delay. */
+    type: string
+}
+
+export interface HogFlowCodeChangedStepApi {
+    /** The step id. */
+    id: string
+    /** The step name. */
+    name: string
+    /** The action type the step compiles to, for example delay. */
+    type: string
+    /** The step's fields that change, as dotted paths at most two levels deep, for example config.conditions. */
+    changes: string[]
+}
+
+export interface HogFlowCodePlanApi {
+    /** create: no workflow has this key. update: applying the file changes the workflow. unchanged: it changes nothing.
+     *
+     * * `create` - Create
+     * * `update` - Update
+     * * `unchanged` - Unchanged */
+    result: WorkflowCodePlanResultEnumApi
+    /** The stored workflow with this key. Null when the file creates one. */
+    workflow: HogFlowCodeWorkflowApi | null
+    /** Workflow-level fields that change: name, description, exit_condition, variables, edges, trigger or exit. */
+    changed_fields: string[]
+    /** The status before and after applying the file. */
+    status: HogFlowCodeStatusChangeApi
+    /** Steps the file adds. */
+    added_steps: HogFlowCodeStepApi[]
+    /** Steps whose content changes. */
+    changed_steps: HogFlowCodeChangedStepApi[]
+    /**
+     * Runs in the workflow now. Null when PostHog could not count them.
+     * @nullable
+     */
+    in_flight_runs: number | null
+    /**
+     * Runs whose current step is unknown. Null when PostHog could not count them.
+     * @nullable
+     */
+    position_unknown: number | null
+    /** True when the workflow has a staged draft that applying the file would throw away. */
+    discards_draft: boolean
+    /** Steps the file removes, with the people in each and where they go. */
+    removed_steps: HogFlowPublishImpactDeletedStepApi[]
+    /** Variables that are empty for runs that started before the step that sets them. */
+    empty_variables: HogFlowPublishImpactEmptyVariableApi[]
+    /** Schedules that set variables the file removes. */
+    schedule_conflicts: HogFlowPublishImpactScheduleConflictApi[]
+}
+
+export interface HogFlowCodeWarningApi {
+    /** What applying the file would do that needs attention. */
+    message: string
+    /** What to change if that is not what you want. */
+    fix: string
+    /**
+     * Where in the file, when the warning concerns one place.
+     * @nullable
+     */
+    path: string | null
+}
+
+export interface HogFlowCodeCheckResponseApi {
+    /** What applying the file would change. */
+    plan: HogFlowCodePlanApi
+    /** Things to look at before applying the file. */
+    warnings: HogFlowCodeWarningApi[]
+}
+
+/**
+ * * `invalid_yaml` - Invalid Yaml
+ * * `yaml_feature_not_allowed` - Yaml Feature Not Allowed
+ * * `duplicate_key` - Duplicate Key
+ * * `content_too_large` - Content Too Large
+ * * `unsupported_version` - Unsupported Version
+ * * `missing_field` - Missing Field
+ * * `unknown_field` - Unknown Field
+ * * `invalid_value` - Invalid Value
+ * * `unknown_type` - Unknown Type
+ * * `duplicate_step_id` - Duplicate Step Id
+ * * `secret_input` - Secret Input
+ * * `unknown_template` - Unknown Template
+ * * `invalid_workflow` - Invalid Workflow
+ * * `status_change_not_allowed` - Status Change Not Allowed
+ * * `conflict` - Conflict
+ */
+export type WorkflowCodeErrorStatusEnumApi =
+    (typeof WorkflowCodeErrorStatusEnumApi)[keyof typeof WorkflowCodeErrorStatusEnumApi]
+
+export const WorkflowCodeErrorStatusEnumApi = {
+    InvalidYaml: 'invalid_yaml',
+    YamlFeatureNotAllowed: 'yaml_feature_not_allowed',
+    DuplicateKey: 'duplicate_key',
+    ContentTooLarge: 'content_too_large',
+    UnsupportedVersion: 'unsupported_version',
+    MissingField: 'missing_field',
+    UnknownField: 'unknown_field',
+    InvalidValue: 'invalid_value',
+    UnknownType: 'unknown_type',
+    DuplicateStepId: 'duplicate_step_id',
+    SecretInput: 'secret_input',
+    UnknownTemplate: 'unknown_template',
+    InvalidWorkflow: 'invalid_workflow',
+    StatusChangeNotAllowed: 'status_change_not_allowed',
+    Conflict: 'conflict',
+} as const
+
+export interface HogFlowCodeErrorApi {
+    /** A machine-readable code for the kind of mistake.
+     *
+     * * `invalid_yaml` - Invalid Yaml
+     * * `yaml_feature_not_allowed` - Yaml Feature Not Allowed
+     * * `duplicate_key` - Duplicate Key
+     * * `content_too_large` - Content Too Large
+     * * `unsupported_version` - Unsupported Version
+     * * `missing_field` - Missing Field
+     * * `unknown_field` - Unknown Field
+     * * `invalid_value` - Invalid Value
+     * * `unknown_type` - Unknown Type
+     * * `duplicate_step_id` - Duplicate Step Id
+     * * `secret_input` - Secret Input
+     * * `unknown_template` - Unknown Template
+     * * `invalid_workflow` - Invalid Workflow
+     * * `status_change_not_allowed` - Status Change Not Allowed
+     * * `conflict` - Conflict */
+    status: WorkflowCodeErrorStatusEnumApi
+    /** What is wrong, and where. */
+    message: string
+    /** Why PostHog refuses it. */
+    why: string
+    /** What to change in the file. */
+    fix: string
+    /**
+     * Where the mistake is, in the file's own field names, for example steps[1].arms[0].then[0].subject. Null when it concerns the whole file.
+     * @nullable
+     */
+    path: string | null
+    /**
+     * The 1-based line of the mistake. Null for JSON content and whole-file mistakes.
+     * @nullable
+     */
+    line: number | null
+    /**
+     * The 1-based column of the mistake. Null for JSON content and whole-file mistakes.
+     * @nullable
+     */
+    column: number | null
+}
+
+export interface HogFlowCodeErrorsApi {
+    /** Every mistake in the file, in file order. */
+    errors: HogFlowCodeErrorApi[]
+}
+
 /**
  * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
  */
@@ -2345,6 +2560,8 @@ export type HogFlowsRevisionsListParams = {
      */
     offset?: number
 }
+
+export type HogFlowsCodeSchemaRetrieve200 = { [key: string]: unknown }
 
 export type HogFlowsMetricsGlobalRetrieveParams = {
     /**

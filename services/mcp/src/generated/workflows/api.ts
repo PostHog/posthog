@@ -3,11 +3,14 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -64,6 +67,9 @@ export const HogFlowsListQueryParams = () => zod.object({
     updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -477,6 +483,9 @@ export const HogFlowsCreateBody = () => zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -486,6 +495,9 @@ export const HogFlowsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -652,6 +664,9 @@ export const HogFlowsPartialUpdateBody = () => zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsActionsEmailPartialUpdateParams = () => zod.object({
     action_id: zod.string().describe('Id of the function_email step to edit.'),
     id: zod.string().describe('A UUID string identifying this hog flow.'),
@@ -736,6 +751,9 @@ export const HogFlowsActionsEmailPartialUpdateBody = () => zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsBatchJobsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -745,6 +763,9 @@ export const HogFlowsBatchJobsListParams = () => zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsDiscardDraftCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -754,6 +775,9 @@ export const HogFlowsDiscardDraftCreateParams = () => zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsGraphPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -854,6 +878,9 @@ export const HogFlowsGraphPartialUpdateBody = () => zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsInvocationResultsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -909,6 +936,9 @@ export const HogFlowsInvocationResultsRetrieveQueryParams = () => zod.object({
         .describe("Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'."),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsInvocationResultRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     invocation_id: zod.string(),
@@ -919,6 +949,9 @@ export const HogFlowsInvocationResultRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsInvocationsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -956,6 +989,9 @@ export const HogFlowsInvocationsCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsLogsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -996,6 +1032,9 @@ export const HogFlowsLogsRetrieveQueryParams = () => zod.object({
     search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsMetricsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -1115,6 +1154,9 @@ export const HogFlowsProposalsCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsPublishCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -1141,6 +1183,9 @@ export const HogFlowsPublishCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsRevisionsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -1155,6 +1200,9 @@ export const HogFlowsRevisionsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsRevisionsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -1165,6 +1213,9 @@ export const HogFlowsRevisionsRetrieveParams = () => zod.object({
     version: zod.number().describe('Workflow version to fetch.'),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsRevisionsRestoreCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -1192,6 +1243,9 @@ export const HogFlowsRevisionsRestoreCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsSchedulesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -1223,6 +1277,39 @@ export const HogFlowsSchedulesPartialUpdateBody = () => zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
+/**
+ * Check a workflow file and plan what applying it would change. Writes nothing.
+ */
+export const HogFlowsCodeCheckCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const HogFlowsCodeCheckCreateBody = () => zod.object({
+    content: zod
+        .string()
+        .describe(
+            'The workflow file as text, in YAML, or in JSON when it starts with {. At most 1048576 bytes. Get its schema from code_schema.'
+        ),
+})
+
+/**
+ * The JSON Schema of a workflow file (draft 2020-12). Every field carries a description.
+ */
+export const HogFlowsCodeSchemaRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Workflows as code: the actions that read and check a workflow file on the workflows viewset.
+ */
 export const HogFlowsMetricsGlobalRetrieveParams = () => zod.object({
     project_id: zod
         .string()
