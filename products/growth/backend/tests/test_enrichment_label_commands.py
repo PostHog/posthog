@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -422,6 +423,26 @@ class TestExpectedVersionGuard(_BatchCommandTestCase):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         assert EnrichmentLabelResult.objects.count() == 1
+
+
+class TestFirecrawlKeyGuard(_BatchCommandTestCase):
+    @parameterized.expand([("missing", "", True), ("present", "fc-test-key", False)])
+    def test_a_cloud_run_needs_the_firecrawl_key_before_any_spend(self, _name, firecrawl_key, aborts):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with (
+            override_settings(CLOUD_DEPLOYMENT="EU", FIRECRAWL_API_KEY=firecrawl_key),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+        ):
+            if aborts:
+                with self.assertRaises(CommandError):
+                    call_command("enrichment_label_batch", label="test_label", workers=1)
+            else:
+                call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        assert client.chat.completions.create.called is not aborts
 
 
 class TestWorkerConnectionErrors(NonAtomicBaseTest):
