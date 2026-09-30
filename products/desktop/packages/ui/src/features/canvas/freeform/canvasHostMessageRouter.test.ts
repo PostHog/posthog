@@ -347,26 +347,34 @@ describe("createCanvasHostMessageRouter", () => {
     const completions: Array<(value: unknown) => void> = [];
     let concurrent = 0;
     let peakConcurrent = 0;
+    let canvas = "first";
+    const owners: string[] = [];
     const route = createCanvasHostMessageRouter({
       post,
-      callbacks: () => ({
-        onDataRequest: () => {
-          concurrent += 1;
-          peakConcurrent = Math.max(peakConcurrent, concurrent);
-          return new Promise((resolve) => {
-            completions.push((value) => {
-              concurrent -= 1;
-              resolve(value);
+      callbacks: () => {
+        const owner = canvas;
+        return {
+          onDataRequest: () => {
+            owners.push(owner);
+            concurrent += 1;
+            peakConcurrent = Math.max(peakConcurrent, concurrent);
+            return new Promise((resolve) => {
+              completions.push((value) => {
+                concurrent -= 1;
+                resolve(value);
+              });
             });
-          });
-        },
-      }),
+          },
+        };
+      },
       hasUserActivation: () => true,
       openExternal: vi.fn(),
     });
 
     // A canvas whose cards fan out past the concurrency cap: every request
-    // must still be answered, none dropped.
+    // must still be answered, none dropped. The warm-frame pool can swap the
+    // frame to another canvas while requests wait, and a waiting request must
+    // still run as the canvas that sent it.
     const requests = Array.from({ length: 20 }, (_, index) =>
       route({
         channel: "posthog-canvas",
@@ -376,9 +384,11 @@ describe("createCanvasHostMessageRouter", () => {
         payload: { scope: "user", key: `k${index}` },
       }),
     );
+    canvas = "second";
     await drain(completions);
     await Promise.all(requests);
 
+    expect(owners).toEqual(Array(20).fill("first"));
     expect(peakConcurrent).toBe(8);
     expect(post).toHaveBeenCalledTimes(20);
     expect(post.mock.calls.every(([message]) => message.ok === true)).toBe(

@@ -237,6 +237,10 @@ export function createCanvasHostMessageRouter(
           refuse(message.id, message.method, "payload-too-large");
           break;
         }
+        // Read the callbacks before any wait. The warm-frame pool can move this
+        // frame to another canvas meanwhile, and the request must not run with
+        // that canvas's identity or connector consent.
+        const { onDataRequest } = options.callbacks();
         const slots = slotsFor(message.method);
         // A refusal here means the canvas stayed saturated for the whole wait,
         // so the request never ran and the canvas may send it again.
@@ -253,7 +257,7 @@ export function createCanvasHostMessageRouter(
         // The async wrapper turns a callback that throws on the spot, such as a
         // capability check, into a rejection the slot release can follow.
         const call = (async () =>
-          options.callbacks().onDataRequest(message.method, message.payload))();
+          onDataRequest(message.method, message.payload))();
         // A timed-out request is reported to the canvas, but the call behind it
         // keeps running: no host passes an abort signal down to the query. The
         // slot therefore follows the call, not the report, so the cap counts
