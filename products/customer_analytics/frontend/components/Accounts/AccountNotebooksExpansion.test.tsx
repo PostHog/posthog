@@ -36,6 +36,7 @@ jest.mock('./accountLinksLogic', () => ({ accountLinksLogic: () => ({ kind: 'lin
 jest.mock('./accountMeetingsLogic', () => ({ accountMeetingsLogic: () => ({ kind: 'meetings' }) }))
 jest.mock('./accountNotebooksLogic', () => ({ accountNotebooksLogic: () => ({ kind: 'notebooks' }) }))
 jest.mock('./accountOpportunitiesLogic', () => ({ accountOpportunitiesLogic: () => ({ kind: 'opportunities' }) }))
+jest.mock('./accountPersonsLogic', () => ({ accountPersonsLogic: () => ({ kind: 'persons' }) }))
 jest.mock('./accountRelatedUsersLogic', () => ({ accountRelatedUsersLogic: () => ({ kind: 'users' }) }))
 jest.mock('./accountRelationshipsLogic', () => ({ accountRelationshipsLogic: () => ({ kind: 'relationships' }) }))
 jest.mock('./accountSummariesLogic', () => ({ accountSummariesLogic: () => ({ kind: 'summaries' }) }))
@@ -48,6 +49,7 @@ jest.mock('./EditAccountLinksButton', () => ({ EditAccountLinksButton: () => nul
 
 describe('AccountNotebooksExpansion', () => {
     let customerTasksEnabled = false
+    let personsUiEnabled = false
 
     beforeEach(() => {
         ;(useMountedLogic as jest.Mock).mockImplementation(() => undefined)
@@ -61,7 +63,12 @@ describe('AccountNotebooksExpansion', () => {
         ;(useValues as jest.Mock).mockImplementation((logic: { kind?: string }) => {
             switch (logic.kind) {
                 case 'featureFlags':
-                    return { featureFlags: { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: customerTasksEnabled } }
+                    return {
+                        featureFlags: {
+                            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: customerTasksEnabled,
+                            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_PERSONS_UI]: personsUiEnabled,
+                        },
+                    }
                 case 'expansion':
                     return { activeTabFor: () => 'notes' }
                 case 'links':
@@ -86,6 +93,8 @@ describe('AccountNotebooksExpansion', () => {
     afterEach(() => {
         cleanup()
         jest.clearAllMocks()
+        customerTasksEnabled = false
+        personsUiEnabled = false
     })
 
     test.each([
@@ -105,5 +114,20 @@ describe('AccountNotebooksExpansion', () => {
             ([logic]: [{ kind?: string }]) => logic?.kind === 'tasks'
         )
         expect(mountedTasksLogic).toBe(visible)
+    })
+
+    test.each([
+        [true, 'persons', 'users'],
+        [false, 'users', 'persons'],
+    ])('with the persons UI flag %s, mounts only the %s source and never the %s source', (enabled, mounted, absent) => {
+        personsUiEnabled = enabled
+        render(<AccountNotebooksExpansion accountId="account-1" externalId="external-1" />)
+
+        const mountedKinds = (useMountedLogic as jest.Mock).mock.calls.map(
+            ([logic]: [{ kind?: string }]) => logic?.kind
+        )
+        expect(mountedKinds).toContain(mounted)
+        // Mounting the other source would send its requests, which the flag must keep off.
+        expect(mountedKinds).not.toContain(absent)
     })
 })

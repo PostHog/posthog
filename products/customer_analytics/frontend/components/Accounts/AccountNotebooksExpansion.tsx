@@ -29,6 +29,7 @@ import { accountLinksLogic } from './accountLinksLogic'
 import { accountMeetingsLogic } from './accountMeetingsLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import { accountOpportunitiesLogic } from './accountOpportunitiesLogic'
+import { accountPersonsLogic } from './accountPersonsLogic'
 import { accountRelatedUsersLogic } from './accountRelatedUsersLogic'
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
@@ -138,6 +139,17 @@ function CustomerTasksMount({ accountId }: { accountId: string }): null {
     return null
 }
 
+// Only the Users source the flag selects may mount: mounting loads data, and the other source must stay silent.
+function AccountPersonsMount({ accountId }: { accountId: string }): null {
+    useMountedLogic(accountPersonsLogic({ accountId }))
+    return null
+}
+
+function AccountRelatedUsersMount({ externalId }: { externalId: string }): null {
+    useMountedLogic(accountRelatedUsersLogic({ externalId }))
+    return null
+}
+
 export function AccountNotebooksExpansion({
     accountId,
     externalId,
@@ -147,7 +159,6 @@ export function AccountNotebooksExpansion({
 }): JSX.Element {
     // AccountDetailTabs only renders the active tab, so these mounts keep expanded-row data cached between tab switches.
     useMountedLogic(accountNotebooksLogic({ accountId }))
-    useMountedLogic(accountRelatedUsersLogic({ externalId }))
     useMountedLogic(accountRelationshipsLogic({ accountId }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
@@ -168,6 +179,11 @@ export function AccountNotebooksExpansion({
         >
             {!!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS] && (
                 <CustomerTasksMount accountId={accountId} />
+            )}
+            {featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_PERSONS_UI] ? (
+                <AccountPersonsMount accountId={accountId} />
+            ) : (
+                <AccountRelatedUsersMount externalId={externalId} />
             )}
             <div className="flex gap-4">
                 <div className="w-fit shrink-0 flex flex-col gap-4">

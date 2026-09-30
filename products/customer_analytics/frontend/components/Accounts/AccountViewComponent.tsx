@@ -1,3 +1,7 @@
+import { useValues } from 'kea'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -10,6 +14,7 @@ import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansi
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
 import { AccountNotesExpansion } from './AccountNotesExpansion'
 import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
+import { AccountPersonsExpansion } from './AccountPersonsExpansion'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import type { AccountViewComponentKind } from './accountViewComponents'
@@ -34,6 +39,7 @@ export function AccountViewComponent({
     onConfigChange,
     embedded = true,
 }: AccountViewComponentProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const tileProps = { instanceId, initialConfig, onConfigChange }
     switch (kind) {
         case 'notes':
@@ -49,7 +55,12 @@ export function AccountViewComponent({
                 />
             )
         case 'users':
-            return <AccountRelatedUsersExpansion externalId={externalId} embedded={embedded} {...tileProps} />
+            // One flag picks the whole source. The two paths mean different things, so there is no per-request fallback.
+            return featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_PERSONS_UI] ? (
+                <AccountPersonsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
+            ) : (
+                <AccountRelatedUsersExpansion externalId={externalId} embedded={embedded} {...tileProps} />
+            )
         case 'relationships':
             return <AccountRelationshipsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'feature_requests':
