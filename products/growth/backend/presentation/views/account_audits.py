@@ -110,7 +110,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         payload = AccountAuditRequest(**{"team_id": None, **serializer.validated_data})
         result = AccountAuditService.start(payload, public_key_id, webhook_id)
         if result.status == "accepted":
-            return Response({"task_run_id": str(result.task_run_id), "team_id": result.team_id}, status=202)
+            return Response(AccountAuditStartResponseSerializer(instance=result).data, status=202)
         if result.status == "cooldown":
             return Response(
                 {
