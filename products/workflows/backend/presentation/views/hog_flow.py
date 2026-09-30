@@ -6,7 +6,7 @@ import hashlib
 import dataclasses
 from collections.abc import Sequence
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import timedelta
 from time import monotonic
 from typing import Any, Final, NamedTuple, Optional, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -48,12 +48,7 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 
-from posthog.api.app_metrics2 import (
-    AppMetricsMixin,
-    fetch_app_metric_totals,
-    fetch_app_metric_totals_by_source,
-    fetch_app_metric_totals_by_team_and_source,
-)
+from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_invocation_cancel import (
     HogInvocationCancelRequestSerializer,
@@ -121,6 +116,17 @@ from products.tasks.backend.facade.workflow_tasks import (
     validate_skill_names,
 )
 from products.workflows.backend.facade.api import create_batch_job
+from products.workflows.backend.facade.contracts import StaffPausedError
+from products.workflows.backend.facade.email_health import (
+    fetch_aws_tenant_reputation,
+    fetch_email_totals_by_source,
+    fetch_isp_metrics,
+    fold_email_totals,
+    get_email_sending_state,
+    pause_requires_staff,
+    resume_email_sending,
+    team_email_sending_allowance,
+)
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
     mask_derived_trigger,
@@ -168,7 +174,6 @@ from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
 from products.workflows.backend.presentation.views.graph_operations import _deep_merge, apply_graph_operations
@@ -190,7 +195,6 @@ from products.workflows.backend.presentation.views.message_assets import (
     fetch_message_assets,
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
-from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.account_audience import (
     ACCOUNT_BATCH_SIZE,
     get_account_audience_count,
@@ -210,22 +214,12 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_count,
     get_batch_audience_person_ids,
 )
-from products.workflows.backend.services.email_sending_attribution import (
-    EMAIL_HEALTH_METRIC_NAMES,
-    fold_email_totals_by_flow,
-)
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
 )
-from products.workflows.backend.services.workflow_email_health import (
-    StaffPausedError,
-    pause_requires_staff,
-    resume_workflow_email_sending,
-)
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
-from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -2076,122 +2070,6 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
     }
 
 
-SENDING_ALLOWANCE_CACHE_SECONDS = 60
-
-
-@frozen
-class EmailSendingAllowance:
-    """A project's sending tier, what it allows, and how much of that it has used."""
-
-    tier: int
-    max_tier: int
-    emails_per_hour: int
-    emails_per_day: int
-    max_batch_audience: int
-    emails_sent_last_hour: int
-    emails_sent_last_day: int
-    enforced: bool
-
-
-def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
-    """
-    Usage comes from the send metrics rather than the worker's token buckets, so the numbers match
-    what the rest of this page reports. Cached briefly because the endpoint reloads on every search
-    keystroke while these two aggregations do not depend on the search.
-    """
-    cache_key = f"workflows_email_sending_allowance_{team_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    resolved = resolve_team_email_sending_tier(team_id)
-    now = timezone.now()
-    allowance = EmailSendingAllowance(
-        tier=resolved.tier,
-        max_tier=max_email_sending_tier(),
-        emails_per_hour=resolved.limits.per_hour,
-        emails_per_day=resolved.limits.per_day,
-        max_batch_audience=resolved.limits.max_batch_audience,
-        emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
-        emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
-        enforced=resolved.enforced,
-    )
-    cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
-    return allowance
-
-
-def _team_email_sends_since(team_id: int, after: datetime) -> int:
-    totals = fetch_app_metric_totals_by_team_and_source(
-        app_source="hog_flow", name=["email_sent"], after=after, team_ids=[team_id]
-    )
-    return sum(counts.get("email_sent", 0) for counts in totals.get(team_id, {}).values())
-
-
-AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
-# Failures cache too, but far shorter than successes: long enough that an unreachable SES isn't
-# re-dialled on every request, short enough that a just-fixed config recovers within a minute.
-AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS = 60
-
-
-def _aws_tenant_health(sending_status: str, reputation_impact: str | None) -> str:
-    if sending_status == "DISABLED":
-        return "suspended"
-    if reputation_impact == "HIGH":
-        return "critical"
-    if reputation_impact == "LOW":
-        return "warning"
-    return "healthy"
-
-
-def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
-    """
-    AWS-side tenant state for the reputation endpoint, cached briefly: the endpoint reloads on every
-    search keystroke and three SES API round-trips per keystroke would be slow and rate-limited.
-    Failures return None (the response field is nullable) so AWS being unreachable never breaks the
-    rates display; failures cache under a shorter TTL so a broken SES isn't re-dialled per request.
-
-    Deliberately no SES_ACCESS_KEY_ID gate: cloud pods authenticate via their IAM role and leave
-    the key env vars unset, so a key check reads as "SES not configured" exactly where SES IS
-    configured. Environments truly without SES fail the call and land in the error path below.
-    """
-    cache_key = f"workflows_ses_tenant_reputation_{team_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached["value"]
-    try:
-        raw = SESProvider().get_tenant_reputation(team_id)
-    except Exception:
-        logger.exception("Failed to fetch SES tenant reputation", team_id=team_id)
-        cache.set(cache_key, {"value": None}, AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS)
-        return None
-    value = (
-        {
-            "health": _aws_tenant_health(raw["sending_status"], raw["reputation_impact"]),
-            "sending_status": raw["sending_status"],
-            "findings": raw["findings"],
-        }
-        if raw is not None
-        else None
-    )
-    cache.set(cache_key, {"value": value}, AWS_TENANT_REPUTATION_CACHE_SECONDS)
-    return value
-
-
-# VDM aggregates by whole day and the window ends at the last UTC midnight, so these numbers move
-# at most once a day. A five-minute TTL bought nothing and cost a full fan-out on every expiry.
-# One refresh of five domains is 150 queries across 15 sequential BatchGetMetricData calls, and the
-# endpoint reloads on every search keystroke, so this is what keeps typing a workflow name from
-# costing a fan-out per character.
-ISP_METRICS_CACHE_SECONDS = 30 * 60
-# A failure is cached too, briefly: without it an unreachable SES is retried in full per keystroke.
-ISP_METRICS_ERROR_CACHE_SECONDS = 60
-# Held while one request does the fan-out so a cold key admits one, not all of them. Typing races
-# concurrent misses through the same key, and each miss can hold a worker for the whole query
-# budget. Longer than that budget, so the holder always outlives its own work.
-ISP_METRICS_REFRESH_LOCK_SECONDS = 30
-# Bounds the BatchGetMetricData fan-out: every extra domain costs one query per provider per
-# metric. A project with more sending domains gets a breakdown over its first few.
-ISP_METRICS_MAX_DOMAINS = 5
 # Shared with FEATURE_FLAGS in frontend/src/lib/constants.tsx.
 ISP_SENDING_HEALTH_FLAG = "workflows-isp-sending-health"
 
@@ -2280,55 +2158,6 @@ def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permis
         withheld=tuple(withheld),
         shared=tuple(domain for domain in readable if sharers[domain]),
     )
-
-
-def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> list[dict[str, Any]]:
-    """
-    Per-mailbox-provider sending health for the given sending domains, cached like the tenant
-    reputation above and for the same reason: the endpoint reloads on every search keystroke.
-
-    Returns an empty list rather than raising when SES is unreachable or VDM is not collecting yet,
-    because the breakdown adds to the rates display and must not stop it loading.
-    """
-    if not domains:
-        return []
-    # The domain set depends on what the caller may see, so it belongs in the key: two members of
-    # one project can be entitled to different domains, and one must not be served the other's.
-    domain_key = hashlib.sha256("|".join(domains).encode()).hexdigest()[:12]
-    cache_key = f"workflows_ses_isp_metrics_{team_id}_{window_days}_{domain_key}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached["value"]
-
-    # Losers show no breakdown rather than queueing behind the holder: the rates above are what the
-    # page is for, and a second fan-out would buy a number the next reload gets from cache anyway.
-    if not cache.add(f"{cache_key}_refreshing", True, ISP_METRICS_REFRESH_LOCK_SECONDS):
-        return []
-
-    try:
-        rows = SESProvider().get_identity_isp_metrics(
-            domains, window_days=window_days, max_domains=ISP_METRICS_MAX_DOMAINS
-        )
-    except Exception:
-        logger.exception("Failed to fetch SES per-ISP metrics", team_id=team_id)
-        cache.set(cache_key, {"value": []}, ISP_METRICS_ERROR_CACHE_SECONDS)
-        return []
-
-    value = [
-        {
-            "isp": row.isp,
-            "emails_sent": row.emails_sent,
-            "delivery_rate": row.delivery_rate,
-            "bounce_rate": row.bounce_rate,
-            "transient_bounce_rate": row.transient_bounce_rate,
-            "complaint_rate": row.complaint_rate,
-            "complaint_base": row.complaint_base,
-            "unavailable": list(row.unavailable),
-        }
-        for row in rows
-    ]
-    cache.set(cache_key, {"value": value}, ISP_METRICS_CACHE_SECONDS)
-    return value
 
 
 class EmailSendingRatesSerializer(serializers.Serializer):
@@ -6456,21 +6285,7 @@ class HogFlowViewSet(
         # Members holding just object-level grants still get their (filtered) per-workflow rows.
         can_read_all_workflows = self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
 
-        # Cached briefly: the UI reloads per search keystroke, but search filters in Python — the
-        # ClickHouse totals are search-independent. Session-authenticated requests bypass the
-        # default (personal-API-key-only) ClickHouse throttles, so without this a member could
-        # re-run the 30-day aggregation on every request.
-        totals_cache_key = f"workflows_email_reputation_totals_{self.team_id}"
-        totals_by_source = cache.get(totals_cache_key)
-        if totals_by_source is None:
-            after = timezone.now() - timedelta(days=self.REPUTATION_WINDOW_DAYS)
-            totals_by_source = fetch_app_metric_totals_by_source(
-                team_id=self.team_id,
-                app_source="hog_flow",
-                after=after,
-                name=EMAIL_HEALTH_METRIC_NAMES,
-            )
-            cache.set(totals_cache_key, totals_by_source, 60)
+        totals_by_source = fetch_email_totals_by_source(self.team_id, self.REPUTATION_WINDOW_DAYS)
 
         # email_blocked is how SES complaint events are recorded (see the plugin server's SES
         # webhook handler), hence "complained".
@@ -6483,24 +6298,24 @@ class HogFlowViewSet(
             else None
         )
 
-        # Sources matching neither a workflow nor a batch job (deleted workflows, non-UUID ids)
-        # still count toward the team aggregate above. Unnamed flows come back as "" to keep
-        # hog_flow_name a plain string in the generated types.
-        team_queryset = self.get_queryset()
-        folded_totals = fold_email_totals_by_flow(
-            team_id=self.team_id, totals_by_source=totals_by_source, flows=team_queryset
-        )
-        counts_by_flow = folded_totals.counts_by_flow
-        names_by_flow_id = folded_totals.names_by_flow_id
-
         # Mirror metrics_global: only surface workflows the caller can see, so reputation doesn't
         # leak names/volumes of access-controlled workflows the list endpoint hides.
+        team_queryset = self.get_queryset()
         accessible_ids = {
             str(flow_id)
             for flow_id in self.user_access_control.filter_queryset_by_access_level(team_queryset).values_list(
                 "id", flat=True
             )
         }
+
+        # Sources matching neither a workflow nor a batch job (deleted workflows, non-UUID ids)
+        # still count toward the team aggregate above. Unnamed flows come back as "" to keep
+        # hog_flow_name a plain string in the generated types.
+        folded_totals = fold_email_totals(
+            team_id=self.team_id, totals_by_source=totals_by_source, flow_ids=accessible_ids
+        )
+        counts_by_flow = folded_totals.counts_by_flow
+        names_by_flow_id = folded_totals.names_by_flow_id
         # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
         # client-side could never find a healthy workflow beyond the cap.
         search = (request.query_params.get("search") or "").strip().lower()
@@ -6538,13 +6353,9 @@ class HogFlowViewSet(
 
         # Shown to every project member regardless of per-object grants: a suspension stops
         # everyone's email, so hiding it would just leave silent send failures unexplained.
-        suspension = (
-            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
-            .values("email_sending_suspended_at", "email_sending_suspension_reason")
-            .first()
-        )
-        suspended_at = suspension["email_sending_suspended_at"] if suspension else None
-        suspension_reason = suspension["email_sending_suspension_reason"] if suspension else ""
+        suspension = get_email_sending_state(self.team_id)
+        suspended_at = suspension.suspended_at if suspension else None
+        suspension_reason = suspension.suspension_reason if suspension else ""
 
         # Same project-wide gate as `reputation`: the breakdown pools every workflow's email for a
         # sending domain, so object-level grants alone don't earn it.
@@ -6559,12 +6370,12 @@ class HogFlowViewSet(
                 {
                     # Same gate as `reputation`: the tenant verdict pools ALL workflows' email,
                     # so members holding only object-level grants don't get it.
-                    "aws": _fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
+                    "aws": fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
                     "reputation": reputation,
                     "workflows": workflow_rows,
                     # Same project-wide gate as `reputation`: the breakdown pools every workflow's
                     # email for a sending domain, so object-level grants alone don't earn it.
-                    "isps": _fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS, list(isp_domains.readable)),
+                    "isps": fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS, list(isp_domains.readable)),
                     "isp_shared_domains": list(isp_domains.shared),
                     "isp_withheld_domains": list(isp_domains.withheld),
                     "email_sending_suspended": suspended_at is not None,
@@ -6572,9 +6383,7 @@ class HogFlowViewSet(
                     "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",
                     # Same gate again: the allowance is project-wide, so an object-level grant is
                     # not enough to read it.
-                    "sending_allowance": _team_email_sending_allowance(self.team_id)
-                    if can_read_all_workflows
-                    else None,
+                    "sending_allowance": team_email_sending_allowance(self.team_id) if can_read_all_workflows else None,
                 }
             ).data
         )
@@ -6596,19 +6405,15 @@ class HogFlowViewSet(
         with no reputation computation. Every project member sees this — a suspension stops
         everyone's email, so hiding it would leave silent send failures unexplained.
         """
-        suspension = (
-            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
-            .values("email_sending_suspended_at", "email_sending_suspension_reason")
-            .first()
-        )
-        suspended_at = suspension["email_sending_suspended_at"] if suspension else None
+        suspension = get_email_sending_state(self.team_id)
+        suspended_at = suspension.suspended_at if suspension else None
         return Response(
             EmailSendingSuspensionStatusSerializer(
                 {
                     "email_sending_suspended": suspended_at is not None,
                     "email_sending_suspended_at": suspended_at,
                     "email_sending_suspension_reason": (
-                        suspension["email_sending_suspension_reason"] if suspension and suspended_at is not None else ""
+                        suspension.suspension_reason if suspension and suspended_at is not None else ""
                     ),
                 }
             ).data
@@ -6631,13 +6436,21 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
         before_update = HogFlow.objects.get(id=hog_flow.id)
         try:
-            resumed = resume_workflow_email_sending(hog_flow)
+            resumed_at = resume_email_sending(team_id=hog_flow.team_id, hog_flow_id=hog_flow.id)
         except StaffPausedError:
             raise exceptions.PermissionDenied(
                 "This pause can only be lifted by PostHog. Contact support to get sending re-enabled."
             )
-        if not resumed:
+        if resumed_at is None:
             raise exceptions.ValidationError({"detail": "Email sending is not paused for this workflow."})
+        hog_flow.refresh_from_db(
+            fields=[
+                "email_sending_paused_at",
+                "email_sending_paused_reason",
+                "email_sending_paused_by",
+                "email_sending_resumed_at",
+            ]
+        )
         log_activity_from_viewset(
             self, hog_flow, activity="email_sending_resumed", name=hog_flow.name, previous=before_update
         )
