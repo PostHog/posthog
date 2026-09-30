@@ -1,5 +1,11 @@
-import { TaskRunDetailDTOApi } from '../generated/api.schemas'
-import { TaskPullRequest, pullRequestLabel, splitPullRequests, taskPullRequests } from './taskPullRequests'
+import { TaskRunDetailDTOApi, TaskSummaryDTOApi } from '../generated/api.schemas'
+import {
+    TaskPullRequest,
+    pullRequestLabel,
+    pullRequestStates,
+    splitPullRequests,
+    taskPullRequests,
+} from './taskPullRequests'
 
 const pr = (repository: string, number: number): TaskPullRequest => ({
     url: `https://github.com/${repository}/pull/${number}`,
@@ -49,5 +55,19 @@ describe('taskPullRequests', () => {
     ])('splits %i PRs into %i chips and %i behind the overflow chip', (count, visible, overflow) => {
         const split = splitPullRequests(prs(count))
         expect([split.visible.length, split.overflow.length]).toEqual([visible, overflow])
+    })
+
+    // The chips look states up by URL, so a subpage URL from the run must land on the PR's own URL.
+    it('keys known states by the normalized PR URL and skips unknown ones', () => {
+        const summary = (id: string, pr_url: string | null, pr_state: string | null): TaskSummaryDTOApi =>
+            ({ id, latest_run: { pr_url, pr_state } }) as TaskSummaryDTOApi
+
+        expect(
+            pullRequestStates([
+                summary('a', 'https://github.com/org/app/pull/7/files', 'merged'),
+                summary('b', 'https://github.com/org/app/pull/8', 'unknown'),
+                summary('c', null, null),
+            ])
+        ).toEqual({ 'https://github.com/org/app/pull/7': 'merged' })
     })
 })
