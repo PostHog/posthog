@@ -46,14 +46,10 @@ function isUnselectedTeamView(
     return tab.view?.visibility === 'team' && tab.view.created_by !== userId && !config.ordered_tab_ids.includes(tab.id)
 }
 
-export function listOrderedAccountTabs(
+function sortAccountTabsByConfig(
     tabs: AccountTabDefinition[],
-    config: AccountDetailTabsConfigApi,
-    applyTabConfiguration = true
+    config: AccountDetailTabsConfigApi
 ): AccountTabDefinition[] {
-    if (!applyTabConfiguration) {
-        return tabs
-    }
     const byId = new Map(tabs.map((tab) => [tab.id, tab]))
     const ordered = config.ordered_tab_ids.flatMap((id) => {
         const tab = byId.get(id)
@@ -64,6 +60,15 @@ export function listOrderedAccountTabs(
         return [tab]
     })
     return [...ordered, ...tabs.filter((tab) => byId.has(tab.id))]
+}
+
+export function listOrderedAccountTabs(
+    tabs: AccountTabDefinition[],
+    config: AccountDetailTabsConfigApi,
+    applyTabConfiguration = true
+): AccountTabDefinition[] {
+    const orderedTabs = applyTabConfiguration ? sortAccountTabsByConfig(tabs, config) : tabs
+    return [...orderedTabs.filter((tab) => tab.kind === 'view'), ...orderedTabs.filter((tab) => tab.kind === 'system')]
 }
 
 export function isAccountTabVisible(
@@ -111,22 +116,33 @@ export function setAccountTabVisibility(
     }
 }
 
-export function moveAccountTab(
+export function reorderAccountTab(
     tabs: AccountTabDefinition[],
     config: AccountDetailTabsConfigApi,
     userId: number | undefined,
-    tabId: string,
-    direction: 'up' | 'down'
+    activeTabId: string,
+    overTabId: string
 ): AccountDetailTabsConfigApi {
-    const reorderableTabs = tabs.filter((tab) => !isUnselectedTeamView(tab, config, userId) || tab.id === tabId)
-    const orderedTabIds = reorderableTabs.map((tab) => tab.id)
-    const index = orderedTabIds.indexOf(tabId)
-    const nextIndex = direction === 'up' ? index - 1 : index + 1
-    if (index < 0 || nextIndex < 0 || nextIndex >= orderedTabIds.length) {
+    const orderedTabs = listOrderedAccountTabs(tabs, config)
+    const fromIndex = orderedTabs.findIndex((tab) => tab.id === activeTabId)
+    const toIndex = orderedTabs.findIndex((tab) => tab.id === overTabId)
+    if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex === toIndex ||
+        orderedTabs[fromIndex].kind !== orderedTabs[toIndex].kind
+    ) {
         return config
     }
-    ;[orderedTabIds[index], orderedTabIds[nextIndex]] = [orderedTabIds[nextIndex], orderedTabIds[index]]
-    return { ...config, ordered_tab_ids: orderedTabIds }
+    const reorderedTabs = [...orderedTabs]
+    const [moved] = reorderedTabs.splice(fromIndex, 1)
+    reorderedTabs.splice(toIndex, 0, moved)
+    return {
+        ...config,
+        ordered_tab_ids: reorderedTabs
+            .filter((tab) => !isUnselectedTeamView(tab, config, userId) || tab.id === activeTabId)
+            .map((tab) => tab.id),
+    }
 }
 
 export function getAccountTabIdFromRoute(routeKey: string): string {

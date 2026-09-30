@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,10 +11,12 @@ import {
     isAccountTabVisible,
     listAccountTabs,
     listOrderedAccountTabs,
-    moveAccountTab,
+    reorderAccountTab,
     setAccountTabVisibility,
+    type AccountTabDefinition,
 } from './accountTabs'
 import { accountViewsLogic } from './accountViewsLogic'
+import { ConfigureAccountTabsSection } from './ConfigureAccountTabsSection'
 
 interface ConfigureAccountTabsModalProps {
     projectId: number
@@ -33,21 +35,11 @@ export function ConfigureAccountTabsModal({ projectId }: ConfigureAccountTabsMod
           ? 'Loading tab settings'
           : undefined
     const tabs = listOrderedAccountTabs(listAccountTabs(featureFlags, accountViewsEnabled ? views : []), configDraft)
-    const isTabVisible = (tabId: string): boolean => {
-        const tab = tabs.find((candidate) => candidate.id === tabId)
-        return tab ? isAccountTabVisible(tab, configDraft, user?.id) : false
-    }
-
-    const updateVisibility = (tabId: string, visible: boolean): void => {
-        const tab = tabs.find((candidate) => candidate.id === tabId)
-        if (tab) {
-            setConfigDraft(setAccountTabVisibility(tabs, tab, configDraft, user?.id, visible))
-        }
-    }
-
-    const moveTab = (tabId: string, direction: 'up' | 'down'): void => {
-        setConfigDraft(moveAccountTab(tabs, configDraft, user?.id, tabId, direction))
-    }
+    const isTabVisible = (tab: AccountTabDefinition): boolean => isAccountTabVisible(tab, configDraft, user?.id)
+    const updateVisibility = (tab: AccountTabDefinition, visible: boolean): void =>
+        setConfigDraft(setAccountTabVisibility(tabs, tab, configDraft, user?.id, visible))
+    const reorderTab = (activeTabId: string, overTabId: string): void =>
+        setConfigDraft(reorderAccountTab(tabs, configDraft, user?.id, activeTabId, overTabId))
 
     return (
         <LemonModal
@@ -97,47 +89,26 @@ export function ConfigureAccountTabsModal({ projectId }: ConfigureAccountTabsMod
                         value={configDraft.default_tab_id}
                         onChange={(defaultTabId) => setConfigDraft({ ...configDraft, default_tab_id: defaultTabId })}
                         disabledReason={editingDisabledReason}
-                        options={tabs
-                            .filter((tab) => isTabVisible(tab.id))
-                            .map((tab) => ({ value: tab.id, label: tab.label }))}
+                        options={tabs.filter(isTabVisible).map((tab) => ({ value: tab.id, label: tab.label }))}
                         placeholder="First available tab"
                     />
                 </div>
-                <div className="flex flex-col gap-2">
-                    {tabs.map((tab, index) => (
-                        <div key={tab.id} className="flex flex-wrap items-center gap-2 rounded border p-2">
-                            <LemonCheckbox
-                                checked={isTabVisible(tab.id)}
-                                onChange={(visible) => updateVisibility(tab.id, visible)}
-                                disabledReason={editingDisabledReason}
-                                label={tab.label}
-                                className="min-w-40 flex-1"
-                            />
-                            <LemonTag type="muted">{tab.kind === 'system' ? 'System' : 'View'}</LemonTag>
-                            <div className="flex items-center gap-1">
-                                <LemonButton
-                                    size="xsmall"
-                                    icon={<IconChevronDown className="rotate-180" />}
-                                    aria-label="Move tab up"
-                                    onClick={() => moveTab(tab.id, 'up')}
-                                    disabledReason={
-                                        editingDisabledReason ?? (index === 0 ? 'Already first' : undefined)
-                                    }
-                                />
-                                <LemonButton
-                                    size="xsmall"
-                                    icon={<IconChevronDown />}
-                                    aria-label="Move tab down"
-                                    onClick={() => moveTab(tab.id, 'down')}
-                                    disabledReason={
-                                        editingDisabledReason ??
-                                        (index === tabs.length - 1 ? 'Already last' : undefined)
-                                    }
-                                />
-                            </div>
-                        </div>
-                    ))}
-                </div>
+                <ConfigureAccountTabsSection
+                    title="Views"
+                    tabs={tabs.filter((tab) => tab.kind === 'view')}
+                    disabledReason={editingDisabledReason}
+                    isTabVisible={isTabVisible}
+                    onVisibilityChange={updateVisibility}
+                    onReorder={reorderTab}
+                />
+                <ConfigureAccountTabsSection
+                    title="System tabs"
+                    tabs={tabs.filter((tab) => tab.kind === 'system')}
+                    disabledReason={editingDisabledReason}
+                    isTabVisible={isTabVisible}
+                    onVisibilityChange={updateVisibility}
+                    onReorder={reorderTab}
+                />
             </div>
         </LemonModal>
     )

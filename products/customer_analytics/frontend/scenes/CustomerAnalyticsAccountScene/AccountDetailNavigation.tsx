@@ -1,8 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconGlobe, IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { IconPencil } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,6 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { accountBillingLogic } from '../../components/Accounts/accountBillingLogic'
 import { AccountViewComponent } from '../../components/Accounts/AccountViewComponent'
+import { AccountTabLabel } from './AccountTabLabel'
 import {
     getAccountTabIdFromRoute,
     getAccountTabRoute,
@@ -107,7 +108,7 @@ export function AccountDetailNavigation({
                     rightSlot={rightSlot}
                     tabs={tabDefinitions.map((tab) => ({
                         key: tab.id,
-                        label: getAccountTabLabel(tab),
+                        label: <AccountTabLabel tab={tab} />,
                     }))}
                 />
             </div>
@@ -130,22 +131,6 @@ export function AccountDetailNavigation({
                 </div>
             ) : null}
         </div>
-    )
-}
-
-function getAccountTabLabel(tab: AccountTabDefinition): string | JSX.Element {
-    if (tab.view?.visibility !== 'team') {
-        return tab.label
-    }
-
-    return (
-        <span className="flex items-center gap-1">
-            <span>{tab.label}</span>
-            <span className="sr-only">Shared with team</span>
-            <Tooltip title="This view is shared with the team.">
-                <IconGlobe className="shrink-0 text-muted" />
-            </Tooltip>
-        </span>
     )
 }
 

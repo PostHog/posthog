@@ -5,7 +5,7 @@ import {
     isAccountTabVisible,
     listOrderedAccountTabs,
     listVisibleAccountTabs,
-    moveAccountTab,
+    reorderAccountTab,
     setAccountTabVisibility,
     type AccountTabDefinition,
 } from './accountTabs'
@@ -42,35 +42,35 @@ describe('account tabs', () => {
         }
 
         expect(listOrderedAccountTabs(tabs, config, false).map((tab) => tab.id)).toEqual([
+            'view:shared',
             'system:notes',
             'system:users',
-            'view:shared',
         ])
         expect(listVisibleAccountTabs(tabs, config, undefined, 1, false).map((tab) => tab.id)).toEqual([
+            'view:shared',
             'system:notes',
             'system:users',
-            'view:shared',
         ])
         expect(getDefaultAccountTabId(tabs, config, 1, false)).toBe('system:notes')
         expect(getDefaultAccountTabId(tabs, config, 1, true)).toBe('system:users')
     })
 
     it('does not opt into another user’s team view while reordering system tabs', () => {
-        const config = moveAccountTab(tabs, emptyConfig, 1, 'system:users', 'up')
+        const config = reorderAccountTab(tabs, emptyConfig, 1, 'system:users', 'system:notes')
 
         expect(config.ordered_tab_ids).toEqual(['system:users', 'system:notes'])
         expect(config.ordered_tab_ids).not.toContain('view:shared')
         expect(isAccountTabVisible(tabs[2], config, 1)).toBe(false)
     })
 
-    it('places a newly selected team view after the existing tabs', () => {
+    it('lists a newly selected team view with the views, ahead of system tabs', () => {
         const config = setAccountTabVisibility(tabs, tabs[2], emptyConfig, 1, true)
 
         expect(config.ordered_tab_ids).toEqual(['system:notes', 'system:users', 'view:shared'])
         expect(listVisibleAccountTabs(tabs, config, undefined, 1).map((tab) => tab.id)).toEqual([
+            'view:shared',
             'system:notes',
             'system:users',
-            'view:shared',
         ])
     })
 
