@@ -33,15 +33,18 @@ export interface ReportCheckRowData {
 
 /** A soak window in the words the copy needs: "7 days", "36 hours", "90 minutes". */
 function soakLabel(minutes: number): string {
-    if (minutes % 1440 === 0) {
-        const days = minutes / 1440
-        return `${days} ${days === 1 ? 'day' : 'days'}`
+    const plural = (n: number, unit: string): string => `${n} ${n === 1 ? unit : `${unit}s`}`
+    if (minutes < 60) {
+        return plural(minutes, 'minute')
     }
-    if (minutes % 60 === 0) {
-        const hours = minutes / 60
-        return `${hours} ${hours === 1 ? 'hour' : 'hours'}`
+    // Soaks the scout proposes are rarely whole hours, and a raw minute count is hard to read.
+    const totalHours = Math.round(minutes / 60)
+    if (totalHours < 24) {
+        return plural(totalHours, 'hour')
     }
-    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+    const days = Math.floor(totalHours / 24)
+    const hours = totalHours % 24
+    return hours ? `${plural(days, 'day')} ${plural(hours, 'hour')}` : plural(days, 'day')
 }
 
 /** Which scout answers an `agent` check. A `metric_threshold` check has no lane: the coordinator measures it. */
