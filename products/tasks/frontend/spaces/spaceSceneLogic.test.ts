@@ -149,6 +149,92 @@ describe('spaceSceneLogic', () => {
         expect(router.values.searchParams).toEqual({ task: 'task-new' })
     })
 
+    it.each([
+        ['clears a session once it opens', 200, '2026-09-30T11:00:00.000Z', '2026-09-30T12:00:00.000Z', []],
+        [
+            'clears activity stamped ahead of the local clock',
+            200,
+            '2026-09-30T12:05:00.000Z',
+            '2026-09-30T12:05:00.000Z',
+            [],
+        ],
+        [
+            'restores unread when marking read fails',
+            500,
+            '2026-09-30T11:00:00.000Z',
+            '2026-09-30T12:00:00.000Z',
+            ['task-1'],
+        ],
+    ])('%s', async (_, status, activityAt, seenBefore, unreadAfter) => {
+        // Only the clock is faked, so kea listeners and the activity debounce still run on real timers.
+        jest.useFakeTimers({
+            now: new Date('2026-09-30T12:00:00.000Z'),
+            doNotFake: [
+                'setTimeout',
+                'clearTimeout',
+                'setInterval',
+                'clearInterval',
+                'setImmediate',
+                'queueMicrotask',
+                'nextTick',
+            ],
+        })
+        const markReadBodies: unknown[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/task_activity/': {
+                    unread_count: 2,
+                    results: [
+                        {
+                            id: 'row-1',
+                            task_id: 'task-1',
+                            channel_id: 'space-a',
+                            activity_at: activityAt,
+                            is_unread: true,
+                        },
+                        {
+                            id: 'row-2',
+                            task_id: 'task-2',
+                            channel_id: 'space-b',
+                            activity_at: activityAt,
+                            is_unread: false,
+                        },
+                        {
+                            id: 'row-3',
+                            task_id: 'task-3',
+                            channel_id: 'space-c',
+                            activity_at: activityAt,
+                            latest_comment_id: 'comment-1',
+                            is_unread: true,
+                        },
+                    ],
+                },
+            },
+            post: {
+                '/api/projects/:team_id/task_activity/mark_read/': async ({ request }) => {
+                    markReadBodies.push(await request.json())
+                    return [status, { marked_read: 1, unread_count: 1 }]
+                },
+            },
+        })
+        try {
+            const logic = spaceSceneLogic({ id: 'space-a' })
+            logic.mount()
+            await expectLogic(todaySpacesLogic).toDispatchActions(['loadTaskActivitySuccess'])
+            expect([...todaySpacesLogic.values.unreadSessionIds]).toEqual(['task-1'])
+            expect([...todaySpacesLogic.values.unreadSpaceIds]).toEqual(['space-a'])
+
+            router.actions.push(urls.aiTask('task-1'))
+            await expectLogic(todaySpacesLogic).toFinishAllListeners()
+
+            expect(markReadBodies).toEqual([{ activities: [{ task_id: 'task-1', seen_before: seenBefore }] }])
+            expect([...todaySpacesLogic.values.unreadSessionIds]).toEqual(unreadAfter)
+            expect([...todaySpacesLogic.values.unreadSpaceIds]).toEqual(unreadAfter.length ? ['space-a'] : [])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('loads the members once the space turns private', async () => {
         const logic = spaceSceneLogic({ id: 'space-a' })
         logic.mount()
