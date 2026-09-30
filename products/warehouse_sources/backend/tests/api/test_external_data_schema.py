@@ -1739,6 +1739,8 @@ class TestExternalDataSchema(APIBaseTest):
                 {"full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"},
                 200,
                 (7, datetime(2026, 10, 1, 3, tzinfo=UTC)),
+                None,
+                time(3, 0),
             ),
             (
                 "resaving_the_same_time_keeps_the_clock",
@@ -1748,6 +1750,17 @@ class TestExternalDataSchema(APIBaseTest):
                 200,
                 (7, datetime(2026, 9, 26, tzinfo=UTC)),
                 time(3, 0),
+                time(3, 0),
+            ),
+            (
+                "clearing_the_interval_clears_the_time",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": None, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (None, None),
+                time(3, 0),
+                None,
             ),
         ]
     )
@@ -1760,6 +1773,7 @@ class TestExternalDataSchema(APIBaseTest):
         expected_status: int,
         expected: tuple[int | None, datetime | None],
         initial_time: time | None = None,
+        expected_time: time | None = None,
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1792,6 +1806,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == expected_status, response.content
         schema.refresh_from_db()
         assert (schema.full_refresh_interval_days, schema.next_full_refresh_at) == expected
+        assert schema.full_refresh_time_of_day == expected_time
 
     def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the

@@ -441,7 +441,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         help_text=(
             "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. "
             "The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the "
-            "interval from when it was saved or from the last full resync. Saving a new time restarts the clock."
+            "interval from when it was saved or from the last full resync. Saving a new time restarts the clock. "
+            "Cleared when full_refresh_interval_days is null."
         ),
     )
     primary_key_columns = serializers.ListField(
@@ -1211,6 +1212,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
                 }
             )
+        # A time kept without an interval would apply silently to the next interval a caller sets.
+        if full_refresh_interval_days is None:
+            full_refresh_time_of_day = None
         if (
             full_refresh_interval_days != instance.full_refresh_interval_days
             or full_refresh_time_of_day != instance.full_refresh_time_of_day

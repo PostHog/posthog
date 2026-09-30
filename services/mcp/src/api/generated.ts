@@ -44541,7 +44541,7 @@ export namespace Schemas {
          */
       full_refresh_interval_days?: number | null;
       /**
-         * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the interval from when it was saved or from the last full resync. Saving a new time restarts the clock.
+         * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the interval from when it was saved or from the last full resync. Saving a new time restarts the clock. Cleared when full_refresh_interval_days is null.
          * @nullable
          */
       full_refresh_time_of_day?: string | null;
@@ -44664,7 +44664,7 @@ export namespace Schemas {
          */
       full_refresh_interval_days?: number | null;
       /**
-         * UTC time of day that scheduled full refreshes are due, for example outside working hours. Null counts the interval from when it was saved or from the last full resync.
+         * UTC time of day that scheduled full refreshes are due, for example outside working hours. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
          * @nullable
          */
       full_refresh_time_of_day?: string | null;
@@ -75733,7 +75733,7 @@ export namespace Schemas {
          */
       full_refresh_interval_days?: number | null;
       /**
-         * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the interval from when it was saved or from the last full resync. Saving a new time restarts the clock.
+         * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the interval from when it was saved or from the last full resync. Saving a new time restarts the clock. Cleared when full_refresh_interval_days is null.
          * @nullable
          */
       full_refresh_time_of_day?: string | null;

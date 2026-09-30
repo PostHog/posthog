@@ -103,7 +103,8 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "UTC time of day that scheduled full refreshes are due, for example outside working hours. Null counts "
-            "the interval from when it was saved or from the last full resync."
+            "the interval from when it was saved or from the last full resync. Cleared when "
+            "full_refresh_interval_days is null."
         ),
     )
     primary_key_columns = serializers.ListField(

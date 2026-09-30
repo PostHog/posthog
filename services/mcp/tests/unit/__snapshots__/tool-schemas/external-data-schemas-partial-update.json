@@ -63,7 +63,7 @@
                     "type": "null"
                 }
             ],
-            "description": "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the interval from when it was saved or from the last full resync. Saving a new time restarts the clock."
+            "description": "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time. Null counts the interval from when it was saved or from the last full resync. Saving a new time restarts the clock. Cleared when full_refresh_interval_days is null."
         },
         "id": {
             "description": "A UUID string identifying this external data schema.",
