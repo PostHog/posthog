@@ -1,15 +1,12 @@
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
-from posthog.api.app_metrics2 import AppMetricsMixin, MetricSeries, fetch_app_metric_totals
+from posthog.api.app_metrics2 import fetch_app_metric_totals
 from posthog.test.fixtures import create_app_metric2
 
 
@@ -68,13 +65,3 @@ class TestAppMetrics2Timezone(ClickhouseTestMixin, BaseTest):
         # for negative offsets it pulls in the earlier row, for positive ones it drops both.
         # `fetch_app_metrics_trends` shares the identical conversion, so this guards it too.
         assert result.totals == {"success": 1}, tz_name
-
-
-class _PlainViewSet(AppMetricsMixin):
-    app_source = "hog_function"
-
-
-class TestAppMetricsMixinSeries(SimpleTestCase):
-    def test_the_default_series_is_the_object_s_own_whole_history(self) -> None:
-        series = _PlainViewSet()._metric_series_for(SimpleNamespace(id="fn-1"), {"version": 2})
-        assert series == MetricSeries(app_source="hog_function", app_source_id="fn-1")

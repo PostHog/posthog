@@ -2280,10 +2280,6 @@ export type HogFlowsMetricsRetrieveParams = {
      * @minLength 1
      */
     name?: string
-    /**
-     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
-     */
-    version?: number
 }
 
 export type HogFlowsMetricsRetrieveBreakdownBy =
@@ -2346,10 +2342,6 @@ export type HogFlowsMetricsTotalsRetrieveParams = {
      * @minLength 1
      */
     name?: string
-    /**
-     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
-     */
-    version?: number
 }
 
 export type HogFlowsMetricsTotalsRetrieveBreakdownBy =
@@ -2364,6 +2356,72 @@ export type HogFlowsMetricsTotalsRetrieveInterval =
     (typeof HogFlowsMetricsTotalsRetrieveInterval)[keyof typeof HogFlowsMetricsTotalsRetrieveInterval]
 
 export const HogFlowsMetricsTotalsRetrieveInterval = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+} as const
+
+export type HogFlowsMetricsVersionRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFlowsMetricsVersionRetrieveBreakdownBy
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFlowsMetricsVersionRetrieveInterval
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string
+    /**
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
+     */
+    version: number
+}
+
+export type HogFlowsMetricsVersionRetrieveBreakdownBy =
+    (typeof HogFlowsMetricsVersionRetrieveBreakdownBy)[keyof typeof HogFlowsMetricsVersionRetrieveBreakdownBy]
+
+export const HogFlowsMetricsVersionRetrieveBreakdownBy = {
+    Name: 'name',
+    Kind: 'kind',
+} as const
+
+export type HogFlowsMetricsVersionRetrieveInterval =
+    (typeof HogFlowsMetricsVersionRetrieveInterval)[keyof typeof HogFlowsMetricsVersionRetrieveInterval]
+
+export const HogFlowsMetricsVersionRetrieveInterval = {
     Hour: 'hour',
     Day: 'day',
     Week: 'week',

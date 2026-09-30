@@ -5360,20 +5360,30 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
             count=succeeded,
         )
 
+    def _succeeded(self, response) -> int:
+        return sum(sum(series["values"]) for series in response.json()["series"] if series["name"] == "success")
+
     def test_a_version_reads_only_its_own_series(self):
         self._seed("hog_flow_version", f"{self.flow.id}/1", succeeded=3)
         self._seed("hog_flow_version", f"{self.flow.id}/2", succeeded=5)
         self._seed("hog_flow", str(self.flow.id), succeeded=7)
-        base = f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/metrics/totals"
+        base = f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}"
 
-        version_one = self.client.get(f"{base}?version=1")
-        version_two = self.client.get(f"{base}?version=2")
-        whole = self.client.get(base)
+        version_one = self.client.get(f"{base}/metrics/version?version=1")
+        version_two = self.client.get(f"{base}/metrics/version?version=2")
+        whole = self.client.get(f"{base}/metrics")
 
         assert version_one.status_code == 200, version_one.json()
-        assert version_one.json()["totals"] == {"success": 3}
-        assert version_two.json()["totals"] == {"success": 5}
-        assert whole.json()["totals"] == {"success": 7}
+        assert self._succeeded(version_one) == 3
+        assert self._succeeded(version_two) == 5
+        # The unversioned read keys batch runs on the run, so it is its own series rather than a sum.
+        assert self._succeeded(whole) == 7
+
+    def test_the_version_is_required(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/metrics/version")
+
+        assert response.status_code == 400, response.json()
+        assert "version" in str(response.json())
 
     @parameterized.expand(
         [
