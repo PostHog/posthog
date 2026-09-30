@@ -1,3 +1,4 @@
+import signal
 import typing
 import asyncio
 import threading
@@ -208,3 +209,49 @@ class ShutdownMonitor:
         if self.is_worker_shutdown():
             self.logger.debug("Worker is shutting down.")
             raise WorkerShuttingDownError.from_activity_context()
+
+
+class ShutdownSignalListener:
+    """Record SIGTERM and SIGINT for a worker to act on, without depending on asyncio's self-pipe.
+
+    `loop.add_signal_handler` delivers a signal through a wakeup byte that the C signal handler
+    writes to the loop's self-pipe. When that pipe is full, the write fails with `BlockingIOError`
+    ("Exception ignored when trying to write to the signal wakeup fd"), the byte is lost, and the
+    worker never starts to shut down. It then keeps polling for new work until the pod is killed.
+
+    A Python-level handler from `signal.signal` runs in the main thread whether or not the byte
+    reaches the pipe, so this listener records the signal there and `wait` polls for it.
+    """
+
+    def __init__(
+        self,
+        signals: tuple[signal.Signals, ...] = (signal.SIGTERM, signal.SIGINT),
+        poll_interval_seconds: float = 1.0,
+    ):
+        self._signals = signals
+        self._poll_interval_seconds = poll_interval_seconds
+        self._received: signal.Signals | None = None
+        self._received_event = threading.Event()
+
+    def install(self) -> None:
+        """Replace the handlers for the listened signals. Call it from the main thread."""
+        for sig in self._signals:
+            signal.signal(sig, self._handle)
+
+    def _handle(self, signum: int, frame: object) -> None:
+        # A later signal (for example the SIGTERM that the worker wrapper script sends again) keeps
+        # the first one, so a shutdown starts only once.
+        if self._received is None:
+            self._received = signal.Signals(signum)
+        self._received_event.set()
+
+    @property
+    def received(self) -> signal.Signals | None:
+        return self._received
+
+    async def wait(self) -> signal.Signals:
+        """Return the first signal received, polling so that no wakeup byte is needed."""
+        while not self._received_event.is_set():
+            await asyncio.sleep(self._poll_interval_seconds)
+        assert self._received is not None
+        return self._received

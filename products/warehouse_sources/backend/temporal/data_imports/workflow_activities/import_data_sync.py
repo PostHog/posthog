@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
@@ -891,6 +892,17 @@ async def _handle_import_error(
     if is_transient_object_store_error(error):
         await logger.awarning(error_msg)
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # The same concurrent-maintenance/reset race `is_transient_delta_maintenance_error` already
+    # covers for the writer's own table (a full-refresh purging `_delta_log` out from under a
+    # still-running maintenance pass) can just as well hit a *parent* table a warehouse-parent
+    # fan-out reader (sources/common/rest_source/warehouse_parent.py) opened at a pinned version:
+    # the parent resyncs and resets its table between the pin and the read. Same self-healing
+    # race, different table role, so classify it the same way here rather than letting it escape raw.
+    if is_transient_delta_maintenance_error(error):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient Delta maintenance/reset race - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # DATA_WAREHOUSE_REDIS backs resumable-source checkpoints, row tracking, and sync locks — it's
