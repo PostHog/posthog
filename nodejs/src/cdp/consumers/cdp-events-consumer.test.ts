@@ -28,6 +28,7 @@ import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { currentRuntimeContractHash } from '../utils/filter-runtime'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 
 jest.setTimeout(1000)
@@ -661,6 +662,63 @@ describe('CdpEventsConsumer', () => {
                 await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
 
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+            })
+
+            it.each([
+                ['data', 'filters_bad_event_json' as const, JSON.stringify({ payload: '{' })],
+                ['limit', 'filters_never_finish' as const, '{}'],
+            ])(
+                "parks nothing when a %s failure is the owner's",
+                async (_class, fixture, properties) => {
+                    // Both fail the same way on every attempt, so a replay cannot clear either.
+                    await insertHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES[fixture],
+                    })
+
+                    await handleBatch([createKafkaMessage(createIncomingEvent(team.id, { properties }))])
+
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                },
+                20000
+            )
+
+            it('parks a regex the engine refuses, which carries no VM error at all', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.filters_bad_regex,
+                })
+
+                await handleBatch([
+                    createKafkaMessage(
+                        createIncomingEvent(team.id, { properties: JSON.stringify({ payload: 'abc' }) })
+                    ),
+                ])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_class: 'platform' })
+            })
+
+            it('parks a refusal the compiler said could not happen, and says it is a bug', async () => {
+                // The stamp matches the runtime that is running, so the compiler accepted a program
+                // the VM then refused. Nothing else in the queue means what this means.
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    filters: {
+                        ...HOG_FILTERS_EXAMPLES.broken_filters.filters,
+                        bytecode_contract: currentRuntimeContractHash(),
+                    },
+                })
+
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_class: 'bug' })
             })
 
             it('parks an event that throws unexpectedly instead of failing the whole batch', async () => {
