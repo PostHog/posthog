@@ -46,6 +46,13 @@ OBJECT_STORE_PERMISSION_DENIED_MESSAGE = (
     "PostHog's side, not with your source. Contact support if it keeps happening."
 )
 
+# Same reasoning as OBJECT_STORE_PERMISSION_DENIED_MESSAGE: this is what a customer reads if every
+# retry is exhausted, so it names neither the bucket nor the object key either.
+OBJECT_STORE_TRANSIENT_MESSAGE = (
+    "PostHog hit a temporary problem reading or writing this table's files in its own storage. "
+    "The next scheduled run will try again."
+)
+
 
 class ObjectStorePermissionDeniedError(Exception):
     """The data warehouse bucket refused a read, a write or a delete.
@@ -128,9 +135,11 @@ async def execute_with_conflict_retry(
                 # Same blip get_delta_table already classifies (see table.py's
                 # _capture_unless_transient) - a bare re-raise here would still mint a fresh
                 # error-tracking issue at the activity boundary, and burn the conflict-retry budget
-                # on a call that isn't a commit conflict.
+                # on a call that isn't a commit conflict. The raw text (kept only on __cause__) can
+                # name the bucket and the object key, so the wrapper's own message stays generic in
+                # case every retry is exhausted and it reaches the customer as the sync's error text.
                 await logger.awarning(f"{operation_name}: transient object-store error, not reporting: {e}")
-                raise TransientObjectStoreError(str(e)) from e
+                raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
             if not isinstance(e, deltalake.exceptions.DeltaError):
                 raise
             if not isinstance(e, deltalake.exceptions.CommitFailedError) and not is_invalid_version_race(e):

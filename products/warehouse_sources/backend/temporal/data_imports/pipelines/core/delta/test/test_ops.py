@@ -154,6 +154,10 @@ class TestExecuteWithConflictRetry:
             await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
 
         assert exc_info.value.__cause__ is error
+        # This can reach the customer as the sync run's error text if every retry is exhausted, so
+        # the raw storage text (which can name the bucket and the object key) must not survive into
+        # the wrapper's own message - only onto __cause__, asserted above.
+        assert "Insufficient Storage" not in str(exc_info.value)
         operation_fn.assert_called_once()
         table.update_incremental.assert_not_called()
 
