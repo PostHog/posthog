@@ -47,21 +47,42 @@ export function PlatformAlertStateBadge({ state }: { state: PlatformAlertState }
     return <Badge variant={badge.variant}>{badge.label}</Badge>
 }
 
-export function summarizePlatformAlert(alert: PlatformAlertData): ReactElement {
-    if (!alert.enabled) {
-        return <Badge>Disabled</Badge>
-    }
-    const firing = alert.alerts.filter((group) => group.state === 'firing').length
+function groupStateBadge(alert: PlatformAlertData): ReactElement | null {
     if (alert.alerts.length > 1) {
+        const firing = alert.alerts.filter((group) => group.state === 'firing').length
         return firing > 0 ? (
             <Badge variant="destructive">
                 {firing} of {alert.alerts.length} firing
             </Badge>
-        ) : (
-            <Badge variant="success">OK</Badge>
-        )
+        ) : null
     }
-    return <PlatformAlertStateBadge state={alert.alerts[0]?.state ?? 'not_firing'} />
+    const state = alert.alerts[0]?.state ?? 'not_firing'
+    return state === 'not_firing' ? null : <PlatformAlertStateBadge state={state} />
+}
+
+export function summarizePlatformAlert(alert: PlatformAlertData): ReactElement {
+    if (!alert.enabled) {
+        return <Badge>Disabled</Badge>
+    }
+    const state = groupStateBadge(alert)
+    const failures = alert.consecutive_failures
+    // A failed check keeps the group state until the alert breaks, so this count is the only sign that checks fail.
+    if (failures === 0) {
+        return state ?? <Badge variant="success">OK</Badge>
+    }
+    const failedChecks = (
+        <Badge variant="warning">
+            {failures} failed check{failures === 1 ? '' : 's'}
+        </Badge>
+    )
+    return state ? (
+        <span className="inline-flex items-center gap-1 flex-wrap">
+            {state}
+            {failedChecks}
+        </span>
+    ) : (
+        failedChecks
+    )
 }
 
 function optionalTime(value: string | null, fallback: string): string {
