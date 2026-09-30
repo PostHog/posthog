@@ -81,7 +81,7 @@ The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scan
 
 ### The benchmark, and its one limit
 
-Each case carries the recorded production output and the human thumbs label, and the scorers grade the PR's prompts against those, so one run already benchmarks a prompt change against production.
+Each case carries the recorded production output, and labeled cases also carry the human thumbs label. The scorers grade the PR's prompts against whichever reference a case has, so one run already benchmarks a prompt change against production.
 What it is not yet is a standing benchmark comparable across PRs and over time: the collector re-samples per run (deterministic for a fixed source, but the source drifts as observations accumulate and expire), so run-over-run score deltas mix a prompt change with a set change.
 A pinned dataset fixes that (see "Pinning the dataset" below): a person curates the set once, uploads it, and CI reads it unchanged, so prompt-path PRs compare against the same footage every run. Consent is re-verified at every eval start. Pinning real recordings to an internal bucket still needs the data-governance decision; until it clears, PR runs keep collecting fresh.
 
