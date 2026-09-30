@@ -128,6 +128,16 @@ describe('describeAliasesUsed', () => {
         expect(describeAliasesUsed(undefined, { experimentId: 1 })).toEqual([])
     })
 
+    // Mirrors the normaliser: a canonical the input already carries is never filled
+    // from an alias, and only the first alias in map order fills it. Recording the
+    // rest would count rescues that never happened.
+    it('records only the alias the normaliser relied on', () => {
+        expect(describeAliasesUsed(aliasMap, { id: 5, experimentId: 5 })).toEqual([])
+        expect(describeAliasesUsed(aliasMap, { experimentId: 1, experiment_id: 2 })).toEqual(['experimentId->id'])
+        // A null alias value still fills the canonical, in both places.
+        expect(describeAliasesUsed(aliasMap, { experimentId: null, experiment_id: 2 })).toEqual(['experimentId->id'])
+    })
+
     it('never includes input values', () => {
         const used = describeAliasesUsed(aliasMap, { experimentId: 'secret-value' })
         expect(JSON.stringify(used)).not.toContain('secret-value')

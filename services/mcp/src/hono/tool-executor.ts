@@ -35,6 +35,7 @@ import {
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
     repairArgumentNesting,
+    UNRECOGNIZED_EXEC_TOKEN,
     type ExecCommandMeta,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
@@ -371,6 +372,7 @@ export class ToolExecutor {
                 message,
                 describeValidationError(validation.error, toolArgs, tool.schema)
             )
+            const sessionProperties = await sessionShape
             void trackToolCall(
                 tool.name,
                 0,
@@ -378,7 +380,7 @@ export class ToolExecutor {
                 state,
                 {
                     ...inputShape,
-                    ...(await sessionShape),
+                    ...sessionProperties,
                     ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 },
                 analyticsMeta,
@@ -442,6 +444,7 @@ export class ToolExecutor {
                 })
             }
 
+            const sessionProperties = await sessionShape
             void trackToolCall(
                 tool.name,
                 duration,
@@ -449,7 +452,7 @@ export class ToolExecutor {
                 state,
                 {
                     ...inputShape,
-                    ...(await sessionShape),
+                    ...sessionProperties,
                     ...skillShape,
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
@@ -496,6 +499,7 @@ export class ToolExecutor {
                 this.builtInSkillHint(state)
             )
 
+            const sessionProperties = await sessionShape
             void trackToolCall(
                 tool.name,
                 Date.now() - startMs,
@@ -503,7 +507,7 @@ export class ToolExecutor {
                 state,
                 {
                     ...inputShape,
-                    ...(await sessionShape),
+                    ...sessionProperties,
                     ...errorAnalyticsProperties(classification, error),
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
                 },
@@ -543,7 +547,9 @@ export class ToolExecutor {
 
     /**
      * Session properties for one request, or none when the request carries no MCP
-     * session id or the session cache is unreachable. Telemetry never fails a call.
+     * session id, the session cache is unreachable, or it does not answer within
+     * `SESSION_OBSERVE_TIMEOUT_MS`. The tool result awaits this, so a slow Redis costs
+     * the three session properties rather than response time. Telemetry never fails a call.
      */
     private async observeToolCallSession(
         state: ResolvedState,
@@ -551,7 +557,18 @@ export class ToolExecutor {
     ): Promise<Record<string, unknown>> {
         try {
             const session = buildToolCallSessionState(state.reqCtx, state.requestContext.mcpSessionId)
-            return session ? await session.observe(observation) : {}
+            if (!session) {
+                return {}
+            }
+            let timer: ReturnType<typeof setTimeout> | undefined
+            const deadline = new Promise<Record<string, unknown>>((resolve) => {
+                timer = setTimeout(() => resolve({}), SESSION_OBSERVE_TIMEOUT_MS)
+            })
+            try {
+                return await Promise.race([session.observe(observation).catch(() => ({})), deadline])
+            } finally {
+                clearTimeout(timer)
+            }
         } catch {
             return {}
         }
@@ -636,6 +653,7 @@ export class ToolExecutor {
                 ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
                 : undefined
 
+            const sessionProperties = await sessionShape
             void trackToolCall(
                 execToolName(),
                 duration,
@@ -644,7 +662,7 @@ export class ToolExecutor {
                 {
                     ...execShape,
                     ...execInputShape,
-                    ...(await sessionShape),
+                    ...sessionProperties,
                     ...(failureShape ?? execSkillShape),
                     ...(execMetrics.skillLookupMissKind
                         ? skillLookupMissProperties(execMetrics.skillLookupMissKind)
@@ -669,6 +687,7 @@ export class ToolExecutor {
                 toolCallsTotal.inc({ tool: 'exec', status })
             }
 
+            const sessionProperties = await sessionShape
             void trackToolCall(
                 metricTool,
                 Date.now() - startMs,
@@ -677,7 +696,7 @@ export class ToolExecutor {
                 {
                     ...execShape,
                     ...execInputShape,
-                    ...(await sessionShape),
+                    ...sessionProperties,
                     ...errorAnalyticsProperties(classification, error),
                     ...execMetrics.commandMeta,
                 },
@@ -844,25 +863,43 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
         }
 
+        // Same shape and session properties as every other tool call, so this event
+        // does not read as a call that sent no arguments.
+        const inputShape = inputShapeAnalyticsProperties(toolArgs, renderUiTool.schema)
+        const sessionShape = this.observeToolCallSession(state, {
+            verb: 'call',
+            targetTool: 'render-ui',
+            schemaRequiresRead: false,
+        })
+
         const stop = toolCallDurationSeconds.startTimer({ tool: 'render-ui' })
         const startMs = Date.now()
         try {
             const handlerResult = await renderUiTool.handler(state.context, validation.data)
             toolCallsTotal.inc({ tool: 'render-ui', status: 'success' })
             stop({ status: 'success' })
-            void trackToolCall('render-ui', Date.now() - startMs, false, state, undefined, analyticsMeta)
+            const sessionProperties = await sessionShape
+            void trackToolCall(
+                'render-ui',
+                Date.now() - startMs,
+                false,
+                state,
+                { ...inputShape, ...sessionProperties },
+                analyticsMeta
+            )
             // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
             return handlerResult
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: 'render-ui', status: 'error' })
             stop({ status: 'error' })
             const classification = classifyToolError(error, 'render-ui')
+            const sessionProperties = await sessionShape
             void trackToolCall(
                 'render-ui',
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification, error),
+                { ...inputShape, ...sessionProperties, ...errorAnalyticsProperties(classification, error) },
                 analyticsMeta
             )
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
@@ -1057,6 +1094,9 @@ function safeUrlPath(url: string): string {
 /** Arguments the SDK or host injects on every call; not something the agent chose to send. */
 const INJECTED_ARG_KEYS = new Set(['context', 'llm_model'])
 
+/** How long a tool result waits for the session record; a healthy Redis answers in about a millisecond. */
+const SESSION_OBSERVE_TIMEOUT_MS = 100
+
 /**
  * `$mcp_input_keys`: the top-level argument names the caller sent, on every event,
  * success and failure alike. `$mcp_validation_input_keys` only exists on a local
@@ -1069,13 +1109,19 @@ const INJECTED_ARG_KEYS = new Set(['context', 'llm_model'])
  * the tool's own schema declares.
  */
 function inputShapeAnalyticsProperties(
-    input: Record<string, unknown>,
+    input: unknown,
     schema: ResolvedTool['schema'] | undefined
 ): Record<string, unknown> {
-    const own = Object.fromEntries(Object.entries(input).filter(([key]) => !INJECTED_ARG_KEYS.has(key)))
-    const aliases = describeAliasesUsed(schema ? readParamAliases(schema) : undefined, own)
+    // `params.arguments` is an unvalidated cast until `safeParse` runs; only a plain
+    // object carries argument names, and walking a string or an array here would build
+    // one entry per character or element before the schema gets to reject it.
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return {}
+    }
+    const record = input as Record<string, unknown>
+    const aliases = describeAliasesUsed(schema ? readParamAliases(schema) : undefined, record)
     return {
-        $mcp_input_keys: describeInputKeys(own),
+        $mcp_input_keys: describeInputKeys(record, INJECTED_ARG_KEYS),
         ...(aliases.length > 0 ? { $mcp_param_aliases_used: aliases } : {}),
     }
 }
@@ -1083,7 +1129,7 @@ function inputShapeAnalyticsProperties(
 /** The target `describeExecCommand` recorded, when it resolved to a real tool name. */
 function recordedTargetTool(execShape: Record<string, unknown>): string | undefined {
     const target = execShape.$mcp_exec_target_tool
-    return typeof target === 'string' && target !== 'unrecognized' ? target : undefined
+    return typeof target === 'string' && target !== UNRECOGNIZED_EXEC_TOKEN ? target : undefined
 }
 
 /**

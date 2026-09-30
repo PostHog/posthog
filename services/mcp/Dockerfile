@@ -54,7 +54,7 @@ COPY tools/openapi-codegen/ tools/openapi-codegen/
 COPY products/ products/
 WORKDIR /code/services/mcp
 ARG COMMIT_HASH
-RUN COMMIT_HASH="${COMMIT_HASH:-}" pnpm exec tsx scripts/build-hono.ts && pnpm run build:ui-apps
+RUN COMMIT_HASH="${COMMIT_HASH:-unknown}" pnpm exec tsx scripts/build-hono.ts && pnpm run build:ui-apps
 
 #
 # Runtime stage — minimal slim image with just the bundle.
