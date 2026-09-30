@@ -54,6 +54,9 @@ const (
 	maxJSONArrayDepth        = 8
 	unparseablePropertiesKey = "$unparseable_properties"
 	maxRecycledValues        = 4096
+	// Each null path repeats its ancestor keys, so a small document with a long key and many null
+	// children can expand to gigabytes of paths. The budget bounds that expansion per document.
+	maxNullKeyBytes = 256 * 1024
 )
 
 var errMaxJSONDepth = errors.New("maximum JSON depth exceeded")
@@ -192,6 +195,8 @@ type processor struct {
 	docs          [envelopeDocs]bytes.Buffer
 	docNullKeys   [envelopeDocs][]string
 	nullKeySeen   map[string]struct{}
+	nullKeyBytes  int
+	nullKeysOver  bool
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -1512,7 +1517,7 @@ func (p *processor) cleanEventDocument(raw []byte) {
 	p.collectNulls = true
 	defer func() { p.collectNulls = false }()
 
-	p.nullKeys = p.nullKeys[:0]
+	p.resetNullKeys()
 	cleaned, err := p.cleanEventProperties(parsed)
 	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleaned, 0)) {
 		if err != nil {
@@ -1528,7 +1533,7 @@ func (p *processor) cleanEventDocument(raw []byte) {
 	p.writeValue(permanent, cleaned)
 	p.recycle(cleaned)
 
-	p.nullKeys = p.nullKeys[:0]
+	p.resetNullKeys()
 	cleanedTemporary, err := p.cleanNode(nil, temporaryObject, 1)
 	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleanedTemporary, 0)) {
 		// The permanent output already quarantines the raw document; do not duplicate it outside the allowlist.
@@ -1566,7 +1571,7 @@ func (p *processor) cleanPersonDocument(raw []byte) {
 	p.collectNulls = true
 	defer func() { p.collectNulls = false }()
 
-	p.nullKeys = p.nullKeys[:0]
+	p.resetNullKeys()
 	cleaned, err := p.cleanNode(nil, parsed, 1)
 	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleaned, 0)) {
 		if err != nil {
@@ -1591,8 +1596,27 @@ func isBlank(raw []byte) bool {
 	return true
 }
 
+func (p *processor) resetNullKeys() {
+	p.nullKeys = p.nullKeys[:0]
+	p.nullKeyBytes = 0
+	p.nullKeysOver = false
+}
+
 // %2E is the json_type_escape_dots_in_keys spelling, which tells the flat key `a.b` from the path `a` > `b`.
 func (p *processor) recordNullKey(key string) {
+	if p.nullKeysOver {
+		return
+	}
+	// Measure the path before building it, so an oversized path is never allocated.
+	size := encodedNullKeySegmentLen(key)
+	for _, segment := range p.path {
+		size += encodedNullKeySegmentLen(segment) + 1
+	}
+	p.nullKeyBytes += size
+	if p.nullKeyBytes > maxNullKeyBytes {
+		p.nullKeysOver = true
+		return
+	}
 	if len(p.path) == 0 && strings.IndexByte(key, '.') < 0 {
 		p.nullKeys = append(p.nullKeys, key)
 		return
@@ -1604,6 +1628,10 @@ func (p *processor) recordNullKey(key string) {
 	}
 	writeNullKeySegment(&p.pathBuf, key)
 	p.nullKeys = append(p.nullKeys, p.pathBuf.String())
+}
+
+func encodedNullKeySegmentLen(segment string) int {
+	return len(segment) + 2*strings.Count(segment, ".")
 }
 
 func writeNullKeySegment(buf *bytes.Buffer, segment string) {
@@ -1622,7 +1650,8 @@ func writeNullKeySegment(buf *bytes.Buffer, segment string) {
 // A duplicate key can leave a non-null value under a recorded path after cleaning.
 // The seen set keeps deduplication linear, because one event can carry thousands of null fields.
 func (p *processor) finishNullKeys(root *value, out []string) []string {
-	if len(p.nullKeys) == 0 {
+	// A partial list would claim that the unlisted fields were never sent, so record none.
+	if p.nullKeysOver || len(p.nullKeys) == 0 {
 		return out
 	}
 	if p.nullKeySeen == nil {
