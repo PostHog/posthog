@@ -238,6 +238,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX, cost=_GPT_LIGHT_COST),
     CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
     CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
+    CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
     CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),
 )
 
@@ -248,6 +249,7 @@ MODELS: tuple[CatalogModel, ...] = (
 FAMILY_REASONING_EFFORTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (CODEX, "gpt-6-astra", _THROUGH_MAX),
     (CODEX, "gpt-6-sol", _THROUGH_MAX),
+    (CODEX, "gpt-6.1-sol", _THROUGH_MAX),
     (CODEX, "gpt-6-luna", _THROUGH_MAX),
     (CODEX, "gpt-5.6", _THROUGH_MAX),
     (CODEX, "gpt-5.5", (*_STANDARD, XHIGH)),

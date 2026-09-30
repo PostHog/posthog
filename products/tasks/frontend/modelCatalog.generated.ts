@@ -387,6 +387,18 @@ export const MODELS: readonly CatalogModel[] = [
         costSummary: 'Input $2 · Output $10 per 1M tokens',
     },
     {
+        id: 'gpt-6.1-sol',
+        runtimeAdapter: 'codex',
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        label: 'GPT-6.1 Sol',
+        cost: {
+            inputPerMtok: 2,
+            outputPerMtok: 10,
+        },
+        costMultiplier: '1×',
+        costSummary: 'Input $2 · Output $10 per 1M tokens',
+    },
+    {
         id: 'gpt-6-luna',
         runtimeAdapter: 'codex',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -486,6 +498,11 @@ export const FAMILY_REASONING_EFFORTS: readonly ModelFamily[] = [
     {
         runtimeAdapter: 'codex',
         prefix: 'gpt-6-sol',
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    },
+    {
+        runtimeAdapter: 'codex',
+        prefix: 'gpt-6.1-sol',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
     },
     {

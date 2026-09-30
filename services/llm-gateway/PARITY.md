@@ -56,6 +56,9 @@ The Go catalog serves GLM 5.2 only, and Baseten on Go still depends on the provi
 `gpt-6-astra` is also Python-only because the Go catalog does not serve it, while Desktop, Code, and cloud agents require the Python product policy above.
 `claude-opus-5-5`, `gpt-6-sol` and `gpt-6-luna` stay Python-only for the same reason: the Go catalog does not serve them.
 
+`gpt-6.1-sol` uses the Python product policies for Desktop, Code, Slack tasks, and background agents.
+These callers still require the OAuth application restrictions and product billing policies above, even when the Go catalog discovers the model.
+
 ### 🔎 Verify before switching
 
 These are compatibility checks, not automatic blockers:
