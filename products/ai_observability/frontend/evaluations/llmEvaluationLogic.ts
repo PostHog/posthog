@@ -333,6 +333,7 @@ export interface llmEvaluationLogicValues {
     isReportableEvaluation: boolean
     maxContext: MaxContextInput[]
     modelSelectionRequired: boolean
+    numericBoundsRequired: boolean
     originalEvaluation: EvaluationConfig | null
     outputConfigDrafts: Partial<Record<'boolean' | 'categorical' | 'numeric', EvaluationOutputConfig>>
     runsBackfill: EvaluationBackfillApi | null
@@ -547,7 +548,12 @@ export interface llmEvaluationLogicMeta {
             originalEvaluation: EvaluationConfig | null,
             evaluationId: string
         ) => boolean
-        formValid: (evaluation: EvaluationConfig | null, modelSelectionRequired: boolean) => boolean
+        numericBoundsRequired: (evaluation: EvaluationConfig | null) => boolean
+        formValid: (
+            evaluation: EvaluationConfig | null,
+            modelSelectionRequired: boolean,
+            numericBoundsRequired: boolean
+        ) => boolean
         canEnable: (
             evaluation: EvaluationConfig | null,
             activeProviderKey: LLMProviderKey | null | undefined
@@ -1503,19 +1509,22 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
+        numericBoundsRequired: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): boolean =>
+                isLLMJudgeEvaluation(evaluation) &&
+                evaluation.output_type === 'numeric' &&
+                evaluation.model_configuration?.provider === 'system_one',
+        ],
         formValid: [
-            (s) => [s.evaluation, s.modelSelectionRequired],
-            (evaluation: EvaluationConfig | null, modelSelectionRequired: boolean) => {
+            (s) => [s.evaluation, s.modelSelectionRequired, s.numericBoundsRequired],
+            (evaluation: EvaluationConfig | null, modelSelectionRequired: boolean, numericBoundsRequired: boolean) => {
                 if (!evaluation) {
                     return false
                 }
                 if (
                     (evaluation.output_type === 'numeric' &&
-                        numericOutputConfigError(
-                            evaluation.output_config,
-                            isLLMJudgeEvaluation(evaluation) &&
-                                evaluation.model_configuration?.provider === 'system_one'
-                        )) ||
+                        numericOutputConfigError(evaluation.output_config, numericBoundsRequired)) ||
                     (evaluation.output_type === 'categorical' && categoricalOutputConfigError(evaluation.output_config))
                 ) {
                     return false

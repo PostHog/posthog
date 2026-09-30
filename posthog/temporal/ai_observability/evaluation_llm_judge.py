@@ -1,4 +1,5 @@
 import json
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Annotated, Any, Literal
@@ -449,6 +450,20 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     )
 
 
+def _system_one_numeric_score(minimum: float, maximum: float, index: float) -> float:
+    last_index = MAX_SCORE_LEVELS - 1
+    if index == 0:
+        return minimum
+    if index == last_index:
+        return maximum
+    score = (minimum * (last_index - index) + maximum * index) / last_index
+    if math.isfinite(score):
+        return score
+    # Scale first when multiplying large finite bounds would overflow.
+    weight = index / last_index
+    return minimum * (1 - weight) + maximum * weight
+
+
 def call_llm_judge(
     *,
     evaluation: dict[str, Any],
@@ -529,10 +544,8 @@ def call_llm_judge(
                         reasoning="System One numeric evaluations require a minimum score below the maximum score.",
                         skip_reason="request_rejected",
                     )
-                # Avoid subtracting the bounds: their difference can overflow even when both are finite.
                 numeric_levels = [
-                    numeric_config.min * (1 - index / (MAX_SCORE_LEVELS - 1))
-                    + numeric_config.max * (index / (MAX_SCORE_LEVELS - 1))
+                    _system_one_numeric_score(numeric_config.min, numeric_config.max, index)
                     for index in range(MAX_SCORE_LEVELS)
                 ]
                 if numeric_config.step is not None:
@@ -543,7 +556,8 @@ def call_llm_judge(
                     "score": ScoreQuestion(
                         instructions=prompt,
                         criteria=[
-                            f"The score according to the evaluation criteria is {value}." for value in numeric_levels
+                            f"The score according to the evaluation criteria is {value:.6g}."
+                            for value in numeric_levels
                         ],
                     )
                 }
@@ -598,8 +612,7 @@ def call_llm_judge(
                 score_answer = system_one_result.answers["score"]
                 if not isinstance(score_answer, ScoreAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid score answer.")
-                weight = score_answer.score / (len(numeric_levels) - 1)
-                score = numeric_levels[0] * (1 - weight) + numeric_levels[-1] * weight
+                score = _system_one_numeric_score(numeric_levels[0], numeric_levels[-1], score_answer.score)
                 parsed = (
                     NumericWithNAEvalResult(reasoning="", score=score if applicable else None)
                     if allows_na

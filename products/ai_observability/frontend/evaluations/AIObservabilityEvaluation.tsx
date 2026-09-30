@@ -63,7 +63,6 @@ import {
     evaluationTypeHasEditableCriteria,
     evaluationTypeUsesModelConfiguration,
     isBooleanEvaluationOutput,
-    isLLMJudgeEvaluation,
 } from './evaluationCapabilities'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import {
@@ -103,6 +102,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         canEnable,
         canEnableReason,
         modelSelectionRequired,
+        numericBoundsRequired,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -190,10 +190,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
             : evaluation.output_type === 'categorical'
               ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
               : evaluation.output_type === 'numeric'
-                ? (numericOutputConfigError(
-                      evaluation.output_config,
-                      isLLMJudgeEvaluation(evaluation) && evaluation.model_configuration?.provider === 'system_one'
-                  ) ?? undefined)
+                ? (numericOutputConfigError(evaluation.output_config, numericBoundsRequired) ?? undefined)
                 : undefined
 
     const focusTriggers = (): void => {
@@ -777,10 +774,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 <NumericEvaluationConfig
                                                     config={evaluation.output_config}
                                                     onChange={patchOutputConfig}
-                                                    requiresBounds={
-                                                        isLLMJudgeEvaluation(evaluation) &&
-                                                        evaluation.model_configuration?.provider === 'system_one'
-                                                    }
+                                                    requiresBounds={numericBoundsRequired}
                                                 />
                                             )}
                                             <LemonField.Pure label="Description (optional)">

@@ -264,6 +264,11 @@ def test_system_one_categorical_results_use_category_keys_without_boolean_probab
     [
         (0, 10, 0, False, True, 0),
         (0, 10, 9, False, True, 10),
+        (1, 10, 6, False, True, 7),
+        (1, 100, 3, False, True, 34),
+        (1, 100, 7, False, True, 78),
+        (0, 1.9, 9, False, True, 1.9),
+        (3.7, 10, 0, False, True, 3.7),
         (0, 10, 6.75, True, True, 7.5),
         (-2, 4, 2.25, False, True, -0.5),
         (0.1, 0.2, 4.5, False, True, 0.15),
@@ -315,12 +320,15 @@ def test_system_one_numeric_scores_use_configured_bounds(
     question = sent["questions"]["score"]
     assert question["type"] == "score"
     assert len(question["criteria"]) == 10
-    assert question["criteria"][0] == f"The score according to the evaluation criteria is {float(minimum)}."
-    assert question["criteria"][-1] == f"The score according to the evaluation criteria is {float(maximum)}."
+    assert question["criteria"][0] == f"The score according to the evaluation criteria is {minimum:.6g}."
+    assert question["criteria"][-1] == f"The score according to the evaluation criteria is {maximum:.6g}."
     assert prompt in question["instructions"]
     assert "Suggested score increment: 1.0" in question["instructions"]
     assert result["result_type"] == "numeric"
     assert result.get("score") == (pytest.approx(expected) if expected is not None else None)
+    if index == int(index) and expected is not None:
+        assert result["score"] == expected
+        assert question["criteria"][int(index)] == f"The score according to the evaluation criteria is {expected:.6g}."
     assert result["reasoning"] == ""
     assert "probability" not in result
     properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
