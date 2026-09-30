@@ -135,13 +135,13 @@ Detect: events configured with revenue + currency but no subscription property; 
 `execute-sql` on `revenue_analytics.all.revenue_analytics_charge`:
 
 ```sql
-SELECT original_currency, count(), sum(original_amount)
+SELECT source_label, original_currency, count(), sum(original_amount)
 FROM revenue_analytics.all.revenue_analytics_charge
 WHERE timestamp > now() - INTERVAL 30 DAY
-GROUP BY 1 ORDER BY 2 DESC
+GROUP BY 1, 2 ORDER BY 1, 3 DESC
 ```
 
-A currency that's never appeared before, or whose share suddenly jumped, usually means either (a) the team is selling into a new market — write a scratchpad entry, no report, or (b) currency property is misconfigured and revenue is being mis-tagged. The (b) case shows up as a single dominant currency on a non-USD team or vice versa. Cross-reference with `revenue_analytics_config.events[].revenueCurrencyProperty` from `project-get` to tell them apart: `{static: "USD"}` tags every charge with one currency, and `{property: ...}` reads it from the event.
+A currency that's never appeared before, or whose share suddenly jumped, usually means either (a) the team is selling into a new market — write a scratchpad entry, no report, or (b) currency property is misconfigured and revenue is being mis-tagged. The (b) case shows up as a single dominant currency on a non-USD team or vice versa. Read each `source_label` on its own, because `revenueCurrencyProperty` controls only event charges. For a `revenue_analytics.events.<event>` label, cross-reference that event's `revenue_analytics_config.events[].revenueCurrencyProperty` from `project-get` to tell them apart: `{static: "USD"}` tags every charge of that event with one currency, and `{property: ...}` reads it from the event. A warehouse label (e.g. `stripe.<prefix>`) takes its currency from the source's own data, so do not blame the event config for a shift there.
 
 #### Stripe-customer ↔ PostHog-person join broken
 
