@@ -373,16 +373,25 @@ def test_ensure_dataset_consent_reads_the_source_org(approved: bool) -> None:
                 ensure_dataset_consent(dataset, "test-key")
 
 
-def test_ensure_dataset_consent_requires_a_key() -> None:
+@pytest.mark.parametrize(
+    "host,api_key,error",
+    [
+        ("https://us.posthog.com", "", "POSTHOG_API_KEY"),
+        ("https://attacker.example.com", "test-key", "refusing to send the API key"),
+        ("http://us.posthog.com", "test-key", "refusing to send the API key"),
+    ],
+)
+def test_ensure_dataset_consent_refuses_without_a_key_or_a_trusted_host(host: str, api_key: str, error: str) -> None:
     dataset = GoldenDataset(
         created_at=dt.datetime.now(dt.UTC).isoformat(),
-        host="https://us.posthog.com",
+        host=host,
         project_id=2,
         organization_id=1,
         cases=[],
     )
-    with pytest.raises(RuntimeError, match="POSTHOG_API_KEY"):
-        ensure_dataset_consent(dataset, "")
+    with patch("requests.get") as get, pytest.raises(RuntimeError, match=error):
+        ensure_dataset_consent(dataset, api_key)
+    get.assert_not_called()
 
 
 def test_ensure_dataset_consent_resolves_the_org_on_legacy_manifests() -> None:

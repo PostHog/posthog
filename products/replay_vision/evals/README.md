@@ -113,7 +113,7 @@ The suite downloads the pinned manifest and every case file, replacing local cop
 The dataset contains real session recordings and event data.
 
 - Keep it in a local or internal location only; never commit it, upload it, or reference its contents in PRs.
-- A dataset never expires on age: the suite re-verifies the source org's AI data-processing consent at every eval start (via the public API, with `POSTHOG_API_KEY`) and refuses to scan only when consent is actually withdrawn.
+- A dataset never expires on age: the suite re-verifies the source org's AI data-processing consent at every eval start (via the public API of US or EU Cloud, with `POSTHOG_API_KEY`) and refuses to scan only when consent is actually withdrawn.
 - The suite is `OneShotPrivateEval`, so per-case logs stay in the local `eval_harness/logs/` directory and nothing goes to Braintrust.
 - The retained `signals` can contain session content. Keep these payloads private; never include them in public CI summaries, commits, or pull requests.
 - Dataset-derived content still leaves the machine on three paths. Two reach a model provider: the Gemini scans, which are the same provider call production already makes through `run_scan`, and the `summary_alignment` judge, which sends the recorded and fresh summaries to `gpt-5.4`. The third is the harness's `$ai_evaluation` capture, which stays inside PostHog.

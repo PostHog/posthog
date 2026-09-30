@@ -29,6 +29,9 @@ DATASET_KEY_ENV_VAR = "REPLAY_VISION_EVAL_DATASET_OBJECT_KEY"
 MANIFEST_NAME = "manifest.json"
 VIDEO_NAME = "video.mp4"
 INPUTS_NAME = "inputs.json"
+# The consent check sends POSTHOG_API_KEY to the manifest's host, so a tampered manifest must not
+# be able to send the key to any other origin.
+CONSENT_HOSTS = ("https://us.posthog.com", "https://eu.posthog.com")
 
 
 def parse_utc(raw: Any) -> dt.datetime:
@@ -111,6 +114,8 @@ def ensure_dataset_consent(dataset: GoldenDataset, api_key: str) -> None:
 
     if not api_key:
         raise RuntimeError("Set POSTHOG_API_KEY so the dataset's source-org consent can be re-verified")
+    if dataset.host.rstrip("/") not in CONSENT_HOSTS:
+        raise RuntimeError(f"Dataset host {dataset.host!r} is not one of {CONSENT_HOSTS}; refusing to send the API key")
     headers = {"Authorization": f"Bearer {api_key}"}
     organization_id = dataset.organization_id
     if organization_id is None:
