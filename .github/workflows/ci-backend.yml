@@ -190,6 +190,7 @@ jobs:
                   sparse-checkout: |
                       .github/actions/paths-filter
                       .github/scripts/ci_backend_route.py
+                      .github/scripts/ci_backend_relay.py
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
@@ -204,23 +205,6 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - name: Pick the engine that runs the backend tests
-              id: route
-              if: github.event_name == 'pull_request'
-              env:
-                  PERCENT: ${{ vars.CI_BACKEND_DEPOT_PERCENT }}
-                  EVENT: ${{ github.event_name }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-                  IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
-                  HEAD_REF: ${{ github.head_ref }}
-                  # The script reads this commit's earlier hand-off check, the durable record
-                  # of the engine that already ran its tests and side effects.
-                  GH_TOKEN: ${{ github.token }}
-                  REPO: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha }}
-              run: python3 .github/scripts/ci_backend_route.py
             - uses: ./.github/actions/paths-filter
               # Skipped on master push and on the hourly schedule: every output then
               # defaults to true. See "The hourly master lane" in
@@ -499,6 +483,26 @@ jobs:
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
+            # Last, so the paths filter runs while Depot starts its run for this event.
+            - name: Pick the engine that runs the backend tests
+              id: route
+              if: github.event_name == 'pull_request'
+              env:
+                  PERCENT: ${{ vars.CI_BACKEND_DEPOT_PERCENT }}
+                  EVENT: ${{ github.event_name }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  HEAD_REF: ${{ github.head_ref }}
+                  # The script reads this commit's earlier hand-off check, the durable record
+                  # of the engine that already ran its tests and side effects, and the check of
+                  # the Depot wait job that names this event.
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
+              run: python3 .github/scripts/ci_backend_route.py
 
     # The only signal Depot CI acts on. Its wait job in .depot/workflows/ci-backend.yml
     # polls this check by name and runs the backend tests only when it concluded

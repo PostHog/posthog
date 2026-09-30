@@ -143,8 +143,12 @@ class Progress:
     root_check_id: int = 0
 
 
+def event_check_name(job: str, pr_number: int, event_at: str) -> str:
+    return f"{DEPOT_WORKFLOW} / {job}{EVENT_SUFFIX.format(pr=pr_number, event_at=event_at)}"
+
+
 def wait_check_name(pr_number: int, event_at: str) -> str:
-    return f"{DEPOT_WORKFLOW} / {WAIT_JOB}{EVENT_SUFFIX.format(pr=pr_number, event_at=event_at)}"
+    return event_check_name(WAIT_JOB, pr_number, event_at)
 
 
 def current_check(checks: Iterable[CheckRun], workflow: str | None) -> CheckRun | None:
