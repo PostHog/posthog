@@ -213,6 +213,25 @@ def lookup_table_by_name(
     return None
 
 
+def lookup_table_by_nested_name(
+    scope: ast.SelectQueryType, node: ast.Field
+) -> Optional[tuple[ast.TableOrSelectType, int]]:
+    """Match a qualifier that spells a nested table's name, like `models.a` in `models.a.event`.
+
+    `FROM models.a` puts the table in scope as `models__a`, so the qualifier spans several chain
+    segments, or one backquoted segment holding dots. Returns the table and the number of chain
+    segments the qualifier used. The longest match wins, and at least one segment must remain.
+    """
+    for consumed in range(len(node.chain) - 1, 0, -1):
+        parts = [part for segment in node.chain[:consumed] for part in str(segment).split(".")]
+        if len(parts) < 2:
+            continue
+        table = scope.tables.get("__".join(parts))
+        if table is not None:
+            return table, consumed
+    return None
+
+
 def _folds_identifier_case(table_type: ast.TableOrSelectType) -> bool:
     if isinstance(table_type, ast.TableType):
         return getattr(table_type.table, "case_insensitive_identifiers", False)
