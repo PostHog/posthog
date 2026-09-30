@@ -172,7 +172,7 @@ class TestMCPToolsAPI(APIBaseTest):
             ),
             (
                 ClickHouseQueryMemoryLimitExceeded("Query memory limit exceeded"),
-                "api_5xx",
+                "memory_limit",
                 "Tool failed: MaxToolRetryableError: Query memory limit exceeded. You may retry with adjusted inputs.",
             ),
             (APIException("Query service failed"), "api_5xx", "Tool failed: MaxToolFatalError: Query service failed."),

@@ -1,6 +1,6 @@
 from typing import Literal
 
-MaxToolErrorType = Literal["validation", "permission", "timeout", "rate_limited", "api_5xx", "internal"]
+MaxToolErrorType = Literal["validation", "permission", "timeout", "memory_limit", "rate_limited", "api_5xx", "internal"]
 
 
 class MaxToolError(Exception):

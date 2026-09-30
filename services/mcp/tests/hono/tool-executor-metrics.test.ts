@@ -108,6 +108,8 @@ describe('ToolExecutor metrics', () => {
     it.each([
         { tool: 'execute-sql', useSingleExec: false, type: 'api_5xx' },
         { tool: 'execute-sql', useSingleExec: true, type: 'validation' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'memory_limit' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'memory_limit' },
         { tool: 'read-data-schema', useSingleExec: false, type: 'permission' },
         { tool: 'read-data-schema', useSingleExec: true, type: 'api_5xx' },
     ])(

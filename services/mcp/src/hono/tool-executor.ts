@@ -827,6 +827,7 @@ type ToolErrorType =
     | 'validation'
     | 'permission'
     | 'timeout'
+    | 'memory_limit'
     | 'rate_limited'
     | 'api_5xx'
     | 'api_4xx'

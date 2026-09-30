@@ -651,6 +651,7 @@ export const MCPToolResponseApiErrorType = {
     Validation: 'validation',
     Permission: 'permission',
     Timeout: 'timeout',
+    MemoryLimit: 'memory_limit',
     RateLimited: 'rate_limited',
     Api5xx: 'api_5xx',
     Internal: 'internal',

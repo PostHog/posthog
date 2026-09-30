@@ -49,7 +49,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -487,6 +487,8 @@ class AssistantQueryExecutor:
             error_type = "validation"
             if isinstance(err, ClickHouseQueryTimeOut):
                 error_type = "timeout"
+            elif isinstance(err, ClickHouseQueryMemoryLimitExceeded):
+                error_type = "memory_limit"
             elif isinstance(err, APIException) and err.status_code >= 500:
                 error_type = "api_5xx"
                 if classify_query_error(err) != QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
