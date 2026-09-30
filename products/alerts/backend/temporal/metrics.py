@@ -127,7 +127,7 @@ def record_scheduler_lag(source: str, lag_ms: int) -> None:
 
 
 def record_inventory(inventory: "AlertInventory") -> None:
-    # Every orchestration replica sets the same values, so read these with max, not sum.
+    # Only the replica that ran the latest tick holds current values. Read with max, which can lag after the count drops.
     for configuration in inventory.configurations:
         get_metric_meter({"source": configuration.source, "enabled": str(configuration.enabled).lower()}).create_gauge(
             "alerts_platform_configurations",
