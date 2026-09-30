@@ -327,6 +327,7 @@ the row lists both.
 | gitguardian                      | HTTP                        | requests                                                        | ✅                          |
 | giphy                            | HTTP                        | requests                                                        | ✅                          |
 | gitlab                           | HTTP                        | requests                                                        | ✅                          |
+| givebutter                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | gladly                           | HTTP                        | requests                                                        | ✅                          |
 | glassfrog                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | gleif                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -580,6 +581,7 @@ the row lists both.
 | pretix                           | HTTP                        | requests                                                        | ✅                          |
 | printify                         | HTTP                        | requests                                                        | ✅                          |
 | productboard                     | HTTP                        | requests                                                        | ✅                          |
+| productive                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | profound                         | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | propertyware                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pulumi_cloud                     | HTTP                        | requests                                                        | ✅                          |
@@ -641,6 +643,7 @@ the row lists both.
 | sequenzy                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicem8                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
+| sevdesk                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
 | shipmail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shippo                           | HTTP                        | requests                                                        | ✅                          |
@@ -780,6 +783,7 @@ the row lists both.
 | wufoo                            | HTTP                        | requests                                                        | ✅                          |
 | xendit                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | xmatters                         | HTTP                        | requests                                                        | ✅                          |
+| ynab                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | yoco                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | yousign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | youtube_analytics                | HTTP                        | requests                                                        | ✅                          |
@@ -1093,7 +1097,6 @@ doesn't conflict with concurrent PRs.
 - getstream
 - ghost
 - gitea
-- givebutter
 - gmail
 - gnews
 - gojiberry
@@ -1303,7 +1306,6 @@ doesn't conflict with concurrent PRs.
 - printavo
 - procore
 - productiv
-- productive
 - prompting_company
 - promptwatch
 - proofpoint_tap
@@ -1366,7 +1368,6 @@ doesn't conflict with concurrent PRs.
 - servicetitan
 - servicetrade
 - sevalla
-- sevdesk
 - sevenshifts
 - sharepoint
 - sharetribe
@@ -1497,7 +1498,6 @@ doesn't conflict with concurrent PRs.
 - xsolla
 - yahoo_finance
 - yandex_metrica
-- ynab
 - yotpo
 - younium
 - youtube_data

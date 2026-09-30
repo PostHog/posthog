@@ -5285,6 +5285,40 @@ class TestValidateCredentialsErrorMapping:
         assert "Could not establish session to SSH gateway" not in error
         assert "SSH gateway" in error and "firewall" in error
 
+    def test_ssh_forward_failure_maps_to_actionable_message(self, source, config):
+        err = BaseSSHTunnelForwarderError("An error occurred while opening tunnels.")
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=err),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert error is not None
+        assert "opening tunnels" not in error
+        assert "port forwarding" in error
+
+    def test_unmapped_ssh_tunnel_error_is_not_echoed_and_is_captured(self, source, config):
+        # An unmapped sshtunnel message can name the host it was dialing, so it must not reach the
+        # wizard. It still has to reach error tracking, or the condition goes unnoticed.
+        err = BaseSSHTunnelForwarderError("Problem setting SSH Forwarder up: some internal detail")
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=err),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.capture_exception"
+            ) as mock_capture,
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert (
+            error == "Could not connect to Postgres via the SSH tunnel. Please check all connection details are valid."
+        )
+        mock_capture.assert_called_once()
+
     @pytest.mark.parametrize(
         "host",
         [
