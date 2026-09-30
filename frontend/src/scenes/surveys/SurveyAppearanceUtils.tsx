@@ -3,12 +3,19 @@ import { toHtml } from 'hast-util-to-html'
 import xml from 'highlight.js/lib/languages/xml'
 import { useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionDescriptionContentType } from '~/types'
+
+import { isRichTextCompatibleHtml, plainTextToHtml } from './surveyRichText'
+import { SurveyRichTextEditor } from './SurveyRichTextEditor'
+
+type HTMLEditorTab = SurveyQuestionDescriptionContentType | 'rich'
 
 const lowlight = createLowlight(common)
 lowlight.register({ xml })
@@ -166,11 +173,47 @@ export function HTMLEditor({
     disableTabSwitching?: boolean
     className?: string
 }): JSX.Element {
+    const richTextEnabled = useFeatureFlag('SURVEYS_RICH_TEXT_DESCRIPTIONS')
+    const [htmlTab, setHtmlTab] = useState<'rich' | 'html' | null>(null)
+    const [convertTextOnSwitch, setConvertTextOnSwitch] = useState(false)
+    const richTextCompatible = useMemo(() => isRichTextCompatibleHtml(value ?? ''), [value])
+    const defaultHtmlTab = richTextCompatible ? 'rich' : 'html'
+    const shownTab: HTMLEditorTab =
+        activeTab === 'text' ? 'text' : richTextEnabled ? (htmlTab ?? defaultHtmlTab) : 'html'
+
+    // Pick the tab once, so that an edit in the HTML tab does not move the author to the rich text tab
+    useEffect(() => {
+        if (activeTab === 'html' && htmlTab === null) {
+            setHtmlTab(defaultHtmlTab)
+        }
+    }, [activeTab, htmlTab, defaultHtmlTab])
+
+    // Convert plain text once the parent has stored the new content type, so the two updates do not race
+    useEffect(() => {
+        if (convertTextOnSwitch && activeTab === 'html') {
+            setConvertTextOnSwitch(false)
+            if (value) {
+                onChange(plainTextToHtml(value))
+            }
+        }
+    }, [convertTextOnSwitch, activeTab, value, onChange])
+
+    const handleTabChange = (key: HTMLEditorTab): void => {
+        if (key !== 'text') {
+            setHtmlTab(key)
+        }
+        const nextContentType = key === 'text' ? 'text' : 'html'
+        if (nextContentType !== activeTab) {
+            setConvertTextOnSwitch(key === 'rich')
+            onTabChange(nextContentType)
+        }
+    }
+
     return (
         <>
             <LemonTabs
-                activeKey={activeTab}
-                onChange={disableTabSwitching ? undefined : onTabChange}
+                activeKey={shownTab}
+                onChange={disableTabSwitching ? undefined : handleTabChange}
                 tabs={[
                     {
                         key: 'text',
@@ -185,6 +228,30 @@ export function HTMLEditor({
                             />
                         ),
                     },
+                    richTextEnabled
+                        ? {
+                              key: 'rich',
+                              label: <span className="text-sm">Rich text</span>,
+                              content: (
+                                  <div className="flex flex-col gap-2">
+                                      {!richTextCompatible && (
+                                          <LemonBanner type="warning">
+                                              This description has HTML that the rich text editor can't show. If you
+                                              edit it here, that formatting is removed. Use the HTML tab to keep it.
+                                          </LemonBanner>
+                                      )}
+                                      <SurveyRichTextEditor
+                                          value={convertTextOnSwitch ? plainTextToHtml(value ?? '') : (value ?? '')}
+                                          onChange={onChange}
+                                      />
+                                      <div className="text-xs text-secondary">
+                                          Formatting shows in web surveys. Some mobile SDKs don't show formatted
+                                          descriptions.
+                                      </div>
+                                  </div>
+                              ),
+                          }
+                        : null,
                     {
                         key: 'html',
                         label: <span className="text-sm">HTML</span>,
