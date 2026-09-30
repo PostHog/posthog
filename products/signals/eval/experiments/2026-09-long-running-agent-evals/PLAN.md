@@ -231,7 +231,9 @@ It does not automatically detect whether the gateway supports experiment capture
 Trials retain ordinary spend/rate gates; cost is null when private accounting is unavailable, while runtime token counts are retained when reported before completion.
 Do not infer zero cost from absent generation events.
 
-Write a private variants JSON file, for example:
+Write a private variants JSON file and its candidate prompt outside the repository, such as in `~/.local/state/posthog/scout-evals/`.
+The repository does not ignore `playground/`, so files there can be committed by mistake.
+An example variants file:
 
 ```json
 [{ "label": "baseline" }, { "label": "trace-dependencies", "skill_file": "candidate.md" }]
@@ -254,8 +256,8 @@ Keep the key on one line in a private mode-`600` file and load it inside the wra
 ' scout-trials \
   products/signals/eval/experiments/2026-09-long-running-agent-evals/scripts/run_live_trials.py \
   --host http://localhost:8000 --project-id 1 --config-id '<source-config-uuid>' \
-  --variants playground/scout-evals/variants.json --effort medium \
-  --repeats 3 --concurrency 2 --output playground/scout-evals/live-comparison
+  --variants "$HOME/.local/state/posthog/scout-evals/variants.json" --effort medium \
+  --repeats 3 --concurrency 2 --output "$HOME/.local/state/posthog/scout-evals/live-comparison"
 ```
 
 Resume with the same `--host` and `--output`, adding `--resume`.

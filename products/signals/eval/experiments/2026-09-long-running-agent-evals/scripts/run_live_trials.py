@@ -95,7 +95,7 @@ def private_output_directory(path: Path) -> Path:
     if output.is_relative_to(root):
         check = subprocess.run(["git", "check-ignore", "--quiet", str(output / "manifest.json")], check=False)
         if check.returncode:
-            raise ValueError("Save trial data outside the repository or in a gitignored directory such as playground/.")
+            raise ValueError("Save trial data outside the repository or in a directory that Git ignores.")
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
     if output.stat().st_mode & 0o077:
         raise ValueError("The output directory must be private. Set its permissions to 700 or choose a new directory.")
