@@ -46,6 +46,16 @@
     scrollbar-width: thin;
 }
 
+.TodayPane__sections {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0 4px;
+    margin: 18px 0 8px;
+    overflow: hidden;
+}
+
 .TodayPane__heading {
     margin: 26px 8px 8px;
     letter-spacing: 0.08em;
@@ -53,24 +63,73 @@
 
 .TodayPaneSection {
     display: flex;
+    flex: none;
     flex-direction: column;
-    padding-bottom: 8px;
 
-    &:first-child {
-        margin-top: 12px;
-    }
-
-    &--divider {
+    &--divider > .TodayPaneSection__header {
         border-top: 1px solid var(--today-line);
     }
 }
 
 .TodayPaneSection__header {
+    position: relative;
+    box-sizing: border-box;
     display: flex;
+    flex: none;
     gap: 4px;
     align-items: center;
-    height: 32px;
-    margin-top: 4px;
+    height: 36px;
+    padding-top: 4px;
+}
+
+.TodayPaneSection__resize {
+    position: absolute;
+    top: -4px;
+    right: 0;
+    left: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    height: 9px;
+    cursor: row-resize;
+    outline: none;
+    touch-action: none;
+}
+
+.TodayPaneSection__resize-line {
+    width: 100%;
+    height: 2px;
+    background: var(--today-focus-border);
+    border-radius: 1px;
+    opacity: 0;
+    transition: opacity 0.16s;
+
+    .TodayPaneSection__resize:hover &,
+    .TodayPaneSection__resize:focus-visible &,
+    .TodayPaneSection__resize--active & {
+        opacity: 1;
+    }
+}
+
+.TodayPaneSection__viewport {
+    flex: none;
+    min-height: 0;
+    overflow: hidden;
+
+    &--animate {
+        transition: height 0.2s var(--today-ease);
+
+        @media (prefers-reduced-motion: reduce) {
+            transition: none;
+        }
+    }
+}
+
+.TodayPaneSection__scroll {
+    height: 100%;
+    overflow-y: auto;
+    scrollbar-color: var(--today-input-border) transparent;
+    scrollbar-width: thin;
 }
 
 .TodayPaneSection__toggle {
@@ -114,6 +173,7 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
+    padding-bottom: 8px;
 }
 
 .TodaySpaceFeed {

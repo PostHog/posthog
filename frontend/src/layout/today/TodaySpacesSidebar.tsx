@@ -10,10 +10,11 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { TodayPaneRow } from './TodayPaneRow'
-import { TodayPaneSection } from './TodayPaneSection'
+import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodaySessionRow } from './TodaySessionRow'
-import { spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
+import { TodayWorkSectionId, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodayWorkItem, shortTimeAgo } from './todayWorkItems'
+import { useTodaySectionLayout } from './useTodaySectionLayout'
 
 export function TodaySpacesSidebar(): JSX.Element {
     const {
@@ -54,6 +55,27 @@ export function TodaySpacesSidebar(): JSX.Element {
         )
 
     const hasPinned = pinnedItems.length > 0
+    const layoutSections: { id: TodayWorkSectionId; open: boolean }[] = [
+        ...(hasPinned ? [{ id: 'pinned' as const, open: !collapsedSections.includes('pinned') }] : []),
+        { id: 'recent', open: !collapsedSections.includes('recent') },
+        { id: 'spaces', open: !collapsedSections.includes('spaces') },
+    ]
+    const layout = useTodaySectionLayout(layoutSections)
+    const sectionLayout = (
+        id: TodayWorkSectionId
+    ): Pick<TodayPaneSectionProps, 'open' | 'height' | 'animate' | 'resizer' | 'resizing' | 'contentRef'> => {
+        const index = layoutSections.findIndex((section) => section.id === id)
+        const section = layoutSections[index]
+        const previous = index > 0 ? layoutSections[index - 1] : null
+        return {
+            open: section.open,
+            height: layout.heights[id],
+            animate: layout.measured && layout.dragging === null,
+            resizer: previous?.open && section.open ? layout.resizer(previous.id, id) : undefined,
+            resizing: layout.dragging === id,
+            contentRef: layout.measureRefs[id],
+        }
+    }
 
     return (
         <div className="TodayPane">
@@ -66,11 +88,11 @@ export function TodaySpacesSidebar(): JSX.Element {
                 <IconPlus />
                 New chat
             </button>
-            <div className="TodayPane__scroll">
+            <div className="TodayPane__sections" ref={layout.measureRefs.area}>
                 {hasPinned && (
                     <TodayPaneSection
                         label="Pinned"
-                        open={!collapsedSections.includes('pinned')}
+                        {...sectionLayout('pinned')}
                         count={pinnedItems.length}
                         onToggle={() => toggleSection('pinned')}
                         dataAttr="today-section-pinned"
@@ -80,7 +102,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                 )}
                 <TodayPaneSection
                     label="Recent"
-                    open={!collapsedSections.includes('recent')}
+                    {...sectionLayout('recent')}
                     count={recentItems.length}
                     onToggle={() => toggleSection('recent')}
                     divider={hasPinned}
@@ -137,7 +159,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                 </TodayPaneSection>
                 <TodayPaneSection
                     label="Spaces"
-                    open={!collapsedSections.includes('spaces')}
+                    {...sectionLayout('spaces')}
                     count={visibleSpaces.length}
                     onToggle={() => toggleSection('spaces')}
                     divider
