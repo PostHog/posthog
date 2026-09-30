@@ -12,8 +12,8 @@ LEAKED_NAME = "Logs — Errors (firing) → Webhook https://hooks.example.com/se
 
 class TestRedactWebhookUrlsInDestinationNames(TestMigrations):
     app = "alerts"
-    migrate_from = "0007_platformalertconfiguration_platformalert_and_more"
-    migrate_to = "0008_redact_webhook_urls_in_destination_names"
+    migrate_from = "0008_platformalert_firing_started_at_and_uuid7_pk"
+    migrate_to = "0009_redact_webhook_urls_in_destination_names"
 
     def setUpBeforeMigration(self, apps: Any) -> None:
         HogFunction = apps.get_model("cdp", "HogFunction")
