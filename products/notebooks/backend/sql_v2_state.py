@@ -18,6 +18,8 @@ from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog.dataclasses import frozen
+
 from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals
@@ -55,6 +57,14 @@ _DATAFRAME_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CODE_PREVIEW_CHARS = 8_000
 
 
+@frozen
+class CellVisualization:
+    display: str
+    x_axis: str | None
+    y_axis: tuple[str, ...]
+    series_breakdown: str | None
+
+
 # Built in stages: `build_dependency_edges` fills the graph edges, `annotate_run_state` the run
 # status, and `_merge_prose_cells` the document span.
 @dataclass(frozen=False)
@@ -74,6 +84,7 @@ class NotebookCellState:
     last_run: dict[str, Any] | None = None
     start: int = 0
     end: int = 0
+    visualization: CellVisualization | None = None
 
 
 def _code_from_query_prop(value: Any) -> str:
@@ -101,6 +112,34 @@ def _code_from_query_prop(value: Any) -> str:
     if isinstance(source, dict) and source.get("kind") == "HogQLQuery" and isinstance(source.get("query"), str):
         return source["query"]
     return ""
+
+
+# Mirrors the SQLV2 node, which opens on the chart only when `outputTab` says so and draws a line
+# chart when `vizQuery` names no display.
+_DEFAULT_CHART_DISPLAY = "ActionsLineGraph"
+
+
+def _axis_column(axis: Any) -> str | None:
+    column = axis.get("column") if isinstance(axis, dict) else None
+    return column if isinstance(column, str) and column else None
+
+
+def _visualization_from_props(props: dict[str, Any]) -> CellVisualization | None:
+    if props.get("outputTab") != "visualization":
+        return None
+    viz_query = props.get("vizQuery")
+    viz_query = viz_query if isinstance(viz_query, dict) else {}
+    chart_settings = viz_query.get("chartSettings")
+    chart_settings = chart_settings if isinstance(chart_settings, dict) else {}
+    display = viz_query.get("display")
+    y_axis = chart_settings.get("yAxis")
+    breakdown = chart_settings.get("seriesBreakdownColumn")
+    return CellVisualization(
+        display=display if isinstance(display, str) and display else _DEFAULT_CHART_DISPLAY,
+        x_axis=_axis_column(chart_settings.get("xAxis")),
+        y_axis=tuple(column for column in map(_axis_column, y_axis if isinstance(y_axis, list) else []) if column),
+        series_breakdown=breakdown if isinstance(breakdown, str) and breakdown else None,
+    )
 
 
 def extract_cells(content: Any) -> list[NotebookCellState]:
@@ -133,6 +172,7 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
                 code=code if isinstance(code, str) else "",
                 connection_id=connection_id if isinstance(connection_id, str) and connection_id else None,
                 send_raw_query=props.get("sendRawQuery") is True,
+                visualization=_visualization_from_props(props) if tag_name == "SQLV2" else None,
             )
         )
     used_names: set[str] = set()
