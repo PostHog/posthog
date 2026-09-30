@@ -2329,7 +2329,9 @@ button.MarkdownNotebook__component-title:focus-visible {
     }
 
     // Other blocks (insights, recordings, …) render as rich output, indented past the prompts.
-    .MarkdownNotebook__component-shell:not(.MarkdownNotebook__jupyter-cell) {
+    // Comment threads keep their own placement in the margin.
+    .MarkdownNotebook__row:not(.MarkdownNotebook__row--margin-comment)
+        > .MarkdownNotebook__component-shell:not(.MarkdownNotebook__jupyter-cell) {
         margin-left: calc(var(--markdown-notebook-content-offset) + var(--jupyter-prompt-width) + 0.5rem);
     }
 }
