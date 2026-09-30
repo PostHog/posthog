@@ -21,6 +21,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { MetricsDisplayType } from '~/queries/schema/schema-general'
@@ -125,6 +126,7 @@ export const MetricsViewer = (): JSX.Element => {
         setDisplayType,
     } = useActions(logic)
     const { traceExemplars, errorSpikes, showErrorSpikes } = useValues(metricsSamplesLogic)
+    const { timezone } = useValues(teamLogic)
     const { toggleShowErrorSpikes } = useActions(metricsSamplesLogic)
     // Staff-only PoC gate, layered on top of the wider metrics alpha flag.
     const errorOverlaysEnabled = useFeatureFlag('METRICS_ERROR_OVERLAYS')
@@ -167,7 +169,7 @@ export const MetricsViewer = (): JSX.Element => {
             ? []
             : traceExemplars.map((exemplar) => ({
                   timeMs: dayjs(exemplar.timestamp).valueOf(),
-                  tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).format('D MMM HH:mm:ss')}. Click to view the trace.`,
+                  tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).tz(timezone).format('D MMM HH:mm:ss')}. Click to view the trace.`,
                   onClick: () => {
                       exemplarDotClicked(!!exemplar.spanId)
                       router.actions.push(
@@ -185,7 +187,7 @@ export const MetricsViewer = (): JSX.Element => {
                 : errorSpikes.map((spike) => ({
                       timeMs: dayjs(spike.detected_at).valueOf(),
                       color: 'danger',
-                      tooltipLabel: `Error spike at ${dayjs(spike.detected_at).format('D MMM HH:mm:ss')}: ${spike.issue_name ?? 'Untitled issue'}. Click to view the issue.`,
+                      tooltipLabel: `Error spike at ${dayjs(spike.detected_at).tz(timezone).format('D MMM HH:mm:ss')}: ${spike.issue_name ?? 'Untitled issue'}. Click to view the issue.`,
                       onClick: () => {
                           router.actions.push(urls.errorTrackingIssue(spike.issue_id, { timestamp: spike.detected_at }))
                       },
@@ -198,6 +200,7 @@ export const MetricsViewer = (): JSX.Element => {
         errorSpikes,
         errorOverlaysEnabled,
         errorTrackingDisabledReason,
+        timezone,
     ])
 
     // Refetch the chart whenever the effective query changes — the fingerprints are

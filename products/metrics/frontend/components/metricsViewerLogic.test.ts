@@ -25,7 +25,7 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { metricsViewerLogic } from './metricsViewerLogic'
+import { metricsViewerLogic, resolveDate } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -718,5 +718,13 @@ describe('metricsViewerLogic', () => {
 
         expect(insightsApi.create).not.toHaveBeenCalled()
         expect(logic.values.pendingAddToDashboard).toBe(false)
+    })
+
+    it.each([
+        ['UTC', '2026-06-15T10:00:00.000Z'],
+        ['Europe/Zurich', '2026-06-15T08:00:00.000Z'],
+        ['America/New_York', '2026-06-15T14:00:00.000Z'],
+    ])('resolves a custom date in the project timezone %s', (timezone, expected) => {
+        expect(resolveDate('2026-06-15T10:00:00', timezone)).toBe(expected)
     })
 })
