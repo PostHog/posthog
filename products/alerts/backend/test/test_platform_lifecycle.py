@@ -6,7 +6,12 @@ from posthog.test.base import APIBaseTest
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import PlatformAlertOutcome, PlatformAlertUpsert, SourceKind
+from products.alerts.backend.facade.contracts import (
+    FiringEpisode,
+    PlatformAlertOutcome,
+    PlatformAlertUpsert,
+    SourceKind,
+)
 from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes, upsert_configuration
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
@@ -29,7 +34,7 @@ class TestPlatformAlertLifecycle(APIBaseTest):
             )
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
 
-    def _record(self, **overrides) -> None:
+    def _record(self, now: datetime | None = None, **overrides) -> None:
         fields = {
             "configuration_id": self.configuration.id,
             "new_state": "firing",
@@ -37,7 +42,23 @@ class TestPlatformAlertLifecycle(APIBaseTest):
             "consecutive_failures": 0,
         }
         fields.update(overrides)
-        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], self.cutoff)
+        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], now or self.cutoff)
+
+    def _alert(self) -> PlatformAlert:
+        with team_scope(self.team.id):
+            return PlatformAlert.objects.get(configuration=self.configuration)
+
+    def test_the_row_holds_the_firing_the_alert_is_in_and_drops_the_one_that_ended(self) -> None:
+        # A field missing from the `bulk_update` list is never persisted and nothing else notices.
+        self._record(firing_episode=FiringEpisode(started_at=self.cutoff, ended=False))
+        assert self._alert().firing_started_at == self.cutoff
+
+        self._record(
+            new_state="not_firing",
+            firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
+            now=self.cutoff + timedelta(hours=1),
+        )
+        assert self._alert().firing_started_at is None
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
