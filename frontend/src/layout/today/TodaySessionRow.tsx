@@ -3,11 +3,12 @@ import { router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { TodayPaneRow } from './TodayPaneRow'
 import { TodaySessionMenu } from './TodaySessionMenu'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionRenameInput } from './TodaySessionRenameInput'
-import { TodayWorkItem, shortTimeAgo } from './todayWorkItems'
+import { TodaySessionStatusIcon } from './TodaySessionStatusIcon'
+import { TodaySpacesRow } from './TodaySpacesRow'
+import { TodayWorkItem } from './todayWorkItems'
 
 interface TodaySessionRowProps {
     item: TodayWorkItem
@@ -24,10 +25,9 @@ export function TodaySessionRow({ item, pinned, dataAttr, surface }: TodaySessio
         return <TodaySessionRenameInput sessionId={item.id} title={item.title} />
     }
     return (
-        <TodayPaneRow
+        <TodaySpacesRow
             label={item.title || 'Untitled session'}
-            icon={<span className="TodayPane__dot" data-kind={item.kind} data-status={item.status ?? undefined} />}
-            meta={shortTimeAgo(item.timestamp)}
+            icon={<TodaySessionStatusIcon item={item} pinned={pinned} />}
             to={urls.aiTask(item.id)}
             active={location.pathname.endsWith('/ai') && searchParams.task === item.id}
             dataAttr={dataAttr}

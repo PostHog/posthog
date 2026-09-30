@@ -2,7 +2,22 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconStar, IconStarFilled } from '@posthog/icons'
-import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -36,50 +51,83 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
     if (spaceUnavailable && !space) {
         return (
             <SceneContent>
-                <div className="TodayPane__state">
-                    <span>This space didn’t load.</span>
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        loading={spaceLoading}
-                        onClick={() => loadSpace()}
-                        data-attr="today-space-retry"
-                    >
-                        Try again
-                    </LemonButton>
-                </div>
+                <Empty className="py-12" data-quill>
+                    <EmptyHeader>
+                        <EmptyTitle>This space didn’t load</EmptyTitle>
+                        <EmptyDescription>Check your connection and try again.</EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button
+                            variant="outline"
+                            loading={spaceLoading}
+                            onClick={() => loadSpace()}
+                            data-attr="today-space-retry"
+                        >
+                            Try again
+                        </Button>
+                    </EmptyContent>
+                </Empty>
             </SceneContent>
         )
     }
+    const starLabel = space?.starred ? 'Unstar space' : 'Star space'
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name={space ? spaceLabel(space) : null}
-                isLoading={spaceLoading && !space}
-                resourceType={{ type: 'task' }}
-                nameSuffix={
-                    space && space.system_role !== 'personal' ? (
-                        <LemonButton
-                            size="small"
-                            icon={space.starred ? <IconStarFilled className="text-warning" /> : <IconStar />}
-                            tooltip={space.starred ? 'Unstar space' : 'Star space'}
-                            disabledReason={savingSpace ? 'Saving your last change' : undefined}
-                            onClick={() => setStarred(!space.starred)}
-                            data-attr="today-space-star"
-                        />
-                    ) : null
-                }
-            />
-            <LemonTabs<SpaceTab>
-                activeKey={activeTab}
-                onChange={(tab) =>
-                    router.actions.push(tab === 'settings' ? urls.taskSpaceSettings(id) : urls.taskSpace(id))
-                }
-                tabs={[
-                    { key: 'feed', label: 'Feed', content: <SpaceFeed id={id} /> },
-                    { key: 'settings', label: 'Settings', content: <SpaceSettings key={space?.id} id={id} /> },
-                ]}
-            />
-        </SceneContent>
+        <TooltipProvider>
+            <SceneContent>
+                <SceneTitleSection
+                    name={space ? spaceLabel(space) : null}
+                    isLoading={spaceLoading && !space}
+                    resourceType={{ type: 'task' }}
+                    nameSuffix={
+                        space && space.system_role !== 'personal' ? (
+                            <Tooltip>
+                                <TooltipTrigger
+                                    delay={0}
+                                    render={
+                                        <Button
+                                            size="icon-sm"
+                                            aria-label={starLabel}
+                                            aria-pressed={space.starred}
+                                            disabled={savingSpace}
+                                            onClick={() => setStarred(!space.starred)}
+                                            data-attr="today-space-star"
+                                        />
+                                    }
+                                >
+                                    {space.starred ? (
+                                        <IconStarFilled className="text-warning-foreground" />
+                                    ) : (
+                                        <IconStar />
+                                    )}
+                                </TooltipTrigger>
+                                <TooltipContent>{savingSpace ? 'Saving your last change' : starLabel}</TooltipContent>
+                            </Tooltip>
+                        ) : null
+                    }
+                />
+                <Tabs
+                    value={activeTab}
+                    onValueChange={(tab: SpaceTab) =>
+                        router.actions.push(tab === 'settings' ? urls.taskSpaceSettings(id) : urls.taskSpace(id))
+                    }
+                    data-quill
+                >
+                    <TabsList variant="line">
+                        <TabsTrigger value="feed" data-attr="today-space-tab-feed">
+                            Feed
+                        </TabsTrigger>
+                        <TabsTrigger value="settings" data-attr="today-space-tab-settings">
+                            Settings
+                        </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="feed">
+                        <SpaceFeed id={id} />
+                    </TabsContent>
+                    <TabsContent value="settings">
+                        <SpaceSettings key={space?.id} id={id} />
+                    </TabsContent>
+                </Tabs>
+            </SceneContent>
+        </TooltipProvider>
     )
 }

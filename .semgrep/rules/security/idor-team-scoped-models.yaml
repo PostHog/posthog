@@ -323,6 +323,7 @@ rules:
                               |PullRequestAudience
                               |QuarantinedIdentifier
                               |QueryTabState
+                              |QueueJob
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
@@ -753,6 +754,7 @@ rules:
                         |PullRequestAudience
                         |QuarantinedIdentifier
                         |QueryTabState
+                        |QueueJob
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
