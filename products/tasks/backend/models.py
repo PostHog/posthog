@@ -1832,7 +1832,7 @@ class TaskCommentActivity(TeamScopedRootMixin):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
     comment = models.ForeignKey(
         "posthog.Comment",
         on_delete=models.CASCADE,
@@ -1873,7 +1873,7 @@ class TaskCommentActivity(TeamScopedRootMixin):
         cls,
         *,
         team_id: int,
-        task_id: uuid.UUID | str,
+        task_id: uuid.UUID | str | None,
         comment_id: uuid.UUID,
         root_comment_id: uuid.UUID,
         activity_at: datetime,
@@ -3066,6 +3066,11 @@ class TaskRun(models.Model):
         agent_version = state.get("agent_version")
         if isinstance(agent_version, str) and agent_version:
             props["agent_version"] = agent_version
+        agent_version_expected = state.get("agent_version_expected")
+        if isinstance(agent_version_expected, str) and agent_version_expected:
+            props["agent_version_expected"] = agent_version_expected
+            if isinstance(agent_version, str) and agent_version:
+                props["agent_version_matches_pin"] = agent_version == agent_version_expected
         budget = state.get("budget_guard")
         if isinstance(budget, dict):
             for key in ("cap_usd", "spent_usd", "estimated_usd", "sdk_total_usd"):

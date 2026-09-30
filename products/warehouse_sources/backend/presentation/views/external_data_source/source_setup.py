@@ -343,7 +343,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             )
         else:
             schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
-        return schema_with_error.latest_error if schema_with_error else None
+        if schema_with_error is None:
+            return None
+        return helpers.redact_error_message(schema_with_error.latest_error, self._error_redaction_values(instance))
+
+    def _error_redaction_values(self, instance: ExternalDataSource) -> frozenset[str]:
+        cached = getattr(instance, "_error_redaction_values", None)
+        if cached is None:
+            cached = helpers.get_error_redaction_values(instance)
+            instance._error_redaction_values = cached  # type: ignore[attr-defined]
+        return cached
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_schemas(self, instance: ExternalDataSource):
@@ -355,9 +364,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # The source list embeds every schema of every source; large projects have tens of thousands.
         # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
         # and reserve the full serializer for single-source reads.
+        context = {**self.context, "error_redaction_values": self._error_redaction_values(instance)}
         if self.context.get("schemas_list_only"):
-            return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=self.context).data
-        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
+            return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
+        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         request = self.context.get("request")

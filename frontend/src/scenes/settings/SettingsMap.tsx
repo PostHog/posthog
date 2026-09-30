@@ -734,6 +734,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "Select the time of day when experiment metrics should be recalculated. This time is in your project's timezone.",
                 component: <ExperimentRecalculationTime />,
                 keywords: ['schedule', 'refresh', 'update', 'time'],
+                flag: '!EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
+            },
+            {
+                id: 'environment-experiment-recalculation-time',
+                title: 'Daily recalculation times',
+                description:
+                    "Select up to two times of day when experiment metrics should be recalculated, at least 6 hours apart. Times are in your project's timezone.",
+                component: <ExperimentRecalculationTime />,
+                keywords: ['schedule', 'refresh', 'update', 'time'],
+                flag: 'EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
             },
             {
                 id: 'environment-experiment-matured-users',
@@ -824,7 +834,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Automatically apply default evaluation context tags to newly created feature flags. Users can still modify them during flag creation.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/evaluation-contexts',
-                flag: 'DEFAULT_EVALUATION_ENVIRONMENTS',
                 component: <DefaultEvaluationContexts />,
                 keywords: ['evaluation', 'default', 'context', 'tag'],
             },
