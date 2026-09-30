@@ -5,6 +5,7 @@ import { IconShare, IconTrash } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonTable,
     LemonTableColumn,
@@ -210,10 +211,25 @@ export function SavedFilters({
                         <LemonButton
                             status="danger"
                             onClick={() => {
-                                deletePlaylist(playlist)
-                                if (savedFilters.results?.length === 1) {
-                                    setActiveFilterTab('filters')
-                                }
+                                LemonDialog.open({
+                                    title: `Delete saved filter "${playlist.name || playlist.derived_name || 'Unnamed'}"?`,
+                                    description:
+                                        'This removes the saved filter only. Your session recordings are not affected.',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        status: 'danger',
+                                        'data-attr': 'replay-saved-filter-delete-confirm',
+                                        onClick: () => {
+                                            deletePlaylist(playlist)
+                                            if (savedFilters.results?.length === 1) {
+                                                setActiveFilterTab('filters')
+                                            }
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
                             }}
                             title="Delete saved filter"
                             tooltip="Delete saved filter"

@@ -1802,9 +1802,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(logic.values.filters.experiment_exposure).toEqual(laterExposure)
         })
 
-        // An invalid value falls back to the same baseline a reset returns to, so the fallback must
-        // keep the caller's scope too. Otherwise one bad value unscopes the list.
-        it('keeps an opted-in caller scope when a filter value is invalid', async () => {
+        // An invalid value is dropped, so the caller's scope and the viewer's own changes both stay.
+        // Otherwise one bad value unscopes the list or discards what the viewer set.
+        it('keeps the caller scope and viewer filters when a filter value is invalid', async () => {
             const callerFilters = {
                 date_from: '-7d',
                 duration: DEFAULT_RECORDING_FILTERS.duration,
@@ -1822,10 +1822,14 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
 
             await expectLogic(logic, () => {
+                logic.actions.setFilters({ date_from: '-3d' }, true)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
                 logic.actions.setFilters({ duration: 'nope' } as any)
             }).toFinishAllListeners()
 
-            expect(logic.values.filters).toEqual(expect.objectContaining(callerFilters))
+            expect(logic.values.filters).toEqual(expect.objectContaining({ ...callerFilters, date_from: '-3d' }))
         })
 
         // A notebook passes its filters in and writes every change back into them

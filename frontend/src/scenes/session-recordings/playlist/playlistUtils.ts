@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -147,8 +148,12 @@ export async function deletePlaylist(
     await deleteWithUndo({
         object: playlist,
         idField: 'short_id',
+        objectNoun: playlist.type === 'collection' ? 'Collection' : 'Saved filter',
         endpoint: `projects/${teamLogic.values.currentProjectId}/session_recording_playlists`,
         callback: (undo) => {
+            if (playlist.type === 'filters') {
+                posthog.capture('saved_filter_deleted', { undone: undo })
+            }
             if (undo) {
                 refreshTreeItem('session_recording_playlist', playlist.short_id)
             } else {
