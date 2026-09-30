@@ -33,6 +33,7 @@ export function RecordingsWidget({
         filters,
         updateSearchParams: false,
         autoPlay: false,
+        ignoreHideViewedRecordings: true,
     }
     const content = (
         <>

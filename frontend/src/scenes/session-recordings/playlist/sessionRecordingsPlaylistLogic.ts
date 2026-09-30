@@ -520,6 +520,11 @@ export interface SessionRecordingPlaylistLogicProps {
     onRecordingSelected?: (recordingId: SessionRecordingType['id']) => void
     pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
+    /**
+     * Shows viewed recordings even when the viewer's "hide viewed recordings" setting is on. Set it
+     * where the list answers a fixed question, so watching a result must not remove it on the next load.
+     */
+    ignoreHideViewedRecordings?: boolean
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
 
@@ -606,6 +611,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     isDeleteSelectedRecordingsDialogOpen: boolean
     isDeletingSelectedRecordings: boolean
     isScopedByCaller: boolean
+    listHideViewedRecordings: HideViewedRecordingsOptions
     logicProps: SessionRecordingPlaylistLogicProps
     matchingEventsMatchType: MatchingEventsMatchType
     newCollectionName: string
@@ -935,15 +941,19 @@ export interface sessionRecordingsPlaylistLogicMeta {
         pinnedFilters: (arg: any) => UniversalFiltersGroup | undefined
         isScopedByCaller: (arg: any) => boolean
         totalFiltersCount: (filters: RecordingUniversalFilters, arg: any, arg2: any, arg3: any, arg4: any) => number
+        listHideViewedRecordings: (
+            hideViewedRecordings: HideViewedRecordingsOptions,
+            arg: any
+        ) => HideViewedRecordingsOptions
         hiddenRecordings: (
             sessionRecordings: SessionRecordingType[],
-            hideViewedRecordings: HideViewedRecordingsOptions,
+            listHideViewedRecordings: HideViewedRecordingsOptions,
             selectedRecordingId: string | null,
             deletedRecordingIds: Set<string>
         ) => SessionRecordingType[]
         otherRecordings: (
             sessionRecordings: SessionRecordingType[],
-            hideViewedRecordings: HideViewedRecordingsOptions,
+            listHideViewedRecordings: HideViewedRecordingsOptions,
             pinnedRecordings: SessionRecordingType[],
             deletedRecordingIds: Set<string>,
             selectedRecordingId: string | null,
@@ -1144,7 +1154,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         session_recording_id: values.selectedRecordingId ?? undefined,
                         // Hide viewed recordings is filtered server-side so pagination operates on the
                         // filtered set; the client-side otherRecordings filter remains as a backstop.
-                        hide_viewed_recordings: values.hideViewedRecordings || undefined,
+                        hide_viewed_recordings: values.listHideViewedRecordings || undefined,
                     }
 
                     if (values.allowEventPropertyExpansion) {
@@ -1852,6 +1862,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
 
             setHideViewedRecordings: () => {
+                if (props.ignoreHideViewedRecordings) {
+                    return
+                }
                 // Filtering happens server-side, so toggling the filter changes the result set entirely.
                 // Reset and refetch from the first page rather than paginating onto the stale cursor.
                 actions.loadSessionRecordings()
@@ -2231,8 +2244,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
 
+        listHideViewedRecordings: [
+            (s) => [s.hideViewedRecordings, (_, props) => props.ignoreHideViewedRecordings],
+            (
+                hideViewedRecordings: HideViewedRecordingsOptions,
+                ignoreHideViewedRecordings
+            ): HideViewedRecordingsOptions => (ignoreHideViewedRecordings ? false : hideViewedRecordings),
+        ],
+
         hiddenRecordings: [
-            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.selectedRecordingId, s.deletedRecordingIds],
+            (s) => [s.sessionRecordings, s.listHideViewedRecordings, s.selectedRecordingId, s.deletedRecordingIds],
             (
                 sessionRecordings: SessionRecordingType[],
                 hideViewedRecordings: import('../player/playerSettingsLogic').HideViewedRecordingsOptions,
@@ -2264,7 +2285,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         otherRecordings: [
             (s) => [
                 s.sessionRecordings,
-                s.hideViewedRecordings,
+                s.listHideViewedRecordings,
                 s.pinnedRecordings,
                 s.deletedRecordingIds,
                 s.selectedRecordingId,
