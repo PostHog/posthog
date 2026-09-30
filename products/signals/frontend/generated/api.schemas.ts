@@ -3521,7 +3521,7 @@ export interface SignalScoutConfigApi {
     readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
     /** Who controls this scout now. `team`: a person set it up or has changed it. `background`: PostHog runs it in the background and no person has edited it yet. Any edit through this API changes `background` to `team`.
      *
-     * * `user` - User
+     * * `team` - Team
      * * `background` - Background */
     readonly managed_by: SignalScoutConfigManagedByEnumApi
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
