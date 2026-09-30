@@ -183,7 +183,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     <span className="truncate font-semibold">
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>
-                                                    {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
                                                     <MenuOpenIndicator intent="sub" className="ml-auto" />
                                                 </ButtonPrimitive>
                                             }
@@ -293,6 +292,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         ? currentOrganization.name
                                                         : 'Select organization'}
                                                 </span>
+                                                {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
                                                 <MenuOpenIndicator intent="sub" className="ml-auto" />
                                             </ButtonPrimitive>
                                         }
