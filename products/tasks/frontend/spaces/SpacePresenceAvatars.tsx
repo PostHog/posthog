@@ -3,14 +3,17 @@ import { AvatarGroup, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/q
 import { SpacePresence } from './spacePresence'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
-/** Who has been active in a space lately, like PostHog Desktop. A pulsing dot marks who is working right now. */
+/**
+ * Who has been active in a space lately, like PostHog Desktop. A pulsing dot marks who is working right now.
+ * The newest person sits on top at the right, so their dot shows; the stack tucks the others behind them.
+ */
 export function SpacePresenceAvatars({ presence }: { presence: SpacePresence }): JSX.Element | null {
     if (!presence.people.length) {
         return null
     }
     return (
         <AvatarGroup stacked reverse size="xs" data-attr="today-space-presence">
-            {presence.people.map((person) => {
+            {[...presence.people].reverse().map((person) => {
                 const live = presence.liveUuids.includes(person.uuid)
                 const label = live ? `${taskUserName(person)} is working here now` : taskUserName(person)
                 return (
