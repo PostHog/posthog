@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
     _base_url,
     _build_url,
     _normalize_row,
+    _to_epoch_millis,
     gainsight_px_source,
     validate_credentials,
 )
@@ -63,7 +64,7 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _source(endpoint: str, manager: mock.MagicMock) -> Any:
+def _source(endpoint: str, manager: mock.MagicMock, db_incremental_field_last_value: Any = None) -> Any:
     return gainsight_px_source(
         api_key="secret-key",
         region="us",
@@ -71,6 +72,7 @@ def _source(endpoint: str, manager: mock.MagicMock) -> Any:
         team_id=1,
         job_id="j",
         resumable_source_manager=manager,
+        db_incremental_field_last_value=db_incremental_field_last_value,
     )
 
 
@@ -236,6 +238,10 @@ VENDOR_PAGE_SIZE_MAXIMA: dict[str, int] = {
     "kc_bots": 500,
     "segments": 200,
     "users": 1000,
+    "page_view_events": 1000,
+    "session_events": 1000,
+    "engagement_view_events": 1000,
+    "feature_match_events": 1000,
 }
 
 
@@ -262,6 +268,67 @@ class TestRowNormalization:
         rows = _rows(_source("accounts", _make_manager()))
 
         assert rows[0]["createDate"] == datetime(2021, 1, 1, tzinfo=UTC)
+
+
+# Response list keys published in the vendor's OpenAPI spec. They differ per event stream, and a
+# wrong key silently yields an empty table.
+VENDOR_EVENT_DATA_KEYS: dict[str, str] = {
+    "page_view_events": "results",
+    "session_events": "sessionInitializedEvents",
+    "engagement_view_events": "results",
+    "feature_match_events": "featureMatchEvents",
+}
+
+
+class TestEventStreams:
+    @parameterized.expand(sorted(VENDOR_EVENT_DATA_KEYS.items()))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rows_are_read_from_vendor_key_with_date_converted(self, endpoint: str, data_key: str, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(data_key, [{"eventId": "e1", "date": 1609459200000}], scrollId=None)])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert rows == [{"eventId": "e1", "date": datetime(2021, 1, 1, tzinfo=UTC)}]
+
+    @parameterized.expand(
+        [
+            ("incremental", "page_view_events", datetime(2021, 1, 1, tzinfo=UTC), "date>=1609459200000"),
+            ("full_refresh", "feature_match_events", None, None),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_request_shaping(
+        self, _name: str, endpoint: str, last_value: Any, expected_filter: str | None, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        data_key = VENDOR_EVENT_DATA_KEYS[endpoint]
+        params = _wire(session, [_response(data_key, [], scrollId=None)])
+
+        _rows(_source(endpoint, _make_manager(), db_incremental_field_last_value=last_value))
+
+        assert params[0]["sort"] == "date"
+        assert params[0].get("filter") == expected_filter
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_entity_endpoints_send_no_event_filter_or_sort(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response("users", [], scrollId=None)])
+
+        _rows(_source("users", _make_manager(), db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC)))
+
+        assert params[0] == {"pageSize": 1000}
+
+    @parameterized.expand(
+        [
+            ("aware_datetime", datetime(2021, 1, 1, 1, tzinfo=UTC), 1609462800000),
+            ("naive_datetime_is_utc", datetime(2021, 1, 1, 1), 1609462800000),
+            ("epoch_millis", 1609462800000, 1609462800000),
+            ("iso_string", "2021-01-01T01:00:00+00:00", 1609462800000),
+        ]
+    )
+    def test_watermark_to_epoch_millis(self, _name: str, value: Any, expected: int) -> None:
+        assert _to_epoch_millis(value) == expected
 
 
 class TestRetries:
@@ -330,6 +397,7 @@ class TestSourceResponse:
             ("engagements", ["id"], None),
             ("articles", ["id"], "createdDate"),
             ("kc_bots", ["id"], "createdDate"),
+            ("session_events", ["eventId"], "date"),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)

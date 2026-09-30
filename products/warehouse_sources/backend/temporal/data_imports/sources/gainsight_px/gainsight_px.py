@@ -1,5 +1,5 @@
 import dataclasses
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.settings import (
     EPOCH_MILLIS_FIELDS,
+    EVENT_DATE_FIELD,
     GAINSIGHT_PX_ENDPOINTS,
     GAINSIGHT_PX_HOSTS,
 )
@@ -53,6 +54,30 @@ def _normalize_row(item: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, int) and not isinstance(value, bool):
             item[name] = datetime.fromtimestamp(value / 1000, tz=UTC)
     return item
+
+
+def _to_epoch_millis(value: Any) -> int:
+    # The watermark is read back from the warehouse, where `date` is stored as the datetime
+    # `_normalize_row` produced; the API filters on epoch millis.
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return int(dt.timestamp() * 1000)
+    if isinstance(value, date):
+        return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp() * 1000)
+    if isinstance(value, int | float):
+        return int(value)
+    return _to_epoch_millis(datetime.fromisoformat(str(value)))
+
+
+def _endpoint_params(endpoint: str, db_incremental_field_last_value: Optional[Any]) -> dict[str, Any]:
+    config = GAINSIGHT_PX_ENDPOINTS[endpoint]
+    params: dict[str, Any] = {"pageSize": config.page_size}
+    if config.incremental_fields:
+        # Always sort ascending so the pipeline can checkpoint the watermark after each batch.
+        params["sort"] = EVENT_DATE_FIELD
+        if db_incremental_field_last_value is not None:
+            params["filter"] = f"{EVENT_DATE_FIELD}>={_to_epoch_millis(db_incremental_field_last_value)}"
+    return params
 
 
 class _ScrollPaginator(BasePaginator):
@@ -159,6 +184,7 @@ def gainsight_px_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[GainsightPxResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = GAINSIGHT_PX_ENDPOINTS[endpoint]
     partition_key = config.partition_key
@@ -183,7 +209,7 @@ def gainsight_px_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"pageSize": config.page_size},
+                    "params": _endpoint_params(endpoint, db_incremental_field_last_value),
                     "data_selector": config.data_key,
                 },
                 "data_map": _normalize_row,
@@ -214,7 +240,7 @@ def gainsight_px_source(
         rest_config,
         team_id,
         job_id,
-        None,  # every Gainsight PX endpoint is full refresh
+        None,  # the date filter is built into the endpoint params above
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
@@ -228,6 +254,7 @@ def gainsight_px_source(
         partition_mode="datetime" if partition_key else None,
         partition_format="month" if partition_key else None,
         partition_keys=[partition_key] if partition_key else None,
+        sort_mode="asc",
         column_hints=resource.column_hints,
     )
 
