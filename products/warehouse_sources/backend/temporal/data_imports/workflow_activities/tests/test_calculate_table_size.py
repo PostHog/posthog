@@ -17,6 +17,9 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import calculate_table_size as calc
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
@@ -147,7 +150,7 @@ class TestCalculateTableSizeActivity:
             patch(f"{_DELTA_TABLE_MODULE}.delta_storage_options", return_value={}),
             patch("deltalake.DeltaTable", side_effect=OSError("Generic S3 error: connection reset")),
         ):
-            with pytest.raises(NonReportableError):
+            with pytest.raises(TransientObjectStoreError):
                 calculate_table_size_activity(
                     CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
                 )
