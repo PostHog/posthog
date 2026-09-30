@@ -181,10 +181,15 @@ Nothing enqueues `sync.extract` in phase 3 yet, so the consumer has no work unti
   A non-retryable error fails on the first attempt, and the finalizer disables the schema as it does for a Temporal run.
 - The consumer's `max_attempts` is the largest cap plus a shutdown allowance, as a backstop.
   An attempt that died without an answer (an OOM, a lost pod) is requeued by the recovery sweep and counts against the cap.
+- The engine fails a job without its handler at its own attempt cap: at the claim, or in the recovery sweep.
+  A handler that implements `EngineFailureHandler.on_engine_failed` hears about each such job after the queue-side `failed` write, and about a job the engine fails after a `Retry` or an exception.
+  The engine logs and ignores errors from the hook and gives it 30s, so it cannot stop a sweep. It does not call the hook for a job whose handler returned `Fail`.
+  `SyncExtractHandler` uses it to write `Failed` on the run's job row, which otherwise stays `Running` and makes every later run of the schema skip as an overlap.
 - On SIGTERM the engine sets its shutdown event. The run stops at its next shutdown check, releases its held batch and commits its resume state, and the handler returns a `Retry` tagged `{"reason": "shutdown"}`.
   The job row stays `Running`, and the next attempt continues under it.
   Tagged retries do not count against the cap.
   A run that never checks for shutdown (a full refresh) is cancelled before the drain ends, and also requeued with the tag.
+  Its held batch never gets a queue row, and its inserted rows have no final row. The next attempt runs under a new run uuid, and its batch 0 supersedes those rows.
 - `--drain-timeout` (default 600s) is how long `_close` waits for in-flight runs. Set `terminationGracePeriodSeconds` above it.
 - Cancellation: the handler polls the job's status about every 30s. A terminal status that someone else wrote (the cancel endpoint, a teardown) stops the run, and the handler returns `Fail` without a status write, because the terminal status absorbs later writes.
 

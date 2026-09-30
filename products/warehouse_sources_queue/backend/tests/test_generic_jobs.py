@@ -492,3 +492,97 @@ class TestJobConsumerEndToEnd:
                 (job_id,),
             )
             assert [row[0] for row in await cur.fetchall()] == ["shutdown", None]
+
+
+class _EngineFailureRecordingHandler(_RecordingHandler):
+    def __init__(self, outcome: Outcome, *, hook_error: Exception | None = None) -> None:
+        super().__init__(outcome)
+        self.hook_error = hook_error
+        self.engine_failures: list[tuple[str, str]] = []
+
+    async def on_engine_failed(self, job: Job, reason: str) -> None:
+        self.engine_failures.append((job.id, reason))
+        if self.hook_error is not None:
+            raise self.hook_error
+
+
+async def _left_waiting_at_cap(conn: psycopg.AsyncConnection[Any], job_id: str, max_attempts: int) -> None:
+    await JobsTable.update_status(conn, job_id=job_id, job_state="waiting_retry", attempt=max_attempts)
+
+
+async def _left_executing_by_a_dead_pod(conn: psycopg.AsyncConnection[Any], job_id: str, max_attempts: int) -> None:
+    await JobsTable.update_status(conn, job_id=job_id, job_state="executing", attempt=max_attempts)
+    async with conn.cursor() as cur:
+        await cur.execute(
+            f"UPDATE {JOB_TABLE} SET state_changed_at = now() - interval '1 hour' WHERE id = %s", (job_id,)
+        )
+
+
+async def _fresh(conn: psycopg.AsyncConnection[Any], job_id: str, max_attempts: int) -> None:
+    return
+
+
+async def _run_consumer_until_failed(
+    conn: psycopg.AsyncConnection[Any], db_url: str, handler: Any, job_ids: list[str], *, max_attempts: int
+) -> None:
+    consumer = JobConsumer(
+        config=BatchConsumerConfig(
+            database_url=db_url,
+            max_concurrency=2,
+            max_attempts=max_attempts,
+            poll_interval_seconds=0.05,
+            recovery_interval_seconds=0.05,
+            recovery_grace_seconds=60,
+            reconcile_interval_seconds=3600,
+            retry_backoff_base_seconds=0,
+        ),
+        lane=LANE,
+        handlers={KIND: handler},
+    )
+    run_task = asyncio.create_task(consumer.run())
+    try:
+        async with asyncio.timeout(30):
+            while [await JobsTable.get_latest_state(conn, job_id=job_id) for job_id in job_ids] != ["failed"] * len(
+                job_ids
+            ):
+                await asyncio.sleep(0.05)
+    finally:
+        consumer.request_shutdown()
+        await run_task
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEngineFailedHook:
+    @pytest.mark.parametrize(
+        "setup,outcome,max_attempts,expect_handler,expect_hook",
+        [
+            pytest.param(_fresh, Fail(reason="handler gave up"), 3, True, False, id="handler_fail_skips_the_hook"),
+            pytest.param(_fresh, Retry(reason="again"), 1, True, True, id="retry_at_the_engine_cap"),
+            pytest.param(_left_waiting_at_cap, Success(), 2, False, True, id="claim_after_the_cap"),
+            pytest.param(_left_executing_by_a_dead_pod, Success(), 2, False, True, id="recovery_sweep_at_the_cap"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_hook_hears_about_each_job_the_engine_fails_by_itself(
+        self, setup, outcome, max_attempts, expect_handler, expect_hook, conn, _db_url
+    ):
+        job_id = await _insert(conn)
+        await setup(conn, job_id, max_attempts)
+        handler = _EngineFailureRecordingHandler(outcome)
+
+        await _run_consumer_until_failed(conn, _db_url, handler, [job_id], max_attempts=max_attempts)
+
+        assert (handler.seen == [job_id]) is expect_handler
+        assert [failed_id for failed_id, _ in handler.engine_failures] == ([job_id] if expect_hook else [])
+
+    @pytest.mark.asyncio
+    async def test_a_raising_hook_does_not_stop_the_recovery_sweep(self, conn, _db_url):
+        job_ids = [await _insert(conn, group_key=f"1:group-{index}", dedup_key=f"job-{index}") for index in range(2)]
+        for job_id in job_ids:
+            await _left_executing_by_a_dead_pod(conn, job_id, 2)
+        handler = _EngineFailureRecordingHandler(Success(), hook_error=RuntimeError("app db down"))
+
+        await _run_consumer_until_failed(conn, _db_url, handler, job_ids, max_attempts=2)
+
+        assert handler.seen == []
+        assert sorted(failed_id for failed_id, _ in handler.engine_failures) == sorted(job_ids)

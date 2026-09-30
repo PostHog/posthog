@@ -44,6 +44,7 @@ from products.warehouse_sources_queue.backend.core.scheduler_state import (
     SchedulerStateTable,
 )
 from products.warehouse_sources_queue.backend.sdk.jobs import (
+    EngineFailureHandler,
     Fail,
     FollowerSpec,
     GenericJobAdapter,
@@ -73,6 +74,7 @@ __all__ = [
     "ConsumerMetrics",
     "DecisionRecord",
     "DueSchedule",
+    "EngineFailureHandler",
     "Fail",
     "FollowerSpec",
     "GenericJobAdapter",

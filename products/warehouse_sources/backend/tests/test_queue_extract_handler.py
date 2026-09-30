@@ -717,6 +717,108 @@ async def test_the_consumer_runs_a_queued_extraction_end_to_end(
     assert (row.status, row.phase) == (ExternalDataJob.Status.RUNNING, "loading")
 
 
+async def _left_executing_by_a_dead_pod(conn: psycopg.AsyncConnection[Any], job: Job, attempt: int) -> None:
+    await JobsTable.update_status(
+        conn, job_id=job.id, job_state="executing", attempt=attempt, job_created_at=job.created_at
+    )
+    async with conn.cursor() as cur:
+        await cur.execute("UPDATE queuejob SET state_changed_at = now() - interval '1 hour' WHERE id = %s", (job.id,))
+
+
+async def _left_waiting_at_the_cap(conn: psycopg.AsyncConnection[Any], job: Job, attempt: int) -> None:
+    await JobsTable.update_status(
+        conn, job_id=job.id, job_state="waiting_retry", attempt=attempt, job_created_at=job.created_at
+    )
+
+
+def _complete_row(row: ExternalDataJob) -> None:
+    ExternalDataJob.objects.filter(id=row.id).update(status=ExternalDataJob.Status.COMPLETED)
+
+
+def _delete_row(row: ExternalDataJob) -> None:
+    ExternalDataJob.objects.filter(id=row.id).delete()
+
+
+def _keep_row(row: ExternalDataJob) -> None:
+    return
+
+
+@pytest.mark.parametrize(
+    "engine_path,change_row,finalizer_error,expected_status",
+    [
+        pytest.param(_left_executing_by_a_dead_pod, _keep_row, None, ExternalDataJob.Status.FAILED, id="sweep_at_cap"),
+        pytest.param(_left_waiting_at_the_cap, _keep_row, None, ExternalDataJob.Status.FAILED, id="claim_after_cap"),
+        pytest.param(
+            _left_executing_by_a_dead_pod, _complete_row, None, ExternalDataJob.Status.COMPLETED, id="already_completed"
+        ),
+        pytest.param(_left_executing_by_a_dead_pod, _delete_row, None, None, id="no_job_row"),
+        pytest.param(
+            _left_executing_by_a_dead_pod,
+            _keep_row,
+            RuntimeError("app db down"),
+            ExternalDataJob.Status.RUNNING,
+            id="hook_raises",
+        ),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_job_the_engine_fails_by_itself_fails_its_run(
+    engine_path: Callable[[psycopg.AsyncConnection[Any], Job, int], Awaitable[None]],
+    change_row: Callable[[ExternalDataJob], None],
+    finalizer_error: Exception | None,
+    expected_status: str | None,
+    schema: ExternalDataSchema,
+    temporal: MagicMock,
+    conn: psycopg.AsyncConnection[Any],
+    _db_url: str,
+) -> None:
+    engine_max_attempts = 2
+    job = await _claim(conn, _payload(schema))
+    handler = _handler(temporal)
+    assert isinstance(await _handle(handler, job, _ctx(_db_url), _FakeExtraction(_raises(ValueError("oom")))), Retry)
+    [row] = await sync_to_async(_jobs)(schema)
+    await sync_to_async(change_row)(row)
+    await engine_path(conn, job, engine_max_attempts)
+    await JobsTable.release_all_owned(conn, owner_token="test-owner")
+    consumer = JobConsumer(
+        config=BatchConsumerConfig(
+            database_url=_db_url,
+            max_concurrency=1,
+            max_attempts=engine_max_attempts,
+            poll_interval_seconds=0.05,
+            recovery_interval_seconds=0.05,
+            recovery_grace_seconds=60,
+            reconcile_interval_seconds=3600,
+            retry_backoff_base_seconds=0,
+        ),
+        lane=EXTRACT_LANE,
+        handlers={SYNC_EXTRACT_KIND: handler},
+    )
+    extraction = _FakeExtraction(_returns(WITH_BATCHES))
+
+    with (
+        patch(f"{HANDLER}.run_extraction", extraction),
+        patch(f"{HANDLER}._update_job_status", AsyncMock(side_effect=finalizer_error))
+        if finalizer_error
+        else contextlib.nullcontext(),
+    ):
+        run_task = asyncio.create_task(consumer.run())
+        try:
+            async with asyncio.timeout(30):
+                while await JobsTable.get_latest_state(conn, job_id=job.id) != "failed":
+                    await asyncio.sleep(0.05)
+        finally:
+            consumer.request_shutdown()
+            await run_task
+
+    assert extraction.controls == []
+    rows = await sync_to_async(_jobs)(schema)
+    assert [r.status for r in rows] == ([expected_status] if expected_status is not None else [])
+    if expected_status == ExternalDataJob.Status.FAILED:
+        assert rows[0].latest_error == SYNC_RUN_STALLED_MESSAGE
+
+
 class _FakePodMemory:
     def __init__(self, limit_mb: float | None, current_mb: float | None) -> None:
         self._limit_mb = limit_mb

@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 import psycopg
 
@@ -47,6 +47,9 @@ if TYPE_CHECKING:
     from products.warehouse_sources_queue.backend.core.batch_consumer import BatchConsumerAdapter, ProcessBatchFn
 
 logger = logging.getLogger(__name__)
+
+# The engine calls the hook from its recovery sweep, so a slow hook must not hold the sweep.
+ENGINE_FAILED_HOOK_TIMEOUT_SECONDS = 30.0
 
 
 @frozen
@@ -119,6 +122,19 @@ class JobHandler(Protocol):
     async def handle(self, job: Job, ctx: JobContext) -> Outcome: ...
 
 
+@runtime_checkable
+class EngineFailureHandler(Protocol):
+    """Optional handler hook: the engine failed a job, and the handler did not return ``Fail`` for it.
+
+    The engine fails a job without its handler when the job reaches the attempt cap: at the claim,
+    or in the recovery sweep after a pod died. A handler that keeps an external state for the job
+    implements this to finish that state. The engine calls it after the queue-side failed write,
+    and logs and ignores its errors.
+    """
+
+    async def on_engine_failed(self, job: Job, reason: str) -> None: ...
+
+
 class GenericJobAdapter:
     """``BatchConsumerAdapter`` over the generic job tables.
 
@@ -146,6 +162,7 @@ class GenericJobAdapter:
         recovery_sweep_limit: int = 100,
         claim_gate: Callable[[], bool] | None = None,
         retry_backoff_base_seconds: int = 0,
+        on_engine_failed: Callable[[Job, str], Awaitable[None]] | None = None,
     ) -> None:
         self._lane = lane
         self._kinds = kinds
@@ -154,6 +171,7 @@ class GenericJobAdapter:
         # False means the process cannot take more work now; the poll then claims nothing.
         self._claim_gate = claim_gate
         self._retry_backoff_base_seconds = retry_backoff_base_seconds
+        self._on_engine_failed = on_engine_failed
         # Attempt-local state follows the engine's group task. It cannot leak
         # into a later attempt when ownership is lost and the task is abandoned.
         self._pending_followers: ContextVar[tuple[str, tuple[FollowerSpec, ...]] | None] = ContextVar(
@@ -165,6 +183,7 @@ class GenericJobAdapter:
         self._pending_retry_tag: ContextVar[tuple[str, str] | None] = ContextVar(
             "generic_job_pending_retry_tag", default=None
         )
+        self._handler_failed_job: ContextVar[str | None] = ContextVar("generic_job_handler_failed", default=None)
 
     def stash_followers(self, job_id: str, followers: tuple[FollowerSpec, ...]) -> None:
         # An empty success deliberately replaces followers from any earlier
@@ -173,6 +192,10 @@ class GenericJobAdapter:
 
     def stash_retry_tag(self, job_id: str, tag: str | None) -> None:
         self._pending_retry_tag.set((job_id, tag) if tag is not None else None)
+
+    def note_handler_failed(self, job_id: str) -> None:
+        # The handler already finished its own state for this job, so fail_run skips the hook.
+        self._handler_failed_job.set(job_id)
 
     async def fetch_and_lock(
         self,
@@ -309,6 +332,9 @@ class GenericJobAdapter:
         # Must not raise (the engine calls this from error paths). No run-level
         # fan-out in phase 1: failing the one job is the whole action, and the
         # run gate parks any followers behind the failed sequence.
+        handler_failed = self._handler_failed_job.get() == batch.id
+        self._handler_failed_job.set(None)
+        wrote = False
         try:
             self._pending_followers.set(None)
             current = self._executing_attempt.get()
@@ -316,7 +342,7 @@ class GenericJobAdapter:
                 expected_state, expected_attempt = self.executing_state, current[1]
             else:
                 expected_state, expected_attempt = batch.latest_state, batch.latest_attempt
-            await JobsTable.update_status_unless_failed(
+            wrote = await JobsTable.update_status_unless_failed(
                 conn,
                 job_id=batch.id,
                 job_state="failed",
@@ -329,6 +355,15 @@ class GenericJobAdapter:
             self._executing_attempt.set(None)
         except Exception:
             logger.exception("generic_jobs_fail_run_write_failed", extra={"job_id": batch.id})
+        # Only a write that landed ends the job. Otherwise the job is terminal already, or the
+        # next sweep fails it and calls the hook then.
+        if wrote and not handler_failed and self._on_engine_failed is not None:
+            try:
+                await asyncio.wait_for(
+                    self._on_engine_failed(batch, reason), timeout=ENGINE_FAILED_HOOK_TIMEOUT_SECONDS
+                )
+            except Exception:
+                logger.exception("generic_jobs_engine_failed_hook_raised", extra={"job_id": batch.id})
 
     async def verify_advisory_lock(
         self,
@@ -449,7 +484,8 @@ class JobConsumer:
     kinds. Handler outcomes: ``Success`` records the terminal state and
     enqueues followers atomically; ``Retry`` routes into the engine's
     waiting_retry cycle (attempt caps from ``config.max_attempts``); ``Fail``
-    fails the job on first attempt.
+    fails the job on first attempt. A handler that also implements ``EngineFailureHandler``
+    hears about each job the engine fails without a ``Fail`` from it.
 
     ``claim_gate``, when it returns False, makes a poll claim nothing, for
     example while the process is short of memory.
@@ -475,6 +511,7 @@ class JobConsumer:
             recovery_sweep_limit=recovery_sweep_limit,
             claim_gate=claim_gate,
             retry_backoff_base_seconds=config.retry_backoff_base_seconds,
+            on_engine_failed=self._on_engine_failed,
         )
         # The engine is typed against the batch item; Job satisfies its runtime
         # attribute contract through the documented aliases, so the casts bridge
@@ -505,9 +542,15 @@ class JobConsumer:
                 self._adapter.stash_retry_tag(job.id, tag)
                 raise JobRetryRequested(reason)
             case Fail(reason=reason):
+                self._adapter.note_handler_failed(job.id)
                 raise PermanentBatchApplyError(reason)
             case _:
                 raise PermanentBatchApplyError(f"handler for {job.kind!r} returned {outcome!r}, not an Outcome")
+
+    async def _on_engine_failed(self, job: Job, reason: str) -> None:
+        handler: object = self._handlers.get(job.kind)
+        if isinstance(handler, EngineFailureHandler):
+            await handler.on_engine_failed(job, reason)
 
     async def run(self) -> None:
         await self._consumer.run()

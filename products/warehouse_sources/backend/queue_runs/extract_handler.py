@@ -2,7 +2,8 @@
 
 The handler does what `ExternalDataJobWorkflow` does for a V3 run up to the loader handoff. It
 creates the job row, runs the extraction body, and hands the run to the loader. A run with no
-batch never reaches the loader, so the handler completes that run itself.
+batch never reaches the loader, so the handler completes that run itself. When the queue engine
+fails the queue job without the handler, `on_engine_failed` fails the run's job row.
 
 Job row identity: `workflow_run_id` on the job row is the queue job id, so every attempt of one
 queue job finds the same job row. `workflow_id` comes from the payload.
@@ -14,8 +15,9 @@ import time
 import socket
 import asyncio
 import datetime as dt
+import contextlib
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from django.db import InterfaceError, InternalError, OperationalError
@@ -145,24 +147,41 @@ class SyncExtractHandler:
         payload = SyncExtractPayload.from_json(job.payload)
         attempt = job.latest_attempt + 1
         started = time.monotonic()
-        # Restores the keys the engine bound for this job when the handler returns.
-        with structlog.contextvars.bound_contextvars(
-            team_id=payload.team_id,
-            external_data_schema_id=str(payload.schema_id),
-            external_data_source_id=str(payload.source_id),
-            external_data_job_id=None,
-            workflow_type=EXTERNAL_DATA_JOB_WORKFLOW_TYPE,
-            workflow_id=payload.workflow_id,
-            workflow_run_id=job.id,
-            log_source_id=str(payload.schema_id),
-            attempt=attempt,
-            queue_job_id=job.id,
-        ):
+        with _job_log_context(payload, job, attempt):
             tag_queries(team_id=payload.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
             result = await self._handle(job, ctx, payload, attempt, LOGGER.bind())
         RUNS_FINISHED_TOTAL.labels(source_type=result.source_type or "unknown", outcome=result.run_outcome).inc()
         RUN_DURATION_SECONDS.labels(outcome=result.run_outcome).observe(time.monotonic() - started)
         return result.outcome
+
+    async def on_engine_failed(self, job: Job, reason: str) -> None:
+        """Fail the run's job row when the engine failed the queue job without this handler.
+
+        Otherwise the row stays Running, and the overlap check then skips every later run of the
+        schema. The finalizer's terminal states absorb later writes, so a race with a real
+        terminal write is safe.
+        """
+        payload = SyncExtractPayload.from_json(job.payload)
+        with _job_log_context(payload, job, job.latest_attempt):
+            logger = LOGGER.bind()
+            existing = await database_sync_to_async_pool(_find_run_job)(payload.team_id, job.id)
+            if existing is None or existing.status in TERMINAL_JOB_STATUSES:
+                return
+            structlog.contextvars.bind_contextvars(external_data_job_id=str(existing.id))
+            await logger.awarning("The queue engine failed the run's job, so the run fails", reason=reason)
+            await self._finalize(
+                payload,
+                job.id,
+                job_id=str(existing.id),
+                status=ExternalDataJob.Status.FAILED,
+                internal_error=f"The queue engine failed the job: {reason}"[:1000],
+                latest_error=SYNC_RUN_STALLED_MESSAGE,
+                logger=logger,
+            )
+            plan = _load_run_plan(existing)
+            RUNS_FINISHED_TOTAL.labels(
+                source_type=plan.source_type if plan is not None else "unknown", outcome=RunOutcome.FAILED
+            ).inc()
 
     async def _handle(
         self, job: Job, ctx: JobContext, payload: SyncExtractPayload, attempt: int, logger: FilteringBoundLogger
@@ -487,6 +506,24 @@ class SyncExtractHandler:
             # An automatic disable must not try to cancel this run through Temporal.
             exclude_workflow_id=payload.workflow_id,
         )
+
+
+@contextlib.contextmanager
+def _job_log_context(payload: SyncExtractPayload, job: Job, attempt: int) -> Iterator[None]:
+    # Restores the keys the engine bound for this job on exit.
+    with structlog.contextvars.bound_contextvars(
+        team_id=payload.team_id,
+        external_data_schema_id=str(payload.schema_id),
+        external_data_source_id=str(payload.source_id),
+        external_data_job_id=None,
+        workflow_type=EXTERNAL_DATA_JOB_WORKFLOW_TYPE,
+        workflow_id=payload.workflow_id,
+        workflow_run_id=job.id,
+        log_source_id=str(payload.schema_id),
+        attempt=attempt,
+        queue_job_id=job.id,
+    ):
+        yield
 
 
 def _skipped(reason: SkipReason) -> _HandlerResult:
