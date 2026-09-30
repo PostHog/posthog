@@ -3995,9 +3995,9 @@ jobs:
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
-                  # A native-JSON row uploads under its own variant, so a failure in that mode
-                  # does not read as a flake of the legacy test with the same id.
-                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
+                  # Non-default rows upload under their own variant, so a failure only that mode
+                  # hits does not quarantine the default test with the same id.
+                  variant: ${{ matrix.compat && format('compat-{0}', matrix.clickhouse-server-image) || matrix.person-on-events && (matrix.new-events-schema && 'poe-off-events-json' || 'poe-off') || matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
@@ -4227,15 +4227,23 @@ jobs:
               if: needs.changes.outputs.engine == 'depot'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: .github/scripts/ci_backend_relay.py
+                  sparse-checkout: |
+                      .github/scripts/ci_backend_relay.py
+                      .github/scripts/ci_backend_depot_failures.py
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
+            # The relay reads a failed run's steps and log lines with the Depot CLI. Without
+            # the CLI, the relay prints a warning and still reports the verdict.
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              if: needs.changes.outputs.engine == 'depot'
+              continue-on-error: true
             # The script finds this event's Depot run by the event in its wait job's check
             # name, then waits for that run's gate. Its docstring explains why check times
             # and pull request lists cannot identify the run.
             - name: Relay the Depot verdict
               if: needs.changes.outputs.engine == 'depot'
               env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   GH_TOKEN: ${{ github.token }}
                   REPO: ${{ github.repository }}
                   SHA: ${{ github.event.pull_request.head.sha }}

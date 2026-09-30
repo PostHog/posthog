@@ -112,6 +112,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
     apply_experiment_targeting,
 )
+from products.replay_vision.backend.prompt_questions import question_fields_for_save, scanner_question
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
@@ -490,6 +491,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "classifiers add `tags`, scorers add `scale`, summarizers add optional `length`."
         ),
     )
+    prompt_question = serializers.SerializerMethodField(
+        help_text=(
+            "The current prompt condensed by AI into the one question the scanner answers about a session. "
+            "Falls back to the prompt's first line when no question matches the current prompt."
+        ),
+    )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
         serializers.JSONField(
             required=False,
@@ -638,6 +645,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "scanner_type",
             "creation_method",
             "scanner_config",
+            "prompt_question",
             "query",
             "sampling_rate",
             "sampling_mode",
@@ -666,6 +674,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         ]
         read_only_fields = [
             "id",
+            "prompt_question",
             "scanner_version",
             "estimated_monthly_observations",
             "estimated_at",
@@ -683,6 +692,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "feedback_themes",
             "user_access_level",
         ]
+
+    @extend_schema_field(serializers.CharField())
+    def get_prompt_question(self, scanner: ReplayScanner) -> str:
+        return scanner_question(scanner)
 
     @extend_schema_field(serializers.IntegerField())
     def get_credits_per_observation(self, scanner: ReplayScanner) -> int:
@@ -893,6 +906,14 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         tags = validated_data.pop("tags", None)
         # Telemetry only, so it must not reach the model constructor.
         creation_method = validated_data.pop("creation_method", None)
+        # A model call, so it runs before the transaction opens.
+        validated_data.update(
+            question_fields_for_save(
+                team_id=team.id,
+                scanner_type=validated_data["scanner_type"],
+                scanner_config=validated_data.get("scanner_config", {}),
+            )
+        )
         # One transaction so a failed tag write can't leave an untagged scanner behind. Side effects stay outside.
         with transaction.atomic():
             try:
@@ -936,6 +957,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
         limit_changed = "credit_limit" in validated_data and validated_data["credit_limit"] != instance.credit_limit
+        # After `before`, so the question is not reported as an edit. A model call, so before the transaction.
+        if "scanner_config" in validated_data:
+            validated_data.update(
+                question_fields_for_save(
+                    team_id=instance.team_id,
+                    scanner_type=validated_data.get("scanner_type", instance.scanner_type),
+                    scanner_config=validated_data["scanner_config"],
+                    current_source=instance.prompt_question_source,
+                )
+            )
         # One transaction so a failed tag write can't leave the columns updated with stale tags. Side effects stay outside.
         with transaction.atomic():
             try:
@@ -2134,6 +2165,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     description=source.description,
                     scanner_type=source.scanner_type,
                     scanner_config=source.scanner_config,
+                    # Same prompt, so the source's question still describes it.
+                    prompt_question=source.prompt_question,
+                    prompt_question_source=source.prompt_question_source,
                     query=source.query,
                     sampling_rate=source.sampling_rate,
                     sampling_mode=source.sampling_mode,

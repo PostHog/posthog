@@ -36,6 +36,19 @@ function toolEntry(
   return entry(sessionUpdate, { _meta: { claudeCode: meta } });
 }
 
+const REJECTED_TOOL_IDS = [
+  "toolu_01AbCdEfGh[REDACTED]",
+  "toolu_01AbCdEfGh.REDACTED.",
+];
+
+function expectRepairedToolIds(callIds: unknown[], resultIds: unknown[]): void {
+  for (const id of callIds) {
+    expect(id).toMatch(/^[a-zA-Z0-9_-]+$/);
+  }
+  expect(new Set(callIds).size).toBe(callIds.length);
+  expect(resultIds).toEqual(callIds);
+}
+
 describe("getSessionJsonlPath", () => {
   it("constructs path from sessionId and cwd", () => {
     const original = process.env.CLAUDE_CONFIG_DIR;
@@ -744,6 +757,32 @@ describe("conversationTurnsToJsonlEntries", () => {
     );
   });
 
+  it("repairs tool ids the API rejects, and keeps each call paired with its result", () => {
+    const lines = conversationTurnsToJsonlEntries(
+      [
+        {
+          role: "assistant",
+          content: [],
+          toolCalls: REJECTED_TOOL_IDS.map((toolCallId) => ({
+            toolCallId,
+            toolName: "Bash",
+            input: {},
+            result: "ok",
+          })),
+        },
+      ],
+      config,
+    );
+
+    const blocks = parseConversationEntries(lines).map(
+      (line) => line.message.content[0],
+    );
+    expectRepairedToolIds(
+      blocks.slice(0, 2).map((block) => block.id),
+      blocks.slice(2).map((block) => block.tool_use_id),
+    );
+  });
+
   it("falls back to space for empty user content", () => {
     const lines = conversationTurnsToJsonlEntries(
       [{ role: "user", content: [] }],
@@ -1411,6 +1450,36 @@ describe("sanitizeSessionJsonl", () => {
       { type: "text", text: "running" },
       { type: "tool_use", id: "tc-1", name: "Bash", input: {} },
     ]);
+  });
+
+  it("repairs tool ids the API rejects, and keeps each call paired with its result", async () => {
+    const file = await writeJsonl([
+      ...REJECTED_TOOL_IDS.map((id) => ({
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id, name: "Bash", input: {} }],
+        },
+      })),
+      ...REJECTED_TOOL_IDS.map((id) => ({
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+        },
+      })),
+    ]);
+
+    expect(await sanitizeSessionJsonl(file)).toBe(true);
+
+    const blocks = (await readJsonl(file)).map(
+      (line) =>
+        (line.message as { content: Record<string, unknown>[] }).content[0],
+    );
+    expectRepairedToolIds(
+      blocks.slice(0, 2).map((block) => block.id),
+      blocks.slice(2).map((block) => block.tool_use_id),
+    );
   });
 
   it("sanitizes empty blocks in user lines too", async () => {

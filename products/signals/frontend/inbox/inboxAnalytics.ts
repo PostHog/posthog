@@ -71,7 +71,10 @@ export const INBOX_EVENTS = {
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
-/** Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row. */
+/**
+ * Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row.
+ * `today` is a report page on the Today homepage.
+ */
 export type InboxReportActionSurface =
     | 'detail_pane'
     | 'detail_footer'
@@ -79,6 +82,7 @@ export type InboxReportActionSurface =
     | 'bulk_bar'
     | 'triage_mode'
     | 'context_menu'
+    | 'today'
 
 /**
  * Affordance that put the first report into a multi-select. Tells us which ones people find, so

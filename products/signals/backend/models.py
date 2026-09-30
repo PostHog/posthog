@@ -2,7 +2,7 @@ import json
 import uuid
 import logging
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -2045,6 +2045,10 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+def signal_report_action_choices() -> Sequence[tuple[str, str | Promise]]:
+    return SignalReportAction.ActionType.choices
+
+
 class SignalReportAction(TeamScopedRootMixin, UUIDModel):
     """One row per (report, user, action type): a person's lightweight interaction with a report.
 
@@ -2068,6 +2072,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
         # The thumbs rating at the end of the report body ("Was this report useful?").
         FEEDBACK = "feedback"
         SLACK_DISCUSSION = "slack_discussion"
+        READ = "read"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -2079,7 +2084,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
     # CASCADE, unlike the artefact log's SET_NULL: a row here is evidence that a specific person
     # interacted, so with the person gone it proves nothing and can go with them.
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    type = models.CharField(max_length=20, choices=ActionType)
+    type = models.CharField(max_length=20, choices=signal_report_action_choices)
     # Latest-wins detail about the interaction (e.g. the feedback row keeps the most recent
     # sentiment). Never required by readers — the row's existence is the fact that matters.
     metadata = models.JSONField(default=dict, blank=True)
@@ -2347,6 +2352,20 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         # no longer exists, and the roster has a state to render instead of a row that looks
         # healthy and never runs.
         RETIRED = "retired", "Retired"
+        # The background lane stopped managing this scout and paused it. Owned by the background
+        # coordinator alone, so no other system writer resumes a scout nobody set up.
+        BACKGROUND_REMOVED = "background_removed", "Background removed"
+
+    class ManagedBy(models.TextChoices):
+        """Who controls this scout now.
+
+        `background` marks a row the background lane created without a person asking, so the
+        background coordinator may still change or pause it. Any human edit through the config API
+        moves the row to `team`, and from then on only the team changes it.
+        """
+
+        TEAM = "team", "Team"
+        BACKGROUND = "background", "Background"
 
     class NetworkAccess(models.TextChoices):
         """What the scout's sandbox can reach over the network during a run.
@@ -2438,6 +2457,14 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         choices=Status.choices,
         default=Status.ACTIVE,
         db_default=Status.ACTIVE,
+    )
+    # `db_default` alongside `default` keeps the AddField non-blocking and the column populated for
+    # writers that don't know about it yet.
+    managed_by = models.CharField(
+        max_length=20,
+        choices=ManagedBy.choices,
+        default=ManagedBy.TEAM,
+        db_default=ManagedBy.TEAM,
     )
     # Set only alongside `pending_pause` / `paused_by_system`; see `PauseReason`.
     pause_reason = models.CharField(
