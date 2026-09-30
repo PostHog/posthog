@@ -1,7 +1,12 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { TeamType } from '~/types'
 
 import { webmcpLogic } from './webmcpLogic'
 
@@ -37,9 +42,6 @@ describe('webmcpLogic', () => {
                 },
             },
         })
-
-        initKeaTests()
-        webmcpLogic.mount()
     })
 
     afterEach(() => {
@@ -48,6 +50,9 @@ describe('webmcpLogic', () => {
     })
 
     it('registers the exec tool and forwards each call to the proxy', async () => {
+        initKeaTests()
+        webmcpLogic.mount()
+
         await waitFor(() => expect(registerTool).toHaveBeenCalled())
         const tool: RegisteredTool = registerTool.mock.calls[0][0]
 
@@ -55,5 +60,15 @@ describe('webmcpLogic', () => {
         await expect(tool.execute({ command: 'search insights' })).resolves.toEqual('insight-get')
         await expect(tool.execute({ command: 'call broken-tool {}' })).rejects.toThrow('Tool failed')
         expect(postedCommands).toEqual(['search insights', 'call broken-tool {}'])
+    })
+
+    it('registers the tool once the team loads after mount', async () => {
+        initKeaTests(true, null as unknown as TeamType)
+        webmcpLogic.mount()
+        expect(registerTool).not.toHaveBeenCalled()
+
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+
+        await waitFor(() => expect(registerTool).toHaveBeenCalledTimes(1))
     })
 })
