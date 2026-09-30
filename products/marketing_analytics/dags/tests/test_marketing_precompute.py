@@ -31,6 +31,7 @@ from products.marketing_analytics.dags.marketing_precompute import (
     split_marketing_precompute_teams_op,
     warm_selected_teams,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 _ENSURE = "products.marketing_analytics.dags.marketing_precompute.ensure_precomputed"
 _ACTIVE = "products.marketing_analytics.dags.marketing_precompute._recently_active_team_ids"
@@ -161,29 +162,44 @@ class TestConversionWarming(APIBaseTest):
         return team
 
     @parameterized.expand([("cloud", True), ("self_hosted", False)])
-    def test_unset_audience_is_goal_teams_with_the_read_flag(self, _name, cloud):
-        # Reads are precompute-only for flagged teams, so the default audience must follow the flag.
+    def test_unset_audience_is_teams_with_a_precompute_read_flag(self, _name, cloud):
+        # Reads are precompute-only for flagged teams, so the default audience must follow the flags. The
+        # conversion and cost flags roll out independently, and cost reads never write, so a team with only
+        # the cost flag on must be warmed too.
         flagged = self._make_team("flagged", goals=[_PRECOMPUTABLE_GOAL])
-        unflagged = self._make_team("unflagged", goals=[_PRECOMPUTABLE_GOAL])
+        self._make_team("unflagged", goals=[_PRECOMPUTABLE_GOAL])
         flagged_no_goals = self._make_team("flagged_no_goals", goals=[])
-        flagged_uuids = {str(flagged.uuid), str(flagged_no_goals.uuid)}
+        costs_only = self._make_team("costs_only", goals=[_PRECOMPUTABLE_GOAL])
+        costs_inactive = self._make_team("costs_inactive", goals=[])
+        costs_no_tables = self._make_team("costs_no_tables", goals=[])
+        for team in (costs_only, costs_inactive):
+            DataWarehouseTable.objects.create(
+                team=team, name="ads_stats", format="Parquet", url_pattern="https://example.com/ads/*.parquet"
+            )
+        conversion_uuids = {str(flagged.uuid), str(flagged_no_goals.uuid)}
+        costs_uuids = {str(costs_only.uuid), str(costs_inactive.uuid), str(costs_no_tables.uuid)}
 
         def read_flag(flag, distinct_id, *args, **kwargs):
-            return flag == "marketing-analytics-precomputation" and distinct_id in flagged_uuids
+            if flag == "marketing-analytics-precomputation":
+                return distinct_id in conversion_uuids
+            return flag == "marketing-analytics-costs-precomputation" and distinct_id in costs_uuids
 
         with (
             patch.dict(os.environ, {}, clear=False),
             patch(_IS_CLOUD, return_value=cloud),
+            patch(_ACTIVE, return_value={costs_only.pk, costs_no_tables.pk}),
             patch(_FF, side_effect=read_flag) as feature_enabled,
         ):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
             selected = get_selected_team_ids()
 
-        assert selected == ([flagged.pk] if cloud else [])
-        assert unflagged.pk not in selected
-        # Picking an audience is not a read, so the scan evaluates the read flag alone and records no
-        # exposure. Otherwise every goal team looks exposed to three flags, every hour.
-        assert {call.args[0] for call in feature_enabled.call_args_list} <= {"marketing-analytics-precomputation"}
+        assert selected == (sorted([flagged.pk, costs_only.pk]) if cloud else [])
+        # Picking an audience is not a read, so the scan evaluates the read flags alone and records no
+        # exposure. Otherwise every candidate team looks exposed to every flag, every hour.
+        assert {call.args[0] for call in feature_enabled.call_args_list} <= {
+            "marketing-analytics-precomputation",
+            "marketing-analytics-costs-precomputation",
+        }
         assert all(call.kwargs["send_feature_flag_events"] is False for call in feature_enabled.call_args_list)
 
     def test_auto_audience_is_recently_active_teams_with_goals(self):

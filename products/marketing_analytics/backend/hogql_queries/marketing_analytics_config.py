@@ -52,6 +52,8 @@ MULTI_TOUCH_MODES: frozenset[AttributionMode] = frozenset(
 
 # Conversion-goal reads serve from the precompute for a team with this flag on.
 CONVERSION_PRECOMPUTE_FLAG = "marketing-analytics-precomputation"
+# Cost reads serve from the precompute for a team with this flag on.
+COSTS_PRECOMPUTE_FLAG = "marketing-analytics-costs-precomputation"
 
 
 # Mutable by design: `from_team` builds a default instance and then overwrites the
@@ -143,7 +145,7 @@ class MarketingAnalyticsConfig:
                 group_properties=group_properties,
             ),
             "costs": feature_enabled_or_false(
-                "marketing-analytics-costs-precomputation",
+                COSTS_PRECOMPUTE_FLAG,
                 str(team.uuid),
                 groups=groups,
                 group_properties=group_properties,
@@ -173,8 +175,17 @@ class MarketingAnalyticsConfig:
         distort the flag's own rollout numbers, and it has no use for the cost and session flags that
         `_precompute_flags` evaluates alongside the conversion one.
         """
+        return MarketingAnalyticsConfig._flag_enabled_without_exposure(CONVERSION_PRECOMPUTE_FLAG, team)
+
+    @staticmethod
+    def costs_precompute_enabled_without_exposure(team: "Team") -> bool:
+        """Evaluate only the cost read flag, and record no exposure for it. Same audience-scan use as above."""
+        return MarketingAnalyticsConfig._flag_enabled_without_exposure(COSTS_PRECOMPUTE_FLAG, team)
+
+    @staticmethod
+    def _flag_enabled_without_exposure(flag: str, team: "Team") -> bool:
         return feature_enabled_or_false(
-            CONVERSION_PRECOMPUTE_FLAG,
+            flag,
             str(team.uuid),
             groups={"organization": str(team.organization.id)},
             group_properties={"organization": {"id": str(team.organization.id)}},
