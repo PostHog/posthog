@@ -3272,24 +3272,24 @@ Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; 
 
 ## Flowlu — **thin**
 
-Today (17): `accounts`, `agile_issues`, `agile_sprints`, `customer_payments`, `estimates`, `invoice_items`, `invoices`, `leads`, `pipeline_stages`, `pipelines`, `products`, `project_stages`, `projects`, `tasks`, `timelogs`, `timesheets`, `transactions`
+Today (21): `accounts`, `agile_issues`, `agile_sprints`, `agile_stages`, `billing_organizations`, `customer_payments`, `estimates`, `invoice_items`, `invoices`, `lead_sources`, `leads`, `loss_reasons`, `pipeline_stages`, `pipelines`, `products`, `project_stages`, `projects`, `tasks`, `timelogs`, `timesheets`, `transactions`
 
 Diffed against: <https://www.flowlu.com/api/json/openapien.json>
 
 - [x] `/crm/pipeline_stage/list` — lookup resolving the stage ID on every lead; we sync pipelines but not their stages (high) — added as `pipeline_stages`
 - [x] `/fin/invoice_item/list` — invoice line items - revenue by product/service instead of invoice totals only (high) — added as `invoice_items`
 - [x] `/timetracker/timelogs/list` — individual time log entries behind the timesheet rollups already synced (high) — added as `timelogs`
-- [x] `/st/stages/list` — lookup resolving project stage IDs on the projects table (high) — added as `project_stages` (Flowlu has three separate stage entities; `/agile/stages` and `/task/stages` remain open)
-- [ ] `/crm/source/list` — lookup resolving lead source IDs - core attribution dimension (high)
-- [ ] `/agile/stages/list` — lookup resolving the workflow stage on agile_issues (high)
+- [x] `/st/stages/list` — lookup resolving project stage IDs on the projects table (high) — added as `project_stages` (Flowlu has three separate stage entities; `/task/stages` remains open)
+- [x] `/crm/source/list` — lookup resolving lead source IDs - core attribution dimension (high) — added as `lead_sources`
+- [x] `/agile/stages/list` — lookup resolving the workflow stage on agile_issues (high) — added as `agile_stages`
 - [ ] `/task/stages/list` — lookup resolving task workflow stage IDs (medium)
 - [ ] `/agile/issue_type/list` — lookup resolving issue type IDs on agile_issues (medium)
 - [ ] `/fin/estimate_item/list` — estimate line items, the quoted counterpart to invoice items (medium)
 - [ ] `/st/project_expense/list` — project expenses, needed for project profitability (medium)
-- [ ] `/fin/organization/list` — lookup resolving the billing organization on invoices/transactions (medium)
-- [ ] `/crm/loss_reason/list` — lookup resolving loss reason IDs on closed-lost leads (medium)
+- [x] `/fin/organization/list` — lookup resolving the billing organization on invoices/transactions (medium) — added as `billing_organizations`
+- [x] `/crm/loss_reason/list` — lookup resolving loss reason IDs on closed-lost leads (medium) — added as `loss_reasons`
 
-Note: developers.flowlu.com is the API host, not docs (returns 404/api-key errors). The real spec is the ReDoc document at https://www.flowlu.com/api/json/openapien.json: 608 paths, 124 of them `/list` collections. PostHog exposes 17, so this is a small fraction - other untouched clusters include knowledgebase/\*, businessprocess/\*, telephony/calls, im/\* (chat threads and messages), products/pricelist_item and company/absences.
+Note: developers.flowlu.com is the API host, not docs (returns 404/api-key errors). The real spec is the ReDoc document at https://www.flowlu.com/api/json/openapien.json: 608 paths, 124 of them `/list` collections. PostHog exposes 21, so this is a small fraction - other untouched clusters include knowledgebase/\*, businessprocess/\*, telephony/calls, im/\* (chat threads and messages), products/pricelist_item and company/absences.
 
 ## FlyIo — gaps
 
