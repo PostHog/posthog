@@ -2,15 +2,19 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconChat, IconList, IconLock, IconPlus } from '@posthog/icons'
+import { IconChat, IconList, IconLock, IconPlus, IconSearch } from '@posthog/icons'
 import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
+
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
+import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
+import { TodayRecentSearchField } from './TodayRecentSearchField'
 import { TodaySessionRow } from './TodaySessionRow'
-import { TodayWorkSectionId, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
+import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem } from './todayWorkItems'
 import { useTodaySectionLayout } from './useTodaySectionLayout'
@@ -21,13 +25,17 @@ export function TodaySpacesSidebar(): JSX.Element {
         spacesLoading,
         spacesUnavailable,
         pinnedItems,
+        allRecentItems,
         recentItems,
         recentGroups,
+        recentSearchVisible,
         recentLoading,
         recentTasksUnavailable,
         collapsedSections,
     } = useValues(todaySpacesLogic)
-    const { loadSpaces, loadRecentTasks, toggleSection } = useActions(todaySpacesLogic)
+    const { loadSpaces, loadRecentTasks, toggleSection, setRecentSearchOpen, clearRecentSearchAndFilters } =
+        useActions(todaySpacesLogic)
+    const { openNewSpace } = useActions(newSpaceLogic)
     const { location, searchParams } = useValues(router)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
     const browsingSpaces = location.pathname.endsWith(urls.taskSpaces())
@@ -82,16 +90,18 @@ export function TodaySpacesSidebar(): JSX.Element {
             <Skeleton className="h-4 w-2/3" />
         </div>
     )
-    const loadError = (message: string, onRetry: () => void, dataAttr: string): JSX.Element => (
+    const notice = (message: string, action: string, onClick: () => void, dataAttr: string): JSX.Element => (
         <div className="flex flex-col items-start gap-2 px-2 py-1">
             <Text size="xs" variant="muted">
                 {message}
             </Text>
-            <Button variant="outline" size="sm" onClick={onRetry} data-attr={dataAttr}>
-                Try again
+            <Button variant="outline" size="sm" onClick={onClick} data-attr={dataAttr}>
+                {action}
             </Button>
         </div>
     )
+    const loadError = (message: string, onRetry: () => void, dataAttr: string): JSX.Element =>
+        notice(message, 'Try again', onRetry, dataAttr)
 
     return (
         <TooltipProvider>
@@ -128,28 +138,62 @@ export function TodaySpacesSidebar(): JSX.Element {
                         onToggle={() => toggleSection('recent')}
                         divider={hasPinned}
                         dataAttr="today-section-recent"
+                        heading={recentSearchVisible ? <TodayRecentSearchField /> : null}
+                        actions={
+                            <>
+                                {!recentSearchVisible && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            delay={0}
+                                            render={
+                                                <Button
+                                                    size="icon-sm"
+                                                    aria-label="Search recent"
+                                                    onClick={() => setRecentSearchOpen(true)}
+                                                    data-attr="today-recent-search-open"
+                                                />
+                                            }
+                                        >
+                                            <IconSearch />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Search recent</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                <TodayRecentFilterMenu />
+                            </>
+                        }
                     >
-                        {recentLoading && !recentItems.length ? (
+                        {recentLoading && !allRecentItems.length ? (
                             loadingRows
-                        ) : recentTasksUnavailable && !recentItems.length ? (
+                        ) : recentTasksUnavailable && !allRecentItems.length ? (
                             loadError('Recent sessions didn’t load.', loadRecentTasks, 'today-recent-retry')
-                        ) : !recentItems.length ? (
+                        ) : !allRecentItems.length ? (
                             <Text size="xs" variant="muted" className="px-2 py-1">
                                 Sessions and chats you open show up here.
                             </Text>
+                        ) : !recentItems.length ? (
+                            notice(
+                                'Nothing here matches.',
+                                'Clear filters',
+                                clearRecentSearchAndFilters,
+                                'today-recent-clear-filters'
+                            )
                         ) : (
                             <>
                                 {recentTasksUnavailable &&
                                     loadError('Some sessions didn’t load.', loadRecentTasks, 'today-recent-retry')}
                                 {recentGroups.map((group, index) => (
                                     <Fragment key={group.key}>
-                                        <Text
-                                            size="xs"
-                                            variant="muted"
-                                            className={cn('block px-2 pb-1', index === 0 ? 'pt-1' : 'pt-3')}
-                                        >
-                                            {group.label}
-                                        </Text>
+                                        {group.label && (
+                                            <Text
+                                                size="xs"
+                                                weight="medium"
+                                                variant="muted"
+                                                className={cn('block px-2 pb-1', index === 0 ? 'pt-1' : 'pt-3')}
+                                            >
+                                                {group.label}
+                                            </Text>
+                                        )}
                                         {group.items.map((item) =>
                                             renderItem(
                                                 item,
@@ -169,24 +213,42 @@ export function TodaySpacesSidebar(): JSX.Element {
                         divider
                         dataAttr="today-section-spaces"
                         actions={
-                            <Tooltip>
-                                <TooltipTrigger
-                                    delay={0}
-                                    render={
-                                        <Button
-                                            size="icon-sm"
-                                            render={<LinkPrimitive to={urls.taskSpaces()} />}
-                                            aria-current={browsingSpaces ? 'page' : undefined}
-                                            className={cn(browsingSpaces && 'bg-fill-selected')}
-                                            aria-label="Browse spaces"
-                                            data-attr="today-spaces-browse"
-                                        />
-                                    }
-                                >
-                                    <IconList />
-                                </TooltipTrigger>
-                                <TooltipContent>Browse spaces</TooltipContent>
-                            </Tooltip>
+                            <>
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        delay={0}
+                                        render={
+                                            <Button
+                                                size="icon-sm"
+                                                render={<LinkPrimitive to={urls.taskSpaces()} />}
+                                                aria-current={browsingSpaces ? 'page' : undefined}
+                                                className={cn(browsingSpaces && 'bg-fill-selected')}
+                                                aria-label="Browse spaces"
+                                                data-attr="today-spaces-browse"
+                                            />
+                                        }
+                                    >
+                                        <IconList />
+                                    </TooltipTrigger>
+                                    <TooltipContent>Browse spaces</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        delay={0}
+                                        render={
+                                            <Button
+                                                size="icon-sm"
+                                                aria-label="New space"
+                                                onClick={openNewSpace}
+                                                data-attr="today-new-space-open-sidebar"
+                                            />
+                                        }
+                                    >
+                                        <IconPlus />
+                                    </TooltipTrigger>
+                                    <TooltipContent>New space</TooltipContent>
+                                </Tooltip>
+                            </>
                         }
                     >
                         {spacesLoading && !visibleSpaces.length ? (
@@ -200,7 +262,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         key={space.id}
                                         label={spaceLabel(space)}
                                         icon={
-                                            space.channel_type === 'private' ? (
+                                            isLockedSpace(space) ? (
                                                 <IconLock className="text-muted-foreground" />
                                             ) : (
                                                 <span aria-hidden className="font-mono text-muted-foreground">

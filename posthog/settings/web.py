@@ -148,6 +148,7 @@ INSTALLED_APPS = [
     "axes",
     "django_structlog",
     "drf_spectacular",
+    "drf_spectacular_sidecar",
     *PRODUCTS_APPS,
     "django_otp",
     "django_otp.plugins.otp_static",
@@ -550,6 +551,12 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "OAS_VERSION": "3.1.0",
+    # drf-spectacular loads the Swagger and Redoc UIs from a public CDN by default. The app policy
+    # refuses that CDN, which leaves both pages blank, and a third-party script on this origin
+    # would run with the visitor's session. The sidecar package serves them from our static files.
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
     "SERVERS": [
         {"url": "https://us.posthog.com", "description": "PostHog Cloud US"},
         {"url": "https://eu.posthog.com", "description": "PostHog Cloud EU"},
@@ -1004,6 +1011,12 @@ API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR: int = get_from_env(
 )
 API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 10.0, type_cast=float)
 API_QUERIES_BUDGET_CAPACITY_HOURS: float = get_from_env("API_QUERIES_BUDGET_CAPACITY_HOURS", 24.0, type_cast=float)
+API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR: float = get_from_env(
+    "API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR", 82_000.0, type_cast=float
+)
+API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR: float = get_from_env(
+    "API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR", 5_000_000_000_000.0, type_cast=float
+)
 
 ####
 # /api/environments deprecation
