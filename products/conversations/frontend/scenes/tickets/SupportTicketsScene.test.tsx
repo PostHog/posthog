@@ -198,18 +198,19 @@ describe('TicketListFilters count', () => {
 
     // Set the count directly so the assertion doesn't race the debounced loadTickets; keep the
     // mock in sync so a background reload can't reset the value out from under the assertion.
-    function setCount(count: number): void {
+    function setCount(count: number, capped: boolean = false): void {
         mockCount = count
         act(() => {
-            logic.actions.setTotalCount(count)
+            logic.actions.setTotalCount(count, capped)
         })
     }
 
     it.each([
-        ['pluralizes the count of tickets matching the current query', 42, '42 tickets'],
-        ['uses the singular noun for a single ticket', 1, '1 ticket'],
-    ])('%s', async (_name, count, expected) => {
-        setCount(count)
+        ['pluralizes the count of tickets matching the current query', 42, false, '42 tickets'],
+        ['uses the singular noun for a single ticket', 1, false, '1 ticket'],
+        ['marks a count that stopped at its ceiling as a lower bound', 1000, true, '1,000+ tickets'],
+    ])('%s', async (_name, count, capped, expected) => {
+        setCount(count, capped)
 
         render(
             <Provider>

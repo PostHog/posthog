@@ -20,6 +20,7 @@ export function PaginationControl<T>({
     pageCount,
     dataSourcePage,
     entryCount,
+    entryCountCapped,
     currentStartIndex,
     currentEndIndex,
     nouns = ['entry', 'entries'],
@@ -36,6 +37,7 @@ export function PaginationControl<T>({
     const showPagination: boolean = isPreviousAvailable || isNextAvailable || pagination?.hideOnSinglePage === false
 
     const currentPageSize = dataSourcePage.length
+    const entryCountLabel = entryCountCapped ? `${entryCount}+` : entryCount
 
     return showPagination ? (
         <div className={clsx('PaginationControl', bordered && 'PaginationControl--bordered')}>
@@ -45,8 +47,8 @@ export function PaginationControl<T>({
                     : entryCount === null
                       ? `${currentPageSize} ${currentPageSize === 1 ? nouns[0] : nouns[1]} on this page`
                       : currentPageSize === 1
-                        ? `${currentEndIndex} of ${entryCount} ${entryCount === 1 ? nouns[0] : nouns[1]}`
-                        : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount} ${nouns[1]}`}
+                        ? `${currentEndIndex} of ${entryCountLabel} ${entryCount === 1 && !entryCountCapped ? nouns[0] : nouns[1]}`
+                        : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCountLabel} ${nouns[1]}`}
             </span>
             <LemonButton
                 icon={<IconChevronLeft />}
