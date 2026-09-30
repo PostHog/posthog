@@ -52,7 +52,7 @@ from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableFormat,
     ExternalDataSourceAccessMethod,
 )
-from products.warehouse_sources.backend.presentation.views.external_data_source import (
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_setup import (
     SimpleExternalDataSourceSerializers,
 )
 
@@ -279,7 +279,13 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             SimpleExternalDataSchemaSerializer,
         )
 
-        return SimpleExternalDataSchemaSerializer(instance.externaldataschema_set.first(), read_only=True).data or None
+        schema = instance.externaldataschema_set.first()
+        if schema is None:
+            # `Serializer(None).data` is not falsy: DRF falls back to `get_initial()`, which returns a
+            # dict of the serializer's writable fields. Trusting `or None` emitted an id-less schema
+            # object for every unsynced table, which callers read as "this table has a schema".
+            return None
+        return SimpleExternalDataSchemaSerializer(schema, read_only=True).data
 
     def create(self, validated_data):
         team_id = self.context["team_id"]
@@ -327,6 +333,18 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         return table
 
     def validate_url_pattern(self, url_pattern):
+        # A credential-less table reads from PostHog's own storage by design - PostHog built the URL
+        # when the file was uploaded. Editing anything else about such a table resubmits that URL
+        # unchanged, so checking it against the owned-bucket rule below would reject every edit with
+        # an instruction the user can't follow.
+        keeps_posthog_built_url = (
+            self.instance is not None
+            and self.instance.credential_id is None
+            and url_pattern == self.instance.url_pattern
+        )
+        if keeps_posthog_built_url:
+            return url_pattern
+
         is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
         if not is_valid:
             raise serializers.ValidationError(error_message)

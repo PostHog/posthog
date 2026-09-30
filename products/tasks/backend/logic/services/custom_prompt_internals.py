@@ -97,6 +97,10 @@ class CustomPromptSandboxContext:
     team_id: int
     user_id: int
     repository: str | None = None
+    repositories: tuple[str, ...] = ()
+    """Repositories (``organization/repository``) the sandbox clones, in order. The first is the
+    one a branch is checked out on. Empty keeps the sandbox repo-less; prefer this over
+    ``repository`` for new callers, which stays for the single-repo ones that predate it."""
     sandbox_environment_id: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes | None = None
     model: str | None = None
@@ -131,15 +135,20 @@ class CustomPromptSandboxContext:
     sandbox_timeout_seconds: int | None = None
     """Override the sandbox's max lifetime (Modal TTL). Falls back to SANDBOX_TTL_SECONDS."""
     github_read_access: bool = False
-    """Inject a READ-ONLY GitHub token (``GH_TOKEN``/``GITHUB_TOKEN``) into a repo-less sandbox so
-    the agent can gather evidence via ``gh`` (commit history, PR metadata) without any write
-    capability. Only meaningful when ``repository`` is None — a task with a repository already gets
-    the full-permission credential path. Best-effort: if no team GitHub integration exists or the
-    mint fails, the sandbox starts without a token."""
+    """Downscope the sandbox's GitHub credential (``GH_TOKEN``/``GITHUB_TOKEN``) to a READ-ONLY
+    token, so the agent can read code and gather evidence via ``gh`` (commit history, PR metadata)
+    with no write capability. Independent of ``repositories``: the token carries
+    ``contents: read``, so a run that pins repositories still clones them and just cannot push.
+    Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
+    without a token."""
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
     prompt the surface really ships. ``None`` leaves the run originless, like a plain task."""
+    mcp_exclude_tools: tuple[str, ...] = ()
+    """Tool names to omit from the PostHog MCP catalog for this run (``x-posthog-exclude-tools``).
+    Used when a scope grant is broader than the tools this caller should advertise, e.g. hiding
+    ``docs-search`` from a non-PostHog support draft."""
 
 
 class TurnPollTimeout(RuntimeError):
@@ -257,6 +266,7 @@ async def create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
+    output_schema: dict[str, Any] | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -265,6 +275,9 @@ async def create_task_and_trigger(
     posthog_mcp_scopes: PosthogMcpScopes = (
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
+    extra_run_state: dict[str, Any] | None = None
+    if context.mcp_exclude_tools:
+        extra_run_state = {"mcp_exclude_tools": list(context.mcp_exclude_tools)}
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
@@ -272,6 +285,7 @@ async def create_task_and_trigger(
         origin_product=origin_product or Task.OriginProduct.USER_CREATED,
         user_id=context.user_id,
         repository=context.repository,
+        repositories=list(context.repositories) or None,
         create_pr=False,
         mode="background",
         branch=branch,
@@ -296,6 +310,8 @@ async def create_task_and_trigger(
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         interaction_origin=context.interaction_origin,
+        extra_run_state=extra_run_state,
+        output_schema=output_schema,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

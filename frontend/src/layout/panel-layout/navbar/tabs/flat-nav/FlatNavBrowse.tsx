@@ -3,7 +3,7 @@ import './FlatNavBrowse.scss'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconHome, IconNotification } from '@posthog/icons'
+import { IconClock, IconGear, IconHome, IconNotification } from '@posthog/icons'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -17,6 +17,7 @@ import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { ActivityTab } from '~/types'
 
 import { NavLink } from '../../NavLink'
+import { NavLinkSideActionButton } from '../../NavLinkSideActionButton'
 import { FlatNavPanelButtons } from './FlatNavPanelButtons'
 import { FlatNavProducts } from './FlatNavProducts'
 import { FlatNavRecents } from './FlatNavRecents'
@@ -46,14 +47,21 @@ export function FlatNavBrowse(): JSX.Element {
                             isCollapsed={isLayoutNavCollapsed}
                             data-attr="nav-item-home"
                             onClick={() => reportNavItemClicked('home', 'primary')}
-                            sideAction={{
-                                onClick: () =>
-                                    uiCustomizationEnabled
-                                        ? router.actions.push(urls.settings('user-navigation', 'homepage'))
-                                        : showConfigureHomeModal(),
-                                tooltip: 'Configure home',
-                                'data-attr': 'nav-configure-home',
-                            }}
+                            sideAction={
+                                <NavLinkSideActionButton
+                                    icon={<IconGear />}
+                                    tooltip="Configure home"
+                                    data-attr="nav-configure-home"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (uiCustomizationEnabled) {
+                                            router.actions.push(urls.settings('user-navigation', 'homepage'))
+                                        } else {
+                                            showConfigureHomeModal()
+                                        }
+                                    }}
+                                />
+                            }
                         />
                     )}
 

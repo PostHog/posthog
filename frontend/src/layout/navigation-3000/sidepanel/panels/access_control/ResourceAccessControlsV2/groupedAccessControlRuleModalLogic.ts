@@ -49,6 +49,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -72,6 +73,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -92,8 +94,10 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -136,9 +140,15 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     ) => boolean
     modalTitle: 'Update default access' | 'Update member access' | 'Update role access'
+    productsDisabledReason:
+        | 'Cannot edit'
+        | 'Loading...'
+        | 'User is an organization admin and has access to all products'
+        | undefined
     projectDisabledReason: 'Cannot edit' | 'Loading...' | 'User is an organization admin' | undefined
     projectInheritedReasonTooltip: string | undefined
     projectLevelOptions: {
@@ -176,6 +186,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -199,6 +210,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -219,8 +231,10 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -263,6 +277,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     ) => string | undefined
     resourceLevelOptions: (
@@ -295,6 +310,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -318,6 +334,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -338,8 +355,10 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -382,6 +401,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session',
         resourceLabel: string
     ) => (
@@ -427,6 +447,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -450,6 +471,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -470,8 +492,10 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -514,13 +538,9 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     ) => boolean
-    toolsDisabledReason:
-        | 'Cannot edit'
-        | 'Loading...'
-        | 'User is an organization admin and has access to all tools'
-        | undefined
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -564,6 +584,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -587,6 +608,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -607,8 +629,10 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -651,6 +675,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session',
             AccessControlLevel | null
         >
@@ -703,6 +728,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -726,6 +752,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -746,8 +773,10 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -790,6 +819,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session'
     }
     setResourceLevels: (levels: Record<APIScopeObject, FormAccessLevel>) => {
@@ -822,6 +852,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -845,6 +876,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'health_issue'
             | 'heatmap'
             | 'hog_flow'
+            | 'hog_flow_proposal'
             | 'hog_function'
             | 'ingestion_warning'
             | 'insight'
@@ -865,8 +897,10 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -909,6 +943,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session',
             FormAccessLevel
         >
@@ -924,11 +959,11 @@ export interface groupedAccessControlRuleModalLogicMeta {
         entryId: (entry: AccessControlSettingsEntry) => string
         modalTitle: (scopeType: ScopeType) => 'Update default access' | 'Update member access' | 'Update role access'
         isOrgAdmin: (entry: AccessControlSettingsEntry) => boolean
-        toolsDisabledReason: (
+        productsDisabledReason: (
             loading: boolean,
             canEdit: boolean,
             isOrgAdmin: boolean
-        ) => 'Cannot edit' | 'Loading...' | 'User is an organization admin and has access to all tools' | undefined
+        ) => 'Cannot edit' | 'Loading...' | 'User is an organization admin and has access to all products' | undefined
         isProjectLevelShowingInherited: (
             formProjectLevel: FormAccessLevel,
             entry: AccessControlSettingsEntry
@@ -980,6 +1015,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -1003,6 +1039,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1023,8 +1060,10 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -1067,6 +1106,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
                 FormAccessLevel
             >,
@@ -1101,6 +1141,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -1124,6 +1165,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1144,8 +1186,10 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -1188,6 +1232,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
         ) => boolean
         resourceInheritedReasonTooltip: (
@@ -1221,6 +1266,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'dashboard_template'
                     | 'data_catalog'
                     | 'data_catalog_approval'
+                    | 'data_deletion'
                     | 'dataset'
                     | 'early_access_feature'
                     | 'element'
@@ -1244,6 +1290,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'health_issue'
                     | 'heatmap'
                     | 'hog_flow'
+                    | 'hog_flow_proposal'
                     | 'hog_function'
                     | 'ingestion_warning'
                     | 'insight'
@@ -1264,8 +1311,10 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'marketing_analytics'
                     | 'mcp_analytics'
                     | 'mcp_builtin_agent'
+                    | 'mcp_registry'
                     | 'metrics'
                     | 'notebook'
+                    | 'offline_evaluation_ingestion'
                     | 'organization'
                     | 'organization_integration'
                     | 'organization_member'
@@ -1308,6 +1357,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'warehouse_view'
                     | 'web_analytics'
                     | 'webhook'
+                    | 'wizard_run'
                     | 'wizard_session'
             ) => boolean,
             entry: AccessControlSettingsEntry
@@ -1341,6 +1391,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -1364,6 +1415,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1384,8 +1436,10 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -1428,6 +1482,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
         ) => string | undefined
         resourceLevelOptions: (
@@ -1462,6 +1517,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -1485,6 +1541,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1505,8 +1562,10 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -1549,6 +1608,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
                 FormAccessLevel
             >
@@ -1582,6 +1642,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -1605,6 +1666,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1625,8 +1687,10 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -1669,6 +1733,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
             resourceLabel: string
         ) => (
@@ -1713,6 +1778,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -1736,6 +1802,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1756,8 +1823,10 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -1800,6 +1869,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session',
                 FormAccessLevel
             >
@@ -1833,6 +1903,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -1856,6 +1927,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'health_issue'
                 | 'heatmap'
                 | 'hog_flow'
+                | 'hog_flow_proposal'
                 | 'hog_function'
                 | 'ingestion_warning'
                 | 'insight'
@@ -1876,8 +1948,10 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -1920,6 +1994,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
         ) => boolean
     }
@@ -1998,7 +2073,7 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
             (entry: import('./types').AccessControlSettingsEntry) =>
                 inheritedReasonOf(entry.project.inherited_access) === 'organization_admin',
         ],
-        toolsDisabledReason: [
+        productsDisabledReason: [
             (s) => [s.loading, s.canEdit, s.isOrgAdmin],
             (loading: boolean, canEdit: boolean, isOrgAdmin: boolean) => {
                 if (loading) {
@@ -2008,7 +2083,7 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                     return 'Cannot edit'
                 }
                 if (isOrgAdmin) {
-                    return 'User is an organization admin and has access to all tools'
+                    return 'User is an organization admin and has access to all products'
                 }
                 return undefined
             },

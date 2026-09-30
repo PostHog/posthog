@@ -148,7 +148,7 @@ Output buckets per team: `created`, `updated`, `diverged` (team-edited or hand-a
 
 ### Pre-computed scout suggestions
 
-`run_scout_suggestions` drives the headless "Suggested for this project" scan (`../scout_harness/suggestions.py`) without waiting for its Temporal coordinator. `--team-id` runs the scan inline for one team (bypassing the planner and its cap; the org still needs AI data processing approved) and prints the stored batch; `--show` prints the stored batch without running; `--plan` prints what the coordinator would dispatch on the next tick under the current `signals-scout-suggestions` flag payload.
+`run_scout_suggestions` drives the headless "Suggested for this project" scan (`../scout_harness/suggestions.py`) without waiting for its Temporal coordinator. `--team-id` runs the scan inline for one team (bypassing the planner and its cap; the org still needs AI data processing approved) and prints the stored batch; `--show` prints the stored batch without running; `--plan` prints what the coordinator would dispatch on the next tick under the current `signals-scout-suggestions` flag payload, and runs the dispatch-time activity check too, so it stamps `low_activity` on the projects it rules out exactly as the tick would.
 
 ```bash
 # Generate (or regenerate) the batch for one team now, then print it
@@ -182,6 +182,42 @@ ownership and legacy PR links into work artefacts and shared `SignalReportPullRe
 records. `--batch-size` bounds each page; the printed `--after` cursor resumes it.
 The command is idempotent and does not call GitHub, change report state, or enqueue
 reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
+
+## Repairing a report's cached actionability
+
+`SignalReport.latest_actionability` and `latest_already_addressed` cache the two values of a report's newest `actionability_judgment` artefact, so the inbox list can sort and filter on a column instead of walking the artefact log once per report.
+A `post_save` / `post_delete` receiver maintains them and a migration filled the historical rows, so this command is a repair rather than a routine job.
+Run it when the columns are suspected to disagree with the artefact log, for example after a bulk write that bypassed Django signals.
+
+```bash
+# Every team
+uv run manage.py backfill_report_actionability
+
+# One team, smaller pages, resuming after the report id an earlier run printed
+uv run manage.py backfill_report_actionability --team-id 1 --batch-size 100 --after <report-id>
+```
+
+Idempotent. It recomputes each report from its artefacts and writes only the rows that disagree.
+
+## Resuming operational scouts the setup flow paused
+
+An older self-driving setup flow switched off every scout the user did not pick, including operational scouts such as inbox validation.
+Those rows look like a person's pause, so the coordinator's reconcile leaves them alone.
+The setup flow paused them over MCP on the user's own session, so `status_changed_by` holds the user and cannot tell the two apart.
+`resume_setup_paused_operational_scouts` resumes only operational rows whose pause has an `mcp` activity log entry within a few seconds of `status_changed_at`.
+It leaves pauses from the UI, the system, a scout, or with no log entry alone, and prints how many paused rows each source holds.
+Pass `--max-gap-seconds` to also require that the pause landed soon after creation. It is off by default.
+It skips withheld scouts and does not go past the enabled-scout cap.
+
+```bash
+# Dry run (the default): counts per scout and the first team ids
+uv run manage.py resume_setup_paused_operational_scouts
+
+# Write, optionally for one team
+uv run manage.py resume_setup_paused_operational_scouts --apply --team-id 1
+```
+
+Idempotent. A resumed row no longer matches.
 
 ## Tips
 

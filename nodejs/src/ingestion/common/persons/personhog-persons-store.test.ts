@@ -281,10 +281,8 @@ describe('PersonhogPersonsStore', () => {
     })
 
     it('update fetches take state from the leader, not the resolution', async () => {
-        // The identity resolve returns writer-applied state; the leader's
-        // is fresher and must win as the projection baseline.
         repository.resolvePersonsByDistinctIds.mockResolvedValue([
-            { teamId: 1, distinctId: 'd1', person: { ...person, properties: { plan: 'stale' } } },
+            { teamId: 1, distinctId: 'd1', person: { ...person, version: 3 } },
         ])
         repository.fetchPersonById.mockResolvedValue({ ...person, properties: { plan: 'fresh' }, version: 9 })
         const bound = store.forBatch(0)
@@ -304,18 +302,19 @@ describe('PersonhogPersonsStore', () => {
 
     it('an update read does not trust a checking-read document', async () => {
         repository.resolvePersonsByDistinctIds.mockResolvedValue([
-            { teamId: 1, distinctId: 'd1', person: { ...person, version: 3, properties: { plan: 'lagged' } } },
+            { teamId: 1, distinctId: 'd1', person: { ...person, version: 3 } },
         ] as never)
         repository.fetchPersonById.mockResolvedValue({ ...person, version: 5, properties: { plan: 'fresh' } } as never)
         const bound = store.forBatch(0)
 
         const checked = await bound.fetchForChecking(1, 'd1')
-        expect(checked?.properties).toEqual({ plan: 'lagged' })
+        expect(checked?.version).toBe(3)
+        expect(checked?.properties).toEqual({})
         expect(repository.fetchPersonById).not.toHaveBeenCalled()
 
-        // The checking read installed identity's writer-lagged document; the
-        // update path pays the leader read it skipped, the way the Postgres
-        // store keeps its check cache out of the update path.
+        // The checking read installed identity's document; the update path
+        // pays the leader read it skipped, the way the Postgres store keeps
+        // its check cache out of the update path.
         const updated = await bound.fetchForUpdate(1, 'd1')
         expect(updated?.properties).toEqual({ plan: 'fresh' })
         expect(repository.fetchPersonById).toHaveBeenCalledTimes(1)

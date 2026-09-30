@@ -146,6 +146,39 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         upload_hashes = {u["content_hash"] for u in data["uploads"]}
         self.assertEqual(upload_hashes, {"hash1", "hash2"})
 
+    @patch("products.visual_review.backend.storage.StoryIndexStorage.get_presigned_upload_url")
+    @patch("products.visual_review.backend.storage.StoryIndexStorage.exists", return_value=False)
+    @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
+    def test_add_snapshots_records_the_story_index_and_asks_for_the_map(
+        self, mock_artifact_presigned, _mock_exists, mock_index_presigned
+    ):
+        mock_artifact_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {"key": "png"}}
+        mock_index_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {"key": "map"}}
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id, run_type=RunType.STORYBOOK, commit_sha="abc", branch="main", snapshots=[]
+            ),
+            team_id=self.team.id,
+        )
+        story_index_hash = "a" * 64
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/add-snapshots/",
+            {
+                "snapshots": [{"identifier": "Button-primary", "content_hash": "hash1", "width": 100, "height": 200}],
+                "story_index_hash": story_index_hash,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["story_index_upload"],
+            {"content_hash": story_index_hash, "url": "https://s3.example.com/upload", "fields": {"key": "map"}},
+        )
+        run = Run.objects.get(id=create_result.run_id)
+        self.assertEqual(run.metadata["story_index_hash"], story_index_hash)
+
     def test_retrieve_run(self):
         create_result = api.create_run(
             CreateRunInput(

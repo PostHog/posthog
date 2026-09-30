@@ -1,26 +1,24 @@
 import logging
 import datetime as dt
+from collections.abc import Sequence
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 
 from posthog.models import Team
-from posthog.temporal.common.client import sync_connect
 
-from products.batch_exports.backend.models.batch_export import (
-    BATCH_EXPORT_INTERVALS,
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportRun,
+from products.batch_exports.backend.facade import api as batch_exports_api
+from products.batch_exports.backend.facade.contracts import (
+    BatchExportBackfillSummary,
+    BatchExportDetail,
+    DestinationType,
 )
-from products.batch_exports.backend.service import backfill_export, delete_batch_export, sync_batch_export
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 EXPORT_NAME = "PostHog HTTP Migration"
-VALID_INTERVALS = {i[0] for i in BATCH_EXPORT_INTERVALS}
+DATA_START_UNBOUNDED = "the start of the team's data"
+VALID_INTERVALS = set(batch_exports_api.list_supported_intervals())
 REGION_URLS = {
     "us": "https://app.posthog.com/batch",
     "eu": "https://eu.posthog.com/batch",
@@ -100,9 +98,16 @@ class Command(BaseCommand):
         )
 
         try:
-            existing_export: BatchExport = BatchExport.objects.get(
-                team=team, destination__type="HTTP", name=EXPORT_NAME, deleted=False
+            existing_export = batch_exports_api.get_batch_export_by_name(team.id, EXPORT_NAME, DestinationType.HTTP)
+        except batch_exports_api.MultipleBatchExportsError:
+            raise CommandError(
+                "More than one existing migration found! This should never happen if the management command is used, we don't know enough to proceed"
             )
+
+        if existing_export is None:
+            is_existing_export = False
+            display("No existing migration was found")
+        else:
             is_existing_export = True
 
             display_existing(existing_export=existing_export, verbose=verbose)
@@ -113,16 +118,9 @@ class Command(BaseCommand):
                     raise CommandError("Didn't receive 'y', exiting")
                 print()  # noqa: T201
 
-                delete_batch_export(existing_export)
+                batch_exports_api.delete_batch_export(existing_export.id, team.id)
                 is_existing_export = False
                 display("Deleted existing batch export and backfill")
-        except BatchExport.DoesNotExist:
-            is_existing_export = False
-            display("No existing migration was found")
-        except BatchExport.MultipleObjectsReturned:
-            raise CommandError(
-                "More than one existing migration found! This should never happen if the management command is used, we don't know enough to proceed"
-            )
 
         if not create_requested:
             # User didn't provide any arguments to create a migration, so they must have just wanted
@@ -148,9 +146,30 @@ class Command(BaseCommand):
         )
 
 
-def display_existing(*, existing_export: BatchExport, verbose: bool):
-    existing_backfill = BatchExportBackfill.objects.get(batch_export=existing_export)
-    most_recent_run = BatchExportRun.objects.filter(batch_export=existing_export).order_by("-created_at").first()
+def get_migrated_data_start(backfills: Sequence[BatchExportBackfillSummary]) -> dt.datetime | str | None:
+    """Return where the migrated data begins, from the backfills that did not fail.
+
+    A later backfill can cover a narrower range than the one the command started, so the
+    earliest start wins. A backfill with no start exports all data, so the range is then
+    unbounded. None means that every backfill failed.
+    """
+    starts = [
+        backfill.adjusted_start_at or backfill.start_at
+        for backfill in backfills
+        if backfill.status not in batch_exports_api.FAILED_BACKFILL_STATUSES
+    ]
+    if not starts:
+        return None
+    if any(start is None for start in starts):
+        return DATA_START_UNBOUNDED
+    return min(start for start in starts if start is not None)
+
+
+def display_existing(*, existing_export: BatchExportDetail, verbose: bool):
+    existing_backfills = batch_exports_api.list_backfills_for_export(existing_export.id, existing_export.team_id)
+    if not existing_backfills:
+        raise CommandError("The existing migration has no backfill, so we don't know enough to proceed")
+    most_recent_run = batch_exports_api.get_latest_run(existing_export.id, existing_export.team_id)
 
     if verbose:
         display(
@@ -160,29 +179,28 @@ def display_existing(*, existing_export: BatchExport, verbose: bool):
             interval=existing_export.interval,
             created_at=existing_export.created_at,
             last_updated_at=existing_export.last_updated_at,
-            exclude_events=existing_export.destination.config.get("exclude_events", []),
-            include_events=existing_export.destination.config.get("include_events", []),
+            exclude_events=list(existing_export.exclude_events),
+            include_events=list(existing_export.include_events),
         )
-        display(
-            "Existing migration backfill (verbose details)",
-            backfill_id=existing_backfill.id,
-            status=existing_backfill.status,
-            start_at=existing_backfill.start_at,
-            created_at=existing_backfill.created_at,
-            last_updated_at=existing_backfill.last_updated_at,
-        )
+        for existing_backfill in existing_backfills:
+            display(
+                "Existing migration backfill (verbose details)",
+                backfill_id=existing_backfill.id,
+                status=existing_backfill.status,
+                start_at=existing_backfill.start_at,
+                created_at=existing_backfill.created_at,
+                last_updated_at=existing_backfill.last_updated_at,
+            )
 
     if not most_recent_run:
         display("No batch export runs found, is the migration brand new?")
     else:
-        most_recent_completed_run = (
-            BatchExportRun.objects.filter(batch_export=existing_export, status=BatchExportRun.Status.COMPLETED)
-            .order_by("-finished_at")
-            .first()
+        most_recent_completed_run = batch_exports_api.get_latest_completed_run(
+            existing_export.id, existing_export.team_id
         )
 
         if most_recent_completed_run:
-            data_start_at = existing_backfill.adjusted_start_at or existing_backfill.start_at
+            data_start_at = get_migrated_data_start(existing_backfills)
             data_end_at = most_recent_completed_run.data_interval_end
             display(
                 "Found an existing migration, range of data migrated:",
@@ -256,26 +274,22 @@ def create_migration(
     # This is a precaution so we don't accidentally leave the export running indefinitely.
     end_at = now + dt.timedelta(days=end_days_from_now)
 
-    destination = BatchExportDestination(
-        type=BatchExportDestination.Destination.HTTP,
-        config={"url": url, "token": dest_token, "include_events": include_events, "exclude_events": exclude_events},
-    )
-    batch_export = BatchExport(
-        team_id=team_id,
-        destination=destination,
+    batch_export = batch_exports_api.create_batch_export(
+        team_id,
         name=EXPORT_NAME,
+        destination_type=DestinationType.HTTP,
+        destination_config={
+            "url": url,
+            "token": dest_token,
+            "include_events": include_events,
+            "exclude_events": exclude_events,
+        },
         interval=interval,
         paused=True,
         end_at=end_at,
     )
-    sync_batch_export(batch_export, created=True)
 
-    with transaction.atomic():
-        destination.save()
-        batch_export.save()
-
-    temporal = sync_connect()
-    backfill_id = backfill_export(temporal, str(batch_export.pk), team_id, start_at_datetime, end_at=None)
+    backfill_id = batch_exports_api.backfill_batch_export(batch_export.id, team_id, start_at_datetime, end_at=None)
     display("Backfill started", batch_export_id=batch_export.id, backfill_id=backfill_id)
 
 

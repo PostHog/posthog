@@ -137,6 +137,80 @@ describe('visualReviewFlakinessSceneLogic', () => {
         })
     })
 
+    describe('when a team arrives in the URL', () => {
+        const brokenEntry = (
+            identifier: string,
+            ownerTeam: string | null
+        ): FlakinessOverviewApi['entries'][number] => ({
+            identifier,
+            run_type: 'storybook',
+            browser: null,
+            thumbnail_hash: null,
+            width: null,
+            height: null,
+            variant_count: 0,
+            hard_count: 40,
+            soft_count: 0,
+            window_runs: 41,
+            hard_rate: 40 / 41,
+            soft_rate: 0,
+            last_flaked_at: '2026-06-10T09:00:00Z',
+            avg_diff_percentage: null,
+            worst_soft_diff_percentage: null,
+            headroom: null,
+            baseline_age_days: 3,
+            daily_hard_counts: [],
+            daily_soft_counts: [],
+            baseline_moved_day_index: null,
+            flakiness_state: 'broken',
+            is_quarantined: false,
+            needs_decision: false,
+            quarantine: null,
+            owner_team: ownerTeam,
+        })
+
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({
+                get: {
+                    [FLAKINESS_URL]: {
+                        ...overview,
+                        entries: [
+                            brokenEntry('replay-player--default--light', 'team-replay'),
+                            brokenEntry('heatmaps-scene--default--light', 'team-web-analytics'),
+                            brokenEntry('settings-domains--default--light', 'unowned'),
+                            brokenEntry('playwright-login--default', null),
+                        ],
+                    },
+                },
+            })
+            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            logic.mount()
+        })
+
+        // A team's digest links here with its slug, and has to open on that team's rows.
+        it('shows only the rows that team owns', async () => {
+            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { teams: 'team-replay' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.filters.teams).toEqual(['team-replay'])
+            expect(logic.values.filteredEntries.map((entry) => entry.identifier)).toEqual([
+                'replay-player--default--light',
+            ])
+            expect(logic.values.filters.preset).toBe('broken')
+        })
+
+        it('lists each known owner and leaves out rows with no known owner', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.facetGroups.team.map((bucket) => bucket.label).sort()).toEqual([
+                'No owner',
+                'team-replay',
+                'team-web-analytics',
+            ])
+        })
+    })
+
     describe('when the preset arrives in the URL', () => {
         beforeEach(() => {
             initKeaTests()

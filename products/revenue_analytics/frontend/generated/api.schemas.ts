@@ -7,3 +7,12 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface RevenueAnalyticsJoinApi {
+    /** True creates the person join for the project, false removes it. */
+    enabled: boolean
+}
+
+export interface RevenueAnalyticsJoinResponseApi {
+    /** What the request did, for display. */
+    detail: string
+}

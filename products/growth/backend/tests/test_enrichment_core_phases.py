@@ -108,6 +108,15 @@ class TestEnrichmentCorePhases(BaseTest):
         ):
             return async_to_sync(enrich_organization)(ctx, provider=provider, pha_client=pha_client)
 
+    def _record_data_without_evaluated_at(self):
+        data = dict(OrganizationEnrichment.objects.get(organization=self.organization).data)
+        self.assertTrue(data.pop("icp_fit_evaluated_at"))
+        return {
+            key: value
+            for key, value in data.items()
+            if not key.startswith("icp_fit_input_") and key != "icp_fit_signup"
+        }
+
     def _rows(self):
         return list(
             OrganizationEnrichmentFetch.objects.filter(organization=self.organization)
@@ -141,9 +150,8 @@ class TestEnrichmentCorePhases(BaseTest):
             person=None,
         )
 
-        record = OrganizationEnrichment.objects.get(organization=self.organization)
         self.assertEqual(
-            record.data,
+            self._record_data_without_evaluated_at(),
             {
                 "company_type": "STARTUP",
                 "headcount": 12,
@@ -153,8 +161,9 @@ class TestEnrichmentCorePhases(BaseTest):
                 "icp_score": 12,
                 "icp_score_version": "clay-parity-2",
                 "icp_fit_status": "scored",
-                "icp_fit_version": "v0.6",
+                "icp_fit_version": "v0.7",
                 "icp_fit_lists_version": "test-lists-1",
+                "icp_fit_evaluation_kind": "initial",
                 "icp_fit_score": 100,
                 "icp_fit_components": {
                     "traction": 35,
@@ -190,7 +199,7 @@ class TestEnrichmentCorePhases(BaseTest):
                         "icp_score": 12,
                         "icp_score_version": "clay-parity-2",
                         "icp_fit_score": 100,
-                        "icp_fit_version": "v0.6",
+                        "icp_fit_version": "v0.7",
                         "icp_fit_status": "scored",
                     },
                 )
@@ -201,7 +210,7 @@ class TestEnrichmentCorePhases(BaseTest):
             [
                 call(
                     distinct_id="d1",
-                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
                 )
             ],
         )
@@ -251,9 +260,8 @@ class TestEnrichmentCorePhases(BaseTest):
             person=person,
         )
 
-        record = OrganizationEnrichment.objects.get(organization=self.organization)
         self.assertEqual(
-            record.data,
+            self._record_data_without_evaluated_at(),
             {
                 "work_email": True,
                 "signup_role": "engineering",
@@ -265,8 +273,9 @@ class TestEnrichmentCorePhases(BaseTest):
                 "icp_score": 12,
                 "icp_score_version": "clay-parity-2",
                 "icp_fit_status": "scored",
-                "icp_fit_version": "v0.6",
+                "icp_fit_version": "v0.7",
                 "icp_fit_lists_version": "test-lists-1",
+                "icp_fit_evaluation_kind": "recheck",
                 "icp_fit_score": 100,
                 "icp_fit_components": {
                     "traction": 35,
@@ -308,7 +317,7 @@ class TestEnrichmentCorePhases(BaseTest):
                         "icp_score": 12,
                         "icp_score_version": "clay-parity-2",
                         "icp_fit_score": 100,
-                        "icp_fit_version": "v0.6",
+                        "icp_fit_version": "v0.7",
                         "icp_fit_status": "scored",
                     },
                 )
@@ -320,7 +329,7 @@ class TestEnrichmentCorePhases(BaseTest):
                 call(distinct_id="d1", properties={"icp_score": 12, "icp_score_version": "clay-parity-2"}),
                 call(
                     distinct_id="d1",
-                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
                 ),
             ],
         )
@@ -355,9 +364,8 @@ class TestEnrichmentCorePhases(BaseTest):
             person=None,
         )
 
-        record = OrganizationEnrichment.objects.get(organization=self.organization)
         self.assertEqual(
-            record.data,
+            self._record_data_without_evaluated_at(),
             {
                 "work_email": True,
                 "country": "DE",
@@ -366,8 +374,9 @@ class TestEnrichmentCorePhases(BaseTest):
                 "icp_score": 0,
                 "icp_score_version": "clay-parity-2",
                 "icp_fit_status": "scored",
-                "icp_fit_version": "v0.6",
+                "icp_fit_version": "v0.7",
                 "icp_fit_lists_version": "test-lists-1",
+                "icp_fit_evaluation_kind": "recheck",
                 "icp_fit_score": 100,
                 "icp_fit_components": {
                     "traction": 35,
@@ -404,7 +413,7 @@ class TestEnrichmentCorePhases(BaseTest):
                         "icp_score": 0,
                         "icp_score_version": "clay-parity-2",
                         "icp_fit_score": 100,
-                        "icp_fit_version": "v0.6",
+                        "icp_fit_version": "v0.7",
                         "icp_fit_status": "scored",
                     },
                 )
@@ -416,7 +425,7 @@ class TestEnrichmentCorePhases(BaseTest):
                 call(distinct_id="d2", properties={"icp_score": 0, "icp_score_version": "clay-parity-2"}),
                 call(
                     distinct_id="d2",
-                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
                 ),
             ],
         )

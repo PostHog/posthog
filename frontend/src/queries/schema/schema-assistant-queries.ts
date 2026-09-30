@@ -21,6 +21,7 @@ import {
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
+    InsightNodeKind,
     LifecycleFilterLegacy,
     MultipleBreakdownType,
     Node,
@@ -37,7 +38,7 @@ import {
 import { integer, positive_integer } from './type-utils'
 
 /**
- * This filter only works with absolute dates.
+ * This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.
  */
 export interface AssistantDateRange {
     /**
@@ -45,7 +46,7 @@ export interface AssistantDateRange {
      */
     date_from: string
     /**
-     * ISO8601 date string.
+     * ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.
      */
     date_to?: string | null
 }
@@ -1990,4 +1991,24 @@ export interface AssistantDataVisualizationNode {
     tableSettings?: AssistantDataVisualizationTableSettings
 }
 
-export type InsightQuery = AssistantInsightVizNode | AssistantDataVisualizationNode
+// `MCPInsightSerializer.validate_query` wraps these two shapes server-side before it saves the
+// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Both carry
+// an index signature because zod strips every key the schema does not declare, which would send
+// `{ kind }` alone to the endpoint and save an empty insight.
+export interface AssistantBareInsightQuery {
+    kind: InsightNodeKind
+    [key: string]: unknown
+}
+
+export interface AssistantBareHogQLQuery {
+    kind: NodeKind.HogQLQuery
+    /** The HogQL query to run. */
+    query: string
+    [key: string]: unknown
+}
+
+export type InsightQuery =
+    | AssistantInsightVizNode
+    | AssistantDataVisualizationNode
+    | AssistantBareInsightQuery
+    | AssistantBareHogQLQuery

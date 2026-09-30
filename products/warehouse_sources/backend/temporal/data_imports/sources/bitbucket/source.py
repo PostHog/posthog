@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import (
     BitbucketAuth,
     BitbucketResumeConfig,
@@ -53,14 +51,14 @@ class BitbucketSource(ResumableSource[BitbucketSourceConfig, BitbucketResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BITBUCKET,
+            name=ExternalDataSourceType.BITBUCKET,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Atlassian Bitbucket Cloud",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["atlassian", "git", "ci"],
             caption="""Connect your Bitbucket Cloud workspace to sync repositories, pull requests, commits, pipelines, and more.
 
-Your credentials need the **repository**, **pullrequest**, **pipeline**, and **account** read scopes. Avoid app passwords — Atlassian is retiring them; use an API token or an access token instead.""",
+Your credentials need the **repository**, **pullrequest**, **pipeline**, **project**, and **account** read scopes. Avoid app passwords — Atlassian is retiring them; use an API token or an access token instead.""",
             iconPath="/static/services/bitbucket.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bitbucket",
             fields=cast(
@@ -141,7 +139,7 @@ Your credentials need the **repository**, **pullrequest**, **pipeline**, and **a
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.bitbucket.org": "Your Bitbucket credentials are invalid or have been revoked. Check your email and API token (or access token), then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.bitbucket.org": "Your Bitbucket token is missing a read scope needed to sync this data. Grant the repository, pullrequest, pipeline, and account read scopes, then reconnect.",
+            "403 Client Error: Forbidden for url: https://api.bitbucket.org": "Your Bitbucket token is missing a read scope needed to sync this data. Grant the repository, pullrequest, pipeline, project, and account read scopes, then reconnect.",
             # Off-origin pagination/resume URL rejected by the transport's origin pin —
             # deterministic until the bad resume state expires, so don't retry into it.
             "Refusing to fetch non-Bitbucket URL": "Bitbucket returned an unexpected pagination URL. Please retry the sync; if the problem persists, contact support.",

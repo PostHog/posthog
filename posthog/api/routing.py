@@ -1,4 +1,5 @@
 import sys
+from collections.abc import Sequence
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
@@ -12,6 +13,7 @@ from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter, NestedRegistryItem
 from rest_framework_extensions.settings import extensions_api_settings
 
+from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.utils import get_token
 from posthog.auth import (
     DelegatedOAuthAccessTokenAuthentication,
@@ -175,8 +177,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         calling super() would otherwise leak the token.
 
         Note: a subclass that overrides `dispatch` itself without super() would
-        also bypass this cleanup; in this codebase only `query_coalescer.py`
-        overrides dispatch and it does call super().
+        also bypass this cleanup.
 
         ContextVars in sync Django are thread-local and the same worker thread
         is reused across requests, so a leaked token would let scope from one
@@ -369,6 +370,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return queryset
         finally:
             self._in_get_queryset = False
+
+    def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
+        if self.paginator is not None and isinstance(queryset, QuerySet):
+            queryset = stable_queryset_ordering(queryset)
+        return super().paginate_queryset(queryset)
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
         if self.action != "list":

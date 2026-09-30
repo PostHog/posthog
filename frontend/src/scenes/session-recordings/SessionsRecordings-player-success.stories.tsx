@@ -4,7 +4,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
 import { HttpResponse } from 'msw'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -97,9 +96,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        // This file covers the REPLAY_PLAYER_OWN_DOCUMENT path, where rrweb mounts inside the
-        // player's own document. The other replay story files stay on the default path.
-        featureFlags: [FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT],
         waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
         pageUrl: urls.replay(),
     },

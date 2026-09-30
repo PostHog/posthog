@@ -331,6 +331,40 @@ class TestScheduledChange(APIBaseTest):
         assert result["is_recurring"] is True
         assert result["recurrence_interval"] == "monthly"
 
+    def test_paged_list_walks_every_schedule_in_scheduled_at_order(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="paged-flag", name="Paged Flag"
+        )
+
+        def make_schedule(schedule_id: int, scheduled_at: str) -> None:
+            ScheduledChange.objects.create(
+                id=schedule_id,
+                team=self.team,
+                record_id=feature_flag.id,
+                model_name="FeatureFlag",
+                payload={"operation": "update_status", "value": False},
+                scheduled_at=scheduled_at,
+                created_by=self.user,
+            )
+
+        # Insert in the exact reverse of the order the endpoint owes, with explicit descending ids,
+        # so neither sort term agrees with insertion order. Dropping scheduled_at reverses the pairs
+        # and dropping the id tie-breaker reverses within a pair, so both show up as a bad walk.
+        earlier, later = "2024-03-01T09:00:00Z", "2024-03-02T09:00:00Z"
+        for schedule_id, scheduled_at in ((9004, later), (9003, later), (9002, earlier), (9001, earlier)):
+            make_schedule(schedule_id, scheduled_at)
+
+        paged_ids = []
+        for offset in (0, 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/scheduled_changes/",
+                data={"record_id": str(feature_flag.id), "limit": 2, "offset": offset},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            paged_ids += [result["id"] for result in response.json()["results"]]
+
+        assert paged_ids == [9001, 9002, 9003, 9004]
+
     def test_cannot_update_record_id(self):
         """Updating record_id is rejected to prevent cross-tenant manipulation."""
         feature_flag = FeatureFlag.objects.create(

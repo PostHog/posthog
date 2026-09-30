@@ -1,11 +1,13 @@
+import { GITHUB_CONNECTION_REQUIRED_MESSAGE } from "@posthog/core/integrations/connectErrors";
 import { getTaskRepository } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { Box, Flex } from "@radix-ui/themes";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { BackgroundWrapper } from "../../../primitives/BackgroundWrapper";
 import { ErrorBoundary } from "../../../primitives/ErrorBoundary";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
 import { useFolders } from "../../folders/useFolders";
+import { GithubConnectionRequiredRecovery } from "../../integrations/components/GithubConnectionRequiredRecovery";
 import { useDraftStore } from "../../message-editor/draftStore";
 import { useProvisioningStore } from "../../provisioning/store";
 import { SessionView } from "../../sessions/components/SessionView";
@@ -18,6 +20,7 @@ import { useBranchMismatchDialog } from "../../workspace/useBranchMismatchDialog
 import { useWorkspaceLoaded } from "../../workspace/useWorkspace";
 import { useCreateWorkspace } from "../../workspace/useWorkspaceMutations";
 import { BranchMismatchDialog } from "../BranchMismatchDialog";
+import { canControlTask } from "./taskControl";
 import { WorkspaceSetupPrompt } from "./WorkspaceSetupPrompt";
 
 interface TaskLogsPanelProps {
@@ -65,6 +68,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     errorTitle,
     errorMessage,
     errorRetryable,
+    githubConnectionRequired,
   } = useSessionViewState(taskId, task);
 
   useSessionConnection({
@@ -94,6 +98,18 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     typeof task.latest_run?.state?.slack_thread_url === "string"
       ? task.latest_run.state.slack_thread_url
       : undefined;
+  const canRecoverGithubTask = canControlTask(task, session?.isTaskAuthor);
+  const githubRecoveryAvailable =
+    githubConnectionRequired && canRecoverGithubTask;
+  const [githubRecoveryOpen, setGithubRecoveryOpen] = useState(
+    githubRecoveryAvailable,
+  );
+
+  useEffect(() => {
+    if (githubRecoveryAvailable) {
+      setGithubRecoveryOpen(true);
+    }
+  }, [githubRecoveryAvailable]);
 
   useEffect(() => {
     requestFocus(taskId);
@@ -174,12 +190,31 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               onCancelPrompt={handleCancelPrompt}
               repoPath={repoPath}
               cloudBranch={cloudBranch}
-              hasError={hasError}
+              hasError={hasError || githubConnectionRequired}
               errorTitle={errorTitle}
-              errorMessage={errorMessage ?? undefined}
-              errorRetryable={errorRetryable}
+              errorMessage={
+                githubConnectionRequired
+                  ? githubRecoveryAvailable
+                    ? GITHUB_CONNECTION_REQUIRED_MESSAGE
+                    : "Only the person who created this task can connect GitHub and restart it."
+                  : (errorMessage ?? undefined)
+              }
+              errorRetryable={
+                githubRecoveryAvailable
+                  ? true
+                  : githubConnectionRequired
+                    ? false
+                    : errorRetryable
+              }
               hideInput={hideInput}
-              onRetry={handleRetry}
+              onRetry={
+                githubRecoveryAvailable
+                  ? () => setGithubRecoveryOpen(true)
+                  : handleRetry
+              }
+              retryLabel={
+                githubRecoveryAvailable ? "Connect GitHub" : undefined
+              }
               onNewSession={isCloud ? undefined : handleNewSession}
               isInitializing={isInitializing}
               isCloud={isCloud}
@@ -190,6 +225,13 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
       </Flex>
 
       {dialogProps && <BranchMismatchDialog {...dialogProps} />}
+      {githubRecoveryAvailable ? (
+        <GithubConnectionRequiredRecovery
+          task={task}
+          open={githubRecoveryOpen}
+          onOpenChange={setGithubRecoveryOpen}
+        />
+      ) : null}
     </BackgroundWrapper>
   );
 }

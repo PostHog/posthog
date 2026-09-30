@@ -361,9 +361,11 @@ def openai_source(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if config.fan_out_over_projects:
-        # Project-scoped resources have no org-wide list endpoint; enumerate every project (archived
-        # included, since they are still referenced by historical usage/cost rows) and fetch the
-        # resource per project.
+        # Project-scoped resources have no org-wide list endpoint; enumerate the projects and fetch
+        # the resource per project. Archived ones are left out: OpenAI rejects every project-scoped
+        # read under an archived project, which would fail the whole schema on the first one. The
+        # `projects` table keeps them (see its `extra_params`) so historical usage/cost rows still
+        # resolve their project.
         projects_config = OPENAI_ENDPOINTS["projects"]
         rest_config: RESTAPIConfig = {
             "client": client_config,
@@ -373,7 +375,7 @@ def openai_source(
                     "name": "projects",
                     "endpoint": {
                         "path": projects_config.path,
-                        "params": {"limit": ENTITY_PAGE_SIZE, **projects_config.extra_params},
+                        "params": {"limit": ENTITY_PAGE_SIZE},
                         "data_selector": "data",
                         "paginator": _EntityPaginator(),
                     },

@@ -159,4 +159,27 @@ describe('ProductEmptyStateGate', () => {
         expect(!!screen.queryByText('Set up workflows')).toBe(expectedGated)
         expect(!!screen.queryByText('the real scene')).toBe(!expectedGated)
     })
+
+    it('renders SceneNav on the setup screen so sibling tabs stay reachable', () => {
+        const statusLogic = productSetupStatusLogic({ productKey: ProductKey.BUSINESS_KNOWLEDGE })
+        statusLogic.mount()
+        statusLogic.actions.setDetectedStatus('needs-setup')
+        render(
+            <ProductEmptyStateGate
+                emptyState={{
+                    ...emptyState,
+                    config: { ...config, productKey: ProductKey.BUSINESS_KNOWLEDGE },
+                    SceneNav: function SceneNav(): JSX.Element {
+                        return <nav>Sources Settings</nav>
+                    },
+                }}
+            >
+                <div>the real scene</div>
+            </ProductEmptyStateGate>
+        )
+
+        expect(screen.getByText('Sources Settings')).not.toBeNull()
+        expect(screen.getByText('Set up experiments')).not.toBeNull()
+        expect(screen.queryByText('the real scene')).toBeNull()
+    })
 })

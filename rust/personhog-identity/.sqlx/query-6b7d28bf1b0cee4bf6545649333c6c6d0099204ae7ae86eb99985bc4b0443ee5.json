@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_write_claim_record' */ UPDATE lifecycle_op_person SET moved = $2 WHERE op_id = $1 AND role = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6b7d28bf1b0cee4bf6545649333c6c6d0099204ae7ae86eb99985bc4b0443ee5"
+}

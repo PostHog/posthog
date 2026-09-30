@@ -772,9 +772,8 @@ function composeToolSchema(
                 if (sourceImport) {
                     let expr = `${sourceImport}.shape['${paramName}']`
                     if (override.required) {
-                        // PATCH body fields are `.optional()` in the Orval shape; unwrap so the
-                        // tool schema requires the field, matching the backend serializer.
-                        expr += '.unwrap()'
+                        // Keep the Orval field description when requiring a PATCH body field.
+                        expr += '.nonoptional()'
                         optionalParamNames.delete(paramName)
                     }
                     if (override.default !== undefined) {
@@ -842,6 +841,31 @@ function composeToolSchema(
             return `${p.name}: ${expr}`
         })
         schemaExpr = `(${schemaExpr}).extend({ ${overrideEntries.join(', ')} })`
+    }
+
+    // normalizeParamAliases deletes alias keys after copying them onto the canonical
+    // param, so an alias that is also a real parameter of this operation, or an alias
+    // two params both claim, would silently drop a value. Checked after every override
+    // has run, because input_schema overrides add body fields inside the loop above.
+    const declaredParamNames = new Set([...pathParamNames, ...queryParamNames, ...bodyFieldNames])
+    const aliasOwners = new Map<string, string>()
+    for (const [paramName, aliases] of Object.entries(paramAliases)) {
+        for (const alias of aliases) {
+            if (alias === paramName || declaredParamNames.has(alias)) {
+                throw new Error(
+                    `${config.operation}: alias "${alias}" for param "${paramName}" is also a declared parameter ` +
+                        'of this operation, so normalizeParamAliases would drop its value. Rename or remove the alias.'
+                )
+            }
+            const owner = aliasOwners.get(alias)
+            if (owner !== undefined) {
+                throw new Error(
+                    `${config.operation}: alias "${alias}" is declared by both "${owner}" and "${paramName}", ` +
+                        'so normalizeParamAliases would drop one of them. Keep it on one param.'
+                )
+            }
+            aliasOwners.set(alias, paramName)
+        }
     }
 
     return {
@@ -979,12 +1003,18 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     const noteLiteral = config.agent_note ? JSON.stringify(config.agent_note) : null
     const noted = (expr: string): string => (noteLiteral ? `withAgentNote(${expr}, ${noteLiteral})` : expr)
     const informationalWrapper = config.response?.informational_wrapper
+    // The text projection wraps last, so it can name the `_posthogUrl` each row picked up from enrichment.
+    const textInclude = config.response?.text_include
+    const projected = (expr: string): string =>
+        textInclude?.length ? `withTextProjection(${expr}, [${textInclude.map((f) => `'${f}'`).join(', ')}])` : expr
     const wrapped = (expr: string): string => {
         const notedExpression = noted(expr)
         const purposeArgument = informationalWrapper?.purpose ? `, ${JSON.stringify(informationalWrapper.purpose)}` : ''
-        return informationalWrapper
-            ? `withInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}${purposeArgument})`
-            : notedExpression
+        return projected(
+            informationalWrapper
+                ? `withInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}${purposeArgument})`
+                : notedExpression
+        )
     }
 
     // Joiner between url_prefix and the enrich_url prefix: append `/` for path-segment enrichments,
@@ -1291,6 +1321,7 @@ function generateToolCode(
                 [
                     ...responseFilter.helperImports,
                     config.response?.informational_wrapper && 'withInformationalResponse',
+                    config.response?.text_include?.length && 'withTextProjection',
                 ].filter((value): value is string => !!value)
             ),
         }
@@ -1327,6 +1358,7 @@ const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultTy
             [
                 ...responseFilter.helperImports,
                 config.response?.informational_wrapper && 'withInformationalResponse',
+                config.response?.text_include?.length && 'withTextProjection',
             ].filter((value): value is string => !!value)
         ),
     }
@@ -1633,6 +1665,7 @@ ${handlerBody}    },
             [
                 ...responseFilter.helperImports,
                 config.response?.informational_wrapper && 'withInformationalResponse',
+                config.response?.text_include?.length && 'withTextProjection',
             ].filter((value): value is string => !!value)
         ),
     }
@@ -1982,6 +2015,7 @@ function generateDefinitionsJson(
             const baseDescription = resolveDescription(toolConfig, yamlDir, opDescription)
             const baseTitle = toolConfig.title || resolved.operation.summary || name
             const baseSummary = toolConfig.title || opDescription.split('.')[0] || name
+            const toolCategory = toolConfig.category ?? category.category
             // Per-tool feature_flag wins; otherwise inherit the category-level
             // gate (lets one line gate a whole not-yet-GA product).
             const featureFlag = toolConfig.feature_flag ?? category.feature_flag
@@ -1990,6 +2024,7 @@ function generateDefinitionsJson(
             const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
             // Successors are per-tool: a category gate says what retires a tool, never what replaces it.
             const supersededBy = toolConfig.superseded_by
+            const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
             const redirectHint = toolConfig.redirect_hint
 
             if (toolConfig.confirmed_action) {
@@ -2003,7 +2038,7 @@ function generateDefinitionsJson(
                         `Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. ` +
                         `The user must reply with the literal word "confirm" before you call the matching -execute tool with the hash. ` +
                         `Original action: ${baseDescription}`,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: `${baseSummary} (prepare)`,
                     title: `${baseTitle} (prepare)`,
@@ -2019,6 +2054,7 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2029,7 +2065,7 @@ function generateDefinitionsJson(
                         `Verifies the confirmation_hash from -prepare and the literal "confirm" string typed by the user, then performs the action. ` +
                         `ONLY call this after the user has explicitly typed "confirm" in chat. ` +
                         `Original action: ${baseDescription}`,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: `${baseSummary} (execute)`,
                     title: `${baseTitle} (execute)`,
@@ -2045,6 +2081,7 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2052,7 +2089,7 @@ function generateDefinitionsJson(
             } else {
                 definitions[name] = {
                     description: baseDescription,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: baseSummary,
                     title: baseTitle,
@@ -2068,6 +2105,7 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2098,6 +2136,9 @@ function generateDefinitionsJson(
                     : {}),
                 ...(wrapperConfig.feature_flag_variant
                     ? { feature_flag_variant: wrapperConfig.feature_flag_variant }
+                    : {}),
+                ...(wrapperConfig.hidden_when_flag_on
+                    ? { hidden_when_flag_on: wrapperConfig.hidden_when_flag_on }
                     : {}),
                 ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
                 ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
@@ -2276,6 +2317,7 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_entitlement ? { feature_entitlement: toolConfig.feature_entitlement } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
+            ...(toolConfig.hidden_when_flag_on ? { hidden_when_flag_on: toolConfig.hidden_when_flag_on } : {}),
             ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
             ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),

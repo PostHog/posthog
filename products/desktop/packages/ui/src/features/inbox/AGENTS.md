@@ -87,7 +87,7 @@ Do not add frontend-only controls that imply a backend capability. If the UI exp
 
 ## Routes and Shell
 
-`InboxView` is the layout shell for `/inbox/*`. It owns the page header, tab bar, reviewer scope control, and nested route outlet. Route files live in `apps/code/src/renderer/routes/inbox/`.
+`InboxView` is the layout shell for `/inbox/*`. On a triage route it renders `InboxTriagePane` in both layouts. On other list routes it renders `InboxHomePane` under the spaces layout and the sectioned `ReportsInboxView` page otherwise. Detail routes render through the nested route outlet. Route files live in `apps/code/src/renderer/routes/inbox/`.
 
 Under the spaces layout Self-driving is a rail destination that owns the column
 beside the rail (`railPaneHasSidebar`, `railPane.ts`). `InboxPane` draws the
@@ -110,6 +110,12 @@ A report opened from a pane closes back to it: `ReportDetailCloseButton` sits at
 the end of the header row and navigates to the `?from=` source, leaving the list
 standing and the pane on its empty state, the way Activity closes an item. A
 report with no source draws no button, because there is no list beside it.
+
+Resolving or archiving the open report closes it the same way, through `useCloseReportWhenTerminal` in `ReportPage`: the report has ended, so the list comes back instead of a terminal report with its actions gone.
+Only the transition into a terminal status closes.
+A report read out of the Archive is already terminal and stays, because its read-only detail is the destination.
+Both surfaces take the navigation from `useCloseReport`, so the source and triage's place in the queue are resolved in one place.
+Triage keeps its own advance-to-next behavior, since the focus view renders the queue rather than this page.
 
 `InboxDetailFrameView` draws one header row, and only its container changes: on
 the report's own page it goes to the app header bar through the header store,
@@ -139,7 +145,7 @@ and the page can never disagree about what is in the inbox. React Query dedupes
 the requests, but paging is a side effect, so only one caller may drive it: the
 sidebar pages, `InboxHomePane` passes `autoPage: false`.
 
-The tab components are intentionally simple:
+The tab list components are legacy. `InboxView` never renders the outlet on a list route (see Routes and Shell above), so no current route shows them. Do not extend them; they stay only until a follow-up removes them:
 
 - `PullRequestsTab` partitions scoped reports with `isPullRequestReport`.
 - `ReportsTab` partitions with `isReportTabReport`.
@@ -210,6 +216,11 @@ hand-written height, padding or text classes: `size="sm"` for a button with a
 label, `size="icon-sm"` for an icon-only one. A row of buttons that each carry
 their own `h-7 px-2.5 text-[12px]` drifts apart the moment one of them is
 edited, and it sits a size away from every other toolbar in the app.
+
+An evidence card links to its source object, and it builds that link from the signal's own identity.
+A Conversations ticket resolves through `supportTicketUrl`, from `extra.ticket_number` when the emitter stored one and from the ticket uuid in `source_id` otherwise, so the destination carries the source project and region.
+A card that can identify neither says the source is unavailable instead of rendering a link.
+Never read a destination out of the excerpt.
 
 Shared primitives exist to keep the surfaces consistent:
 

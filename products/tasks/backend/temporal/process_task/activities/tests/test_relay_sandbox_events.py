@@ -1,6 +1,8 @@
 import json
+import time
 import asyncio
 import importlib
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
 
@@ -9,9 +11,16 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import httpx
 import httpx_sse
+import temporalio.client
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from temporalio.exceptions import ApplicationError
 
+from products.tasks.backend.logic.services.process_killed import (
+    ProcessKilledNotice,
+    format_process_killed_message,
+    parse_process_killed,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
@@ -22,9 +31,9 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     FinalMessageTracker,
     RelaySandboxEventsInput,
     TaskRunRedisStream,
+    _background_heartbeat,
     _flush_pending_text,
     _is_active_agent_update,
-    _is_end_of_turn,
     _is_keepalive_event,
     _is_session_update,
     _mark_error_unless_run_is_terminal,
@@ -33,6 +42,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _relay_loop,
     _sanitize_httpx_error,
     _should_signal_workflow_heartbeat,
+    _track_tool_call,
     relay_sandbox_events,
 )
 from products.tasks.backend.temporal.process_task.workflow import (
@@ -40,14 +50,31 @@ from products.tasks.backend.temporal.process_task.workflow import (
     ProcessTaskWorkflow,
 )
 
-from ee.hogai.sandbox import TURN_COMPLETE_METHOD
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, TURN_COMPLETE_METHOD, is_turn_complete, pi_turn_error
 
 relay_sandbox_events_module = importlib.import_module(
     "products.tasks.backend.temporal.process_task.activities.relay_sandbox_events"
 )
 
+_GIB = 1024**3
 
-class TestIsEndOfTurn:
+
+def _process_killed_event(**overrides: object) -> dict:
+    params: dict[str, object] = {
+        "pid": 4242,
+        "comm": "vitest",
+        "command": "node vitest run --token=secret-value",
+        "treeRssBytes": 12 * _GIB,
+        "memoryCurrentBytes": 14 * _GIB,
+        "memoryLimitBytes": 16 * _GIB,
+        "signal": "SIGTERM",
+        "at": "2026-01-01T00:00:00.000Z",
+        **overrides,
+    }
+    return {"type": "notification", "notification": {"method": "_posthog/process_killed", "params": params}}
+
+
+class TestIsTurnComplete:
     @parameterized.expand(
         [
             (
@@ -75,10 +102,47 @@ class TestIsEndOfTurn:
                 {"type": "pi_event", "event": {"type": "turn_completed"}},
                 True,
             ),
+            (
+                "pi_turn_complete_with_a_runtime_error",
+                {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}},
+                True,
+            ),
+            ("null_notification", {"type": "notification", "notification": None}, False),
+            ("scalar_notification", {"type": "notification", "notification": "turn_completed"}, False),
+            ("array_notification", {"type": "notification", "notification": []}, False),
         ]
     )
-    def test_is_end_of_turn(self, _name: str, event_data: dict, expected: bool):
-        assert _is_end_of_turn(event_data) == expected
+    def test_is_turn_complete(self, _name: str, event_data: dict, expected: bool):
+        assert is_turn_complete(event_data) == expected
+
+
+class TestPiTurnError:
+    @parameterized.expand(
+        [
+            (
+                "normal_pi_turn_complete",
+                {"type": "pi_event", "event": {"type": "turn_completed"}},
+                False,
+            ),
+            (
+                "pi_turn_complete_with_a_runtime_error",
+                {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}},
+                True,
+            ),
+            (
+                "pi_turn_complete_with_a_non_error_stop_reason",
+                {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "cancelled"}},
+                False,
+            ),
+            (
+                "acp_end_turn_is_not_a_pi_error",
+                {"type": "notification", "notification": {"result": {"stopReason": "error"}}},
+                False,
+            ),
+        ]
+    )
+    def test_pi_turn_error(self, _name: str, event_data: dict, expected: bool):
+        assert pi_turn_error(event_data) == expected
 
 
 class TestIsSessionUpdate:
@@ -181,6 +245,104 @@ class TestIsActiveAgentUpdate:
         )
 
 
+def _pi(event_type: str, tool_call: object) -> dict:
+    return {"type": "pi_event", "event": {"type": event_type, "toolCall": tool_call}}
+
+
+def _acp(sub_type: str, update: dict) -> dict:
+    return {
+        "type": "notification",
+        "notification": {"method": "session/update", "params": {"update": {"sessionUpdate": sub_type, **update}}},
+    }
+
+
+class TestTrackToolCall:
+    @parameterized.expand(
+        [
+            ("pi_started_opens", [_pi("tool_call_started", {"id": "c1", "status": "pending"})], {"c1"}),
+            (
+                "pi_completed_closes",
+                [
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                    _pi("tool_call_updated", {"id": "c1", "status": "completed"}),
+                ],
+                set(),
+            ),
+            (
+                "pi_failed_closes",
+                [
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                    _pi("tool_call_updated", {"id": "c1", "status": "failed"}),
+                ],
+                set(),
+            ),
+            (
+                "pi_non_terminal_update_keeps_open",
+                [
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                    _pi("tool_call_updated", {"id": "c1", "status": "in_progress"}),
+                ],
+                {"c1"},
+            ),
+            (
+                "pi_repeated_start_is_one_entry",
+                [
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                ],
+                {"c1"},
+            ),
+            (
+                "pi_sibling_call_stays_open",
+                [
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                    _pi("tool_call_started", {"id": "c2", "status": "pending"}),
+                    _pi("tool_call_updated", {"id": "c1", "status": "completed"}),
+                ],
+                {"c2"},
+            ),
+            ("acp_started_opens", [_acp("tool_call", {"toolCallId": "c1"})], {"c1"}),
+            (
+                "acp_completed_closes",
+                [
+                    _acp("tool_call", {"toolCallId": "c1"}),
+                    _acp("tool_call_update", {"toolCallId": "c1", "status": "completed"}),
+                ],
+                set(),
+            ),
+            (
+                "acp_non_terminal_update_keeps_open",
+                [
+                    _acp("tool_call", {"toolCallId": "c1"}),
+                    _acp("tool_call_update", {"toolCallId": "c1", "status": "in_progress"}),
+                ],
+                {"c1"},
+            ),
+            # History replay and memory recall emit a start that is already terminal, with no
+            # update to follow. Opening it would keep the run alive for the rest of the turn.
+            (
+                "acp_start_already_terminal_never_opens",
+                [_acp("tool_call", {"toolCallId": "c1", "status": "completed"})],
+                set(),
+            ),
+            (
+                "pi_start_already_terminal_never_opens",
+                [_pi("tool_call_started", {"id": "c1", "status": "failed"})],
+                set(),
+            ),
+            ("pi_missing_tool_call", [_pi("tool_call_started", None)], set()),
+            ("pi_non_string_id", [_pi("tool_call_started", {"id": 7})], set()),
+            ("acp_missing_id", [_acp("tool_call", {})], set()),
+            ("unrelated_event", [{"type": "notification", "notification": {"method": "_posthog/console"}}], set()),
+        ],
+    )
+    def test_open_tool_calls(self, _name: str, events: list[dict], expected: set[str]) -> None:
+        open_tool_calls: set[str] = set()
+        for event in events:
+            _track_tool_call(event, open_tool_calls)
+        assert open_tool_calls == expected
+
+
 class TestIsKeepaliveEvent:
     @parameterized.expand(
         [
@@ -191,6 +353,46 @@ class TestIsKeepaliveEvent:
     )
     def test_is_keepalive_event(self, _name: str, event_data: dict, expected: bool) -> None:
         assert _is_keepalive_event(event_data) == expected
+
+
+class TestParseProcessKilled:
+    @parameterized.expand(
+        [
+            (
+                "kill_notification",
+                _process_killed_event(),
+                ProcessKilledNotice(
+                    comm="vitest",
+                    signal="SIGTERM",
+                    tree_rss_bytes=12 * _GIB,
+                    memory_current_bytes=14 * _GIB,
+                    memory_limit_bytes=16 * _GIB,
+                ),
+            ),
+            ("other_method", {"type": "notification", "notification": {"method": "_posthog/error"}}, None),
+            ("not_a_notification", {"type": "keepalive"}, None),
+            ("missing_size", _process_killed_event(treeRssBytes=None), None),
+            ("boolean_size", _process_killed_event(memoryLimitBytes=True), None),
+            ("missing_comm", _process_killed_event(comm=None), None),
+        ],
+    )
+    def test_parse_process_killed(self, _name: str, event_data: dict, expected: ProcessKilledNotice | None) -> None:
+        assert parse_process_killed(event_data) == expected
+
+    @parameterized.expand(
+        [
+            ("whole_gib", 12 * _GIB, 16 * _GIB, "using 12.0 GiB of the 16.0 GiB available"),
+            ("fractional_gib", int(13.46 * _GIB), int(15.5 * _GIB), "using 13.5 GiB of the 15.5 GiB available"),
+        ],
+    )
+    def test_format_process_killed_message(self, _name: str, tree_rss: int, limit: int, expected: str) -> None:
+        notice = ProcessKilledNotice(
+            comm="node", signal="SIGKILL", tree_rss_bytes=tree_rss, memory_current_bytes=limit, memory_limit_bytes=limit
+        )
+
+        assert format_process_killed_message(notice) == (
+            f"The sandbox stopped node because it was {expected}. The agent is still running."
+        )
 
 
 class TestSanitizeHttpxError:
@@ -227,7 +429,7 @@ class TestAgentActiveReactivation:
     def _simulate_reactivation(event_data: dict, agent_active: bool) -> bool:
         """Replicate the inline re-activation logic from _relay_loop."""
         active = [agent_active]
-        if _is_end_of_turn(event_data):
+        if is_turn_complete(event_data):
             active[0] = False
         elif not active[0] and _is_session_update(event_data):
             active[0] = True
@@ -258,7 +460,7 @@ class TestAgentActiveReactivation:
 
         # Agent finishes turn
         end_turn = {"type": "notification", "notification": {"result": {"stopReason": "end_turn"}}}
-        if _is_end_of_turn(end_turn):
+        if is_turn_complete(end_turn):
             active[0] = False
         assert active[0] is False
 
@@ -628,6 +830,71 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 
+    async def test_process_killed_is_reported_without_ending_the_relay(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        killed_event = _process_killed_event()
+        terminal_event = {"type": "notification", "notification": {"method": "_posthog/task_complete"}}
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(killed_event))
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
+            return SuccessfulEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        emit_agent_log_mock = MagicMock()
+        task_run = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+        monkeypatch.setattr(relay_sandbox_events_module, "emit_agent_log", emit_agent_log_mock)
+        monkeypatch.setattr(relay_sandbox_events_module, "parse_permission_request", lambda _event: None)
+
+        sandbox_gone = await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            task_run=cast(TaskRun, task_run),
+        )
+
+        assert sandbox_gone is False
+        assert redis_stream.write_event.await_args_list == [call(killed_event), call(terminal_event)]
+        emit_agent_log_mock.assert_called_once_with(
+            "run-id",
+            "warn",
+            "The sandbox stopped vitest because it was using 12.0 GiB of the 16.0 GiB available. "
+            "The agent is still running.",
+        )
+        task_run.capture_event.assert_called_once_with(
+            "sandbox_process_killed",
+            {
+                "process_comm": "vitest",
+                "process_signal": "SIGTERM",
+                "process_tree_rss_bytes": 12 * _GIB,
+                "memory_current_bytes": 14 * _GIB,
+                "memory_limit_bytes": 16 * _GIB,
+            },
+        )
+        assert "secret-value" not in json.dumps(task_run.capture_event.call_args.args)
+
     async def test_relay_signals_command_and_generated_activity_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
@@ -721,6 +988,202 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.release_first_agent_command.assert_not_awaited()
         redis_stream.release_first_agent_activity.assert_not_awaited()
         assert redis_stream.claim_first_agent_activity.await_count == 2
+
+    @pytest.mark.parametrize(
+        ("event", "turn_failed", "turn_completed", "turn_succeeded"),
+        [
+            ({"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}}, True, False, False),
+            (
+                {"type": "notification", "notification": {"method": TURN_COMPLETE_METHOD}},
+                False,
+                True,
+                False,
+            ),
+            (
+                {
+                    "type": "notification",
+                    "notification": {"method": TURN_COMPLETE_METHOD, "params": {"stopReason": "end_turn"}},
+                },
+                False,
+                True,
+                True,
+            ),
+            (
+                {
+                    "type": "notification",
+                    "notification": {"method": TURN_COMPLETE_METHOD, "params": {"stopReason": "idle_resume"}},
+                },
+                False,
+                False,
+                False,
+            ),
+        ],
+    )
+    async def test_relay_handles_turn_completion(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        event: dict[str, object],
+        turn_failed: bool,
+        turn_completed: bool,
+        turn_succeeded: bool,
+    ) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+            claim_first_agent_command=AsyncMock(return_value=False),
+            release_first_agent_command=AsyncMock(),
+            claim_first_agent_activity=AsyncMock(return_value=False),
+            release_first_agent_activity=AsyncMock(),
+        )
+        events = [
+            event,
+            {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
+        ]
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                for event in events:
+                    yield SimpleNamespace(data=json.dumps(event))
+
+        handle = SimpleNamespace(signal=AsyncMock())
+        client = SimpleNamespace(get_workflow_handle=MagicMock(return_value=handle))
+
+        monkeypatch.setattr(
+            relay_sandbox_events_module.httpx_sse, "aconnect_sse", lambda *_args, **_kwargs: SuccessfulEventSource()
+        )
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", AsyncMock())
+        monkeypatch.setattr(
+            relay_sandbox_events_module.activity, "info", lambda: SimpleNamespace(workflow_id="workflow-1")
+        )
+        monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
+
+        dispatch_done = asyncio.Event()
+
+        async def run_sync(func: Callable[..., object], *args: object, **kwargs: object) -> object:
+            result = func(*args, **kwargs)
+            dispatch_done.set()
+            return result
+
+        notify = MagicMock()
+        monkeypatch.setattr("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed", notify)
+        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", run_sync)
+        metric = "posthog_tasks_turn_completed_suppressed_total"
+        labels = {"reason": "idle_resume"}
+        suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
+        task_run = TaskRun(state={"mode": "interactive"})
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            task_run=task_run,
+        )
+
+        if turn_failed:
+            handle.signal.assert_awaited_once_with("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE])
+        else:
+            await asyncio.wait_for(dispatch_done.wait(), timeout=5)
+            assert handle.signal.await_args_list == [
+                call("agent_state_changed", arg=False),
+                call("agent_turn_completed", arg=turn_succeeded),
+            ]
+        if turn_completed:
+            notify.assert_called_once_with(task_run)
+        else:
+            notify.assert_not_called()
+        assert (REGISTRY.get_sample_value(metric, labels) or 0) - suppressed_before == int(
+            not turn_failed and not turn_completed
+        )
+
+    @parameterized.expand(
+        [
+            ("unfinished_tool_call_stays_open", [_acp("tool_call", {"toolCallId": "c1"})], {"c1"}),
+            (
+                "terminal_status_closes",
+                [
+                    _acp("tool_call", {"toolCallId": "c1"}),
+                    _acp("tool_call_update", {"toolCallId": "c1", "status": "completed"}),
+                ],
+                set(),
+            ),
+            (
+                "end_of_turn_closes",
+                [
+                    _acp("tool_call", {"toolCallId": "c1"}),
+                    {"type": "notification", "notification": {"result": {"stopReason": "end_turn"}}},
+                ],
+                set(),
+            ),
+        ],
+    )
+    async def test_relay_loop_shares_open_tool_calls_with_the_heartbeat(
+        self,
+        _name: str,
+        events: list[dict],
+        expected: set[str],
+    ) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+            claim_first_agent_command=AsyncMock(return_value=False),
+            release_first_agent_command=AsyncMock(),
+            claim_first_agent_activity=AsyncMock(return_value=False),
+            release_first_agent_activity=AsyncMock(),
+        )
+        stream_events = [*events, {"type": "notification", "notification": {"method": "_posthog/task_complete"}}]
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                for event in stream_events:
+                    yield SimpleNamespace(data=json.dumps(event))
+
+        handle = SimpleNamespace(signal=AsyncMock())
+        client = SimpleNamespace(get_workflow_handle=MagicMock(return_value=handle))
+        background_heartbeat = AsyncMock()
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                relay_sandbox_events_module.httpx_sse,
+                "aconnect_sse",
+                lambda *_args, **_kwargs: SuccessfulEventSource(),
+            )
+            monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", background_heartbeat)
+            monkeypatch.setattr(
+                relay_sandbox_events_module.activity, "info", lambda: SimpleNamespace(workflow_id="workflow-1")
+            )
+            monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
+
+            await _relay_loop(
+                events_url="https://sandbox.example/events",
+                headers={"Authorization": "Bearer token"},
+                params={},
+                redis_stream=cast(TaskRunRedisStream, redis_stream),
+                run_id="run-id",
+                task_id="task-id",
+            )
+
+        assert background_heartbeat.call_args.kwargs["open_tool_calls"] == expected
 
     async def test_permission_request_dispatches_to_broker(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
@@ -1297,7 +1760,7 @@ class TestShouldSignalWorkflowHeartbeat:
         [
             # Loop runs carry a 2-minute idle window; a quiet in-flight turn past that
             # window must still keep the workflow alive (the mid-turn teardown bug).
-            ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, True),
+            ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, set(), True),
             # Leave the workflow's short inactivity timer enough time to expire at
             # the background default instead of after another full short window.
             (
@@ -1305,15 +1768,20 @@ class TestShouldSignalWorkflowHeartbeat:
                 True,
                 float(INACTIVITY_TIMEOUT_DEFAULT_SECONDS) - 60.0,
                 120.0,
+                set(),
                 False,
             ),
             # Idle after end_of_turn: the short loop window applies and the run winds down.
-            ("idle_agent_stale_events", False, 300.0, 120.0, False),
-            ("mid_turn_fresh_events", True, 30.0, 120.0, True),
-            # Default and longer windows rely on the event-driven heartbeat, then
-            # let their own inactivity timer measure the full silence window.
-            ("mid_turn_default_window_uses_event_heartbeat", True, 30.0, 1800.0, False),
-            ("mid_turn_long_window_uses_event_heartbeat", True, 30.0, 3600.0, False),
+            ("idle_agent_stale_events", False, 300.0, 120.0, set(), False),
+            ("mid_turn_fresh_events", True, 30.0, 120.0, set(), True),
+            # With no tool call in flight, the default and longer windows rely on the
+            # event-driven heartbeat, then let their own inactivity timer measure the
+            # full silence window.
+            ("mid_turn_default_window_uses_event_heartbeat", True, 30.0, 1800.0, set(), False),
+            ("mid_turn_long_window_uses_event_heartbeat", True, 30.0, 3600.0, set(), False),
+            # An unfinished tool call is evidence of work, so it keeps the run alive past
+            # the silence budget that reaped runs mid-subagent, whatever the window.
+            ("tool_call_in_flight_bypasses_budget", False, 1_500.0, 3600.0, {"call-1"}, True),
         ]
     )
     def test_freshness_gating(
@@ -1322,6 +1790,7 @@ class TestShouldSignalWorkflowHeartbeat:
         agent_active: bool,
         event_age_seconds: float,
         inactivity_timeout_seconds: float,
+        open_tool_calls: set[str],
         expected: bool,
     ) -> None:
         now = 100_000.0
@@ -1332,6 +1801,7 @@ class TestShouldSignalWorkflowHeartbeat:
                 last_workflow_signal=[now - HEARTBEAT_INTERVAL_SECONDS - 1.0],
                 agent_active=[agent_active],
                 inactivity_timeout_seconds=inactivity_timeout_seconds,
+                open_tool_calls=open_tool_calls,
             )
             is expected
         )
@@ -1360,3 +1830,38 @@ class TestShouldSignalWorkflowHeartbeat:
             )
             is expected
         )
+
+
+class TestBackgroundHeartbeat:
+    async def test_signals_for_a_tool_call_opened_after_it_started(self) -> None:
+        # The relay hands over an empty set and fills it later, so the coroutine has to keep
+        # the caller's object. Rebinding it leaves the heartbeat blind for the whole run.
+        open_tool_calls: set[str] = set()
+        handle = SimpleNamespace(signal=AsyncMock())
+        stop_event = asyncio.Event()
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(relay_sandbox_events_module, "HEARTBEAT_INTERVAL_SECONDS", 0.01)
+            monkeypatch.setattr(relay_sandbox_events_module.activity, "heartbeat", lambda *_args: None)
+            heartbeat = asyncio.create_task(
+                _background_heartbeat(
+                    stop_event,
+                    cast(temporalio.client.WorkflowHandle, handle),
+                    # The gate reads a value <= 0 as "no event yet". monotonic() counts from boot,
+                    # so subtracting an offset gives <= 0 on a runner that booted recently.
+                    [time.monotonic()],
+                    [0.0],
+                    [False],
+                    inactivity_timeout_seconds=3600.0,
+                    open_tool_calls=open_tool_calls,
+                )
+            )
+            # Let the coroutine reach its first await, so the set is still empty when it
+            # normalises its arguments. That is the moment a falsy check detaches it.
+            await asyncio.sleep(0)
+            open_tool_calls.add("call-1")
+            await asyncio.sleep(0.05)
+            stop_event.set()
+            await heartbeat
+
+        assert call("heartbeat", arg=True) in handle.signal.await_args_list

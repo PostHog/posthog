@@ -107,8 +107,8 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         by_container = {series.labels.get("container"): series for series in response.results}
         assert set(by_container) == {"capture", "ingestion"}
-        assert max(point.value for point in by_container["capture"].points) == 5.0
-        assert max(point.value for point in by_container["ingestion"].points) == 7.0
+        assert max(point.value for point in by_container["capture"].points if point.value is not None) == 5.0
+        assert max(point.value for point in by_container["ingestion"].points if point.value is not None) == 7.0
 
     def test_generic_query_endpoint_accepts_metrics_query(self) -> None:
         response = self.client.post(

@@ -852,6 +852,25 @@ describe('MenuFilterCombobox', () => {
         expect(pinnedRow).toContain('Event properties')
     })
 
+    it('renders the tag a group supplies, from the row it is handed', async () => {
+        // The classic list renders `getTag`, so a group relying on it to mark a row (a cohort that
+        // feature flags cannot target yet) would silently lose that mark in this menu. The tag has
+        // to come off the item, not the group: a recent is stored stripped to its name and id, so
+        // the cohort group's `getTag` gets a record with no readiness on it and renders nothing.
+        const tagged = makeEntry(TaxonomicFilterGroupType.Events, 'my_tagged_event', 'Events')
+        tagged.item.tagLabel = 'Preparing'
+        const stripped = makeEntry(TaxonomicFilterGroupType.Events, 'my_stripped_event', 'Events')
+        const getTag = (item: any): JSX.Element | null => (item?.tagLabel ? <span>{item.tagLabel}</span> : null)
+        tagged.group.getTag = getTag
+        stripped.group.getTag = getTag
+
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.Events], recentEntries: [tagged, stripped] })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('my_tagged_event'))).toBe(true))
+        expect(rowTexts().find((t) => t.includes('my_tagged_event'))).toContain('Preparing')
+        expect(rowTexts().find((t) => t.includes('my_stripped_event'))).not.toContain('Preparing')
+    })
+
     it('recent leads the list at row 0 even when content also matches the search query', async () => {
         // Endpoint returns a row that matches the same query as the recent.
         apiGet.mockImplementation((url: string) => {

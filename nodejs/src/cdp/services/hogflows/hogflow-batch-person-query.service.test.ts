@@ -1,7 +1,10 @@
+import { register } from 'prom-client'
+
 import { Team } from '~/types'
 
 import {
     AccountAudienceResponse,
+    AudienceFetchTimeoutError,
     BlastRadiusPersonsResponse,
     BlastRadiusResponse,
     HogFlowBatchPersonQueryService,
@@ -20,6 +23,8 @@ const createFetchResponse = (status: number, body: unknown): { status: number; t
     }
 }
 
+const AUDIENCE_FETCH_TIMEOUT_MS = 30_000
+
 describe('HogFlowBatchPersonQueryService', () => {
     const team = { id: 123 } as Team
     const filters = { properties: [], filter_test_accounts: true }
@@ -31,7 +36,7 @@ describe('HogFlowBatchPersonQueryService', () => {
     })
 
     const createService = (): HogFlowBatchPersonQueryService => {
-        return new HogFlowBatchPersonQueryService({ fetch: fetchMock } as any)
+        return new HogFlowBatchPersonQueryService({ fetch: fetchMock } as any, AUDIENCE_FETCH_TIMEOUT_MS)
     }
 
     describe('getBlastRadius', () => {
@@ -51,6 +56,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters,
                         group_type_index: 1,
@@ -73,6 +79,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters,
                         group_type_index: undefined,
@@ -139,6 +146,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters,
                         group_type_index: 2,
@@ -151,6 +159,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters,
                         group_type_index: 2,
@@ -182,6 +191,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters,
                         group_type_index: undefined,
@@ -240,6 +250,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/account_audience',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters: accountFilters,
                         cursor: 'abc',
@@ -258,6 +269,75 @@ describe('HogFlowBatchPersonQueryService', () => {
 
             await expect(service.getAccountAudiencePage(team, accountFilters)).rejects.toThrow(
                 'Failed to fetch account audience: 400 bad filters'
+            )
+        })
+    })
+    describe('audience fetch timeouts', () => {
+        const timeoutError = (): Error => {
+            const error = new Error('The operation was aborted due to timeout')
+            error.name = 'TimeoutError'
+            return error
+        }
+
+        const timeoutCount = async (endpoint: string): Promise<number> => {
+            const metric = await register.getSingleMetric('cdp_batch_hog_flow_audience_fetch_timeout')?.get()
+            return metric?.values.find((value) => value.labels.endpoint === endpoint)?.value ?? 0
+        }
+
+        it.each([
+            ['user_blast_radius', (service: HogFlowBatchPersonQueryService) => service.getBlastRadius(team, filters)],
+            [
+                'user_blast_radius_persons',
+                (service: HogFlowBatchPersonQueryService) => service.getBlastRadiusPersons(team, filters),
+            ],
+            ['account_audience', (service: HogFlowBatchPersonQueryService) => service.getAccountAudiencePage(team, {})],
+        ])('reports a %s timeout as AudienceFetchTimeoutError and counts it', async (endpoint, call) => {
+            const service = createService()
+            const before = await timeoutCount(endpoint)
+
+            fetchMock.mockResolvedValue({ fetchResponse: null, fetchError: timeoutError() })
+
+            const error = await call(service).catch((err: unknown) => err)
+
+            expect(error).toBeInstanceOf(AudienceFetchTimeoutError)
+            expect(error).toMatchObject({ endpoint, timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS })
+            expect((error as Error).message).toBe(
+                `Audience fetch to ${endpoint} timed out after 30000ms. The audience query did not finish inside ` +
+                    `CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS.`
+            )
+            expect(await timeoutCount(endpoint)).toBe(before + 1)
+        })
+
+        it('reports an abort wrapped in cause as a timeout', async () => {
+            const service = createService()
+            const aborted = new Error('aborted')
+            aborted.name = 'AbortError'
+
+            fetchMock.mockResolvedValue({
+                fetchResponse: null,
+                fetchError: new Error('fetch failed', { cause: aborted }),
+            })
+
+            await expect(service.getBlastRadiusPersons(team, filters)).rejects.toBeInstanceOf(AudienceFetchTimeoutError)
+        })
+
+        it('keeps a transport error that is not a timeout unchanged', async () => {
+            const service = createService()
+
+            fetchMock.mockResolvedValue({ fetchResponse: null, fetchError: new Error('network down') })
+
+            await expect(service.getBlastRadiusPersons(team, filters)).rejects.not.toBeInstanceOf(
+                AudienceFetchTimeoutError
+            )
+        })
+
+        it('names the endpoint when the fetch returns no response and no error', async () => {
+            const service = createService()
+
+            fetchMock.mockResolvedValue({ fetchResponse: null, fetchError: null })
+
+            await expect(service.getBlastRadiusPersons(team, filters)).rejects.toThrow(
+                'Audience fetch to user_blast_radius_persons returned no response'
             )
         })
     })

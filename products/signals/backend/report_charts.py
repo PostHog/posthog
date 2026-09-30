@@ -48,6 +48,14 @@ MAX_CHART_CAPTION_LENGTH = 500
 ChartSize = Literal["small", "medium", "large"]
 CHART_SIZES: tuple[ChartSize, ...] = ("small", "medium", "large")
 
+# When to attach a chart, as both chart prompts state it: the scout channel's `_REPORT_CHARTS` and
+# the research pipeline's `_REPORT_CHARTS_GUIDANCE`. Shared rather than written twice because the
+# two drifted apart once already, and each talked its readers out of charting in its own words. The
+# prose is channel-agnostic on purpose — it names no tool — so each prompt appends its own mechanics.
+WHEN_TO_CHART = """**When the finding rests on data moving, attach the chart that shows it.** A metric that broke, a rate that slid, a distribution that shifted, a funnel step that collapsed: each of those is a shape, and a reader takes a shape in at a glance where a paragraph of figures makes them rebuild it in their head. The test is the result you got back, never the tool you got it from: a query that returned a series over time, a distribution across buckets, or a set of funnel steps has a shape to draw, and the same tool returning one aggregate row does not. Attaching is what keeps the prose short, because the summary can state the finding and leave the detail to the picture.
+
+Attach nothing when there is no shape to show. A finding that lives entirely in code, in a config, or in a single count has nothing to draw, and a chart restating one number the summary already gives is noise, so write the number instead. One or two charts is the usual answer for a data-shaped report, and none for the rest."""
+
 # Bounds the JSON a single chart can carry into the report and, from there, into the safety-judge
 # prompt. Generous next to a real query node; small enough that a malformed one can't blow up a call.
 _MAX_CHART_QUERY_CHARS = 20_000

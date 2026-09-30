@@ -10,6 +10,9 @@ from unittest import mock
 import requests
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.open_meteo import (
     ARCHIVE_WINDOW_DAYS,
@@ -370,6 +373,20 @@ class TestFetch:
 
         assert "super-secret" not in str(excinfo.value)
         assert "apikey=REDACTED" in str(excinfo.value)
+
+    def test_a_non_json_success_body_is_retryable(self) -> None:
+        # A 2xx that will not decode is a truncated transfer or an edge error page, so it must stay
+        # retryable and stop short of surfacing as a bare `JSONDecodeError` out of the activity.
+        response = _response(200)
+        response.url = "https://customer-api.open-meteo.com/v1/archive?latitude=51.5&apikey=super-secret"
+        response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "<html>Gateway</html>", 0)
+        session = _fake_session([response])
+
+        with pytest.raises(RESTClientRetryableError) as excinfo:
+            _fetch(session, "https://archive-api.open-meteo.com/v1/archive?apikey=super-secret")
+
+        assert "super-secret" not in str(excinfo.value)
+        assert "latitude" not in str(excinfo.value)
 
 
 class TestResolveArchiveRange:

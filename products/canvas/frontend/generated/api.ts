@@ -18,6 +18,8 @@ import type {
     CanvasBuildActionApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
+    CanvasCommentDetailApi,
+    CanvasCommentsResponseApi,
     CanvasConnectorCallApi,
     CanvasConnectorCallResultApi,
     CanvasConnectorsResponseApi,
@@ -42,16 +44,20 @@ import type {
     CanvasStateEntryApi,
     CanvasStateResponseApi,
     CanvasStateSetApi,
+    CanvasStateValueResponseApi,
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasViewResponseApi,
     CanvasesBuildsRetrieveParams,
+    CanvasesCommentsListParams,
+    CanvasesCommentsRetrieveParams,
     CanvasesConnectorsRetrieveParams,
     CanvasesDraftsRetrieveParams,
     CanvasesLayoutRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
     CanvasesStateRetrieveParams,
+    CanvasesStateValueRetrieveParams,
     CanvasesVersionsRetrieveParams,
     PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
@@ -249,6 +255,74 @@ export const canvasesBuildActionCreate = async (
     })
 }
 
+export const getCanvasesCommentsListUrl = (projectId: string, id: string, params?: CanvasesCommentsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/comments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/comments/`
+}
+
+/**
+ * The comment threads on this canvas, newest first. Open threads only unless include_resolved is set.
+ */
+export const canvasesCommentsList = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesCommentsListParams,
+    options?: RequestInit
+): Promise<CanvasCommentsResponseApi> => {
+    return apiMutator<CanvasCommentsResponseApi>(getCanvasesCommentsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesCommentsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: CanvasesCommentsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/comments/${rootCommentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/comments/${rootCommentId}/`
+}
+
+/**
+ * One comment thread on this canvas: the root comment and its replies, oldest first.
+ */
+export const canvasesCommentsRetrieve = async (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: CanvasesCommentsRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasCommentDetailApi> => {
+    return apiMutator<CanvasCommentDetailApi>(getCanvasesCommentsRetrieveUrl(projectId, id, rootCommentId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getCanvasesConnectorsCallUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/connectors/call/`
 }
@@ -341,11 +415,11 @@ export const getCanvasesEditCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Publish per-file edits against the canvas's current source project.
+ * Publish file edits against the canvas's current source project.
  *
- * Diff-aware alternative to sending the complete project: each operation
- * sets a file's content or (content null) deletes it, applied to the head
- * the caller read. `expected_current_version_id` is mandatory here —
+ * Diff-aware alternative to sending the complete project: operations
+ * replace text inside a file, write, delete, or rename files, applied in
+ * order to the head the caller read. `expected_current_version_id` is mandatory here —
  * relative edits against an unverified base could silently merge into
  * someone else's newer work.
  */
@@ -704,6 +778,44 @@ export const canvasesStateSet = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasStateSetApi),
+    })
+}
+
+export const getCanvasesStateValueRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: CanvasesStateValueRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/state/value/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/state/value/`
+}
+
+/**
+ * Canvases: agent-built sandboxed browser apps, filed into channels.
+ *
+ * Source is versioned per publish and built server-side; the canvas app
+ * renders the published build's artifact from the isolated artifact origin.
+ */
+export const canvasesStateValueRetrieve = async (
+    projectId: string,
+    id: string,
+    params: CanvasesStateValueRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasStateValueResponseApi> => {
+    return apiMutator<CanvasStateValueResponseApi>(getCanvasesStateValueRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

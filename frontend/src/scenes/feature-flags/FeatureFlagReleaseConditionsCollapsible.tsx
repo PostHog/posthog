@@ -37,7 +37,6 @@ import {
     LemonLabel,
     LemonMenu,
     LemonSelect,
-    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -75,6 +74,7 @@ import { FractionalRolloutWarning } from 'products/feature_flags/frontend/Fracti
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
+import { BlastRadiusSkeleton } from './BlastRadiusSkeleton'
 import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
@@ -652,6 +652,7 @@ const ConditionContent = ({
                                             hasRowOperator={false}
                                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
+                                            showCohortFlagTargeting
                                         />
                                     </div>
 
@@ -693,7 +694,7 @@ const ConditionContent = ({
                                         {blastRadiusError ? (
                                             <div
                                                 role="status"
-                                                className="text-xs text-muted mt-2 flex items-start gap-2"
+                                                className="text-xs text-muted mt-2 flex items-start gap-2 min-h-[calc(3lh_+_0.25rem)]"
                                             >
                                                 <IconErrorOutline className="text-danger text-sm shrink-0 mt-0.5" />
                                                 <BlastRadiusErrorMessage
@@ -780,9 +781,8 @@ const ConditionContent = ({
                                                 })()}
                                             </div>
                                         ) : (
-                                            <div className="text-xs text-muted mt-2 flex items-center gap-1">
-                                                <Spinner className="text-sm" /> Calculating affected{' '}
-                                                {resolvedTargetName}…
+                                            <div className="text-xs text-muted mt-2">
+                                                <BlastRadiusSkeleton targetName={resolvedTargetName} />
                                             </div>
                                         )}
                                     </div>

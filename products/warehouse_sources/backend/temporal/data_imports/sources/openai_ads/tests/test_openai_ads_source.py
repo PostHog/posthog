@@ -1,18 +1,14 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.source import OpenAIAdsSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENTITY_ENDPOINTS = ["campaigns", "ad_groups", "ads"]
 _INSIGHTS_ENDPOINTS = ["campaign_insights", "ad_group_insights", "ad_insights", "ad_account_insights"]
@@ -21,7 +17,7 @@ _INSIGHTS_ENDPOINTS = ["campaign_insights", "ad_group_insights", "ad_insights", 
 class TestOpenAIAdsSourceConfig:
     def test_config_is_released_with_single_secret_api_key_field(self) -> None:
         config = OpenAIAdsSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.OPEN_AI_ADS
+        assert config.name == ExternalDataSourceType.OPENAIADS
         # A finished source must be visible: stage-labelled, never hidden via unreleasedSource.
         assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.BETA
@@ -79,7 +75,11 @@ class TestOpenAIAdsSourceForPipeline:
         inputs.db_incremental_field_last_value = None
         manager = MagicMock()
         manager.can_resume.return_value = False
-        response = OpenAIAdsSource().source_for_pipeline(MagicMock(api_key="k"), manager, inputs)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.RESTClient.paginate",
+            return_value=iter([[{"currency_code": "USD"}]]),
+        ):
+            response = OpenAIAdsSource().source_for_pipeline(MagicMock(api_key="k"), manager, inputs)
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys

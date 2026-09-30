@@ -29,7 +29,9 @@ Key routing details:
 - `/decide` adds an `X-Original-Endpoint: decide` header so the Rust service can adjust response format
 - A **dedicated subdomain** (`us-d.i.posthog.com` / `eu-d.i.posthog.com`) routes only to `decide` + `feature-flags` with no Django fallback
 - All flag routes have a **5-second timeout** and 2 retries on `reset`/`cancelled`
-- Canary rollouts are supported via Argo Rollouts adjusting weights on the HTTPProxy resources
+- A PR canary (`/pr-canary` on an approved PR) adds a weighted `feature-flags-pr-canary` entry to the `/flags` and `/decide` routes
+- The same canary adds `X-PostHog-Fleet: canary` and `X-PostHog-Fleet: stable` header routes, so a request can pick a fleet
+- The canary weight comes from the state file in the charts repo, not from Argo Rollouts
 
 ### Fleet split
 

@@ -1,19 +1,20 @@
 from django.db import transaction
 from django.db.models import Case, IntegerField, Q, Value, When
-from django.http import HttpResponse
 
 import structlog
 
-from posthog.api.github_webhooks.contracts import PullRequestAttribution
-from posthog.api.github_webhooks.integrations import _SCOPE_DB_ALIAS, _installation_id, _installation_team_ids
-from posthog.api.github_webhooks.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
-from posthog.api.github_webhooks.pull_requests import capture_pr_event, pr_state_for_action
 from posthog.event_usage import groups
+from posthog.github.installations import SCOPE_DB_ALIAS, installation_id, installation_team_ids
+from posthog.github.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
+from posthog.github.pull_request_events import PullRequestAttribution, capture_pr_event, pr_state_for_action
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.facade.github import update_pull_request_assignments
+from products.signals.backend.facade.github import (
+    refresh_pull_request_review_decisions,
+    update_pull_request_assignments,
+)
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
@@ -194,10 +195,10 @@ def _capture_task_pr_event(payload: dict, task_run: TaskRun | None, event: GitHu
     capture_pr_event(payload, attribution, event)
 
 
-def handle_pull_request_event(payload: dict) -> HttpResponse:
-    """Process a pre-verified pull_request webhook event.
+def handle_pull_request_event(payload: dict) -> None:
+    """Process a verified pull_request webhook event.
 
-    Called from the shared GitHub webhook dispatcher (unified dispatcher).
+    Registered as the ``tasks_pr_backstop`` ingress consumer.
     """
     action = payload.get("action")
     pull_request = payload.get("pull_request", {})
@@ -206,7 +207,17 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
 
     if not pr_url:
         logger.warning("github_pr_webhook_no_pr_url", action=action)
-        return HttpResponse(status=200)
+        return
+
+    refresh_review_decision = action in {
+        "opened",
+        "reopened",
+        "ready_for_review",
+        "converted_to_draft",
+        "synchronize",
+        "review_requested",
+        "review_request_removed",
+    }
 
     pr_state = pr_state_for_action(action, pull_request)
     analytics_event: GitHubWebhookAnalyticsEvent | None = None
@@ -226,8 +237,10 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # not worth an analytics event.
         event_action = action or ""
     else:
+        if refresh_review_decision:
+            refresh_pull_request_review_decisions(payload)
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
-        return HttpResponse(status=200)
+        return
 
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
@@ -276,6 +289,8 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         _record_run_pr_state(task_run, pr_state)
 
     update_pull_request_assignments(payload, pr_state)
+    if refresh_review_decision:
+        refresh_pull_request_review_decisions(payload)
 
     if analytics_event is not None:
         _capture_task_pr_event(payload, task_run, analytics_event)
@@ -292,19 +307,26 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         if task_run and pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
 
-    return HttpResponse(status=200)
+    if action == "closed" and task_run and pr_url in claimed_pr_urls:
+        _notify_slack_thread_on_close(task_run, pr_url, merged=merged)
+
+    # Re-read after the backstop, which can bind a just-opened PR to the run.
+    if analytics_event in {"pr_created", "pr_merged", "pr_closed"} and task_run is not None:
+        if pr_url in read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}):
+            _notify_loop_on_pr_event(task_run, analytics_event, pr_url)
 
 
-def handle_pull_request_review_event(payload: dict) -> HttpResponse:
-    """Process a pre-verified pull_request_review webhook event.
+def handle_pull_request_review_event(payload: dict) -> None:
+    """Process a verified pull_request_review webhook event.
 
-    Called from the shared GitHub webhook dispatcher (unified dispatcher). Captures a
+    Registered as the ``tasks_pr_review`` ingress consumer. Captures a
     ``pr_reviewed`` analytics event for human review submissions (approved,
     changes_requested, commented), attributed to the reviewer when their GitHub
     login resolves to an org member.
     """
-    if payload.get("action") != "submitted":
-        return HttpResponse(status=200)
+    action = payload.get("action")
+    if action not in {"submitted", "dismissed"}:
+        return
 
     review = payload.get("review") or {}
     reviewer = review.get("user") or {}
@@ -312,13 +334,18 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
     pr_url = pull_request.get("html_url")
     if not pr_url:
         logger.warning("github_pr_review_webhook_no_pr_url")
-        return HttpResponse(status=200)
+        return
+
+    refresh_pull_request_review_decisions(payload)
+
+    if action != "submitted":
+        return
 
     # StampHog, ReviewHog, and CI apps review every self-driving PR, so without this
     # filter the event stream is mostly bots and the human review signal drowns.
     if (reviewer.get("type") or "").lower() == "bot":
         logger.debug("github_pr_review_webhook_bot_review_skipped", pr_url=pr_url)
-        return HttpResponse(status=200)
+        return
 
     branch = (pull_request.get("head") or {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
@@ -335,7 +362,6 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
         pr_source="task" if task_run else "external",
         run_id=str(task_run.id) if task_run else None,
     )
-    return HttpResponse(status=200)
 
 
 def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
@@ -492,6 +518,51 @@ def _cancel_wizard_run_on_close(task_run: TaskRun) -> None:
     transaction.on_commit(_cancel)
 
 
+def _notify_slack_thread_on_close(task_run: TaskRun, pr_url: str, *, merged: bool) -> None:
+    """Queue the merged or closed card for the Slack thread that announced ``pr_url``.
+
+    The cheap check here keeps the queue free of closes that no thread announced. The task
+    repeats it under a row lock. Best-effort: the webhook must stay 2xx if the broker is down.
+    """
+    if task_run.task.slack_notified_pr_url != pr_url:
+        return
+
+    def _enqueue() -> None:
+        try:
+            from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — keeps the Celery task module off the webhook import path
+                notify_slack_thread_pr_closed,
+            )
+
+            notify_slack_thread_pr_closed.delay(str(task_run.id), pr_url, merged=merged)
+        except Exception:
+            logger.warning("github_pr_webhook_slack_pr_closed_enqueue_failed", run_id=str(task_run.id), exc_info=True)
+
+    transaction.on_commit(_enqueue)
+
+
+def _notify_loop_on_pr_event(task_run: TaskRun, event: str, pr_url: str) -> None:
+    """Queue the loop notification for a PR a loop run opened, merged, or closed.
+
+    The in-memory check keeps runs outside any loop off the queue. Best-effort: the webhook must
+    stay 2xx if the broker is down.
+    """
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if not task_run.task.loop_id and not state.get("loop_id"):
+        return
+
+    def _enqueue() -> None:
+        try:
+            from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — keeps the Celery task module off the webhook import path
+                dispatch_loop_pr_notification_task,
+            )
+
+            dispatch_loop_pr_notification_task.delay(str(task_run.id), event, pr_url)
+        except Exception:
+            logger.warning("github_pr_webhook_loop_pr_enqueue_failed", run_id=str(task_run.id), exc_info=True)
+
+    transaction.on_commit(_enqueue)
+
+
 def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> bool:
     """Idempotently merge ``{key: value}`` into a run's ``output`` JSON under a row lock.
 
@@ -531,26 +602,24 @@ def _task_run_scope_team_ids(payload: dict) -> list[int]:
     a delivery for a run they created that way stops matching. Anything with no installation
     id, or an installation nothing is linked to, falls back to the unscoped lookup.
     """
-    external_id = _installation_id(payload)
+    external_id = installation_id(payload)
     if external_id is None:
         return []
 
-    team_ids = set(_installation_team_ids(payload))
+    team_ids = set(installation_team_ids(payload))
 
     # Left lazy on purpose: Django inlines these as subqueries, so the whole widening is one
     # indexed round-trip rather than three.
     user_ids = (
-        UserIntegration.objects.using(_SCOPE_DB_ALIAS)
+        UserIntegration.objects.using(SCOPE_DB_ALIAS)
         .filter(kind="github", integration_id=external_id)
         .values_list("user_id", flat=True)
     )
     org_ids = (
-        OrganizationMembership.objects.using(_SCOPE_DB_ALIAS)
+        OrganizationMembership.objects.using(SCOPE_DB_ALIAS)
         .filter(user_id__in=user_ids)
         .values_list("organization_id", flat=True)
     )
-    team_ids.update(
-        Team.objects.using(_SCOPE_DB_ALIAS).filter(organization_id__in=org_ids).values_list("id", flat=True)
-    )
+    team_ids.update(Team.objects.using(SCOPE_DB_ALIAS).filter(organization_id__in=org_ids).values_list("id", flat=True))
 
     return sorted(team_ids)

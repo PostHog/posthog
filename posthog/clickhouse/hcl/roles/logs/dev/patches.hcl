@@ -38,6 +38,9 @@ database "posthog" {
   }
 
   patch_table "trace_spans" {
+    settings = {
+      storage_policy = "s3_tiered"
+    }
     projection "projection_aggregate_counts" {
       query = <<SQL
 SELECT

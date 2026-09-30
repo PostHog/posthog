@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { LemonInputSelect } from './LemonInputSelect'
@@ -193,7 +193,10 @@ describe('LemonInputSelect', () => {
         expect(lastCall[0]).toBe(42)
     })
 
-    it('single-select mode: clicking already-selected value keeps it selected', async () => {
+    it.each([
+        ['with no search text', ''],
+        ['after editing the search down to a prefix of it', '{backspace}{backspace}'],
+    ])('single-select mode: clicking already-selected value keeps it selected %s', async (_, keystrokes) => {
         const onChange = jest.fn()
 
         const { container } = render(
@@ -213,12 +216,22 @@ describe('LemonInputSelect', () => {
         // Verify the selected option is displayed
         expect(screen.getAllByText('Option 1').length).toBeGreaterThan(0)
 
-        await openDropdown(container)
-        const selectedOptionButton = await findDropdownButtonByText('Option 1')
-        expect(selectedOptionButton).toBeInTheDocument()
-        await userEvent.click(selectedOptionButton!)
-        // Verify onChange was NOT called with empty array (which would reset the selection)
-        expect(onChange).not.toHaveBeenCalledWith([])
+        const input = await openDropdown(container)
+        if (keystrokes) {
+            await userEvent.type(input, keystrokes)
+            expect(input).toHaveValue('option')
+        }
+        const selectedOptionButton = await waitFor(async () => {
+            const button = await findDropdownButtonByText('Option 1')
+            expect(button).toBeInTheDocument()
+            return button
+        })
+        // A browser returns focus to the input after the option's mousedown, but jsdom does not. Clicking
+        // with the input still focused reproduces the blur that the selection itself causes.
+        expect(input).toHaveFocus()
+        fireEvent.click(selectedOptionButton!)
+        // Neither an empty selection nor the typed search text may replace the selected value
+        expect(onChange).not.toHaveBeenCalled()
     })
 
     it('single-select mode: custom values show with formatCreateLabel when re-opening dropdown', async () => {

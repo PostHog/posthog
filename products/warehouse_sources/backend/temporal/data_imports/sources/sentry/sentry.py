@@ -797,6 +797,19 @@ def _iter_issue_tag_values_rows(
 _UNAVAILABLE_DATASET_STATUSES = (400, 403, 404)
 # Per-project surfaces only ever go missing through permissions or an absent config.
 _MISSING_PROJECT_RESOURCE_STATUSES = (403, 404)
+# project_stats hits Sentry's per-project stats endpoint once per (project, stat) pair. Sentry
+# occasionally returns a persistent 5xx for a single one of those after _request_with_retry's
+# budget is exhausted — the same failure mode as the issue tags/tag-values endpoints (see
+# _skip_issue_on_tags_server_error) — so treat it as that slice being unavailable rather than
+# failing the whole schema.
+_PROJECT_STATS_UNAVAILABLE_STATUSES = (
+    *_MISSING_PROJECT_RESOURCE_STATUSES,
+    500,
+    502,
+    503,
+    504,
+    *CLOUDFLARE_TRANSIENT_STATUSES,
+)
 # Sentry's stats-summary endpoint 400s with this detail when the token's user has no
 # project membership in the org, even though the token itself is otherwise valid.
 _NO_PROJECTS_AVAILABLE_DETAIL = "No projects available"
@@ -816,6 +829,21 @@ STATS_SUMMARY_REJECTED_MESSAGE = (
 
 class SentryStatsSummaryRejectedError(Exception):
     """The stats-summary endpoint rejected our request with a non-recoverable 400."""
+
+
+# Sessions (release health) shares the same failure mode as organization_stats_summary: a plan's
+# release-health data retention can be shorter than SENTRY_RETENTION_DAYS, so the clamped window
+# still lands outside it and Sentry 400s. The wording never interpolates the org, URL, or response
+# body.
+SESSIONS_REJECTED_MESSAGE = (
+    "Sentry rejected PostHog's request for your release health data (the sessions table) with an "
+    "HTTP 400. This usually means the requested date range is outside your Sentry plan's session "
+    "data retention. Remove that table from this source's selected tables, then re-enable the sync."
+)
+
+
+class SentrySessionsRejectedError(Exception):
+    """The sessions endpoint rejected our request with a non-recoverable 400."""
 
 
 def _iter_rows_tolerating_unavailable(
@@ -877,18 +905,35 @@ def _iter_sessions_rows(
 ) -> Iterator[dict[str, Any]]:
     """Release health sessions, flattened to one row per interval per group."""
     window = _retention_window(incremental_value)
-    payload = _fetch_json(
-        base_api_url,
-        _endpoint_path("sessions", organization_slug=organization_slug),
-        headers,
-        {
-            "field": ["sum(session)", "count_unique(user)"],
-            "groupBy": ["project", "release", "environment", "session.status"],
-            "interval": "1d",
-            "start": window.start,
-            "end": window.end,
-        },
-    )
+    try:
+        payload = _fetch_json(
+            base_api_url,
+            _endpoint_path("sessions", organization_slug=organization_slug),
+            headers,
+            {
+                "field": ["sum(session)", "count_unique(user)"],
+                "groupBy": ["project", "release", "environment", "session.status"],
+                "interval": "1d",
+                "start": window.start,
+                "end": window.end,
+            },
+        )
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code == 400:
+            try:
+                body = response.json()
+            except JSONDecodeError:
+                body = None
+            detail = body.get("detail") if isinstance(body, dict) else None
+            if detail == _NO_PROJECTS_AVAILABLE_DETAIL:
+                logger.warning(
+                    "sentry_source.sessions_no_projects_skipped",
+                    organization_slug=organization_slug,
+                )
+                return
+            raise SentrySessionsRejectedError(SESSIONS_REJECTED_MESSAGE) from exc
+        raise
 
     intervals = payload.get("intervals") or []
     for group in payload.get("groups") or []:
@@ -1146,7 +1191,7 @@ def _iter_project_stats_rows(
             for row in _iter_rows_tolerating_unavailable(
                 _points(project_slug, stat),
                 "project_stats",
-                _MISSING_PROJECT_RESOURCE_STATUSES,
+                _PROJECT_STATS_UNAVAILABLE_STATUSES,
                 project_slug=project_slug,
                 stat=stat,
             ):

@@ -52,6 +52,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Allow customization of file name when exporting */
     fileNameForExport?: string
     dataTableExportExcludedColumns?: string[]
+    dataTableExportQuery?: DataTableNode
     /** Cohort ID to enable cohort-specific features like View Replays button */
     cohortId?: number | null
     /** Custom column features to pass down to the DataTable */
@@ -64,6 +65,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableMaxPaginationRows?: number
     /** Keep the Data Table toolbar fixed while its table content scrolls. */
     dataTableAllowContentScroll?: boolean
+    /** Keep the Data Table header row visible while the page scrolls. See `LemonTable`'s `stickyHeader`. */
+    dataTableStickyHeader?: boolean
     /** Override the nouns used by Data Table counts and pagination. */
     dataTableNouns?: [string, string]
     compactDataTableToolbar?: boolean
@@ -100,6 +103,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * filter that returns nothing once the data moves. See `TaxonomicFilterProps.includeHiddenEvents`.
      */
     includeHiddenEvents?: boolean
+    /** Drop axis ticks and titles, for thumbnail-sized renders such as the chart type gallery. */
+    hideAxes?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

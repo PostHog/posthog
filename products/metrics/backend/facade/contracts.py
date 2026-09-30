@@ -27,6 +27,7 @@ from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+MAX_SPARKLINE_BATCH_SIZE = 20
 
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
@@ -137,6 +138,9 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
+    # UCUM unit of the metric as ingested (e.g. "By", "ms"). Empty when the SDK
+    # did not set one. Set by `run_metric_query`, not by callers.
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

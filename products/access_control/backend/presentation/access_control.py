@@ -247,15 +247,16 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
-def upsert_access_control(
+def apply_access_control_rule(
     *,
     team: Team,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
-) -> Response:
+) -> AccessControl | None:
     """Apply one validated access control rule: a null level deletes the subject's rule, any other
-    level creates or updates it. Shared by the per-resource PUT actions and the settings page's
-    generic object-rule write, so validation and cache behavior cannot drift between them."""
+    level creates or updates it. Returns the stored row, or None once the rule is gone. Shared by
+    the per-resource PUT actions and the settings page's rule writes, so validation and cache
+    behavior cannot drift between them."""
     serializer = build_serializer(None)
     serializer.is_valid(raise_exception=True)
     params = serializer.validated_data
@@ -269,21 +270,38 @@ def upsert_access_control(
     ).first()
 
     if params["access_level"] is None:
-        if instance:
-            instance.delete()
-            # Drop the preloaded access-control snapshot so later reads this request are fresh.
-            user_access_control._clear_cache()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        if instance is None:
+            return None
+        instance.delete()
+        # Drop the preloaded access-control snapshot so later reads this request are fresh.
+        user_access_control._clear_cache()
+        return None
 
     if instance:
         serializer = build_serializer(instance)
         serializer.is_valid(raise_exception=True)
     serializer.validated_data["team"] = team
-    serializer.save()
+    rule = serializer.save()
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
 
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return rule
+
+
+def upsert_access_control(
+    *,
+    team: Team,
+    user_access_control: UserAccessControl,
+    build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
+) -> Response:
+    """The 200-or-204 form of `apply_access_control_rule` that the settings UI and the per-resource
+    PUT actions expect."""
+    rule = apply_access_control_rule(
+        team=team, user_access_control=user_access_control, build_serializer=build_serializer
+    )
+    if rule is None:
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    return Response(AccessControlSerializer(rule).data, status=status.HTTP_200_OK)
 
 
 class AccessControlViewSetMixin(_GenericViewSet):

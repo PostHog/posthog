@@ -833,10 +833,17 @@ def _expr_to_compare_op(
             right=apply_path_cleaning(ast.Constant(value=value), team),
         )
     elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
-        if not isinstance(value, list):
-            raise Exception("IN and NOT IN operators require a list of values")
+        values: list
+        if isinstance(value, list):
+            values = value
+        elif isinstance(value, str | int | float):
+            # Stored filters sometimes carry a single scalar for IN/NOT IN (filters created via
+            # the API); treat it as a one-element list, the way `exact` accepts both shapes.
+            values = [value]
+        else:
+            raise QueryError("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
-        coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
+        coerced = cast(list, _coerce_numeric_value_for_string_property(values, property, team))
         return ast.CompareOperation(
             op=op,
             left=expr,
@@ -1549,7 +1556,9 @@ def property_to_expr(
                 is_json_field=False,
             )
 
-        if property.key == "text":
+        # `$el_text` is the autocapture event property for the same text. The action editor saves it as
+        # `text`, but actions saved through other paths can still carry the event-property key.
+        if property.key == "text" or property.key == "$el_text":
             return parse_expr(
                 "arrayExists(text -> {compare}, elements_chain_texts)",
                 {
@@ -1570,7 +1579,12 @@ def property_to_expr(
             raise Exception("Can not convert cohort property to expression without team")
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
-        cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        try:
+            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        except Cohort.DoesNotExist:
+            # The id comes from the request, so a deleted or foreign cohort must read as
+            # bad input rather than escaping as an unhandled DoesNotExist.
+            raise QueryError(f"Cohort {property.value} does not exist")
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=(

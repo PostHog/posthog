@@ -18,7 +18,6 @@ import { LOOPS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
 import { ChannelItemsPane } from "@posthog/ui/features/canvas/components/ChannelItemsPane";
-import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import {
   type ChannelPageKey,
   channelPageLabel,
@@ -266,7 +265,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             cap={RECENTS_CAP}
             channelIdFor={() => channelId}
             emptyState={<TabEmptyState tab={tab} />}
-            overlay={<ChannelsFab channelId={channelId} />}
             searchLabel={
               tab === "canvas" ? "Search canvases" : "Search sessions"
             }

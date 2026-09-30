@@ -3,18 +3,12 @@ import { type ReactNode } from 'react'
 import { IconArchive } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { dayjs } from 'lib/dayjs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -25,8 +19,8 @@ import {
 
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { TaskSourceIcon } from '../../../components/TaskSourceIcon'
 import type { Task } from '../../../types/taskTypes'
-import { TaskDebugLogsMenu } from './TaskDebugLogsMenu'
 import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
 import { TaskErrorBanner } from './TaskErrorBanner'
@@ -41,11 +35,11 @@ export interface TaskRunSceneShellProps {
     isHeaderLoading?: boolean
     /** Title-bar action buttons (or their skeleton). Supplied by the caller so the shell stays presentational. */
     titleActions?: JSX.Element
-    sceneMenuBarEnabled: boolean
+    /** Omitting this leaves the title read-only, which is what the create thread needs: it renders this shell before the task exists. */
+    onRename?: (title: string) => void
     onArchive: () => void
     taskError: string | null
     onRetry: () => void
-    /** Mobile shows the single-column layout, where the title needs a back button to return to the list. */
     isMobile: boolean
     /** The run-log slot (the streamed thread). */
     children: ReactNode
@@ -61,7 +55,7 @@ export function TaskRunSceneShell({
     selectedRun,
     isHeaderLoading = false,
     titleActions,
-    sceneMenuBarEnabled,
+    onRename,
     onArchive,
     taskError,
     onRetry,
@@ -70,19 +64,6 @@ export function TaskRunSceneShell({
 }: TaskRunSceneShellProps): JSX.Element {
     return (
         <SceneContent className="h-full min-h-0 gap-y-0">
-            {sceneMenuBarEnabled && task && (
-                <SceneMenuBar>
-                    <SceneMenuBarMenu label="File" dataAttr="task-menubar-file">
-                        <SceneMenuBarFileItems dataAttrKey="task" />
-                        <SceneMenuBarSeparator />
-                        <SceneMenuBarItem variant="destructive" onClick={onArchive} data-attr="task-menubar-archive">
-                            <IconArchive />
-                            Archive task
-                        </SceneMenuBarItem>
-                    </SceneMenuBarMenu>
-                    <TaskDebugLogsMenu />
-                </SceneMenuBar>
-            )}
             <ScenePanel>
                 {isHeaderLoading ? (
                     <TaskPanelSkeleton />
@@ -145,19 +126,32 @@ export function TaskRunSceneShell({
                         />
                     )}
 
-                    <header className="flex flex-col gap-y-2 mt-4">
+                    <header className={cn('flex flex-col gap-y-2 px-4 pt-2', taskError && 'mt-4')}>
                         <SceneTitleSection
+                            className="-mt-2"
                             name={task?.title || 'Task'}
                             description={null}
-                            resourceType={{ type: 'task' }}
+                            resourceType={{
+                                type: 'task',
+                                forceIcon: (
+                                    <TaskSourceIcon
+                                        originProduct={task?.origin_product}
+                                        environment={task?.latest_run?.environment}
+                                    />
+                                ),
+                            }}
                             isLoading={isHeaderLoading}
-                            canEdit={false}
+                            canEdit={!!onRename}
+                            onNameChange={onRename}
+                            // One write when the field is left, rather than one per keystroke.
+                            saveOnBlur
+                            renameDebounceMs={0}
                             forceBackTo={
                                 isMobile
                                     ? {
-                                          key: 'tasks',
-                                          name: 'Tasks',
-                                          path: urls.taskTracker(),
+                                          key: 'posthog-ai',
+                                          name: 'PostHog AI',
+                                          path: urls.ai(),
                                       }
                                     : undefined
                             }

@@ -377,6 +377,22 @@ fn extract_chunk_id_from_body(body: &str) -> Option<String> {
     None
 }
 
+/// Resolves a `sourceMappingURL` reference against the url the source was fetched from.
+///
+/// The reference is a URL reference, not a path: it can be absolute, protocol-relative,
+/// root-relative, or relative to the source's directory, and it can carry a query string or
+/// fragment of its own. `Url::join` is exactly that resolution, so it replaces the hand-rolled
+/// dispatch this used to do with `Url::set_path` - which percent-encoded any `?` in the
+/// reference into the path, left the base's own query stacked alongside it, and resolved
+/// `../` against the root instead of the source's directory.
+///
+/// A reference is free to name another host, so callers must still vet the result before
+/// fetching it - `fetch_source_map` does.
+fn resolve_sourcemap_ref(base: &Url, found: &str) -> Result<Url, JsResolveErr> {
+    base.join(found)
+        .map_err(|_| JsResolveErr::InvalidSourceMapUrl(found.to_string()))
+}
+
 async fn find_sourcemap_url(
     client: &reqwest::Client,
     start: Url,
@@ -401,7 +417,7 @@ async fn find_sourcemap_url(
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
 
     // we use the final URL of the response in the relative case, to account for any redirects
-    let mut final_url = res.url().clone();
+    let final_url = res.url().clone();
 
     // First, we check for the sourcemap headers: SourceMap, or X-SourceMap
     let headers = res.headers();
@@ -426,15 +442,7 @@ async fn find_sourcemap_url(
             .to_str()
             .map_err(|_| JsResolveErr::InvalidSourceMapHeader(final_url.to_string()))?;
 
-        let url = if url.starts_with("http") {
-            url.parse()
-                .map_err(|_| JsResolveErr::InvalidSourceMapUrl(url.to_string()))?
-        } else {
-            // It's wild to me that this is infallible - feels like it must be a bug, there's no way
-            // "literally any string" is a valid URL path segment, even if there are escaping rules
-            final_url.set_path(url);
-            final_url
-        };
+        let url = resolve_sourcemap_ref(&final_url, url)?;
         return Ok(JsSourcePeek {
             body,
             sourcemap_url: url.into(),
@@ -464,29 +472,7 @@ async fn find_sourcemap_url(
                 });
             }
 
-            // If the found url has a scheme, we can just parse it
-            let url = if found.starts_with("http") {
-                found
-                    .parse()
-                    .map_err(|_| JsResolveErr::InvalidSourceMapUrl(found.to_string()))?
-            } else if !found.contains('/') {
-                // If it doesn't contain a slash, assume it only replaces the final part of the path
-                let Some(segments) = final_url.path_segments() else {
-                    // We should never hit this - path_segments() should always return Some for a URL
-                    // that "can be base" - basically a url with a domain name and scheme - and we know
-                    // final_url has that because it's the url we got the body we just parsed from.
-                    return Err(JsResolveErr::InvalidSourceMapUrl(found.to_string()).into());
-                };
-
-                let mut segments = segments.collect::<Vec<_>>();
-                segments.pop();
-                segments.push(found);
-                final_url.set_path(&segments.join("/"));
-                final_url
-            } else {
-                final_url.set_path(found);
-                final_url
-            };
+            let url = resolve_sourcemap_ref(&final_url, found)?;
             return Ok(JsSourcePeek {
                 body,
                 sourcemap_url: url.into(),
@@ -726,6 +712,212 @@ mod test {
         let expected = server.url("/static/chunk-PGUQKT6S.js.map").parse().unwrap();
         assert_eq!(res, expected);
         mock.assert_hits(1);
+    }
+
+    // A `sourceMappingURL` reference is a URL reference, so a query string in it is a query
+    // string, not literal path characters. Shopify's asset CDN echoes the request's query
+    // into the comment it serves, so every cache-busted theme asset produces one of these.
+    #[tokio::test]
+    async fn find_sourcemap_url_keeps_query_on_absolute_path_ref() {
+        let server = MockServer::start();
+        let body = "console.log('hello');\n//# sourceMappingURL=/static/chunk.js.map?v=193bf1\n";
+
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200).body(body);
+        });
+
+        let client = reqwest::Client::new();
+        let url = server.url("/static/chunk.js").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected = server.url("/static/chunk.js.map?v=193bf1").parse().unwrap();
+        assert_eq!(res, expected);
+        mock.assert_hits(1);
+    }
+
+    // Same, for a reference with no slash in it - the branch that replaces the final path
+    // segment. The query has to be split off before the segment swap, or it lands in the
+    // segment.
+    #[tokio::test]
+    async fn find_sourcemap_url_keeps_query_on_bare_filename_ref() {
+        let server = MockServer::start();
+        let body = "console.log('hello');\n//# sourceMappingURL=chunk.js.map?v=193bf1\n";
+
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200).body(body);
+        });
+
+        let client = reqwest::Client::new();
+        let url = server.url("/static/chunk.js").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected = server.url("/static/chunk.js.map?v=193bf1").parse().unwrap();
+        assert_eq!(res, expected);
+        mock.assert_hits(1);
+    }
+
+    // The production shape: the source itself was fetched with a cache-buster, so the source
+    // url carries a query of its own. Relative resolution has to drop the base's query rather
+    // than leave it stacked alongside the reference's.
+    #[tokio::test]
+    async fn find_sourcemap_url_does_not_stack_queries() {
+        let server = MockServer::start();
+        let body = "console.log('hello');\n//# sourceMappingURL=/static/chunk.js.map?v=193bf1\n";
+
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200).body(body);
+        });
+
+        let client = reqwest::Client::new();
+        let url = server.url("/static/chunk.js?v=193bf1").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected = server.url("/static/chunk.js.map?v=193bf1").parse().unwrap();
+        assert_eq!(res, expected);
+        mock.assert_hits(1);
+    }
+
+    // The `SourceMap` header takes the same kind of reference, and resolves it the same way.
+    #[tokio::test]
+    async fn find_sourcemap_url_keeps_query_from_header() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200)
+                .header("SourceMap", "/static/chunk.js.map?v=193bf1")
+                .body("console.log('hello');\n");
+        });
+
+        let client = reqwest::Client::new();
+        let url = server.url("/static/chunk.js?v=193bf1").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected = server.url("/static/chunk.js.map?v=193bf1").parse().unwrap();
+        assert_eq!(res, expected);
+        mock.assert_hits(1);
+    }
+
+    // A reference that walks up the path has to be resolved against the source's directory.
+    #[tokio::test]
+    async fn find_sourcemap_url_resolves_dot_segments() {
+        let server = MockServer::start();
+        let body = "console.log('hello');\n//# sourceMappingURL=../maps/chunk.js.map\n";
+
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/js/chunk.js");
+            then.status(200).body(body);
+        });
+
+        let client = reqwest::Client::new();
+        let url = server.url("/static/js/chunk.js").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected = server.url("/static/maps/chunk.js.map").parse().unwrap();
+        assert_eq!(res, expected);
+        mock.assert_hits(1);
+    }
+
+    // An absolute reference still names whatever host it says, including a different one from
+    // the source. This is the case the old `starts_with("http")` branch handled, and resolving
+    // via `join` has to keep it working.
+    #[tokio::test]
+    async fn find_sourcemap_url_keeps_absolute_cross_host_ref() {
+        let source_server = MockServer::start();
+        let map_server = MockServer::start();
+        let map_url = map_server.url("/maps/chunk.js.map");
+        let body = format!("console.log('hello');\n//# sourceMappingURL={map_url}\n");
+
+        let mock = source_server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200).body(body);
+        });
+
+        let client = reqwest::Client::new();
+        let url = source_server.url("/static/chunk.js").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected: Url = map_url.parse().unwrap();
+        assert_eq!(res, expected);
+        assert_ne!(res.port(), source_server.port().into());
+        mock.assert_hits(1);
+    }
+
+    // End to end: a cache-busted asset whose map reference carries the same cache-buster must
+    // actually fetch and parse, not just produce a nice-looking url.
+    #[tokio::test]
+    async fn fetch_resolves_cache_busted_sourcemap() {
+        let server = MockServer::start();
+        let source = format!(
+            "{}\n//# sourceMappingURL=/static/chunk-PGUQKT6S.js.map?v=193bf1\n",
+            String::from_utf8_lossy(MINIFIED_WITH_NO_MAP_REF)
+        );
+
+        let source_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js");
+            then.status(200).body(source);
+        });
+        let map_mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/static/chunk-PGUQKT6S.js.map")
+                .query_param("v", "193bf1");
+            then.status(200).body(MAP);
+        });
+
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
+        config.allow_internal_ips = true;
+        let provider = SourcemapProvider::new(&config);
+        let url = server
+            .url("/static/chunk-PGUQKT6S.js?v=193bf1")
+            .parse()
+            .unwrap();
+
+        let data = provider.fetch(1, url).await.unwrap();
+        let (source_and_map, _): (SourceAndMap, usize) =
+            read_symbol_data_with_byte_count(&data).unwrap();
+
+        assert!(source_and_map.minified_source.contains("sourceMappingURL"));
+        source_mock.assert_hits(1);
+        map_mock.assert_hits(1);
     }
 
     #[tokio::test]

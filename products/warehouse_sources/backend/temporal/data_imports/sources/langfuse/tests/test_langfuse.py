@@ -273,6 +273,53 @@ class TestGetRows:
         assert session.get.call_args_list[0].kwargs["params"]["page"] == 1
         assert session.get.call_args_list[1].kwargs["params"]["page"] == 2
 
+    def test_whole_number_costs_are_emitted_as_floats(self):
+        # The oldest traces are fetched first and often carry a flat 0 cost. Left as ints they
+        # create an integer column, and the first fractional cost then fails the whole sync.
+        manager = self._manager()
+        rows, _ = self._run(
+            manager,
+            [_page([{"id": "t1", "totalCost": 0, "latency": 2}], page=1, total_pages=1)],
+        )
+        assert isinstance(rows[0]["totalCost"], float)
+        assert isinstance(rows[0]["latency"], float)
+        assert rows[0]["totalCost"] == 0.0
+        assert rows[0]["latency"] == 2.0
+
+    def test_non_integer_values_in_float_fields_are_left_alone(self):
+        manager = self._manager()
+        rows, _ = self._run(
+            manager,
+            [
+                _page(
+                    [
+                        {"id": "t1", "totalCost": 0.25, "latency": None},
+                        {"id": "t2", "totalCost": "n/a", "latency": True},
+                    ],
+                    page=1,
+                    total_pages=1,
+                )
+            ],
+        )
+        assert rows[0]["totalCost"] == 0.25
+        assert rows[0]["latency"] is None
+        # A string stays a string so a genuine upstream type change still surfaces, and a bool is
+        # not an int here even though Python says otherwise.
+        assert rows[1]["totalCost"] == "n/a"
+        assert rows[1]["latency"] is True
+
+    def test_fields_outside_float_fields_keep_their_type(self):
+        # scores.value is numeric only for NUMERIC scores, so it must not be widened.
+        manager = self._manager()
+        rows, _ = self._run(
+            manager,
+            [_cursor_page([{"id": "s1", "value": 1}, {"id": "s2", "value": "misc"}], cursor=None)],
+            endpoint="scores",
+        )
+        assert rows[0]["value"] == 1
+        assert not isinstance(rows[0]["value"], float)
+        assert rows[1]["value"] == "misc"
+
     def test_page_pagination_saves_next_page_after_yield(self):
         manager = self._manager()
         self._run(

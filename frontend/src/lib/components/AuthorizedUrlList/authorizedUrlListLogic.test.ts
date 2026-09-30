@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     AuthorizedUrlListType,
+    NEW_URL,
     SuggestedDomain,
     appEditorUrl,
     authorizedUrlListLogic,
@@ -67,7 +68,7 @@ describe('the authorized urls list logic', () => {
 
     describe('applying a suggestion', () => {
         // Regression coverage: the `addUrl` listener must await `saveUrls` before triggering
-        // `markTaskAsCompleted`. Both send PATCHes to /api/environments/:id, and the `currentTeam`
+        // `markTaskAsCompleted`. Both send PATCHes to /api/projects/:id, and the `currentTeam`
         // subscription in this logic replaces local `authorizedUrls` from whichever response lands
         // last. If the onboarding-tasks PATCH fires in parallel with the app_urls PATCH, its
         // response can carry a stale app_urls snapshot and wipe the just-added URL out of the UI.
@@ -92,7 +93,7 @@ describe('the authorized urls list logic', () => {
             await flushPromises()
 
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}`,
+                `api/projects/${MOCK_TEAM_ID}`,
                 expect.objectContaining({
                     app_urls: expect.arrayContaining(['https://new-suggestion.example.com']),
                 })
@@ -116,6 +117,40 @@ describe('the authorized urls list logic', () => {
                 proposedUrlChanged: true,
                 proposedUrlHasErrors: true,
                 proposedUrlValidationErrors: { url: 'Please enter a valid URL' },
+            })
+        })
+
+        // The form opens prefilled with `https://`, so a pasted full URL doubles the protocol
+        test.each([
+            ['https://www.example.com', 'https://www.example.com'],
+            ['http://localhost:3000', 'http://localhost:3000'],
+        ])('keeps a single protocol when "%s" is pasted over the prefilled one', async (pasted, expected) => {
+            await expectLogic(logic, () => {
+                logic.actions.newUrl()
+                logic.actions.setProposedUrlValue('url', `${NEW_URL}${pasted}`)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                proposedUrl: { url: expected },
+                proposedUrlHasErrors: false,
+            })
+        })
+
+        it('repairs a saved URL that already has two protocols when it is edited', async () => {
+            // An earlier test leaves `api.update` mocked with a promise it never resolves
+            const update = jest.spyOn(api, 'update').mockResolvedValue({})
+
+            await expectLogic(logic, () => {
+                logic.actions.setAuthorizedUrls(['https://https://www.example.com'])
+                logic.actions.setEditUrlIndex(0)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.submitProposedUrl()
+            }).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}`, {
+                app_urls: ['https://www.example.com'],
             })
         })
 
@@ -268,7 +303,7 @@ describe('the authorized urls list logic', () => {
 
             expectLogic(logic, () => logic.actions.addUrl('http://*.example.com')).toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}`, {
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}`, {
                 recording_domains: ['https://recordings.posthog.com/', 'http://*.example.com'],
             })
         })
@@ -287,6 +322,10 @@ describe('the authorized urls list logic', () => {
                 {
                     proposedUrl: 'capacitor://localhost',
                     validityMessage: undefined,
+                },
+                {
+                    proposedUrl: 'https://https://www.example.com',
+                    validityMessage: "Please enter a valid domain (URLs with a path aren't allowed)",
                 },
             ]
 

@@ -89,6 +89,15 @@ class ClickHouseAtCapacity(APIException):
     )
 
 
+class QueryRanConcurrently(APIException):
+    """Raised by a query single flight follower whose leader left nothing to serve or rebuild: the
+    leader failed in a way that cannot be shared, died, or held its lock past the limit."""
+
+    status_code = 503
+    default_code = "query_ran_concurrently"
+    default_detail = "This query was already running and its result couldn't be reused. Try again in a moment."
+
+
 class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."

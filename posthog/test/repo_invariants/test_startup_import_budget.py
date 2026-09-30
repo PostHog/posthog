@@ -1,8 +1,11 @@
 import os
 import re
 import sys
+import weakref
 import subprocess
 from pathlib import Path
+
+from django.db.models.signals import post_save
 
 # Heavy subsystems that must NOT be imported by a bare ``django.setup()``. Each one was
 # deliberately pulled off the startup path (lazy API router, deferred AI-core imports,
@@ -41,6 +44,18 @@ FORBIDDEN_AT_SETUP = [
     "posthog.hogql.query",  # query execution entrypoint — drags the layers below in
     "posthog.hogql_queries",  # the query-runner layer (every insight runner)
     "posthog.api.services.query",  # API query service — viewset-request-time only
+    "products.signals.backend.tasks",  # celery task module — workers load it by autodiscovery; at setup it drags the signals and tasks contracts in
+    "products.signals.backend.scout_harness.suggestions",  # reaches the tasks facade contracts (pydantic DTOs) — deferred in the signals receivers; the facade itself stays importable
+    "ee.vercel.integration",  # reaches ee.api.authentication (@api_view -> DRF schema class) — receivers live in ee.vercel.receivers and import it at call time
+    "posthog.api.documentation",  # drf_spectacular schema hooks — request-time only
+    "django.test",  # test client — was dragged in by drf_spectacular.plumbing via rest_framework.test
+    "zxcvbn",  # password strength — only posthog.auth needs it, deferred in posthog.helpers.impersonation
+    "webauthn",  # passkeys — same door as zxcvbn (posthog.auth)
+    "posthog.async_migrations.setup",  # imports every async migration — only when SKIP_ASYNC_MIGRATIONS_SETUP is off
+    "infi.clickhouse_orm",  # ClickHouse ORM — migration commands only; its package __init__ imports pkg_resources
+    "pkg_resources",  # setuptools shim (~40ms) — only reached via infi.clickhouse_orm
+    "boto3",  # AWS SDK — object storage, SES and JS snippet clients build it at call time
+    "botocore",  # AWS SDK core — same door as boto3
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
@@ -292,6 +307,25 @@ def test_setup_receivers_match_baseline() -> None:
         "If the new wiring is deliberate (receiver in an import-light module, imported from the owning "
         "AppConfig.ready() — see docs/internal/django-startup-time.md), record it: "
         "UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/repo_invariants/test_startup_import_budget.py -k receivers_match"
+    )
+
+
+# The baseline above resolves a weak receiver and skips a dead one, so it cannot see a receiver that
+# stays alive only by accident. The weak=False comment in register_team_extension_signal explains why
+# a weakly connected receiver survives under DEBUG and dies in production.
+def test_team_extension_receivers_are_connected_strongly() -> None:
+    extension_receivers = [entry for entry in post_save.receivers if str(entry[0][0]).startswith("create_")]
+    assert extension_receivers, (
+        "Found no create_* receivers on post_save. Did the dispatch_uid in register_team_extension_signal "
+        "change, or does no extension register the hook any more?"
+    )
+    weakly_held = sorted(
+        str(entry[0][0]) for entry in extension_receivers if isinstance(entry[1], weakref.ReferenceType)
+    )
+    assert not weakly_held, (
+        f"These team-extension receivers are connected weakly: {weakly_held}. "
+        "Pass weak=False in register_team_extension_signal, or the receiver is collected right after "
+        "registration and no extension row is written when a team is created."
     )
 
 

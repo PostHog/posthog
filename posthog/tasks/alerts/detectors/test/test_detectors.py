@@ -686,6 +686,12 @@ class TestComputeMinSamplesForDetector:
                 173,
             ),
             ("ensemble_empty", {"type": "ensemble", "detectors": []}, 31),
+            # The AI detector's own default is 90, not the 30 the statistical ones fall back to,
+            # and it holds no training point back, so the window is the exact requirement.
+            ("llm_no_window", {"type": "llm"}, 90),
+            ("llm_null_window", {"type": "llm", "window": None}, 90),
+            ("llm_custom_window", {"type": "llm", "window": 60}, 60),
+            ("llm_minimum_window", {"type": "llm", "window": 5}, 5),
         ]
     )
     def test_compute_min_samples(self, _name: str, config: dict[str, Any], expected: int) -> None:

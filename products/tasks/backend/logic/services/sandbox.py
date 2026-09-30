@@ -15,12 +15,14 @@ import os
 import re
 import json
 import shlex
+import functools
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Protocol, Self
 
@@ -34,6 +36,7 @@ from posthog.dataclasses import frozen
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
+    SANDBOX_REPOSITORIES_ROOT,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
@@ -50,6 +53,23 @@ from products.tasks.backend.logic.services.sandbox_config import (
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
+
+
+SANDBOX_BASE_DOCKERFILE_PATH = Path(__file__).resolve().parents[2] / "sandbox" / "images" / "Dockerfile.sandbox-base"
+
+
+def read_pinned_agent_version(dockerfile_path: Path) -> str | None:
+    try:
+        source = dockerfile_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r"^ARG AGENT_VERSION=(\S+)", source, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+@functools.cache
+def pinned_agent_version() -> str | None:
+    return read_pinned_agent_version(SANDBOX_BASE_DOCKERFILE_PATH)
 
 
 @frozen
@@ -69,6 +89,7 @@ class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
     NOTEBOOK_BASE = "notebook_base"
     PI_BASE = "pi_base"
+    AUTORESEARCH_BASE = "autoresearch_base"
     VM_BASE = "vm_base"
 
     STREAMLIT_BASE = "streamlit_base"
@@ -77,6 +98,31 @@ class SandboxTemplate(str, Enum):
     # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
     SLIM_BASE = "slim_base"
     CANVAS_BUILD = "canvas_build"
+    # SLIM_BASE plus a uv cache that already holds the stamphog review engine's pinned deps,
+    # so the engine's `uv run` starts without a download.
+    STAMPHOG_REVIEW = "stamphog_review"
+
+
+# Templates whose image hosts the task agent server, so a task can ask for them. The
+# notebook, streamlit, slim and canvas images omit the server on purpose, pi has no Modal
+# image, and VM_BASE bakes in Docker and forces the VM runtime, which only the server-side
+# VM routing gate may select.
+TASK_AGENT_TEMPLATES: frozenset[SandboxTemplate] = frozenset(
+    {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.AUTORESEARCH_BASE}
+)
+
+
+def parse_requested_sandbox_template(value: str | None) -> SandboxTemplate:
+    """Resolve a template a caller asked for on a task; anything outside ``TASK_AGENT_TEMPLATES`` is refused."""
+    if value is None:
+        return SandboxTemplate.DEFAULT_BASE
+    try:
+        template = SandboxTemplate(value)
+    except ValueError:
+        raise ValueError(f"Unknown sandbox template: {value!r}")
+    if template not in TASK_AGENT_TEMPLATES:
+        raise ValueError(f"Sandbox template {value!r} cannot be requested per task")
+    return template
 
 
 class SandboxWorkload(str, Enum):
@@ -111,10 +157,30 @@ import path; a test pins them to the enum so a rename can't drop a product off t
 """
 
 
+FULL_HISTORY_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        # Signals report research reads history for `git blame`
+        "signal_report",
+        # A pinned scout asks the same questions of the tree: `git log`, `git blame`, `--since`
+        "signals_scout",
+    }
+)
+"""Origin products whose sandboxes clone the full commit history instead of `--depth 1`.
+
+Every other origin keeps the fast-boot shallow clone. Nobody watches a fleet run, so a slower
+boot costs less than the unshallow fetch a skill body pays mid-run to get history back. Held as
+strings for the same reason as ``SELF_DRIVING_ORIGIN_PRODUCTS``; a test pins them to the enum.
+"""
+
+
 def workload_for_origin_product(origin_product: str | None) -> SandboxWorkload:
     if origin_product in SELF_DRIVING_ORIGIN_PRODUCTS:
         return SandboxWorkload.SELF_DRIVING
     return SandboxWorkload.DEFAULT
+
+
+def needs_full_history(origin_product: str | None) -> bool:
+    return origin_product in FULL_HISTORY_ORIGIN_PRODUCTS
 
 
 class ExecutionResult(BaseModel):
@@ -179,6 +245,10 @@ class SandboxConfig(BaseModel):
     # surfaced in the run log so image downgrades are never silent.
     image_fallback: str | None = None
     dev_stack_present: bool | None = None
+    # Hogland only: provision from the pluggable-memory golden (boots small, hot-adds
+    # guest RAM up to the cap) instead of the fixed-size default golden. Set from the
+    # tasks-hogland-hotplug-golden flag at context time; ignored by other providers.
+    use_hotplug_golden: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -269,7 +339,7 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
 def sandbox_repo_path(repository: str) -> str:
     """Absolute path an ``org/repo`` is cloned to inside the sandbox (the agent-server's cwd)."""
     org, repo = repository.lower().split("/")
-    return f"{WORKING_DIR}/repos/{org}/{repo}"
+    return f"{SANDBOX_REPOSITORIES_ROOT}/{org}/{repo}"
 
 
 def redact_sandbox_command(command: str) -> str:
@@ -289,6 +359,7 @@ def build_agent_runtime_env_prefix(
     interaction_origin: str | None = None,
     agent_runtime: str | None = None,
     sandbox_id: str | None = None,
+    sandbox_runtime: str | None = None,
     runtime_adapter: str | None = None,
     provider: str | None = None,
     model: str | None = None,
@@ -310,6 +381,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
         "POSTHOG_AGENT_RUNTIME": agent_runtime,
         "POSTHOG_SANDBOX_ID": sandbox_id,
+        "POSTHOG_SANDBOX_RUNTIME": sandbox_runtime,
         "POSTHOG_CODE_RUNTIME_ADAPTER": runtime_adapter,
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
@@ -348,6 +420,33 @@ def build_agent_runtime_env_prefix(
     unset_flags = "-u CLAUDE_CODE_USE_BEDROCK -u AWS_CONTAINER_CREDENTIALS_FULL_URI" if unset_bedrock else ""
     body = f"{unset_flags} {assignments}".strip()
     return f"env {body} " if body else ""
+
+
+AGENT_SERVER_BINARY_PATH = "/scripts/node_modules/.bin/agent-server"
+
+AGENT_SERVER_CAPABILITY_TOKENS: dict[str, str] = {
+    "auto_publish": "autoPublish",
+    "exec_permission_regex": "posthogExecPermissionRegex",
+    "pi_runtime": "POSTHOG_AGENT_RUNTIME",
+    "prewarmed_resume_message_driven": "prewarmedResumeMessageDriven",
+}
+
+
+def build_bundled_skills_clear_command() -> str:
+    """Delete the bundled skill folders when the sandbox environment asks for it.
+
+    The check runs inside the sandbox: a sandbox rehydrated by id carries no config env
+    vars, but the container environment still holds the value the launcher set.
+    """
+    paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
+    return f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
+
+
+def build_agent_server_capability_probe(capability: str) -> str:
+    """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
+    CLI options, so probe the installed binary before passing a flag such as --autoPublish;
+    unsupported binaries degrade instead of crashing at launch."""
+    return f"grep -q {shlex.quote(AGENT_SERVER_CAPABILITY_TOKENS[capability])} {AGENT_SERVER_BINARY_PATH}"
 
 
 class SandboxBase(ABC):
@@ -477,42 +576,9 @@ class SandboxBase(ABC):
             )
         return False
 
-    def clear_bundled_skills_if_disabled(self) -> None:
-        """Delete the bundled skill folders when the sandbox environment asks for it.
-
-        The check runs inside the sandbox: a sandbox rehydrated by id carries no config env
-        vars, but the container environment still holds the value the launcher set.
-        """
-        paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
-        command = f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
-        result = self.execute(command, timeout_seconds=30)
-        if result.exit_code != 0:
-            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
-
-    def agent_server_supports_auto_publish(self) -> bool:
-        """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
-        CLI options, so probe the installed binary before passing --autoPublish; unsupported
-        binaries degrade to review-first instead of crashing at launch."""
-        result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
-        return result.exit_code == 0
-
-    def agent_server_supports_exec_permission_regex(self) -> bool:
-        result = self.execute(
-            "grep -q posthogExecPermissionRegex /scripts/node_modules/.bin/agent-server", timeout_seconds=10
-        )
-        return result.exit_code == 0
-
-    def agent_server_supports_pi_runtime(self) -> bool:
-        result = self.execute(
-            "grep -q POSTHOG_AGENT_RUNTIME /scripts/node_modules/.bin/agent-server",
-            timeout_seconds=10,
-        )
-        return result.exit_code == 0
-
     def agent_server_supports_prewarmed_resume_message_driven(self) -> bool:
         result = self.execute(
-            "grep -q prewarmedResumeMessageDriven /scripts/node_modules/.bin/agent-server",
-            timeout_seconds=10,
+            build_agent_server_capability_probe("prewarmed_resume_message_driven"), timeout_seconds=10
         )
         return result.exit_code == 0
 
@@ -535,7 +601,7 @@ class SandboxBase(ABC):
         )
 
         target_path = sandbox_repo_path(repository)
-        org_path = f"{WORKING_DIR}/repos/{org}"
+        org_path = f"{SANDBOX_REPOSITORIES_ROOT}/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
@@ -612,6 +678,9 @@ class SandboxBase(ABC):
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
+        codex_run_token: str | None = None,
+        sandbox_runtime: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -645,6 +714,9 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def is_running(self) -> bool: ...
+
+    def exit_reason(self) -> str | None:
+        return None
 
     def read_agent_server_session_init_ms(self) -> int | None:
         return None
@@ -699,17 +771,20 @@ class SandboxBase(ABC):
                 if isinstance(raw_phases, dict)
                 else {}
             )
+            versioned_contract = isinstance(boot, dict) and "contractVersion" in boot
             for source, target in (
                 ("totalMs", "server_total"),
                 ("httpReadyMs", "http_ready"),
                 ("launcherToProcessMs", "launcher_to_process"),
             ):
+                if source == "totalMs" and not versioned_contract:
+                    continue
                 duration = boot.get(source) if isinstance(boot, dict) else None
                 if isinstance(duration, int | float) and not isinstance(duration, bool):
                     phases[target] = max(0, int(duration))
             boot_ms = payload.get("bootMs")
-            if "server_total" not in phases and isinstance(boot_ms, int | float) and not isinstance(boot_ms, bool):
-                phases["server_total"] = max(0, int(boot_ms))
+            if isinstance(boot_ms, int | float) and not isinstance(boot_ms, bool):
+                phases["process_total"] = max(0, int(boot_ms))
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
         except Exception:
             return None, {}
@@ -781,6 +856,33 @@ def parse_sandbox_repo_mount_map() -> dict[str, str]:
     return result
 
 
+CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE = (
+    "This run could not get a ChatGPT token from PostHog. Start the task again. "
+    "If it keeps failing, connect your ChatGPT account again in Settings > Harness."
+)
+
+# Named for the same reason as the Codex message above, and worded for whoever is actually
+# listening. PostHog Desktop is no longer the only client that can answer a credential
+# request — an API caller relays the token itself — so telling everyone to "open Desktop"
+# leaves those callers with no way to act on the one error that ends their run.
+CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE = (
+    "The Claude token did not arrive. Whoever started this run has to answer its "
+    "credential_request within 120 seconds: PostHog Desktop answers from Settings > Harness, "
+    "and an API caller relays the token to the run's command endpoint. Then start the task again."
+)
+
+# The agent-server option each adapter's own-subscription runs need. The launcher greps the
+# binary for it before it starts a run, so both uses read the same name.
+SUBSCRIPTION_CLI_FLAGS = {"claude": "--claudeSubscription", "codex": "--codexSubscription"}
+
+
+def build_subscription_flags(claude_model_access: str | None, codex_model_access: str | None) -> str:
+    access = {"claude": claude_model_access, "codex": codex_model_access}
+    return "".join(
+        f" {flag}" for adapter, flag in SUBSCRIPTION_CLI_FLAGS.items() if access[adapter] == "own-subscription"
+    )
+
+
 def wait_for_health_check(
     execute: _ExecuteFn,
     sandbox_id: str,
@@ -800,9 +902,18 @@ def wait_for_health_check(
         from products.tasks.backend.exceptions import ProcessTaskFatalError
 
         raise ProcessTaskFatalError(
-            "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+            CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
             {"sandbox_id": sandbox_id},
             RuntimeError("Claude token unavailable"),
+            capture=False,
+        )
+    if "codex_credential_unavailable" in result.stdout:
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+        raise ProcessTaskFatalError(
+            CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
+            {"sandbox_id": sandbox_id},
+            RuntimeError("ChatGPT token unavailable"),
             capture=False,
         )
     if result.exit_code == 0:
@@ -812,6 +923,7 @@ def wait_for_health_check(
 
 
 HEALTH_CURL_MAX_TIME_SECONDS = 2
+SETUP_HOOKS_BUDGET_SECONDS = 630
 
 
 def build_health_check_command(
@@ -825,21 +937,27 @@ def build_health_check_command(
     # The attempt count assumes an instant poll. A poll that waits on curl or python startup
     # would otherwise outrun the exec timeout, and the caller never sees the loop's result.
     budget_seconds = health_check_budget_seconds(max_attempts, poll_interval)
+    hooks_budget_seconds = max(budget_seconds, SETUP_HOOKS_BUDGET_SECONDS)
+    hooks_max_attempts = max(max_attempts, int(hooks_budget_seconds / poll_interval) if poll_interval > 0 else 0)
     return (
-        "SECONDS=0; i=0; while :; do "
+        f"SECONDS=0; i=0; max_attempts={max_attempts}; budget={budget_seconds}; while :; do "
         "  i=$((i + 1)); "
         f"{process_check}"
         f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
-        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; esac; '
+        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
+        '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "
         "payload = json.loads(sys.argv[1]); "
-        'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
-        f'\' "$body" && echo "ok:$i" && exit 0; '
+        'ready = payload.get("status") == "ok" and payload.get("hasSession") is True; '
+        'sys.exit(0 if ready else 2 if payload.get("initializationPhase") == "setup_hooks" else 1)'
+        '\' "$body"; ready=$?; '
+        '    if [ "$ready" = "0" ]; then echo "ok:$i"; exit 0; fi; '
+        f'    if [ "$ready" = "2" ]; then max_attempts={hooks_max_attempts}; budget={hooks_budget_seconds}; fi; '
         "  fi; "
-        f'  if [ "$i" -ge {max_attempts} ] || [ "$SECONDS" -ge {budget_seconds} ]; then exit 1; fi; '
+        '  if [ "$i" -ge "$max_attempts" ] || [ "$SECONDS" -ge "$budget" ]; then exit 1; fi; '
         f"  sleep {poll_interval}; "
         "done"
     )
@@ -850,7 +968,8 @@ def health_check_budget_seconds(max_attempts: int = 60, poll_interval: float = 0
 
 
 def health_check_timeout_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
-    return max(30, health_check_budget_seconds(max_attempts, poll_interval) + HEALTH_CURL_MAX_TIME_SECONDS + 5)
+    budget_seconds = max(health_check_budget_seconds(max_attempts, poll_interval), SETUP_HOOKS_BUDGET_SECONDS)
+    return max(30, budget_seconds + HEALTH_CURL_MAX_TIME_SECONDS + 5)
 
 
 SandboxClass = type[SandboxBase]

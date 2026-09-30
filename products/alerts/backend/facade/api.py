@@ -25,6 +25,22 @@ from posthog.utils import relative_date_parse
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.facade.contracts import DestinationType
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
+from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    MAX_CONCURRENT_MODEL_CALLS,
+    MAX_PROMPT_POINTS,
+    LLMDetectorError,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+)
+from products.alerts.backend.llm_detector_limits import (
+    LLMAlertRefusal,
+    LLMAlertWrite,
+    admit_llm_alert_write,
+    is_llm_detector_config,
+    llm_detector_access_error,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -170,3 +186,19 @@ def snooze_alert_from_slack(
             )
 
     return "snoozed"
+
+
+__all__ = [
+    "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
+    "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
+    "MAX_CONCURRENT_MODEL_CALLS",
+    "MAX_PROMPT_POINTS",
+    "LLMAlertRefusal",
+    "LLMAlertWrite",
+    "LLMDetectorError",
+    "LLMDetectorMisconfiguredError",
+    "LLMDetectorUnavailableError",
+    "admit_llm_alert_write",
+    "is_llm_detector_config",
+    "llm_detector_access_error",
+]

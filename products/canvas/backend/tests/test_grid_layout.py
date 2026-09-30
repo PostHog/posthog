@@ -604,6 +604,23 @@ class TestLayoutValidation(CanvasAPIBaseTest):
         diagnostics = validate_layout(doc)
         assert expected_code in [entry["code"] for entry in diagnostics], diagnostics
 
+    def test_every_malformed_placement_field_is_reported(self):
+        doc = layout(
+            placements=[
+                placement(
+                    component="not-a-canvas-id",
+                    version="7",
+                    config="not-an-object",
+                    prompt="x" * 10_001,
+                    generationTaskId="not-a-task-id",
+                )
+            ]
+        )
+        messages = [entry["message"] for entry in validate_layout(doc)]
+        assert len(messages) == 5, messages
+        for field in ("component", "version", "config", "prompt", "generationTaskId"):
+            assert any(f".{field} " in message for message in messages), (field, messages)
+
     def test_apply_ops_leaves_input_untouched(self):
         original = layout(placements=[placement()])
         edited, diagnostics = apply_layout_ops(original, [{"op": "remove_placement", "id": "p1"}])

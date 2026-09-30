@@ -20,6 +20,14 @@ describe('parseDeepLinkTime', () => {
             expected: { kind: 'offset', valueMs: 30000 },
         },
         {
+            // kea-router turns `?t=0` into the number 0, and a truthiness check drops it, so the
+            // recording started wherever the player chose instead of at the beginning.
+            name: 'zero t is the start of the recording',
+            timestamp: undefined,
+            t: 0,
+            expected: { kind: 'offset', valueMs: 0 },
+        },
+        {
             name: 'numeric timestamp is absolute unix ms',
             timestamp: 1756720830000,
             t: undefined,

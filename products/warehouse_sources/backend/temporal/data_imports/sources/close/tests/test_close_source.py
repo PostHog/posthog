@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.close.sett
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
 
-INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Opportunities", "Activities", "Tasks"}
+INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Opportunities", "Activities", "Tasks", "Events"}
 
 
 class TestCloseSource:
@@ -82,5 +82,12 @@ class TestCloseSource:
             "HTTPSConnectionPool(host='api.close.com', port=443): Max retries exceeded with "
             'url: /api/v1/data/search/ (Caused by ReadTimeoutError("HTTPSConnectionPool(host='
             "'api.close.com', port=443): Read timed out. (read timeout=60)\"))"
+        )
+        assert any(pattern in error_msg for pattern in self.source.get_retryable_errors())
+
+    def test_retryable_errors_match_organization_fetch_server_error(self) -> None:
+        error_msg = (
+            "500 Server Error: Internal Server Error for url: "
+            "https://api.close.com/api/v1/organization/orga_test1234567890/"
         )
         assert any(pattern in error_msg for pattern in self.source.get_retryable_errors())

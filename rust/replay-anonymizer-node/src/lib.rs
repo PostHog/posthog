@@ -6,11 +6,18 @@
 //! metadata come out — Rust owns the parse, the scrub, and the serialize, so no JSON crosses the FFI
 //! boundary as a string. Behavior is pinned by the shared JSON fixtures in the core crate's
 //! `tests/fixtures/`, which the Jest suite runs against through this addon.
+//!
+//! It also carries the image-scrub sidecar's pixel layout conversions (`pixels`), which fill model
+//! inputs in place in typed arrays that the sidecar allocates.
+
+mod pixels;
 
 use std::sync::RwLock;
 
+use neon::context::Lock;
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
+use pixels::{LayoutError, PlaneOrder};
 use posthog_replay_anonymizer::{
     is_public_host, politeness_key, snapshot, try_canonicalize, AllowLists, FailKind,
     ImageCollection, ImagePolicy, PhaseTimings, UrlCollection,
@@ -87,7 +94,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
     // Present + non-empty (both of them) enables the image-collection lane, keyed to this
-    // pseudonymous team id and per-team content-HMAC key. A present-but-non-string argument, or one
+    // raw team ID and per-team content-HMAC key. A present-but-non-string argument, or one
     // of the pair without the other, must fail loudly (the caller drops the message) rather than
     // silently disable or mis-key collection; only absent/undefined/null mean "collection off".
     let opt_string_arg = |cx: &mut FunctionContext, index: usize| -> NeonResult<Option<String>> {
@@ -98,20 +105,24 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         }
         .filter(|s| !s.is_empty()))
     };
-    let pseudo_team = opt_string_arg(&mut cx, 2)?;
+    let team_id = opt_string_arg(&mut cx, 2)?;
     let content_key = opt_string_arg(&mut cx, 3)?;
     let url_key = opt_string_arg(&mut cx, 4)?;
-    if pseudo_team.is_none() && content_key.is_some() {
-        return cx.throw_error("contentKey requires pseudoTeam");
+    let reference_namespace = opt_string_arg(&mut cx, 5)?;
+    if team_id.is_none() && content_key.is_some() {
+        return cx.throw_error("contentKey requires teamId");
     }
-    let image_collection = match (pseudo_team.clone(), content_key) {
-        (Some(pseudo_team), Some(content_key)) => Some(ImageCollection {
-            pseudo_team,
+    let image_collection = match (team_id.clone(), content_key) {
+        (Some(team_id), Some(content_key)) => Some(ImageCollection {
+            team_id,
             content_key,
         }),
         _ => None,
     };
-    let url_collection = url_key.map(|url_key| UrlCollection { url_key });
+    let url_collection = url_key.map(|url_key| UrlCollection {
+        url_key,
+        reference_namespace,
+    });
     // Created on the JS thread so every offset shares one monotonic origin: the task-start mark
     // becomes the threadpool queue wait, and no wall clock is involved.
     let timings = PhaseTimings::new();
@@ -269,6 +280,92 @@ fn try_canonicalize_url_ffi(mut cx: FunctionContext) -> JsResult<JsObject> {
     Ok(result)
 }
 
+enum InPlaceFailure {
+    SharedMemory,
+    Layout(LayoutError),
+}
+
+/// Runs `kernel` over the memory of both typed arrays, borrowed in place through one VM lock. The
+/// lock's ledger refuses a destination that overlaps the source, which would otherwise alias the
+/// kernel's `&[u8]` with its `&mut` slice.
+fn run_on_borrowed<D: TypedArray>(
+    lock: &Lock<'_, FunctionContext<'_>>,
+    source: &JsUint8Array,
+    destination: &mut D,
+    kernel: impl FnOnce(&[u8], &mut [D::Item]) -> Result<(), LayoutError>,
+) -> Result<(), InPlaceFailure> {
+    let source = source
+        .try_borrow(lock)
+        .map_err(|_| InPlaceFailure::SharedMemory)?;
+    let mut destination = destination
+        .try_borrow_mut(lock)
+        .map_err(|_| InPlaceFailure::SharedMemory)?;
+    kernel(&source, &mut destination).map_err(InPlaceFailure::Layout)
+}
+
+fn convert_in_place<'cx, D: TypedArray>(
+    cx: &mut FunctionContext<'cx>,
+    source: Handle<'cx, JsUint8Array>,
+    mut destination: Handle<'cx, D>,
+    kernel: impl FnOnce(&[u8], &mut [D::Item]) -> Result<(), LayoutError>,
+) -> JsResult<'cx, JsUndefined> {
+    let converted = run_on_borrowed(&cx.lock(), &source, &mut *destination, kernel);
+    match converted {
+        Ok(()) => Ok(cx.undefined()),
+        Err(InPlaceFailure::SharedMemory) => {
+            cx.throw_error("the source and destination share memory")
+        }
+        Err(InPlaceFailure::Layout(error)) => cx.throw_range_error(error.to_string()),
+    }
+}
+
+fn plane_order_arg(cx: &mut FunctionContext, index: usize) -> NeonResult<PlaneOrder> {
+    let order = cx.argument::<JsString>(index)?.value(cx);
+    match order.as_str() {
+        "rgb" => Ok(PlaneOrder::Rgb),
+        "bgr" => Ok(PlaneOrder::Bgr),
+        _ => cx.throw_type_error(format!("plane order must be 'rgb' or 'bgr', got '{order}'")),
+    }
+}
+
+fn per_plane_arg(cx: &mut FunctionContext, index: usize) -> NeonResult<[f64; 3]> {
+    let values = cx.argument::<JsArray>(index)?;
+    if values.len(cx) != 3 {
+        return cx.throw_range_error("expected one value per plane");
+    }
+    let mut per_plane = [0.0; 3];
+    for (plane, value) in (0u32..).zip(per_plane.iter_mut()) {
+        *value = values.get::<JsNumber, _, _>(cx, plane)?.value(cx);
+    }
+    Ok(per_plane)
+}
+
+fn rgb_to_chw_ffi(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    let rgb = cx.argument::<JsUint8Array>(0)?;
+    let chw = cx.argument::<JsFloat32Array>(1)?;
+    let order = plane_order_arg(&mut cx, 2)?;
+    convert_in_place(&mut cx, rgb, chw, |rgb, chw| {
+        pixels::rgb_to_chw(rgb, chw, order)
+    })
+}
+
+fn rgb_to_normalized_chw_ffi(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    let rgb = cx.argument::<JsUint8Array>(0)?;
+    let chw = cx.argument::<JsFloat32Array>(1)?;
+    let order = plane_order_arg(&mut cx, 2)?;
+    let mean = per_plane_arg(&mut cx, 3)?;
+    let std = per_plane_arg(&mut cx, 4)?;
+    convert_in_place(&mut cx, rgb, chw, |rgb, chw| {
+        pixels::rgb_to_normalized_chw(rgb, chw, order, mean, std)
+    })
+}
+
+fn rgb_to_rgba_ffi(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    let rgb = cx.argument::<JsUint8Array>(0)?;
+    let rgba = cx.argument::<JsUint8Array>(1)?;
+    convert_in_place(&mut cx, rgb, rgba, pixels::rgb_to_rgba)
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("initAnonymizer", init_anonymizer)?;
@@ -276,5 +373,8 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("politenessKey", politeness_key_ffi)?;
     cx.export_function("isPublicHost", is_public_host_ffi)?;
     cx.export_function("tryCanonicalizeUrl", try_canonicalize_url_ffi)?;
+    cx.export_function("rgbToChw", rgb_to_chw_ffi)?;
+    cx.export_function("rgbToNormalizedChw", rgb_to_normalized_chw_ffi)?;
+    cx.export_function("rgbToRgba", rgb_to_rgba_ffi)?;
     Ok(())
 }

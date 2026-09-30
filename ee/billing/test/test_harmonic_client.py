@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted
@@ -348,11 +349,33 @@ async def test_enrich_companies_batch_spaces_admissions_by_the_lane_interval_des
     domains = ["a.com", "b.com", "c.com"]
     client = _client(priority=Priority.BATCH)
     mock_request = AsyncMock(side_effect=[_found({"name": d}) for d in domains])
+    wait_labels = {"source": "other", "priority": "batch"}
+    wait_before = REGISTRY.get_sample_value("harmonic_api_admission_wait_seconds_sum", wait_labels) or 0.0
     with patch(HARMONIC_REQUEST, new=mock_request):
         results = await client.enrich_companies_batch(domains)
 
     assert results == [{"name": d} for d in domains]
     assert [call.args[0] for call in mock_sleep.await_args_list] == [0.25, 0.25]
+    wait_after = REGISTRY.get_sample_value("harmonic_api_admission_wait_seconds_sum", wait_labels) or 0.0
+    assert wait_after - wait_before == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+async def test_enrich_companies_batch_keeps_lookup_when_wait_recording_fails() -> None:
+    client = _client(priority=Priority.BATCH)
+    with (
+        patch(PACE_SECONDS_HARMONIC, return_value=0.0),
+        patch(ADMISSION_INTERVAL_HARMONIC, return_value=0.0),
+        patch(ASYNCIO_TO_THREAD, new=_fake_to_thread),
+        patch(HARMONIC_REQUEST, new=AsyncMock(return_value=_found({"name": "a.com"}))),
+        patch(
+            "ee.billing.salesforce_enrichment.harmonic_client.record_harmonic_admission_wait",
+            side_effect=RuntimeError("metric"),
+        ),
+    ):
+        results = await client.enrich_companies_batch(["a.com"])
+
+    assert results == [{"name": "a.com"}]
 
 
 @pytest.mark.asyncio
@@ -422,6 +445,60 @@ async def test_enrich_companies_batch_starts_the_next_lookup_as_soon_as_any_slot
         results = await task
 
     assert results == [{"name": d} for d in domains]
+
+
+@pytest.mark.asyncio
+async def test_enrich_companies_batch_fills_the_request_budget_while_responses_are_delayed() -> None:
+    domains = [f"d{i}.example.com" for i in range(20)]
+    release_responses = asyncio.Event()
+    first_ten_started = asyncio.Event()
+    all_requests_started = asyncio.Event()
+    started_count = 0
+    clock = 0.0
+
+    def current_time() -> float:
+        return clock
+
+    async def advance_clock(seconds: float) -> None:
+        nonlocal clock
+        clock += seconds
+        await _REAL_SLEEP(0)
+
+    async def request(*args: Any, **kwargs: Any) -> MagicMock:
+        nonlocal started_count
+        started_count += 1
+        if started_count == 10:
+            first_ten_started.set()
+        if started_count == len(domains):
+            all_requests_started.set()
+        await release_responses.wait()
+        domain = kwargs["json"]["variables"]["identifiers"]["websiteUrl"].removeprefix("https://")
+        return _found({"name": domain})
+
+    client = _client(priority=Priority.BATCH)
+    with (
+        patch(PACE_SECONDS_HARMONIC, return_value=0.0),
+        patch(ADMISSION_INTERVAL_HARMONIC, return_value=0.1),
+        patch(MONOTONIC, new=current_time),
+        patch(ASYNCIO_SLEEP, new=advance_clock),
+        patch(ASYNCIO_TO_THREAD, new=_fake_to_thread),
+        patch(HARMONIC_REQUEST, new=request),
+        patch("ee.billing.salesforce_enrichment.harmonic_client.record_harmonic_admission_wait") as wait_record,
+    ):
+        task = asyncio.create_task(client.enrich_companies_batch(domains))
+        try:
+            await asyncio.wait_for(first_ten_started.wait(), timeout=5.0)
+            for _ in range(100):
+                if all_requests_started.is_set():
+                    break
+                await _REAL_SLEEP(0)
+            assert all_requests_started.is_set()
+        finally:
+            release_responses.set()
+            results = await task
+
+    assert results == [{"name": domain} for domain in domains]
+    assert max(call.args[0] for call in wait_record.call_args_list) >= 1.0
 
 
 @pytest.mark.asyncio
