@@ -10,7 +10,7 @@ from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import WorkflowCodeErrorStatus
-from products.workflows.backend.services.workflow_code.document import shown
+from products.workflows.backend.services.workflow_code.document import shortened, shown
 from products.workflows.backend.services.workflow_code.errors import (
     DocumentError,
     DocumentInvalid,
@@ -521,12 +521,12 @@ def _dumped_float(written: str) -> str:
 
 
 def _number_not_as_written(path: DocumentPath, source: str, value: int | float) -> DocumentError:
-    number = _number_texts(value)[-1]
+    number = shortened(_number_texts(value)[-1])
     return DocumentError(
         status=WorkflowCodeErrorStatus.INVALID_VALUE,
-        message=f"{describe_path(path)} is {shown(source)}, which YAML reads as the number {shown(number)}.",
+        message=f"{describe_path(path)} is {shortened(source)}, which YAML reads as the number {number}.",
         why="A number keeps only its value, so 1.10 is stored as 1.1 and 012 as 12. A condition that compares it with text such as '1.10' never matches, and some YAML editors read the same value as another number.",
-        fix=f"Write {shown(number)} without quotes to keep the number, or put the value in quotes, {shown(source)}, to keep it as text.",
+        fix=f"Write {number} to keep the number, or put the value in quotes, {shown(source)}, to keep it as text.",
         path=path,
     )
 

@@ -584,11 +584,10 @@ class _Renderer:
             )
 
     def warn_credentials(self, action: dict[str, Any]) -> None:
-        found = _credential_names(_dict(_dict(action.get("config")).get("inputs")))
-        if found:
+        for found in _credential_names(_dict(_dict(action.get("config")).get("inputs"))):
             self.warn(
                 action["id"],
-                f'"{self.name_of(action)}" holds {", ".join(found)}, which look like credentials. The template does not mark them secret, so the file carries their values as plain text. Take them out before you commit the file. Applying a file without them removes them from the workflow.',
+                f'The file carries {found} of "{self.name_of(action)}" as plain text. It looks like a credential, and the template does not mark it secret. Take it out before you commit the file. Applying a file without it removes it from the workflow.',
             )
 
     def warn_secret_inputs(self, action: dict[str, Any]) -> None:

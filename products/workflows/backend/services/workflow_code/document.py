@@ -49,9 +49,13 @@ def document_error(message: str, why: str, fix: str) -> PydanticCustomError:
 
 def shown(value: str) -> str:
     """A value quoted back in an error, cut short so a long value does not fill the response."""
+    return f"'{shortened(value)}'"
+
+
+def shortened(value: str) -> str:
     if len(value) <= _MAX_SHOWN_VALUE_LENGTH:
-        return f"'{value}'"
-    return f"'{value[:_MAX_SHOWN_VALUE_LENGTH]}...'"
+        return value
+    return f"{value[:_MAX_SHOWN_VALUE_LENGTH]}..."
 
 
 def _check_duration(value: str) -> str:
