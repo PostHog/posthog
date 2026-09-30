@@ -178,13 +178,21 @@ class TestPostgresProducerSupersede:
             job_id="job-1",
             current_run_uuid="run-1",
             spare_runs_with_progress=False,
+            spare_executing_batches=False,
         )
 
     @pytest.mark.parametrize(
-        "sync_type,spare",
-        [("full_refresh", False), ("incremental", True), ("append", False), ("cdc", True)],
+        "sync_type,spare,spare_executing",
+        [
+            ("full_refresh", False, False),
+            ("incremental", True, False),
+            ("append", False, True),
+            ("cdc", True, False),
+        ],
     )
-    def test_only_merging_syncs_spare_a_run_that_is_still_loading(self, sync_type: str, spare: bool) -> None:
+    def test_only_merging_syncs_spare_a_run_that_is_still_loading(
+        self, sync_type: str, spare: bool, spare_executing: bool
+    ) -> None:
         producer = _make_producer(is_resume=False, sync_type=sync_type)
         batch_result = _make_batch_result(batch_index=0)
 
@@ -195,6 +203,7 @@ class TestPostgresProducerSupersede:
             producer.send_batch_notification(batch_result)
 
         assert mock_supersede.call_args.kwargs["spare_runs_with_progress"] is spare
+        assert mock_supersede.call_args.kwargs["spare_executing_batches"] is spare_executing
 
     def test_does_not_supersede_on_non_zero_batch(self) -> None:
         producer = _make_producer(is_resume=False)
@@ -313,6 +322,10 @@ class TestPostgresProducerHeldBatch:
             producer.hold_batch(_make_batch_result(batch_index=0), cumulative_row_count=100)
 
         mock_supersede.assert_called_once_with(
-            producer._conn, job_id="job-1", current_run_uuid="run-1", spare_runs_with_progress=False
+            producer._conn,
+            job_id="job-1",
+            current_run_uuid="run-1",
+            spare_runs_with_progress=False,
+            spare_executing_batches=False,
         )
         assert _inserted_rows(producer) == []

@@ -1409,23 +1409,23 @@ class BatchQueue:
     ) -> int:
         """Mark every pending batch in a run as failed. Returns the count of batches failed.
 
-        A run a newer attempt fenced (see `fence_runs`) can still get batches queued by its stale
-        attempt. Those are marked superseded, so the reconcile sweep does not fail the job the newer
-        attempt is running.
+        A run a newer attempt superseded or fenced (see `supersede_other_runs` and `fence_runs`) can
+        still get batches queued by its stale attempt. Those are marked superseded too, so the
+        reconcile sweep does not fail the job the newer attempt is running.
         """
-        fence = await conn.execute(
+        replaced = await conn.execute(
             f"""
             SELECT 1 FROM {BATCH_TABLE}
             WHERE run_uuid = %(run_uuid)s
-                AND batch_index = %(fence_index)s
                 AND latest_state = 'failed'
+                AND superseded
                 AND created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
             LIMIT 1
             """,
-            {"run_uuid": run_uuid, "fence_index": RUN_FENCE_BATCH_INDEX},
+            {"run_uuid": run_uuid},
         )
         error_response: dict[str, Any] = {"error": reason}
-        if await fence.fetchone() is not None:
+        if await replaced.fetchone() is not None:
             error_response["superseded"] = True
         cursor = await conn.execute(
             FAIL_RUN_SCOPED_SQL,

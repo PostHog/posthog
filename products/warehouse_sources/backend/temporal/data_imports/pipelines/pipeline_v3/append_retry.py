@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from typing import Any, cast
 
+import numpy as np
 import psycopg
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -30,16 +31,19 @@ def split_trailing_cursor_ties(table: pa.Table, cursor_column: str) -> CursorTie
     """Split off the rows that share the table's highest cursor value.
 
     The source returns rows sorted by the cursor, so these rows are the table's tail, and the next
-    table can hold more rows with the same value. `kept` is a slice of `table`. `held` is a copy, so it
-    does not keep the whole table in memory while it waits for the next one.
+    table can hold more rows with the same value. Both parts are slices of `table`.
     """
     cursor = table[cursor_column]
     highest = cast(pa.Scalar, pc.max(cursor))
     if not highest.is_valid:
         return CursorTieSplit(kept=table, held=table.slice(table.num_rows))
     first_at_highest = cast(pa.Int64Scalar, pc.index(cursor, highest)).as_py()
-    held = table.take(pa.array(range(first_at_highest, table.num_rows), pa.int64()))
-    return CursorTieSplit(kept=table.slice(0, first_at_highest), held=held)
+    return CursorTieSplit(kept=table.slice(0, first_at_highest), held=table.slice(first_at_highest))
+
+
+def copy_rows(table: pa.Table) -> pa.Table:
+    """Copy the rows, so a slice kept for later stops holding its whole parent table in memory."""
+    return table.take(np.arange(table.num_rows))
 
 
 def _connect_to_queue() -> psycopg.Connection[Any]:

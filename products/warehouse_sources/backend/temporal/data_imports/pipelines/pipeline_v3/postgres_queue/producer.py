@@ -213,14 +213,14 @@ class PostgresProducer:
         # an older attempt's loaded rows are gone either way and sparing it only leaves
         # its batches clogging the serial per-(team, schema) gate. So is an append run that
         # got here: it reads again from the stored cursor, so every spared batch it lets
-        # load is appended twice. An append retry that continues after the older attempt
-        # superseded those batches before it read (see append_retry.py), so here it finds
-        # at most a batch still being written, whose rows the loader keeps once.
+        # load is appended twice. An append run still spares a batch the loader is writing,
+        # because that write lands anyway and its rows must count as loaded.
         superseded = BatchQueue.supersede_other_runs(
             self._conn,
             job_id=self._job_id,
             current_run_uuid=self._run_uuid,
             spare_runs_with_progress=self._sync_type not in ("full_refresh", "append"),
+            spare_executing_batches=self._sync_type == "append",
         )
         if superseded > 0:
             self._logger.info("superseded_old_run_batches", count=superseded)

@@ -245,19 +245,25 @@ class TestAttemptScopedRunUuid:
 
 
 @pytest.mark.asyncio
+async def _running_max(schema, table, resource, last_value, *_args, **_kwargs):
+    return MagicMock(last_value=max([*table["id"].to_pylist(), last_value or 0]), earliest_value=None)
+
+
 class TestCursorOrderedBatches:
     @pytest.mark.parametrize(
-        "ordered,staged_ids,cursors",
+        "ordered,resumable,staged_ids,cursors",
         [
-            (True, [[1], [2, 2, 2], [3, 3, 3]], [1, 2, 3]),
-            (False, [[1, 2, 2], [2, 3], [3, 3]], [None, None, None]),
+            (True, False, [[1], [2, 2, 2], [3, 3, 3]], [1, 2, 3]),
+            (False, False, [[1, 2, 2], [2, 3], [3, 3]], [None, None, None]),
+            (True, True, [[1, 2, 2], [2, 3], [3, 3]], [None, None, None]),
         ],
     )
     async def test_an_append_from_a_cursor_ordered_source_never_splits_a_cursor_value(
-        self, ordered: bool, staged_ids: list[list[int]], cursors: list[int | None]
+        self, ordered: bool, resumable: bool, staged_ids: list[list[int]], cursors: list[int | None]
     ) -> None:
         pipeline = _make_pipeline()
         pipeline._rows_ordered_by_cursor = ordered
+        pipeline._resumable_source_manager = MagicMock() if resumable else None
         pipeline._schema = ExternalDataSchema(
             sync_type="append",
             sync_type_config={"incremental_field": "id", "incremental_field_type": IncrementalFieldType.Integer},
@@ -265,12 +271,9 @@ class TestCursorOrderedBatches:
         pipeline._last_incremental_field_value = None
         pipeline._earliest_incremental_field_value = None
 
-        async def running_max(schema, table, resource, last_value, *_args, **_kwargs):
-            return MagicMock(last_value=max([*table["id"].to_pylist(), last_value or 0]), earliest_value=None)
-
         batch_index = 0
         with (
-            patch(f"{_PIPELINE}.update_incremental_field_values", side_effect=running_max),
+            patch(f"{_PIPELINE}.update_incremental_field_values", side_effect=_running_max),
             patch(f"{_PIPELINE}.update_row_tracking_after_batch", new_callable=AsyncMock),
         ):
             for ids in [[1, 2, 2], [2, 3], [3, 3]]:
@@ -296,12 +299,9 @@ class TestCursorOrderedBatches:
         pipeline._last_incremental_field_value = None
         pipeline._earliest_incremental_field_value = None
 
-        async def running_max(schema, table, resource, last_value, *_args, **_kwargs):
-            return MagicMock(last_value=max([*table["id"].to_pylist(), last_value or 0]), earliest_value=None)
-
         batch_index = 0
         with (
-            patch(f"{_PIPELINE}.update_incremental_field_values", side_effect=running_max),
+            patch(f"{_PIPELINE}.update_incremental_field_values", side_effect=_running_max),
             patch(f"{_PIPELINE}.update_row_tracking_after_batch", new_callable=AsyncMock),
         ):
             for ids in [[1, 2], [2, 2, 2, 2, 2, 2], [2, 3]]:

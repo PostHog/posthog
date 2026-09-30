@@ -67,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.tab
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry import (
     attempt_run_uuid,
+    copy_rows,
     split_trailing_cursor_ties,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
@@ -362,7 +363,13 @@ class PipelineV3(Generic[ResumableData]):
         return self._resource.cdc_write_mode == SCD2_APPEND_MODE
 
     def _holds_back_cursor_ties(self) -> bool:
-        return self._rows_ordered_by_cursor and self._schema.is_append and self._schema.incremental_field is not None
+        # A resumable source commits its resume state after each staged batch, which would skip held rows.
+        return (
+            self._rows_ordered_by_cursor
+            and self._resumable_source_manager is None
+            and self._schema.is_append
+            and self._schema.incremental_field is not None
+        )
 
     async def _stage_held_ties(self, batch_index: int, row_count: int) -> bool:
         """Stage the rows held back from the last batch, once the source has no more rows."""
@@ -642,10 +649,14 @@ class PipelineV3(Generic[ResumableData]):
                 split = split_trailing_cursor_ties(pa_table, self._schema.incremental_field)
                 # Held rows never grow past one chunk, the memory a source already agreed to per batch.
                 if split.held.nbytes <= self._batcher.chunk_size_bytes:
-                    pa_table, self._held_ties = split.kept, split.held
+                    pa_table = split.kept
+                    self._held_ties = copy_rows(split.held) if split.held.num_rows else None
                     if pa_table.num_rows == 0:
                         return False
                 else:
+                    await self._logger.awarning(
+                        "cursor_tie_overflowed", tie_rows=split.held.num_rows, tie_bytes=split.held.nbytes
+                    )
                     is_incomplete = True
                     incomplete_cursor = (
                         self._schema.serialize_incremental_value(

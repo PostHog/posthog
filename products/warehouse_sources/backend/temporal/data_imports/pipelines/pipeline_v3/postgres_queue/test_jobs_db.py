@@ -1578,6 +1578,21 @@ class TestStateDualWrite:
         assert await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=3600, limit=10) == []
 
     @pytest.mark.asyncio
+    async def test_a_straggler_of_a_superseded_run_does_not_fail_the_job(self, conn, sync_conn):
+        await _insert_batch(conn, run_uuid="run-a1", job_id="job-ap", sync_type="append")
+        await _insert_batch(conn, run_uuid="run-a2", job_id="job-ap", sync_type="append")
+        BatchQueue.supersede_other_runs(
+            sync_conn, job_id="job-ap", current_run_uuid="run-a2", spare_runs_with_progress=False
+        )
+        straggler = await _insert_batch(conn, batch_index=1, run_uuid="run-a1", job_id="job-ap", sync_type="append")
+
+        assert (
+            await BatchQueue.fail_run(conn, run_uuid="run-a1", team_id=1, schema_id="schema-1", reason="orphaned") == 1
+        )
+        assert (await _batch_state(conn, straggler))[0] == "failed"
+        assert await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=3600, limit=10) == []
+
+    @pytest.mark.asyncio
     async def test_fail_batches_for_job_fails_columns_across_runs(self, conn, sync_conn):
         # The takeover path writes through this site; drift here leaves stale
         # claimable columns exactly when a job was force-failed.
