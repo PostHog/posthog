@@ -58,8 +58,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     SELF_MANAGED_LAG_REASON,
     clear_recovered_self_managed_lag,
     clear_slot_loss_markers,
-    holds_slot_loss_marker,
     mark_cdc_broken,
+    slot_loss_markers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter, purge_buffer_prefix
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
@@ -195,6 +195,8 @@ class CDCExtractActivity:
         # Populated during run().
         self.source: ExternalDataSource | None = None
         self.cdc_schemas: list[ExternalDataSchema] = []
+        # The lost-slot markers as loaded. A cleanup removes only these, never one written during the run.
+        self._slot_loss_markers: frozenset[tuple[str, str | None]] = frozenset()
         self.schema_by_name: dict[str, ExternalDataSchema] = {}
         self.pk_columns_by_table: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
@@ -430,9 +432,9 @@ class CDCExtractActivity:
             # the next run, and the markers of the lost slot can go, even if recovery never runs again.
             for schema in self.cdc_schemas:
                 self._release_reset_awaiting_slot(schema)
-            if any(holds_slot_loss_marker(schema) for schema in self.cdc_schemas):
+            if self._slot_loss_markers:
                 assert self.source is not None
-                clear_slot_loss_markers(self.source)
+                clear_slot_loss_markers(self.source, self._slot_loss_markers)
 
             self.log.info("wal_changes_read", event_count=self.event_count, tables=list(self.all_table_names))
 
@@ -500,6 +502,7 @@ class CDCExtractActivity:
             return False
 
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
+        self._slot_loss_markers = slot_loss_markers(self.cdc_schemas)
         self.adapter = get_cdc_adapter(self.source)
         self.reader = self.adapter.create_reader(self.source)
 
@@ -1203,7 +1206,7 @@ class CDCExtractActivity:
             self._release_reset_awaiting_slot(schema)
         for schema in reset_schemas:
             self._unpause_schema_schedule(schema)
-        clear_slot_loss_markers(self.source)
+        clear_slot_loss_markers(self.source, self._slot_loss_markers)
 
         self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))
 

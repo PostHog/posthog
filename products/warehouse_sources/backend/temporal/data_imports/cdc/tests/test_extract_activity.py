@@ -1028,7 +1028,7 @@ class TestSlotInvalidationRecovery:
         capture.adapter.recreate_slot.assert_called_once_with(source, tables=["public.users"])
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
         source.save.assert_called()
-        capture.clear_markers.assert_called_once_with(source)
+        capture.clear_markers.assert_called_once_with(source, ANY)
 
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
         assert schema.sync_type_config["reset_pipeline"] is True
@@ -1099,8 +1099,8 @@ class TestSlotInvalidationRecovery:
 
     @parameterized.expand(
         [
-            ("lost_slot", {"reason": "auto_dropped_critical_lag"}, True),
-            ("billing", {"reason": "billing_limit_expired", "slot_kept": True}, False),
+            ("lost_slot", {"reason": "auto_dropped_critical_lag", "at": "2026-08-09T16:01:27+00:00"}, True),
+            ("billing", {"reason": "billing_limit_expired", "at": "2026-08-09T16:01:27+00:00"}, False),
             ("no_marker", None, False),
         ]
     )
@@ -1118,7 +1118,8 @@ class TestSlotInvalidationRecovery:
         ):
             capture.extract()
 
-        assert clear_markers.call_args_list == ([call(source)] if cleared else [])
+        expected = [call(source, frozenset({("auto_dropped_critical_lag", "2026-08-09T16:01:27+00:00")}))]
+        assert clear_markers.call_args_list == (expected if cleared else [])
 
     def test_non_invalidation_errors_do_not_trigger_recovery(self):
         source = _make_source()
