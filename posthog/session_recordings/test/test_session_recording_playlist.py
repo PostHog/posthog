@@ -30,6 +30,7 @@ from posthog.session_recordings.models.session_recording_playlist import (
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_playlist_api import (
+    CROSS_TEAM_RECORDING_ERROR,
     MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST,
     PLAYLIST_COUNT_REDIS_PREFIX,
     PLAYLIST_LIST_MAX_LIMIT,
@@ -712,6 +713,20 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         }
 
         # Verify no item was actually added
+        assert SessionRecordingPlaylistItem.objects.filter(playlist=playlist).count() == 0
+
+    def test_cannot_pin_recording_whose_session_id_belongs_to_another_team(self):
+        playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="collection", created_by=self.user)
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        session_id = f"cross-team-session-{uuid4()}"
+        SessionRecording.objects.create(session_id=session_id, team=other_team)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{session_id}"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == CROSS_TEAM_RECORDING_ERROR
         assert SessionRecordingPlaylistItem.objects.filter(playlist=playlist).count() == 0
 
     def test_get_pinned_recordings_for_playlist(self) -> None:
