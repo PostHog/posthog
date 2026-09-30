@@ -23,7 +23,7 @@ export function TodayPaneSectionResizeHandle({
             onPointerDown={resizer.onPointerDown}
             onPointerMove={resizer.onPointerMove}
             onPointerUp={resizer.onPointerUp}
-            onPointerCancel={resizer.onPointerUp}
+            onPointerCancel={resizer.onPointerCancel}
             onKeyDown={resizer.onKeyDown}
             onDoubleClick={resizer.onDoubleClick}
         >
