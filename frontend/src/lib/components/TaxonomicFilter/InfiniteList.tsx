@@ -156,9 +156,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                 </>
             }
         >
-            <LemonTag className="ml-auto shrink-0" data-attr="taxonomic-not-seen-tag">
-                Not seen
-            </LemonTag>
+            <LemonTag className="ml-auto shrink-0">Not seen</LemonTag>
         </Tooltip>
     )
 }
