@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 
+import type { FeatureFlagKey } from 'lib/constants'
+
 import type { AvailableSetupTaskIdsEnumApi } from '~/generated/core/api.schemas'
 import type { ProductKey } from '~/queries/schema/schema-general'
 
@@ -48,6 +50,7 @@ export interface SetupTask {
      * Non-manual tasks are auto-completed by tracking user actions.
      */
     requiresManualCompletion?: boolean
+    featureFlag?: FeatureFlagKey
 }
 
 export interface SetupTaskWithState extends SetupTask {

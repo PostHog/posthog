@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -32,6 +33,7 @@ export interface productSetupLogicValues {
     isCloudOrDev: boolean | undefined // preflightLogic
     hasReverseProxy: boolean | null // reverseProxyCheckerLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     activeTasks: SetupTaskWithState[]
     allTasks: SetupTask[]
     completedCount: number
@@ -178,6 +180,8 @@ export const productSetupLogic = kea<productSetupLogicType>([
             ['isCloudOrDev'],
             globalSetupLogic,
             ['optimisticTaskStatuses'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             inviteLogic,
@@ -238,9 +242,9 @@ export const productSetupLogic = kea<productSetupLogicType>([
     selectors({
         productConfig: [(_, p) => [p.productKey], (productKey: ProductKey) => getProductSetupConfig(productKey)],
         allTasks: [
-            (s, p) => [p.productKey, s.isCloudOrDev],
-            (productKey: ProductKey, isCloudOrDev: boolean | undefined) => {
-                const tasks = getTasksForProduct(productKey)
+            (s, p) => [p.productKey, s.isCloudOrDev, s.featureFlags],
+            (productKey: ProductKey, isCloudOrDev: boolean | undefined, featureFlags: FeatureFlagsSet) => {
+                const tasks = getTasksForProduct(productKey, 'all', featureFlags)
                 if (!isCloudOrDev) {
                     return tasks.filter((task) => task.id !== SetupTaskId.SetUpReverseProxy)
                 }

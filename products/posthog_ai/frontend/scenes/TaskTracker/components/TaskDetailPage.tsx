@@ -4,6 +4,7 @@ import { IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { nextTaskTitle } from '../../../lib/task-title'
@@ -26,6 +27,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
         useValues(sceneLogic)
     const { runTask, deleteTask, loadTask, updateTask } = useActions(sceneLogic)
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
+    const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
     const isActiveCreation = activeCreation?.taskId === taskId
 
     if (taskNotFound && !task) {
@@ -54,7 +56,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             )
         ) : (
             <div className="flex flex-wrap items-center gap-2">
-                {hasDesktopAccess && (
+                {hasDesktopAccess && showDesktopEntryPoints && (
                     <LemonButton
                         type="secondary"
                         size="small"

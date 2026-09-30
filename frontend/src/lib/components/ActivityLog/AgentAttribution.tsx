@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
+import { useAgentTaskUrl } from 'scenes/code-canvas/useAgentTaskUrl'
 
 import { HumanizedActivityLogItem } from './humanizeActivity'
 import { parseAgentAttribution } from './parseAgentAttribution'
@@ -18,6 +18,7 @@ export function AgentAttribution({
     truncateIntent?: boolean
 }): JSX.Element | null {
     const attribution = parseAgentAttribution(logItem)
+    const agentTaskUrl = useAgentTaskUrl()
     if (!attribution) {
         return null
     }
@@ -35,7 +36,7 @@ export function AgentAttribution({
             {attribution.taskId && (
                 <div>
                     Agent task{' '}
-                    <Link to={urls.codeTaskLink(attribution.taskId)} target="_blank" targetBlankIcon>
+                    <Link to={agentTaskUrl(attribution.taskId)} target="_blank" targetBlankIcon>
                         {attribution.taskId.slice(0, 8)}
                     </Link>
                 </div>
