@@ -10,7 +10,7 @@
     GROUP BY fp_hash 
     HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) 
     SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), events__fingerprint_issue_state.fp_hash) 
-  WHERE and(equals(events.team_id, 99999), and(equals(events.event, %(hogql_val_13)s), isNotNull(events__fingerprint_issue_state.issue_id), or(and(greater(toTimeZone(events.timestamp, %(hogql_val_14)s), parseDateTime64BestEffort(%(hogql_val_15)s, 6, %(hogql_val_16)s)), less(toTimeZone(events.timestamp, %(hogql_val_17)s), parseDateTime64BestEffort(%(hogql_val_18)s, 6, %(hogql_val_19)s))), and(greater(toTimeZone(events.timestamp, %(hogql_val_20)s), toDateTime(%(hogql_val_21)s, %(hogql_val_22)s)), less(toTimeZone(events.timestamp, %(hogql_val_23)s), toDateTime64(%(hogql_val_24)s, 6, %(hogql_val_25)s)))))) 
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, %(hogql_val_13)s), isNotNull(events__fingerprint_issue_state.issue_id), or(and(greater(events.timestamp, parseDateTime64BestEffort(%(hogql_val_14)s, 6, %(hogql_val_15)s)), less(events.timestamp, parseDateTime64BestEffort(%(hogql_val_16)s, 6, %(hogql_val_17)s))), and(greater(events.timestamp, toDateTime(%(hogql_val_18)s, %(hogql_val_19)s)), less(events.timestamp, toDateTime64(%(hogql_val_20)s, 6, %(hogql_val_21)s)))))) 
   GROUP BY events__fingerprint_issue_state.issue_id 
   ORDER BY occurrences DESC 
   LIMIT 51 
@@ -77,13 +77,13 @@
   WITH latest_events AS (
     SELECT events.distinct_id AS distinct_id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, %(hogql_val_1)s)) AS latest_os_version 
     FROM events 
-    WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_4)s), toIntervalDay(30)))) 
+    WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0), greaterOrEquals(events.timestamp, toDateTime64(minus(now64(6, %(hogql_val_4)s), toIntervalDay(30)), 9, %(hogql_val_5)s))) 
     GROUP BY events.distinct_id), major_versions AS (
-    SELECT latest_events.distinct_id AS distinct_id, latest_events.latest_os_version AS latest_os_version, splitByChar(%(hogql_val_5)s, ifNull(latest_events.latest_os_version, %(hogql_val_6)s))[1] AS major_version 
+    SELECT latest_events.distinct_id AS distinct_id, latest_events.latest_os_version AS latest_os_version, splitByChar(%(hogql_val_6)s, ifNull(latest_events.latest_os_version, %(hogql_val_7)s))[1] AS major_version 
     FROM latest_events) 
   SELECT major_versions.major_version AS major_version, count() AS user_count, round(divide(multiply(100, count()), sum(count()) OVER ()), 2) AS percentage 
   FROM major_versions 
-  WHERE in(major_versions.major_version, tuple(%(hogql_val_7)s, %(hogql_val_8)s, %(hogql_val_9)s)) 
+  WHERE in(major_versions.major_version, tuple(%(hogql_val_8)s, %(hogql_val_9)s, %(hogql_val_10)s)) 
   GROUP BY major_versions.major_version 
   ORDER BY major_versions.major_version ASC 
   LIMIT 100 

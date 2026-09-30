@@ -130,7 +130,6 @@ posthog/hogql_queries/utils/test/test_formula_ast.py::TestFormulaAST
 posthog/hogql_queries/utils/test/test_sampling.py::TestQueriesUtil
 posthog/kafka_client/test/test_client.py::KafkaClientRoundtripTestCase
 posthog/management/commands/test/test_analyze_migration_risk.py::TestAnalyzeMigrationRisk
-posthog/management/commands/test/test_backfill_workflows_slack_integration.py::TestRewriteSlackWorkspaceInActions
 posthog/management/commands/test/test_base_hypercache_command.py::TestVerificationResultsErrorReporting
 posthog/management/commands/test/test_survey_cohort_bytecode_stl.py::TestBytecodeWalker
 posthog/models/filters/test/test_filter_mixins.py::TestFilterMixins
@@ -191,7 +190,6 @@ posthog/tasks/test/test_team_access_cache_tasks.py::TestInvalidateTokenSync
 posthog/tasks/test/test_team_access_cache_tasks.py::TestInvalidateUserTokensSync
 posthog/tasks/test/test_team_access_cache_tasks.py::TestInvalidateUserTokensTask
 posthog/tasks/test/test_team_access_cache_tasks.py::TestInvalidationFailureMetrics
-posthog/tasks/test/test_usage_report.py::TestHasNonZeroUsage
 posthog/tasks/test/test_usage_report.py::TestSendNoUsage
 posthog/tasks/test/test_usage_report.py::TestTrimOversizeUsageReportPayload
 posthog/temporal/proxy_service/test/monitor_test.py::TestCheckCloudflareCertificateStatus
@@ -391,4 +389,5 @@ products/web_analytics/dags/tests/test_cache_warming.py::TestMaybeExpandWarmingD
 products/web_analytics/dags/tests/test_cache_warming.py::TestMaybeOptIntoLazyPrecompute
 products/web_analytics/dags/tests/test_cache_warming.py::TestSplitWarmableQueries
 products/web_analytics/dags/tests/test_cache_warming.py::TestWarmableQueriesCaching
+products/workflows/backend/test/test_backfill_workflows_slack_integration.py::TestRewriteSlackWorkspaceInActions
 products/workflows/backend/test/test_email_sending_tier.py::TestEmailSendingTierDecision

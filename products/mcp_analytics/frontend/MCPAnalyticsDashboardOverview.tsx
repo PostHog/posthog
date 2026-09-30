@@ -13,6 +13,7 @@ import { HarnessBarChart } from './dashboard/HarnessBarChart'
 import { KpiTiles } from './dashboard/KpiTiles'
 import { ModelBarChart } from './dashboard/ModelBarChart'
 import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
+import { ProtocolVersionStrip } from './dashboard/ProtocolVersionStrip'
 import { RecentToolCallsCard } from './dashboard/RecentToolCallsCard'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
@@ -35,6 +36,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         modelRows,
         modelRowsLoading,
         hasModelData,
+        protocolVersionRows,
+        protocolVersionRowsLoading,
+        hasProtocolVersionData,
         dailyActivity,
         activityRowsLoading,
         activityIncompleteTail,
@@ -67,6 +71,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     sessionRowsLoading ||
                     harnessRowsLoading ||
                     modelRowsLoading ||
+                    protocolVersionRowsLoading ||
                     activityRowsLoading ||
                     toolDailyRowsLoading ||
                     toolRowsLoading
@@ -131,6 +136,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                         <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
                         {hasModelData ? <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} /> : null}
                     </div>
+                    {hasProtocolVersionData ? <ProtocolVersionStrip rows={protocolVersionRows} theme={theme} /> : null}
                 </div>
             </section>
             <section className="flex min-w-0 flex-col gap-4" data-quill>

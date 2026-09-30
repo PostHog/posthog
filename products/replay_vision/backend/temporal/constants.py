@@ -5,6 +5,7 @@ from temporalio.common import Priority, RetryPolicy
 
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
+BUILD_BENCHMARK_WORKFLOW_NAME = "replay-vision-build-benchmark"
 
 # How long a cached admission budget admits without re-running the spend aggregates. Spend the
 # cache misses (settling receipts, evaluation reservations, failed-observation refunds) stays wrong

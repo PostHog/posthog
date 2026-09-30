@@ -25,7 +25,7 @@ class PropertyMatchingVersion(models.IntegerChoices):
 
 
 class FlagEvaluationsMode(models.IntegerChoices):
-    """Which table the product reads a team's $feature_flag_called data from. This field does not
+    """Which table the product reads an organization's $feature_flag_called data from. This field does not
     control ingestion. The INGESTION_FLAG_EVALUATIONS_TEAMS allowlist in FlagEvaluationsService
     decides which teams ingestion also writes to flag_evaluations. FLAG_EVALUATIONS_ONLY is
     reserved for the ingestion change that stops the events writes.
@@ -38,7 +38,8 @@ class FlagEvaluationsMode(models.IntegerChoices):
     READ_FLAG_EVALUATIONS = 1, "Read flag evaluations"
     # As READ_FLAG_EVALUATIONS, and ingestion stops writing $feature_flag_called to events. Ingestion
     # ignores this mode until the change that implements it deploys. Until then the mode acts as
-    # READ_FLAG_EVALUATIONS. A team already on this mode stops the events writes when that change deploys.
+    # READ_FLAG_EVALUATIONS. An organization already on this mode stops the events writes when that
+    # change deploys.
     FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"
 
 
@@ -87,8 +88,9 @@ class TeamFeatureFlagsConfig(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(MAX_FEATURE_FLAGS_OVERRIDE_CEILING)],
     )
 
-    # The database default keeps older writers, and raw INSERTs that omit this column, valid during
-    # rolling deploys.
+    # Nothing reads or writes this column. OrganizationFeatureFlagsConfig.flag_evaluations_mode holds
+    # the mode. The database default keeps older writers, and raw INSERTs that omit this column, valid
+    # during rolling deploys.
     flag_evaluations_mode = models.SmallIntegerField(
         choices=FlagEvaluationsMode,
         default=FlagEvaluationsMode.EVENTS,
