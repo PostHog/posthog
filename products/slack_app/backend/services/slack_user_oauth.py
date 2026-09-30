@@ -187,6 +187,9 @@ class CallbackState(BaseModel):
     slack_user_id: str | None = None
     channel: str | None = None
     thread_ts: str | None = None
+    # Whether the user kept the Slack search offer on the consent screen. Only
+    # set when that screen was shown, so an older state decodes as "link only".
+    connect_mcp: bool = False
 
     def encode(self) -> str:
         return signing.dumps(self.model_dump(exclude_none=True), salt=CALLBACK_STATE_SALT, compress=True)

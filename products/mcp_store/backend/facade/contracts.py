@@ -45,6 +45,19 @@ class ConnectorCallOutcome:
 
 
 @dataclass(frozen=True)
+class SlackConnectOffer:
+    """The Slack MCP server a member can still connect.
+
+    Another product asks for this before it offers the connection on a consent
+    screen, so the offer carries the display name and the template the
+    authorization route needs.
+    """
+
+    template_id: str
+    server_name: str
+
+
+@dataclass(frozen=True)
 class ActiveInstallation:
     """An MCP server installation that is active and ready to use."""
 
