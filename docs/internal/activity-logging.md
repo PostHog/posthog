@@ -127,6 +127,11 @@ Four registries in `activity_log.py` tune it per scope:
 Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
 Reading their fail-closed managers can require team context that background writes do not have.
 
+Destination activity logs record changes to `inputs` and `mappings` without recording their values.
+Activity log reads and exports also mask old destination input, mapping, draft, and compiled JavaScript values.
+Other change details remain available, including the actor, time, field, and action.
+These read protections do not remove old stored values or revoke exposed credentials.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.
