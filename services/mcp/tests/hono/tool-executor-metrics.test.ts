@@ -153,7 +153,7 @@ describe('ToolExecutor metrics', () => {
             // property exists for.
             expect(trackToolCallExtras('fail-tool')).toMatchObject({
                 $mcp_error_type: 'internal',
-                $mcp_input_keys: ['experimentId'],
+                $mcp_input_keys: ['[redacted]'],
             })
         })
 
