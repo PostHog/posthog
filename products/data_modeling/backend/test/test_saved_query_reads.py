@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -9,10 +11,13 @@ from posthog.models.organization import OrganizationMembership
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
+from products.data_modeling.backend.facade.contracts import UpstreamTableRef
+from products.data_modeling.backend.logic.saved_query_reads import POSTHOG_TABLE_ORIGIN
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.test.helpers import saved_query_node, table_node
 
 
 class TestSavedQueryReads(BaseTest):
@@ -100,3 +105,32 @@ class TestSavedQueryReads(BaseTest):
             source.id: frozenset({near.id, far.id}),
             near.id: frozenset(),
         }
+
+    def test_upstream_table_refs_walks_through_views_to_tables_only(self) -> None:
+        dag = DAG.objects.create(team=self.team, name="Default")
+        warehouse_table_id = str(uuid4())
+        charges = table_node(
+            self.team, dag, "stripe_charges", {"origin": "warehouse", "warehouse_table_id": warehouse_table_id}
+        )
+        events = table_node(self.team, dag, "events", {"origin": POSTHOG_TABLE_ORIGIN})
+        proxy = table_node(self.team, dag, "revenue", {"origin": "cross_dag_view", "saved_query_id": str(uuid4())})
+        persons = table_node(self.team, dag, "persons", {"origin": POSTHOG_TABLE_ORIGIN})
+        middle = saved_query_node(self.team, dag, "middle", NodeType.VIEW)
+        target = saved_query_node(self.team, dag, "target", NodeType.VIEW)
+        downstream = saved_query_node(self.team, dag, "downstream", NodeType.VIEW)
+        for source, dependent in [
+            (charges, middle),
+            (events, middle),
+            (proxy, middle),
+            (middle, target),
+            (target, downstream),
+            (persons, downstream),
+        ]:
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=dependent)
+
+        assert api.upstream_table_refs(self.team.id, target.saved_query_id) == frozenset(
+            {
+                UpstreamTableRef(name="stripe_charges", warehouse_table_id=warehouse_table_id),
+                UpstreamTableRef(name="events"),
+            }
+        )

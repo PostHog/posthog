@@ -5,14 +5,17 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.conf import settings
+from django.db.models import Q
 
-from ..facade.contracts import SavedQuerySummary
+from ..facade.contracts import SavedQuerySummary, UpstreamTableRef
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
 from ..models.node import Node, NodeType
 from .saved_query_freshness import saved_query_materialized_at
 
 POSTHOG_TABLE_ORIGIN = "posthog"
+PROXY_SAVED_QUERY_ID_PROPERTY = "saved_query_id"
+WAREHOUSE_TABLE_ID_PROPERTY = "warehouse_table_id"
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
@@ -245,3 +248,59 @@ def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -
     for source_id, target_id in edges:
         dependents[source_id].add(target_id)
     return {saved_query_id: frozenset(ids) for saved_query_id, ids in dependents.items()}
+
+
+def saved_query_node_ids(team_id: int, saved_query_id: UUID | str) -> set[str]:
+    """The DAG nodes that stand for this saved query, cross-DAG proxy table nodes included."""
+    return {
+        str(node_id)
+        for node_id in Node.objects.filter(team_id=team_id)
+        .filter(Q(saved_query_id=saved_query_id) | Q(properties__saved_query_id=str(saved_query_id)))
+        .values_list("id", flat=True)
+    }
+
+
+def reachable_node_ids(team_id: int, start_node_ids: set[str], *, upstream: bool, max_depth: int | None) -> set[str]:
+    """Node ids reachable from `start_node_ids` within `max_depth` hops, the start nodes excluded.
+
+    One query per hop, each reading the frontier's edges off the `Edge` foreign-key indexes, so
+    the work is bounded by the cone that is reached rather than by every edge the team owns.
+    Upstream follows edges into the frontier back to their sources; downstream follows edges
+    out of it to their targets.
+    """
+    edges = Edge.objects.filter(team_id=team_id)
+
+    reached: set[str] = set()
+    frontier = set(start_node_ids)
+    depth = 0
+    while frontier and (max_depth is None or depth < max_depth):
+        if upstream:
+            neighbor_ids = edges.filter(target_id__in=frontier).values_list("source_id", flat=True)
+        else:
+            neighbor_ids = edges.filter(source_id__in=frontier).values_list("target_id", flat=True)
+        frontier = {str(neighbor_id) for neighbor_id in neighbor_ids} - reached - start_node_ids
+        reached |= frontier
+        depth += 1
+    return reached
+
+
+def upstream_table_refs(team_id: int, saved_query_id: UUID | str) -> frozenset[UpstreamTableRef]:
+    """The tables this saved query reads from, directly or through other views."""
+    reached = reachable_node_ids(team_id, saved_query_node_ids(team_id, saved_query_id), upstream=True, max_depth=None)
+    table_nodes = Node.objects.filter(team_id=team_id, id__in=reached, type=NodeType.TABLE).values_list(
+        "name", "properties"
+    )
+    return frozenset(
+        UpstreamTableRef(name=name, warehouse_table_id=_warehouse_table_id(properties or {}))
+        for name, properties in table_nodes
+        if not _stands_for_saved_query(properties or {})
+    )
+
+
+def _stands_for_saved_query(properties: dict[str, object]) -> bool:
+    return bool(properties.get(PROXY_SAVED_QUERY_ID_PROPERTY))
+
+
+def _warehouse_table_id(properties: dict[str, object]) -> str | None:
+    warehouse_table_id = properties.get(WAREHOUSE_TABLE_ID_PROPERTY)
+    return str(warehouse_table_id) if warehouse_table_id else None
