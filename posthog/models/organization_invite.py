@@ -63,7 +63,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         related_name="invites",
         related_query_name="invite",
     )
-    target_email = models.EmailField(null=True, db_index=True)
+    target_email = models.EmailField(null=True)
     first_name = models.CharField(max_length=30, blank=True, default="")
     created_by = models.ForeignKey(
         "posthog.User",
