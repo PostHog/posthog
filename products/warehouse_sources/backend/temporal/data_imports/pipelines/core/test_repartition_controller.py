@@ -37,7 +37,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionSupersededError,
     RepartitionTooLargeForBudgetError,
     RepartitionUnpartitionableError,
-    measure_partition_bytes,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
@@ -119,50 +118,6 @@ class TestRepartitionDetection:
         assert pending["partition_count"] > 2
         assert pending["trigger_reason"] == "proactive_threshold"
         assert capture.call_args.args[0] == "warehouse_repartition_flagged"
-
-    @pytest.mark.parametrize(
-        "fits_after_compaction,compaction_fails,expect_flag",
-        [
-            (True, False, False),
-            (False, False, True),
-            # The split protects merges from running out of memory, so a compaction that fails must
-            # still leave the table judged on its measured size.
-            (True, True, True),
-        ],
-    )
-    def test_compacts_small_files_before_judging_the_budget(
-        self, team, fits_after_compaction, compaction_fails, expect_flag
-    ):
-        # A merge writes files that are larger at rest than the same rows after compaction, so a
-        # partition that took many merges since its last compaction reads over the budget while its
-        # data fits. A split on that reading re-buckets the whole table into many more files.
-        schema = _make_schema(
-            team,
-            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
-        )
-        with tempfile.TemporaryDirectory() as d:
-            for i in range(10):
-                row = pa.table({"id": pa.array([i], type=pa.int64()), PARTITION_KEY: pa.array(["0"], type=pa.string())})
-                deltalake.write_deltalake(f"{d}/t", row, partition_by=PARTITION_KEY, mode="append")
-            delta = deltalake.DeltaTable(f"{d}/t")
-            uncompacted_bytes = measure_partition_bytes(delta)["0"]
-            with (
-                patch.object(
-                    ctrl, "target_partition_bytes", return_value=uncompacted_bytes // 2 if fits_after_compaction else 1
-                ),
-                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
-                patch.object(ctrl, "capture_repartition_event"),
-                patch.object(ctrl, "capture_exception"),
-                patch.object(ctrl, "compact", side_effect=RuntimeError("compaction failed"))
-                if compaction_fails
-                else contextlib.nullcontext(),
-            ):
-                self._detect(team, schema, delta)
-
-        schema.refresh_from_db()
-        assert schema.max_partition_bytes is not None
-        assert (schema.max_partition_bytes < uncompacted_bytes) is not compaction_fails
-        assert (schema.repartition_pending is not None) is expect_flag
 
     def test_transient_db_error_during_measurement_save_is_not_captured(self, team):
         # A pgbouncer pooler drop (or its server_login_retry cooldown outliving the single retry in

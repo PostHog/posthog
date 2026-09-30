@@ -4,6 +4,8 @@ import tempfile
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import pyarrow as pa
 import deltalake
 from parameterized import parameterized
@@ -142,38 +144,43 @@ class TestCompactIfFragmented:
             mock_compact.assert_not_called()
             mock_vacuum.assert_not_called()
 
-    # (case_name, layout as [(partitions, files_per_partition, file_size_bytes)], compact_small_files, expected_ran)
-    _SMALL_FILE_CASES: list[tuple[str, list[tuple[int, int, int]], bool, bool]] = [
+    # (case_name, layout as [(partitions, file sizes in each)], compact_small_files, expected_ran)
+    _SMALL_FILE_CASES: list[tuple[str, list[tuple[int, list[int]]], bool, bool]] = [
         # An incremental datetime table: every sync lands in the newest partition, and 600 cold
         # partitions hold the average near one file per partition, so the averages never fire.
-        ("hot_partition_fires", [(600, 1, 60 * _MB), (1, 9, _MB)], True, True),
+        ("hot_partition_fires", [(600, [60 * _MB]), (1, [_MB] * 9)], True, True),
         # The pre-write pass and CDC tables keep the average-only thresholds.
-        ("hot_partition_ignored_without_small_file_triggers", [(600, 1, 60 * _MB), (1, 9, _MB)], False, False),
-        ("hot_partition_below_threshold_skips", [(600, 1, 60 * _MB), (1, 8, _MB)], True, False),
+        ("hot_partition_ignored_without_small_file_triggers", [(600, [60 * _MB]), (1, [_MB] * 9)], False, False),
+        ("hot_partition_below_threshold_skips", [(600, [60 * _MB]), (1, [_MB] * 8)], True, False),
         # Compaction writes files between half and the whole target, and delta-rs cannot pair two of
         # them into one bin. Counting them would start a compaction that does nothing on every sync.
-        ("compaction_output_never_counts", [(600, 1, 60 * _MB), (1, 20, 60 * _MB)], True, False),
+        ("compaction_output_never_counts", [(600, [60 * _MB]), (1, [60 * _MB] * 20)], True, False),
         # A cold tail of partitions with a few small files each, which no single partition reveals.
-        ("cold_tail_fires", [(100, 2, _MB)], True, True),
-        ("cold_tail_below_threshold_skips", [(99, 2, _MB)], True, False),
+        ("cold_tail_fires", [(100, [_MB] * 2)], True, True),
+        ("cold_tail_below_threshold_skips", [(99, [_MB] * 2)], True, False),
+        # Repartition detection measures right after this pass, so a partition that its small files
+        # push over the budget must compact even below the removable thresholds, or it gets split.
+        ("over_budget_partition_fires", [(1, [90 * _MB] * 6 + [_MB] * 10)], True, True),
+        ("same_files_under_budget_skip", [(1, [90 * _MB] * 4 + [_MB] * 10)], True, False),
     ]
 
     @parameterized.expand(_SMALL_FILE_CASES)
     @pytest.mark.asyncio
     async def test_small_file_threshold(
-        self, _name: str, layout: list[tuple[int, int, int]], compact_small_files: bool, expected_ran: bool
+        self, _name: str, layout: list[tuple[int, list[int]]], compact_small_files: bool, expected_ran: bool
     ):
         file_sizes = {
             f"_ph_partition_key={group}-{partition}/f{i}.parquet": size
-            for group, (partitions, files_per_partition, size) in enumerate(layout)
+            for group, (partitions, sizes) in enumerate(layout)
             for partition in range(partitions)
-            for i in range(files_per_partition)
+            for i, size in enumerate(sizes)
         }
         mock_delta = MagicMock()
         mock_delta.file_uris = MagicMock(return_value=[f"s3://bucket/table/{path}" for path in file_sizes])
         mock_delta._table.get_add_file_sizes = MagicMock(return_value=file_sizes)
         maintenance = _make_maintenance(mock_delta)
         with (
+            override_settings(DATA_WAREHOUSE_TARGET_PARTITION_BYTES=500 * _MB),
             patch.object(maintenance, "_compact", AsyncMock()) as mock_compact,
             patch.object(maintenance, "_vacuum", AsyncMock()),
         ):

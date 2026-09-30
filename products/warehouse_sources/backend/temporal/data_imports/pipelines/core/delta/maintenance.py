@@ -10,8 +10,6 @@ from django.conf import settings
 import deltalake
 import posthoganalytics
 import deltalake.exceptions
-from deltalake.table import FilterConjunctionType
-from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
@@ -54,12 +52,8 @@ DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
 # Post-load triggers on the files a compaction would remove (see `removable_file_count`). The
-# averages above cannot see small merge files: an incremental table writes each sync into its newest
-# partition, and hundreds of older partitions keep the average near one file per partition. Small
-# files slow every read, and they take more bytes at rest than the same rows after compaction. The
-# repartition budget is sized against compacted bytes, so an uncompacted partition can trip a split
-# that the data does not need. The per-partition trigger bounds the newest partition. The table-wide
-# trigger bounds a tail of partitions that each hold a few small files.
+# averages above cannot see an incremental table's newest partition, because its older partitions
+# keep the average near one file each. The table-wide trigger covers partitions that each keep a few.
 DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD = 8
 DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD = 100
 
@@ -96,47 +90,13 @@ def removable_file_count(file_sizes: Iterable[int]) -> int:
     return max(0, len(small) - output_files)
 
 
-def _removable_files_per_partition(table: deltalake.DeltaTable) -> list[int]:
-    # Reads file sizes from the Delta log, so it costs no S3 request. Each partition value is one
-    # directory, and an unpartitioned table keeps its files at the root.
+def _partition_file_stats(table: deltalake.DeltaTable) -> list[tuple[int, int]]:
+    """(at-rest bytes, removable files) for each partition, read from the Delta log with no S3 request."""
+    # Each partition value is one directory, and an unpartitioned table keeps its files at the root.
     sizes: defaultdict[str, list[int]] = defaultdict(list)
     for path, size in table._table.get_add_file_sizes().items():
         sizes[path.rpartition("/")[0]].append(size or 0)
-    return [removable_file_count(partition_sizes) for partition_sizes in sizes.values()]
-
-
-async def compact(
-    table: deltalake.DeltaTable,
-    logger: FilteringBoundLogger,
-    partition_filters: FilterConjunctionType | None = None,
-) -> None:
-    """Compact the table, or only the partitions that `partition_filters` matches."""
-    await logger.adebug("Compacting table...")
-    target_size = DEFAULT_COMPACT_TARGET_SIZE_BYTES
-    attempt = 0
-    while True:
-
-        def _compact_op(size: int = target_size) -> dict[str, Any]:
-            return table.optimize.compact(partition_filters=partition_filters, target_size=size)
-
-        try:
-            compact_stats = await execute_with_conflict_retry(
-                table,
-                _compact_op,
-                "compact",
-                logger,
-            )
-            break
-        except deltalake.exceptions.DeltaError as e:
-            if not is_offset_overflow_compaction_error(e) or attempt >= COMPACT_OFFSET_OVERFLOW_RETRIES:
-                raise
-            attempt += 1
-            target_size //= 2
-            await logger.awarning(
-                f"compact: byte array offset overflow, retrying with smaller "
-                f"target_size={target_size} (attempt {attempt}/{COMPACT_OFFSET_OVERFLOW_RETRIES})"
-            )
-    await logger.adebug(json.dumps(compact_stats))
+    return [(sum(partition_sizes), removable_file_count(partition_sizes)) for partition_sizes in sizes.values()]
 
 
 class DeltaMaintenance:
@@ -169,7 +129,32 @@ class DeltaMaintenance:
         await self._logger.adebug(json.dumps(vacuum_stats))
 
     async def _compact(self, table: deltalake.DeltaTable) -> None:
-        await compact(table, self._logger)
+        await self._logger.adebug("Compacting table...")
+        target_size = DEFAULT_COMPACT_TARGET_SIZE_BYTES
+        attempt = 0
+        while True:
+
+            def _compact_op(size: int = target_size) -> dict[str, Any]:
+                return table.optimize.compact(target_size=size)
+
+            try:
+                compact_stats = await execute_with_conflict_retry(
+                    table,
+                    _compact_op,
+                    "compact",
+                    self._logger,
+                )
+                break
+            except deltalake.exceptions.DeltaError as e:
+                if not is_offset_overflow_compaction_error(e) or attempt >= COMPACT_OFFSET_OVERFLOW_RETRIES:
+                    raise
+                attempt += 1
+                target_size //= 2
+                await self._logger.awarning(
+                    f"compact: byte array offset overflow, retrying with smaller "
+                    f"target_size={target_size} (attempt {attempt}/{COMPACT_OFFSET_OVERFLOW_RETRIES})"
+                )
+        await self._logger.adebug(json.dumps(compact_stats))
 
     async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
         """Vacuum tombstoned files once enough commits have accrued since the last vacuum.
@@ -243,9 +228,11 @@ class DeltaMaintenance:
         tens of thousands of files while staying under the per-partition bar.
 
         `compact_small_files` adds the removable-file triggers (see
-        `DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD`). Only the non-CDC post-load
-        pass sets it. The pre-write pass is a backstop for a table that arrived fragmented, and a
-        CDC final lands every tick, so these triggers would compact a CDC table every few ticks.
+        `DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD`), plus a trigger for any
+        partition over the repartition budget that compaction can shrink. Only the non-CDC
+        post-load pass sets it. The pre-write pass is a backstop for a table that arrived
+        fragmented, and a CDC final lands every tick, so these triggers would compact a CDC table
+        every few ticks.
 
         When `partition_count` is None it is derived from the table's actual layout (the
         distinct file directories in the delta log, no extra I/O) — only md5 partitioning
@@ -279,14 +266,23 @@ class DeltaMaintenance:
             f"total_threshold={total_threshold}"
         )
         if compact_small_files and not fragmented:
-            removable = await asyncio.to_thread(_removable_files_per_partition, table)
-            max_removable = max(removable, default=0)
-            total_removable = sum(removable)
+            partitions = await asyncio.to_thread(_partition_file_stats, table)
+            max_removable = max((removable for _, removable in partitions), default=0)
+            total_removable = sum(removable for _, removable in partitions)
+            # Repartition detection runs after this pass and compares partition bytes to its budget.
+            # Small files take more bytes at rest than the same rows after compaction, so an
+            # over-budget partition that compaction can shrink must be compacted before it is measured.
+            budget = settings.DATA_WAREHOUSE_TARGET_PARTITION_BYTES
+            compactable_over_budget = any(size > budget and removable > 0 for size, removable in partitions)
             fragmented = (
                 max_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
                 or total_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD
+                or compactable_over_budget
             )
-            stats += f", max_removable_files_per_partition={max_removable}, removable_files={total_removable}"
+            stats += (
+                f", max_removable_files_per_partition={max_removable}, removable_files={total_removable}, "
+                f"compactable_over_budget={compactable_over_budget}"
+            )
         if not fragmented:
             await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
             return False
