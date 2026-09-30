@@ -245,12 +245,17 @@ def sync_existing_configuration(upsert: PlatformAlertUpsert) -> bool:
     with transaction.atomic():
         configuration = (
             PlatformAlertConfiguration.objects.for_team(upsert.team_id)
-            .select_for_update()
             .filter(legacy_configuration_id=upsert.legacy_configuration_id)
             .first()
         )
         if configuration is None:
             return False
+        # The read takes no lock and the alert rows are written before the configuration, so this
+        # locks rows in the same order as `record_outcomes`. The opposite order can deadlock an
+        # edit with a platform check of the same alert.
+        PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(
+            snooze_until=upsert.snooze_until
+        )
         configuration.name = upsert.name
         configuration.enabled = upsert.enabled
         configuration.source_config = upsert.source_config
@@ -263,9 +268,6 @@ def sync_existing_configuration(upsert: PlatformAlertUpsert) -> bool:
         configuration.cooldown_minutes = upsert.cooldown_minutes
         configuration.schedule_restriction = upsert.schedule_restriction
         configuration.save(update_fields=[*_SYNCED_CONFIGURATION_FIELDS, "updated_at"])
-        PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(
-            snooze_until=upsert.snooze_until
-        )
     return True
 
 
