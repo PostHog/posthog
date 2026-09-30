@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any
+from uuid import UUID
 
 from clickhouse_driver.errors import SocketTimeoutError
 from prometheus_client import Counter
@@ -142,9 +142,9 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
     def _verify_by_column(
         self, distinct_columns: Callable[[str], str], async_deletions: list[AsyncDeletion]
-    ) -> set[tuple[Any, ...]]:
+    ) -> set[tuple[int | str | UUID, ...]]:
         # A deletion is only verified once the rows are gone from every events table.
-        rows_with_data: set[tuple[Any, ...]] = set()
+        rows_with_data: set[tuple[int | str | UUID, ...]] = set()
         for table in events_read_tables_via_sync_execute():
             conditions, args = [], {}
             for i, row in enumerate(async_deletions):
