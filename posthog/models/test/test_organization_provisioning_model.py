@@ -14,13 +14,16 @@ class TestOrganizationProvisioningModel(BaseTest):
         [
             ("provisioning_api_with_application", OrganizationProvisioning.Partner.PROVISIONING_API, True, True),
             ("stripe_projects_with_application", OrganizationProvisioning.Partner.STRIPE_PROJECTS, True, True),
+            ("stripe_projects_without_application", OrganizationProvisioning.Partner.STRIPE_PROJECTS, False, False),
             ("vercel_without_application", OrganizationProvisioning.Partner.VERCEL, False, True),
             ("provisioning_api_without_application", OrganizationProvisioning.Partner.PROVISIONING_API, False, False),
             ("vercel_with_application", OrganizationProvisioning.Partner.VERCEL, True, False),
             ("unknown_partner_with_application", "verce", True, False),
         ]
     )
-    def test_application_must_match_partner(self, _name, partner, with_application, allowed):
+    def test_application_must_match_partner(
+        self, _name: str, partner: OrganizationProvisioning.Partner | str, with_application: bool, allowed: bool
+    ) -> None:
         application = (
             OAuthApplication.objects.create(
                 client_id="partner",
