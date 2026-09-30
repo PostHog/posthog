@@ -389,6 +389,8 @@ async def run_model_decision(
             _INPUT_TOKENS.labels(stage).inc(system_one.input_tokens)
             if estimated_cost is not None:
                 _ESTIMATED_COST.labels(stage).inc(estimated_cost)
+            else:
+                logger.warning("System One input price unavailable", model=system_one.model, stage=stage)
             if disagreement:
                 _DISAGREEMENTS.labels(stage, str(traditional_verdict).lower(), str(system_one_verdict).lower()).inc()
             properties.update(
