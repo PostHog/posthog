@@ -37,4 +37,18 @@ describe('llmPlaygroundVariablesLogic', () => {
 
         logic.unmount()
     })
+
+    it('clears values when a new source loads into the playground', async () => {
+        // Without this, loading a different saved prompt that reuses a variable
+        // name silently sends the previous prompt's value.
+        const logic = llmPlaygroundVariablesLogic()
+        logic.mount()
+
+        logic.actions.setVariableValue('topic', 'penguins')
+        llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({})
+
+        await expectLogic(logic).toMatchValues({ variableValues: {} })
+
+        logic.unmount()
+    })
 })

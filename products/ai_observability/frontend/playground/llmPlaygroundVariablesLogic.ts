@@ -18,6 +18,9 @@ export interface llmPlaygroundVariablesLogicActions {
     resetPlayground: () => {
         value: true
     } // llmPlaygroundPromptsLogic
+    setupPlaygroundFromEvent: (payload: import('./llmPlaygroundPromptsLogic').PlaygroundSetupPayload) => {
+        payload: import('./llmPlaygroundPromptsLogic').PlaygroundSetupPayload
+    } // llmPlaygroundPromptsLogic
     setVariableValue: (
         name: string,
         value: string
@@ -48,7 +51,7 @@ export const llmPlaygroundVariablesLogic = kea<llmPlaygroundVariablesLogicType>(
 
     connect(() => ({
         values: [llmPlaygroundPromptsLogic, ['promptConfigs']],
-        actions: [llmPlaygroundPromptsLogic, ['resetPlayground']],
+        actions: [llmPlaygroundPromptsLogic, ['resetPlayground', 'setupPlaygroundFromEvent']],
     })),
 
     actions({
@@ -64,6 +67,10 @@ export const llmPlaygroundVariablesLogic = kea<llmPlaygroundVariablesLogicType>(
             {} as Record<string, string>,
             {
                 resetPlayground: () => ({}),
+                // A new source (saved prompt, evaluation, trace) starts a fresh test
+                // context; values from the previous prompt must not silently fill
+                // same-named variables in the new one.
+                setupPlaygroundFromEvent: () => ({}),
                 setVariableValue: (
                     state: Record<string, string>,
                     { name, value }: { name: string; value: string }
