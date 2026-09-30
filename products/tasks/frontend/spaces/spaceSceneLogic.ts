@@ -26,6 +26,7 @@ import {
     tasksList,
 } from '../generated/api'
 import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
+import { sessionIdsWithPullRequests } from './taskPullRequests'
 
 const SPACE_FEED_LIMIT = 50
 
@@ -88,6 +89,9 @@ export interface spaceSceneLogicActions {
     sessionUpdated: (sessionId: string) => {
         sessionId: string
     } // todaySessionMenuLogic
+    loadPullRequestStates: (sessionIds: string[]) => {
+        sessionIds: string[]
+    } // todaySpacesLogic
     loadSpaces: () => any // todaySpacesLogic
     loadSpacesSuccess: (
         spaces: ChannelDTOApi[],
@@ -96,6 +100,7 @@ export interface spaceSceneLogicActions {
         payload?: any
         spaces: ChannelDTOApi[]
     } // todaySpacesLogic
+    loadTaskActivity: (_?: void | undefined) => void // todaySpacesLogic
     deleteSpace: () => {
         value: true
     }
@@ -226,7 +231,12 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
     key((props) => props.id),
     connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
-        actions: [todaySessionMenuLogic, ['sessionUpdated'], todaySpacesLogic, ['loadSpaces', 'loadSpacesSuccess']],
+        actions: [
+            todaySessionMenuLogic,
+            ['sessionUpdated'],
+            todaySpacesLogic,
+            ['loadSpaces', 'loadSpacesSuccess', 'loadTaskActivity', 'loadPullRequestStates'],
+        ],
     })),
     actions({
         updateSpace: (patch: PatchedChannelUpdateApi) => ({ patch }),
@@ -393,6 +403,12 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         ],
     }),
     listeners(({ actions, props, values }) => ({
+        loadSessions: () => {
+            actions.loadTaskActivity()
+        },
+        loadSessionsSuccess: ({ sessions }) => {
+            actions.loadPullRequestStates(sessionIdsWithPullRequests(sessions))
+        },
         sessionUpdated: () => {
             actions.loadSessions()
         },
