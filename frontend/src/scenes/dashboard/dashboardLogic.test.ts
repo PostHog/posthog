@@ -2695,6 +2695,48 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
+            it.each(['unmount', 'cancel'] as const)('cancels a single-tile retry cooldown on %s', async (action) => {
+                await expectLogic(logic).toFinishAllListeners()
+                const tile = logic.values.dashboard!.tiles.find((tile) => !!tile.insight)!
+                const getResponse = jest.spyOn(api, 'getResponse').mockResolvedValue(
+                    new Response(
+                        JSON.stringify({
+                            ...tile.insight,
+                            result: null,
+                            query_status: {
+                                id: 'q',
+                                team_id: 2,
+                                query_async: true,
+                                complete: true,
+                                error: true,
+                                error_code: 'rate_limited',
+                                error_message: 'Busy',
+                                retry_after: 30,
+                            },
+                        }),
+                        { status: 200 }
+                    )
+                )
+                getResponse.mockClear()
+                jest.useFakeTimers()
+                try {
+                    logic.actions.refreshDashboardItem({ tile })
+                    await jest.advanceTimersByTimeAsync(1)
+                    expect(getResponse).toHaveBeenCalledTimes(1)
+                    if (action === 'unmount') {
+                        logic.unmount()
+                    } else {
+                        logic.actions.cancelDashboardRefresh()
+                    }
+                    expect(getResponse.mock.calls[0][1]?.signal?.aborted).toBe(true)
+                    await jest.advanceTimersByTimeAsync(60_000)
+                    expect(getResponse).toHaveBeenCalledTimes(1)
+                } finally {
+                    getResponse.mockRestore()
+                    jest.useRealTimers()
+                }
+            })
+
             it('allows another manual dashboard refresh after five minutes', async () => {
                 await expectLogic(logic).toFinishAllListeners()
                 for (const tile of logic.values.dashboard!.tiles) {

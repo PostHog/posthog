@@ -4240,6 +4240,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(query_status["error"])
         self.assertIn(error_message, query_status["error_message"])
         self.assertEqual(query_status["error_code"], expected_error_code)
+        self.assertIsNone(query_status.get("retry_after"))
 
     @parameterized.expand(
         [
@@ -4268,6 +4269,18 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(query_status["error"])
         self.assertEqual(query_status["error_code"], "rate_limited")
         self.assertEqual(query_status["error_message"], expected_message)
+        self.assertGreaterEqual(query_status["retry_after"], 30)
+        self.assertLessEqual(query_status["retry_after"], 60)
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_preserves_the_capacity_exceptions_retry_delay(self, mock_calculate: mock.MagicMock) -> None:
+        error = ClickHouseAtCapacity()
+        error.wait = 47
+        mock_calculate.side_effect = error
+
+        query_status = self._query_status_of_a_failed_refresh()
+
+        self.assertEqual(query_status["retry_after"], 47)
 
 
 class TestInsightQueryScan(APIBaseTest):

@@ -1450,6 +1450,9 @@ class InsightSerializer(InsightBasicSerializer):
                     error_message=error_message,
                     error_code=QueryErrorCategory.RATE_LIMITED if is_rate_limited else None,
                     last_refresh=now() if is_rate_limited else None,
+                    retry_after=(e if isinstance(e, ClickHouseAtCapacity) else ClickHouseAtCapacity()).wait
+                    if is_rate_limited
+                    else None,
                 )
 
     def _degraded_insight_result(
@@ -1461,6 +1464,7 @@ class InsightSerializer(InsightBasicSerializer):
         error_message: str,
         error_code: str | None,
         last_refresh: datetime | None,
+        retry_after: int | None = None,
     ) -> InsightResult:
         """A 200 response carrying the failure on query_status, so a failing insight degrades in
         place rather than failing the whole request. `error_code` lets the client tell a
@@ -1485,6 +1489,7 @@ class InsightSerializer(InsightBasicSerializer):
                     error_message=error_message,
                     error_code=error_code,
                     error=True,
+                    retry_after=retry_after,
                 )
             ),
             cache_key=getattr(error, "cache_key", None),
