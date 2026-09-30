@@ -5,6 +5,7 @@ import { hasScope } from '@/lib/api'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
+import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
@@ -36,6 +37,15 @@ const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
 const NOTEBOOK_RUN_TOOL = 'notebooks-run'
 const DOCS_SEARCH_TOOL = 'docs-search'
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
+
+// Older PostHog app connections were granted a scope set without `llm_skill:read`, and a token
+// keeps its scope set on every refresh, so for that app a new connection is the only fix.
+function projectSkillsScopeReason(oauthClientId: string | undefined): string {
+    if (isChatGptAppConnection(oauthClientId)) {
+        return 'This connection is missing the llm_skill:read scope. A new connection to the PostHog app includes it: disconnect the PostHog app in ChatGPT or Codex and connect it again to read project skills.'
+    }
+    return 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.'
+}
 
 export class InstructionsBuilder {
     private readonly formatter: InstructionsFormatter
@@ -150,7 +160,7 @@ export class InstructionsBuilder {
                       project: canReadProjectSkills ? new ProjectSkillCatalog(state.context) : undefined,
                       projectUnavailableReason: canReadProjectSkills
                           ? undefined
-                          : 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.',
+                          : projectSkillsScopeReason(state.oauthClientId),
                   }
                 : undefined,
             (invocation) => {

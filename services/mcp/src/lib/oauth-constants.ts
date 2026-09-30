@@ -44,6 +44,15 @@ export function getUserAgent(opts: GetUserAgentOptions = {}): string {
     return parts.join(' ')
 }
 
+// A CIMD client id is the metadata document's URL, and the PostHog app for ChatGPT and Codex
+// uses this one document in both regions. Introspection supplies it, so a caller cannot claim
+// it. The Codex CLI's own client lives under `chatgpt.com/oauth/codex/` and is not this app.
+export const CHATGPT_APP_OAUTH_CLIENT_ID = 'https://chatgpt.com/oauth/kxnWncnkxM6t/client.json'
+
+export function isChatGptAppConnection(oauthClientId: string | undefined): boolean {
+    return oauthClientId === CHATGPT_APP_OAUTH_CLIENT_ID
+}
+
 export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
 export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
 
