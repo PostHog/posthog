@@ -7,6 +7,7 @@ import { type PlatformAlertData, PlatformAlertView, nextCheckLabel, summarizePla
 
 export interface PlatformAlertListData {
     results: PlatformAlertData[]
+    count?: number
     _posthogUrl?: string
 }
 
@@ -23,6 +24,7 @@ function groupsLabel(alert: PlatformAlertData): string {
 }
 
 export function PlatformAlertListView({ data, onPlatformAlertClick }: PlatformAlertListViewProps): ReactElement {
+    const total = data.count ?? data.results.length
     const firingCount = data.results.filter(
         (alert) => alert.enabled && alert.alerts.some((group) => group.state === 'firing')
     ).length
@@ -86,7 +88,9 @@ export function PlatformAlertListView({ data, onPlatformAlertClick }: PlatformAl
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between gap-2">
                                 <span className="text-sm text-muted-foreground">
-                                    {data.results.length} alert{data.results.length === 1 ? '' : 's'}
+                                    {total > data.results.length
+                                        ? `Showing ${data.results.length} of ${total} alerts`
+                                        : `${total} alert${total === 1 ? '' : 's'}`}
                                 </span>
                                 {firingCount > 0 && <Badge variant="destructive">{firingCount} firing</Badge>}
                             </div>
