@@ -2,9 +2,9 @@
 
 from posthog.models import Team, User
 
+from ..feature_flags import is_enabled_for as is_enabled_for
 from ..logic import briefings
 from ..logic.briefings import MAX_REFRESHES_PER_DAY as MAX_REFRESHES_PER_DAY
-from ..logic.eligibility import is_enabled_for as is_enabled_for
 from . import contracts
 from .contracts import RefreshLimitReached as RefreshLimitReached
 

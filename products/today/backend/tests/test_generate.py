@@ -83,7 +83,7 @@ class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
         assert (self.briefing.status, self.briefing.content) == (BriefingStatus.READY, self.draft)
 
 
-FLAG = "products.today.backend.logic.eligibility.posthoganalytics.feature_enabled"
+FLAG = "products.today.backend.feature_flags.feature_enabled_or_false"
 
 
 class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):

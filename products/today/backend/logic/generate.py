@@ -8,11 +8,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from ..facade.enums import BriefingStatus, BriefingWriter
+from ..feature_flags import is_enabled_for
 from ..models import DailyBriefing
 from .candidates import Candidate, SourceContext
 from .checks import check_content
 from .draft import build_draft
-from .eligibility import is_enabled_for
 from .fact_sheet import build_fact_sheet
 from .ranking import rank_candidates, select
 from .sources import SOURCES, reports

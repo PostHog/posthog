@@ -18,10 +18,11 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from ..facade.enums import BriefingStatus, BriefingTrigger
+from ..feature_flags import is_enabled_for
 from ..logic import generate
 from ..logic.briefings import create_briefing
 from ..logic.candidates import Candidate
-from ..logic.eligibility import is_due, is_enabled_for, local_day
+from ..logic.eligibility import is_due, local_day
 from ..models import DailyBriefing
 from .inputs import (
     GENERATE_WORKFLOW_NAME,

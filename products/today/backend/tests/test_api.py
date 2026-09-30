@@ -13,7 +13,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
     def _flag(self, enabled: bool):
-        return patch("products.today.backend.logic.eligibility.posthoganalytics.feature_enabled", return_value=enabled)
+        return patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=enabled)
 
     def test_flag_off_hides_the_briefing(self, _sync_connect: MagicMock) -> None:
         with self._flag(False):
