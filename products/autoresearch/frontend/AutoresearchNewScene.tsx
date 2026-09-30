@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { autoresearchNewLogic } from './autoresearchNewLogic'
+import { autoresearchNewLogic, hasTarget } from './autoresearchNewLogic'
 
 export const scene: SceneExport = {
     component: AutoresearchNewScene,
@@ -39,9 +39,25 @@ function formatNumber(value: number | null | undefined): string {
 }
 
 function ValidationPanel(): JSX.Element {
-    const { validation, validationLoading } = useValues(autoresearchNewLogic)
+    const { validation, validationLoading, validationFailed, newPipeline } = useValues(autoresearchNewLogic)
+    const { runValidate } = useActions(autoresearchNewLogic)
 
-    if (!validation && !validationLoading) {
+    if (validationFailed && !validationLoading) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Retry',
+                    onClick: () => runValidate(null),
+                    'data-attr': 'autoresearch-new-validate-retry',
+                }}
+            >
+                Couldn't check this model definition. Retry, or change a field to check again.
+            </LemonBanner>
+        )
+    }
+
+    if (!validation && !validationLoading && !hasTarget(newPipeline)) {
         return (
             <div className="border rounded p-4 bg-bg-light text-muted text-sm">
                 Pick a target event to see live training estimates.

@@ -51,7 +51,7 @@ const DEFAULTS: NewPipelineFormValues = {
 const VALIDATE_DEBOUNCE_MS = 500
 
 /** True once the chosen target (event name, or action id) is complete enough to validate/create. */
-function hasTarget(values: NewPipelineFormValues): boolean {
+export function hasTarget(values: NewPipelineFormValues): boolean {
     return values.target_type === 'action' ? values.target_action_id != null : !!values.target_event.trim()
 }
 
@@ -61,8 +61,9 @@ function targetRequestFields(values: NewPipelineFormValues): {
     target_definition: Record<string, unknown>
 } {
     if (values.target_type === 'action' && values.target_action_id != null) {
+        // The API derives target_event from the action. The display name can exceed its 255-character limit.
         return {
-            target_event: values.target_event.trim(),
+            target_event: '',
             target_definition: { type: 'action', action_id: values.target_action_id },
         }
     }
@@ -86,6 +87,7 @@ export interface autoresearchNewLogicValues {
     newPipelineValidationErrors: DeepPartialMap<NewPipelineFormValues, ValidationErrorType>
     showNewPipelineErrors: boolean
     validation: ValidatePipelineResponseApi | null
+    validationFailed: boolean
     validationLoading: boolean
 }
 
@@ -192,6 +194,15 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 clearValidation: () => null,
             },
         ],
+        validationFailed: [
+            false,
+            {
+                runValidate: () => false,
+                runValidateSuccess: () => false,
+                runValidateFailure: () => true,
+                clearValidation: () => false,
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         newPipeline: {
@@ -222,6 +233,10 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
             submit: async (payload: NewPipelineFormValues) => {
                 if (!values.currentTeamId) {
                     lemonToast.error('Select a project before creating a model')
+                    return
+                }
+                if (values.validationFailed) {
+                    lemonToast.error('Validation failed to run. Retry it, then create.')
                     return
                 }
                 if (values.validationLoading || !values.validation) {
