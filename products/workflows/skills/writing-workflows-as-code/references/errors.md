@@ -41,9 +41,9 @@ Fix every error, then check the whole file again. One fix can reveal the next er
 
 These are not file mistakes, so they do not use the error shape above.
 
-| Response                         | Meaning                                                                                                              |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 400 with a field name as the key | The request body is wrong: `content` is missing, or the body carries a field besides `content`. Send only `content`. |
-| 401                              | PostHog did not accept the API key. Check the key and that the host is the PostHog that issued it.                   |
-| 403                              | The key or the user may not do this: check needs `hog_flow:read`, apply needs `hog_flow:write` and editor access.    |
-| 404 on `workflows-get-code`      | No workflow has this id in the project.                                                                              |
+| Response                         | Meaning                                                                                                                                                                                                        |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400 with a field name as the key | The request body is wrong: `content` is missing, or the body carries a field besides `content`. Send only `content`.                                                                                           |
+| 401                              | PostHog did not accept the API key. Check the key and that the host is the PostHog that issued it. A project secret key (`phs_`) gets 401 until PostHog/posthog#104202 is deployed, so use a personal API key. |
+| 403                              | The key or the user may not do this: check needs `hog_flow:read`, apply needs `hog_flow:write` and editor access.                                                                                              |
+| 404 on `workflows-get-code`      | No workflow has this id in the project.                                                                                                                                                                        |

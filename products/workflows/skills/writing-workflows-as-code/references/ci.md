@@ -6,7 +6,7 @@ Check errors show as annotations on the file in the pull request.
 
 ## Set it up
 
-1. In PostHog, create two project secret API keys: one with the workflows read scope (`hog_flow:read`) for checks, one with the write scope (`hog_flow:write`) for applies. If your project's secret keys do not offer these scopes yet, use personal API keys with the same scopes.
+1. In PostHog, create two personal API keys: one with the workflows read scope (`hog_flow:read`) for checks, one with the write scope (`hog_flow:write`) for applies. A project secret key (`phs_`) with the same scopes works once [PostHog/posthog#104202](https://github.com/PostHog/posthog/pull/104202) is deployed. Until then PostHog answers 401 to it.
 2. In the repository settings, add the read key as the Actions secret `POSTHOG_API_KEY`, and the project id as the Actions variable `POSTHOG_PROJECT_ID`. On PostHog Cloud EU, or on your own PostHog, also add the variable `POSTHOG_HOST`, for example `https://eu.posthog.com`.
 3. Create the environment `posthog-workflow-files`, limit its deployment branches to the default branch, and add the write key to it as the environment secret `POSTHOG_API_KEY`. Do this before the first push, because GitHub creates a missing environment without that limit. The limit keeps the write key away from pull request runs.
 4. Save the two files below. Change `workflows/` and `main` if your files or your default branch live elsewhere.
@@ -133,6 +133,7 @@ jobs:
 - Warnings, such as people in a removed step, print under the file and never fail the job. Read them on the pull request before you merge.
 - A running apply is never cancelled. A queued one gives way to the newest push, which applies every file anyway.
 - Deleting a file deletes nothing in PostHog. Delete the file, then archive the workflow in PostHog.
+- When `workflows/` holds no file, each job prints one line and succeeds, so deleting the last workflow file does not fail it.
 
 The same two calls work from any CI system:
 

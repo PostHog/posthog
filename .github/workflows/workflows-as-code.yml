@@ -32,7 +32,7 @@ jobs:
                   sparse-checkout: products/workflows/workflows
                   sparse-checkout-cone-mode: false
 
-            - uses: Silthus/posthog-workflows-action@3c3269cc77433a70d093564b3619f01afae9c0b8 # v0.1.0
+            - uses: Silthus/posthog-workflows-action@028eaa17c6cd3dbb46f2a9d80b956571a0573976 # v0.1.1
               with:
                   api-key: ${{ secrets.POSTHOG_WORKFLOWS_CHECK_API_KEY }}
                   project-id: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID || '2' }}
@@ -54,7 +54,7 @@ jobs:
                   sparse-checkout: products/workflows/workflows
                   sparse-checkout-cone-mode: false
 
-            - uses: Silthus/posthog-workflows-action@3c3269cc77433a70d093564b3619f01afae9c0b8 # v0.1.0
+            - uses: Silthus/posthog-workflows-action@028eaa17c6cd3dbb46f2a9d80b956571a0573976 # v0.1.1
               with:
                   api-key: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}
                   project-id: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID || '2' }}
