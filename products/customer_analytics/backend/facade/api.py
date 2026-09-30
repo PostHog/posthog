@@ -3173,10 +3173,36 @@ def _validate_account_table_definitions(
     return custom_property_display_types
 
 
-def _filters_account_table_field(
-    filters: tuple[contracts.AccountTableFilter, ...], field: contracts.AccountTableField
-) -> bool:
-    return any(isinstance(filter_, contracts.AccountTableFieldFilter) and filter_.field == field for filter_ in filters)
+LIFECYCLE_ACCOUNT_TABLE_FIELDS = frozenset(
+    {contracts.AccountTableField.CHURNED_AT, contracts.AccountTableField.IGNORED_AT}
+)
+
+
+def _selects_lifecycle_accounts(filters: tuple[contracts.AccountTableFilter, ...]) -> bool:
+    return any(
+        isinstance(filter_, contracts.AccountTableFieldFilter)
+        and filter_.field in LIFECYCLE_ACCOUNT_TABLE_FIELDS
+        and filter_.operator != contracts.AccountTableFieldOperator.IS_NOT_SET
+        for filter_ in filters
+    )
+
+
+def _filter_out_hidden_lifecycle_accounts(
+    queryset: QuerySet[Account],
+    filters: tuple[contracts.AccountTableFilter, ...],
+    *,
+    include_churned: bool,
+    include_ignored: bool,
+) -> QuerySet[Account]:
+    # Track Rules skip churned accounts, so a churned account keeps its ignored_at. Hiding either
+    # state here would drop accounts that a churned or ignored filter asks for.
+    if _selects_lifecycle_accounts(filters):
+        return queryset
+    if not include_churned:
+        queryset = queryset.filter(churned_at__isnull=True)
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
+    return queryset
 
 
 def _apply_account_table_filters(
@@ -3211,16 +3237,12 @@ def _apply_account_table_filters(
         if filter_groups:
             matching_groups = Q()
             for group in filter_groups:
-                group_query = queryset
-                branch_filters = filters + group
-                if not include_churned and not _filters_account_table_field(
-                    branch_filters, contracts.AccountTableField.CHURNED_AT
-                ):
-                    group_query = group_query.filter(churned_at__isnull=True)
-                if not include_ignored and not _filters_account_table_field(
-                    branch_filters, contracts.AccountTableField.IGNORED_AT
-                ):
-                    group_query = group_query.filter(ignored_at__isnull=True)
+                group_query = _filter_out_hidden_lifecycle_accounts(
+                    queryset,
+                    filters + group,
+                    include_churned=include_churned,
+                    include_ignored=include_ignored,
+                )
                 group_query = apply_account_filters(
                     group_query,
                     team_id=team_id,
@@ -3367,10 +3389,9 @@ def query_accounts_metrics(
 
     accounts = _accounts_queryset(team_id, user_access_control)
     if not filter_groups:
-        if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
-            accounts = accounts.filter(churned_at__isnull=True)
-        if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
-            accounts = accounts.filter(ignored_at__isnull=True)
+        accounts = _filter_out_hidden_lifecycle_accounts(
+            accounts, filters, include_churned=include_churned, include_ignored=include_ignored
+        )
     accounts = _apply_account_table_filters(
         accounts,
         team_id=team_id,
@@ -3461,10 +3482,9 @@ def query_accounts_table(
 
     queryset = _accounts_queryset(team_id, user_access_control)
     if not filter_groups:
-        if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
-            queryset = queryset.filter(churned_at__isnull=True)
-        if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
-            queryset = queryset.filter(ignored_at__isnull=True)
+        queryset = _filter_out_hidden_lifecycle_accounts(
+            queryset, filters, include_churned=include_churned, include_ignored=include_ignored
+        )
     queryset = _apply_account_table_filters(
         queryset,
         team_id=team_id,

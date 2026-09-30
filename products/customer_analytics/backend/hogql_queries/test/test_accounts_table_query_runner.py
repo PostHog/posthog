@@ -809,7 +809,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                         operator=AccountsTableAccountFieldOperator.IS_SET,
                     )
                 ],
-                {"Active ignored"},
+                {"Active ignored", "Churned ignored"},
             ),
             (
                 "churned",
@@ -819,7 +819,17 @@ class TestAccountsTableQueryRunner(BaseTest):
                         operator=AccountsTableAccountFieldOperator.IS_SET,
                     )
                 ],
-                {"Churned tracked"},
+                {"Churned tracked", "Churned ignored"},
+            ),
+            (
+                "not_ignored",
+                [
+                    AccountsTableAccountFieldFilter(
+                        field=AccountsTableAccountField.IGNORED_AT,
+                        operator=AccountsTableAccountFieldOperator.IS_NOT_SET,
+                    )
+                ],
+                {"Active tracked"},
             ),
             (
                 "churned_and_ignored",
