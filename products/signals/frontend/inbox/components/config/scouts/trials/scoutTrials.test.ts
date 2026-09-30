@@ -36,6 +36,24 @@ describe('scout trial validation', () => {
     })
 
     test.each([
+        ['keeps the source model and effort', 'gpt-5.6-terra', 'high', 'gpt-5.6-terra', 'high'],
+        ['leaves an unpinned effort blank', 'gpt-5.6-terra', null, 'gpt-5.6-terra', ''],
+        ['leaves an unsupported effort blank', 'gpt-5.6-terra', 'max', 'gpt-5.6-terra', ''],
+        ['leaves an unavailable source model blank', 'gpt-5.6-hidden', 'medium', '', ''],
+    ])('%s for the baseline', (_name, sourceModel, sourceEffort, model, effort) => {
+        const setup = { ...trialFixtureSetup, model: sourceModel, reasoning_effort: sourceEffort }
+        const variants = initialTrialVariants(setup)
+
+        expect(variants.map((variant) => [variant.model, variant.effort])).toEqual([
+            [model, effort],
+            [model, effort],
+        ])
+        expect(trialFormError(setup, variants, 1)).toBe(
+            effort ? null : 'Choose a supported model and effort for every version.'
+        )
+    })
+
+    test.each([
         ['unknown', null, 'confirmed result'],
         ['not_started', null, 'not started'],
         ['unexpected_status', null, 'finish'],

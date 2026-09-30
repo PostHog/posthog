@@ -110,12 +110,12 @@ export function trialFormError(
 }
 
 export function initialTrialVariants(setup: ScoutTrialSetupApi): ScoutTrialVariant[] {
-    const model = setup.models.find((option) => option.model === setup.model) ?? setup.models[0]
-    const effort = model?.reasoning_efforts.includes(setup.reasoning_effort ?? '')
-        ? setup.reasoning_effort!
-        : model?.reasoning_efforts.includes('medium')
-          ? 'medium'
-          : (model?.reasoning_efforts[0] ?? '')
+    // Blank instead of a default, so a baseline that differs from the source scout is an explicit choice.
+    const model = setup.models.find((option) => option.model === setup.model)
+    const effort =
+        setup.reasoning_effort && model?.reasoning_efforts.includes(setup.reasoning_effort)
+            ? setup.reasoning_effort
+            : ''
     return ['Baseline', 'Version B'].map((label, index) => ({
         id: String(index),
         label,
