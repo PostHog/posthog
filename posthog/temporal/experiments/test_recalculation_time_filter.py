@@ -109,6 +109,36 @@ class TestRecalculationTimeFilter:
         assert experiment.id in {r.experiment_id for r in _get_saved_metrics_sync(hour=20)}
         assert experiment.id not in {r.experiment_id for r in _get_saved_metrics_sync(hour=2)}
 
+    def test_discovery_skips_metrics_that_cannot_be_scheduled(self):
+        org = Organization.objects.create(name="Test Org Legacy")
+        team = Team.objects.create(organization=org, name="Team Legacy Metrics")
+        user = User.objects.create(email="legacy@test.com")
+
+        def mean_metric(uuid: str) -> dict:
+            return {"metric_type": "mean", "uuid": uuid, "source": {"kind": "EventsNode", "event": "test"}}
+
+        def legacy_metric(uuid: str) -> dict:
+            return {
+                "kind": "ExperimentTrendsQuery",
+                "uuid": uuid,
+                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "test"}]},
+            }
+
+        experiment = _create_running_experiment(
+            team, user, "legacy-metrics", metrics=[mean_metric("inline-mean"), legacy_metric("inline-legacy")]
+        )
+        for query in (mean_metric("saved-mean"), legacy_metric("saved-legacy")):
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=team, name=query["uuid"], query=query, created_by=user
+            )
+            ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+
+        inline = [r.metric_uuid for r in _get_metrics_sync(hour=2) if r.experiment_id == experiment.id]
+        saved = [r.metric_uuid for r in _get_saved_metrics_sync(hour=2) if r.experiment_id == experiment.id]
+
+        assert inline == ["inline-mean"]
+        assert saved == ["saved-mean"]
+
     def test_team_with_no_config_row_defaults_to_hour_2(self):
         org = Organization.objects.create(name="Test Org 2")
         team = Team.objects.create(organization=org, name="Team No Config")
