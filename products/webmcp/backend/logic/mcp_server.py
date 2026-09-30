@@ -28,10 +28,11 @@ LOCAL_MCP_URL = "http://localhost:8787/mcp"
 T = TypeVar("T")
 
 
-def resolve_mcp_url() -> str:
-    if settings.WEBMCP_MCP_URL:
-        return settings.WEBMCP_MCP_URL
-    return REGIONAL_MCP_URLS.get(get_instance_region() or "", LOCAL_MCP_URL)
+def resolve_mcp_url() -> str | None:
+    if url := REGIONAL_MCP_URLS.get(get_instance_region() or ""):
+        return url
+    # A self-hosted instance runs no PostHog MCP server, so WebMCP has nothing to forward to there.
+    return LOCAL_MCP_URL if settings.DEBUG else None
 
 
 class McpServerClient:
@@ -119,7 +120,10 @@ class WebMCPProxy:
 
     @classmethod
     def for_user(cls, user: User, team_id: int) -> "WebMCPProxy":
-        return cls(user, team_id, issuer=WebMCPTokenIssuer.for_instance(), url=resolve_mcp_url())
+        url = resolve_mcp_url()
+        if url is None:
+            raise McpServerError("WebMCP is not available on this instance")
+        return cls(user, team_id, issuer=WebMCPTokenIssuer.for_instance(), url=url)
 
     def get_exec_tool(self) -> ExecTool:
         return self._call(lambda client: client.get_exec_tool())

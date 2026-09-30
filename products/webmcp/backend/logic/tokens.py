@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-from django.conf import settings
 from django.utils import timezone
 
 from posthog.api.oauth.cimd import get_or_create_cimd_application
@@ -8,6 +7,8 @@ from posthog.models import OAuthAccessToken, OAuthApplication, User
 from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import effective_ceiling
 
+# The CIMD document lives in the posthog.com repo, so one client_id serves every region.
+WEBMCP_OAUTH_CLIENT_ID = "https://posthog.com/.well-known/oauth/webmcp/client-metadata.json"
 TOKEN_LIFETIME = timedelta(hours=1)
 # A token this close to expiry is not reused, so a slow tool call cannot outlive it.
 TOKEN_REUSE_MARGIN = timedelta(minutes=10)
@@ -25,7 +26,7 @@ class WebMCPTokenIssuer:
 
     @classmethod
     def for_instance(cls) -> "WebMCPTokenIssuer":
-        return cls(get_or_create_cimd_application(settings.WEBMCP_OAUTH_CLIENT_ID))
+        return cls(get_or_create_cimd_application(WEBMCP_OAUTH_CLIENT_ID))
 
     def get_or_mint(self, user: User, team_id: int) -> str:
         # Reuse keeps one token row per user and team per hour, rather than one per tool call.

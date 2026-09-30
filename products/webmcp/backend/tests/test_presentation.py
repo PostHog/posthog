@@ -19,6 +19,9 @@ class TestWebMCPViewSet(APIBaseTest):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        region_patcher = patch("products.webmcp.backend.logic.mcp_server.get_instance_region", return_value="US")
+        region_patcher.start()
+        self.addCleanup(region_patcher.stop)
 
     def test_exec_forwards_the_command_and_returns_the_tool_result(self, mock_post: MagicMock) -> None:
         mock_post.return_value = mcp_response(
