@@ -24,14 +24,13 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
 from posthog.models.group_type_mapping import (
-    GROUP_TYPES_CACHE_KEY_PREFIX,
     GroupTypesUnavailable,
     get_group_types_for_project,
     get_group_types_for_projects,
 )
 from posthog.rate_limit import CopyFlagsBurstRateThrottle, CopyFlagsSustainedRateThrottle
 from posthog.user_permissions import UserPermissions
-from posthog.utils import safe_cache_delete, safe_int
+from posthog.utils import safe_int
 
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
@@ -1500,16 +1499,14 @@ class OrganizationFeatureFlagView(
             # empty list when the store is unreachable. Confirm with get_group_types_for_projects,
             # which skips that cache. During an outage it returns each project's last-known-good
             # list (up to 24 hours old) and raises GroupTypesUnavailable only for a project with none.
-            project_ids = [source_team.project_id, target_team.project_id]
             try:
-                confirmed_group_types = get_group_types_for_projects(project_ids, caller_tag="flags/copy-flags")
+                confirmed_group_types = get_group_types_for_projects(
+                    [source_team.project_id, target_team.project_id],
+                    caller_tag="flags/copy-flags",
+                    invalidate_cached=True,
+                )
             except GroupTypesUnavailable as error:
                 raise ValueError(GROUP_TYPES_UNAVAILABLE_COPY_ERROR) from error
-            # The batch read does not refresh the five-minute entries. Those entries still hold the
-            # lists that did not contain the group type. Deleting them makes the next remap in this
-            # copy read fresh lists.
-            for project_id in project_ids:
-                safe_cache_delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}")
             return self._map_group_type_indexes(
                 source_indexes,
                 flag_key,

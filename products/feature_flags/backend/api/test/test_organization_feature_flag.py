@@ -52,15 +52,17 @@ def _flag_dependency_property(dependency_flag: FeatureFlag, as_int: bool = False
     }
 
 
-def _add_release_condition_payload(properties: list[dict[str, Any]]) -> dict[str, Any]:
-    return {
-        "operation": "add_release_condition",
-        "value": {
-            "groups": [{"rollout_percentage": 100, "properties": properties}],
-            "payloads": {},
-            "multivariate": None,
-        },
-    }
+def _add_release_condition_payload(
+    properties: list[dict[str, Any]],
+    aggregation_group_type_index: int | None = None,
+    payload_key: str = "value",
+) -> dict[str, Any]:
+    condition: dict[str, Any] = {"rollout_percentage": 100, "properties": properties}
+    filters: dict[str, Any] = {"groups": [condition], "payloads": {}, "multivariate": None}
+    if aggregation_group_type_index is not None:
+        condition["aggregation_group_type_index"] = aggregation_group_type_index
+        filters["aggregation_group_type_index"] = aggregation_group_type_index
+    return {"operation": "add_release_condition", payload_key: filters}
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
@@ -4056,15 +4058,7 @@ class TestOrganizationFeatureFlagCopyGroupTypes(APIBaseTest):
         ScheduledChange.objects.create(
             record_id=str(source_flag.id),
             model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
-            payload={
-                "operation": "add_release_condition",
-                payload_key: {
-                    "aggregation_group_type_index": group_type_index,
-                    "groups": [{"rollout_percentage": 50, "aggregation_group_type_index": group_type_index}],
-                    "payloads": {},
-                    "multivariate": None,
-                },
-            },
+            payload=_add_release_condition_payload([], group_type_index, payload_key),
             scheduled_at=timezone.now() + timedelta(days=1),
             team=self.team_1,
             created_by=self.user,
@@ -4116,11 +4110,11 @@ class TestOrganizationFeatureFlagCopyGroupTypes(APIBaseTest):
         copied_filters = FeatureFlag.objects.get(key=source_flag.key, team=self.team_2).filters
         self.assertEqual(copied_filters["aggregation_group_type_index"], expected_flag_index)
         self.assertEqual(
-            [
-                (group["aggregation_group_type_index"], group["properties"][0]["group_type_index"])
-                for group in copied_filters["groups"]
-            ],
-            [(index, index) for index in expected_condition_indexes],
+            [group["aggregation_group_type_index"] for group in copied_filters["groups"]], expected_condition_indexes
+        )
+        self.assertEqual(
+            [group["properties"][0]["group_type_index"] for group in copied_filters["groups"]],
+            expected_condition_indexes,
         )
 
     @parameterized.expand(
@@ -4158,8 +4152,7 @@ class TestOrganizationFeatureFlagCopyGroupTypes(APIBaseTest):
             {"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 100}]},
         )
         # Cache the target's group types, then add the one the flag needs the way event ingestion
-        # does: without invalidating that cache. Index 2 differs from the source's index 1. The copy
-        # must map the index, not keep it.
+        # does: without invalidating that cache.
         get_group_types_for_project(self.team_3.project_id)
         create_group_type_mapping(
             team=self.team_3, project_id=self.team_3.project_id, group_type="company", group_type_index=2

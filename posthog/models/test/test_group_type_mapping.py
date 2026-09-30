@@ -258,6 +258,23 @@ class TestGetGroupTypesForProjects(SimpleTestCase):
             3: [],
         }
 
+    @parameterized.expand([("fresh_read", False, None), ("stale_fallback", True, [])])
+    @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
+    def test_invalidate_cached_deletes_the_single_project_entry_only_after_a_fresh_read(
+        self, _name, store_down, expected_cached, mock_fetch_personhog
+    ):
+        self.addCleanup(_clear_cache, 1)
+        safe_cache_set(f"{GROUP_TYPES_CACHE_KEY_PREFIX}1", [], 300)
+        safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}1", PERSONHOG_SUCCESS_DATA, 3600)
+        if store_down:
+            mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
+        else:
+            mock_fetch_personhog.return_value = {1: PERSONHOG_SUCCESS_DATA}
+
+        get_group_types_for_projects([1], invalidate_cached=True)
+
+        assert get_safe_cache(f"{GROUP_TYPES_CACHE_KEY_PREFIX}1") == expected_cached
+
 
 class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
     """The batch fetch reads at eventual consistency; a lagging or inconsistent replica
