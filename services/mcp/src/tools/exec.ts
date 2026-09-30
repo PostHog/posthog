@@ -1,6 +1,8 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
+import { getToolInputProperties } from '@posthog/mcp-analytics'
+
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
@@ -18,6 +20,7 @@ import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
@@ -467,7 +470,7 @@ const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])
  * reason (it echoes the caller's tool name); the rejection reason on the event says
  * which of the two failed, so the sentinel loses only the misspelling itself.
  */
-const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
+export const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
 
 export interface ExecCommandShape {
     /** The dispatcher verb, or `unrecognized` when it isn't one we accept. */
@@ -1480,9 +1483,6 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * `fields` are the offending field path + issue code, plus the received type where
  * that distinguishes the bug (e.g. `id:invalid_type:undefined` for an omitted
  * parameter vs `query:invalid_union:string` for an envelope the agent flattened).
- * `inputKeys` — the top-level keys the caller actually sent — is what surfaces an
- * unaccepted alias (e.g. `organizationId` where the schema wants `orgId`).
- *
  * Records only structural information: field names, issue codes, and the TYPE of a
  * rejected value. It never records input VALUES — the ZodError embeds those in
  * `issue.input` and in `.message` (see `formatInputValidationError`), so this reads
@@ -1490,11 +1490,7 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * true of the field paths as well: a key the schema never declared belongs to the
  * caller, so it is masked rather than recorded (see `normalizeDescriptorPath`).
  */
-export function describeValidationError(
-    error: z.ZodError,
-    input: Record<string, unknown>,
-    schema: z.ZodType
-): { fields: string[]; inputKeys: string[] } {
+export function describeValidationError(error: z.ZodError, schema: z.ZodType): { fields: string[] } {
     const declaredNames = declaredPropertyNames(schema)
     const fields = [
         ...new Set(
@@ -1510,11 +1506,22 @@ export function describeValidationError(
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)
-    const inputKeys = Object.keys(input)
-        .sort()
-        .slice(0, MAX_VALIDATION_DESCRIPTORS)
-        .map((key) => key.slice(0, MAX_KEY_LENGTH))
-    return { fields, inputKeys }
+    return { fields }
+}
+
+/**
+ * `$mcp_input_keys` and `$mcp_input_aliases_used` for one call, from the SDK helper, with no
+ * values. The alias map comes from the schema's own `normalizeParamAliases` layers, so
+ * alias names count as declared and each alias the normaliser relied on is recorded as
+ * `alias:canonical`. The SDK owns the limits (20 names, 64 characters), declared-names-first
+ * ordering, and dropping its injected `context`, `llm_model`, and `conversation_id` unless the
+ * schema declares them. Undeclared names become one `[redacted]` marker because caller-controlled
+ * names can contain credentials or personal data.
+ */
+export function describeInputShape(input: unknown, schema?: z.ZodType): Record<string, unknown> {
+    return getToolInputProperties(input, schema, {
+        inputAliases: schema ? readParamAliases(schema) : undefined,
+    })
 }
 
 /** Whether the tool's input schema declares an `output_format` field. Unwraps
@@ -1983,7 +1990,7 @@ export function createExecTool(
                         // which field/alias was rejected — without the payload.
                         throw new ToolInputValidationError(
                             message,
-                            describeValidationError(validation.error, input, toolSchema)
+                            describeValidationError(validation.error, toolSchema)
                         )
                     }
                     input = validation.data as Record<string, unknown>
