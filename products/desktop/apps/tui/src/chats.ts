@@ -21,6 +21,10 @@ export function currentRepository(): string | null {
   }
 }
 
+// What the command endpoint answers when a message is sent into a run that has ended.
+const RUN_ENDED =
+  /Failed to queue user message|Task run workflow has ended|No active sandbox/;
+
 // Every chat here is a pi cloud run: new chats start one, replies go into it or resume it.
 export class PiChats {
   constructor(
@@ -59,8 +63,14 @@ export class PiChats {
       (run.status === "queued" || run.status === "in_progress") &&
       !sandboxStopped;
     if (live) {
-      await this.sendMessage(task.id, run.id, prompt);
-      return task;
+      try {
+        await this.sendMessage(task.id, run.id, prompt);
+        return task;
+      } catch (error) {
+        // The cached status can lag a run that just ended; resume it like a finished one.
+        if (!RUN_ENDED.test(error instanceof Error ? error.message : ""))
+          throw error;
+      }
     }
     // A finished run's sandbox is gone, so the reply starts a new run that resumes it.
     return this.api.runTaskInCloud(task.id, null, {
