@@ -44,8 +44,9 @@ describe('issueActionsLogic', () => {
         let settleMerge: () => void = () => undefined
         jest.spyOn(api.errorTracking, 'mergeInto').mockImplementation(
             () =>
-                new Promise<void>((resolve, reject) => {
-                    settleMerge = () => (outcome === 'success' ? resolve() : reject(new Error('Merge failed')))
+                new Promise<{ content: string }>((resolve, reject) => {
+                    settleMerge = () =>
+                        outcome === 'success' ? resolve({ content: '' }) : reject(new Error('Merge failed'))
                 })
         )
 
