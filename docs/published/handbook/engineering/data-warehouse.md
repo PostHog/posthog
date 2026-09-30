@@ -119,9 +119,6 @@ Meta, Amazon, and Apple rely on an explicit paid medium in this detector.
 Apple app attribution requires [AdServices attribution records](https://developer.apple.com/documentation/AdServices/AAAttribution/attributionToken%28%29); an App Store campaign link does not establish an Apple Ads interaction.
 
 Each event counts at most once for its matched platform, even if it has both a paid medium and an ad identifier.
-Connection suggestions display and rank by this paid-signal event count over the last seven days.
-Events without paid signals and fuzzy-only source matches do not increase that count.
-The count includes all matching event types, so it does not represent unique visitors or ad clicks.
 Custom source mappings select which platform's signals apply; another platform's identifier cannot make that source paid.
 This check retains the UTM source catalogue's time window and top-500 limit, so it does not discover untagged sources or verify billable clicks.
 Missing signals mean insufficient evidence to recommend a connection, not proof that traffic is organic.
