@@ -591,7 +591,6 @@ export interface sessionRecordingsPlaylistLogicValues {
     receivedFeatureFlags: boolean // featureFlagLogic
     autoplayDirection: AutoplayDirection // playerSettingsLogic
     hideViewedRecordings: HideViewedRecordingsOptions // playerSettingsLogic
-    listHideViewedRecordings: HideViewedRecordingsOptions
     activeSessionRecording: SessionRecordingType | undefined
     activeSessionRecordingId: SessionRecordingId | undefined
     addToCollectionSearch: string
@@ -612,6 +611,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     isDeleteSelectedRecordingsDialogOpen: boolean
     isDeletingSelectedRecordings: boolean
     isScopedByCaller: boolean
+    listHideViewedRecordings: HideViewedRecordingsOptions
     logicProps: SessionRecordingPlaylistLogicProps
     matchingEventsMatchType: MatchingEventsMatchType
     newCollectionName: string
@@ -940,20 +940,20 @@ export interface sessionRecordingsPlaylistLogicMeta {
         ) => boolean
         pinnedFilters: (arg: any) => UniversalFiltersGroup | undefined
         isScopedByCaller: (arg: any) => boolean
+        totalFiltersCount: (filters: RecordingUniversalFilters, arg: any, arg2: any, arg3: any, arg4: any) => number
         listHideViewedRecordings: (
             hideViewedRecordings: HideViewedRecordingsOptions,
             arg: any
         ) => HideViewedRecordingsOptions
-        totalFiltersCount: (filters: RecordingUniversalFilters, arg: any, arg2: any, arg3: any, arg4: any) => number
         hiddenRecordings: (
             sessionRecordings: SessionRecordingType[],
-            hideViewedRecordings: HideViewedRecordingsOptions,
+            listHideViewedRecordings: HideViewedRecordingsOptions,
             selectedRecordingId: string | null,
             deletedRecordingIds: Set<string>
         ) => SessionRecordingType[]
         otherRecordings: (
             sessionRecordings: SessionRecordingType[],
-            hideViewedRecordings: HideViewedRecordingsOptions,
+            listHideViewedRecordings: HideViewedRecordingsOptions,
             pinnedRecordings: SessionRecordingType[],
             deletedRecordingIds: Set<string>,
             selectedRecordingId: string | null,
