@@ -1,3 +1,4 @@
+import re
 import copy
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -34,6 +35,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana_ir
 # Grafana IRM is a Grafana Cloud product: both the stack and the OnCall API live under this domain.
 # Pinning to it keeps the token from being sent to any host outside Grafana Cloud.
 GRAFANA_CLOUD_DOMAIN = "grafana.net"
+# Plain DNS labels only: urlsplit keeps characters like `\` or `%` in the hostname, and requests then
+# resolves a different host than the one checked here.
+_GRAFANA_CLOUD_HOSTNAME = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+" + re.escape(GRAFANA_CLOUD_DOMAIN))
 INCIDENT_API_PATH = "/api/plugins/grafana-irm-app/resources/api/v1"
 REQUEST_TIMEOUT_SECONDS = 60
 
@@ -61,7 +65,7 @@ def _parse_grafana_cloud_url(url: str, label: str) -> SplitResult:
     hostname = (parsed.hostname or "").lower()
     if parsed.scheme.lower() != "https" or parsed.username or parsed.password or port not in (None, 443):
         raise GrafanaIRMConfigError(f"The {label} must be a plain https:// URL.")
-    if not hostname.endswith(f".{GRAFANA_CLOUD_DOMAIN}"):
+    if not _GRAFANA_CLOUD_HOSTNAME.fullmatch(hostname):
         raise GrafanaIRMConfigError(f"The {label} must be a Grafana Cloud URL ending in .{GRAFANA_CLOUD_DOMAIN}.")
     return SplitResult(scheme="https", netloc=hostname, path=parsed.path.rstrip("/"), query="", fragment="")
 
@@ -298,11 +302,12 @@ def grafana_irm_source(
 
 
 def _probe(session: requests.Session, method: str, url: str, **kwargs: Any) -> Optional[int]:
+    # Only the status matters, so stream and never read the body.
     try:
-        response = session.request(method, url, timeout=10, allow_redirects=False, **kwargs)
+        with session.request(method, url, timeout=10, allow_redirects=False, stream=True, **kwargs) as response:
+            return response.status_code
     except requests.exceptions.RequestException:
         return None
-    return response.status_code
 
 
 def validate_credentials(

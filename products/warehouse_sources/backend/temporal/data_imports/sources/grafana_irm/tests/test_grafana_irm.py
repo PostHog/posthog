@@ -99,6 +99,9 @@ def test_normalize_oncall_api_url(value: str, expected: str) -> None:
         "http://acme.grafana.net",
         "https://user:pass@acme.grafana.net",
         "https://acme.grafana.net:8443",
+        # urlsplit keeps these characters in the hostname, but requests sends the request to `attacker.example`.
+        "https://attacker.example\\.grafana.net",
+        "https://attacker.example%2F.grafana.net",
     ],
 )
 def test_rejects_urls_outside_grafana_cloud(value: str) -> None:
