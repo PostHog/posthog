@@ -69,6 +69,11 @@ Reach for the right tool instead of writing a test that proves nothing.
   The catch is an `assertNumQueries` / query-count bound or reviewing the printed predicate — not a happy-path test.
   Honest note: in our own history these shipped verified by hand, not by an automated bound — [#61864](https://github.com/PostHog/posthog/pull/61864) (unbound `team_id` → scan) pins only an RPC name through a mock, and [#62417](https://github.com/PostHog/posthog/pull/62417) (indexed column wrapped in `toString`) asserts input validation, not query shape. That gap is exactly what a query-bound test would close.
 
+- **Performance regressions.**
+  A wall-clock assertion in the unit suite measures the runner it lands on, not the code.
+  [#93974](https://github.com/PostHog/posthog/pull/93974) guarded a linear flatten with `expect(elapsedMs).toBeLessThan(2000)`, but the hog VM's own 550ms budget trips first, so that assertion could never be the one to fail. The case still flaked on loaded runners and kicked unrelated PRs out of the merge queue.
+  A complexity guard belongs in a benchmark. In the unit suite, assert the output at scale instead, with the execution budget raised so it cannot bind.
+
 - **Migration / apply-time ordering.**
   Code reads a table before its migration creates it — [#59873](https://github.com/PostHog/posthog/pull/59873), a ClickHouse migration read `posthog_instancesetting` before it existed under parallel migration.
   No checked-in test guards this; the safety net is CI migration replay, which exercises the ordering. Don't write a unit test pretending to.
@@ -86,5 +91,5 @@ Reach for the right tool instead of writing a test that proves nothing.
 
 These dominate incident _volume_ but are prevented by monitoring, capacity, and alerting — never a unit test.
 
-- **Resource exhaustion under load** — OOM, connection-pool starvation, event-loop blocking. Load-dependent; prevention is capacity and alerting. (A _known_ accidental O(n) can get a targeted perf test; the load itself cannot.)
+- **Resource exhaustion under load** — OOM, connection-pool starvation, event-loop blocking. Load-dependent; prevention is capacity and alerting. (A _known_ accidental O(n) can get a targeted benchmark; neither the load nor a wall-clock assertion in the unit suite can stand in for one.)
 - **Infrastructure / third-party failure** — node crashes, DNS or network changes, disk exhaustion, upstream-provider outages. Root cause sits below the application; remediation is runbooks and monitoring.

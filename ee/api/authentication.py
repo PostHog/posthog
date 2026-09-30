@@ -35,6 +35,9 @@ from social_django.utils import load_backend, load_strategy
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -48,7 +51,6 @@ saml_logger = structlog.get_logger("posthog.auth.saml")
 
 
 def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[str, Any]:
-    from posthog.models.user import User
 
     ctx: dict[str, Any] = {
         "masked_email": mask_email(email),
@@ -56,7 +58,7 @@ def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[s
     }
 
     try:
-        user = User.objects.filter(email__iexact=email).first()
+        user = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if user:
             ctx["user_id"] = str(user.id)
             if organization_id:
@@ -473,6 +475,10 @@ class CustomGoogleOAuth2(GoogleOAuth2):
         try:
             # Second try: Find and migrate legacy user using email as uid
             social_auth = UserSocialAuth.objects.get(provider="google-oauth2", uid=email)
+            # This lookup resolves the account by email address, so the email has to be verified,
+            # the same as for `associate_by_email`.
+            if response.get("email_verified") is not True:
+                raise AuthFailed(self, UNVERIFIED_SOCIAL_EMAIL_ERROR)
             # Migrate user from email to sub
             social_auth.uid = sub
             social_auth.save()
@@ -494,7 +500,7 @@ def _get_bearer_token(request: Request) -> str | None:
     return None
 
 
-class VercelAuthentication(authentication.BaseAuthentication):
+class VercelAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Implements Vercel Marketplace API authentication.
     This authentication uses the OpenID Connect Protocol (OIDC).
@@ -505,6 +511,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
     https://vercel.com/docs/integrations/create-integration/marketplace-api#marketplace-partner-api-authentication
     """
 
+    activity_credential_type = "vercel"
     VercelAuthType = Literal["user", "system"]
 
     VERCEL_AUTH_TYPES: tuple[VercelAuthType, ...] = ("user", "system")
@@ -521,6 +528,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
 
         try:
             payload = self._validate_jwt_token(token, auth_type)
+            self.record_activity_actor(None, str(payload.installation_id))
             return VercelUser(claims=payload), None
         except jwt.InvalidTokenError as e:
             logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e), integration="vercel")
@@ -568,6 +576,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
                 user_avatar_url=payload.get("user_avatar_url"),
                 user_name=payload.get("user_name"),
                 user_email=payload.get("user_email"),
+                user_email_verified=payload.get("user_email_verified"),
             )
         elif auth_type == "system":
             self._validate_system_claims(payload)
@@ -650,7 +659,7 @@ class BillingServiceUser:
         return True
 
 
-class BillingServiceAuthentication(authentication.BaseAuthentication):
+class BillingServiceAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates requests from the billing service to PostHog.
 
@@ -658,6 +667,7 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
     uses when calling the billing service, but in reverse direction).
     """
 
+    activity_credential_type = "billing_service"
     EXPECTED_AUDIENCE = "billing:posthog-proxy"
 
     def authenticate(self, request: Request) -> tuple[BillingServiceUser, None] | None:
@@ -686,6 +696,7 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
             logger.warning("Billing service token missing organization_id")
             raise AuthenticationFailed("Missing organization_id in token")
 
+        self.record_activity_actor(None)
         return BillingServiceUser(organization_id=organization_id), None
 
     def _validate_jwt_token(self, token: str) -> BillingServiceJWTPayload:

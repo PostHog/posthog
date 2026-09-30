@@ -138,7 +138,8 @@ class ActivityLogOCSFSerializer(serializers.ModelSerializer):
             }
         if instance.client:
             # `app_name` is "the client application or service that initiated the activity", which is
-            # what the x-posthog-client header records.
+            # what the client tag holds: either the self-reported x-posthog-client header, or the
+            # scout the server named from the authenticated run.
             actor["app_name"] = instance.client
         if actor:
             event["actor"] = actor

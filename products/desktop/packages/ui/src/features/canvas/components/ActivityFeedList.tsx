@@ -156,6 +156,10 @@ export function ActivityFeedList({
   };
 
   const markAllRead = () => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "activity_mark_all_read",
+      surface: "activity_panel",
+    });
     markTasksRead(activityReadPayload(unreadItems));
   };
 
@@ -184,7 +188,7 @@ export function ActivityFeedList({
           onClear={() => setQuery("")}
           actions={
             <>
-              <ActivityUnreadsToggle />
+              <ActivityUnreadsToggle surface="activity_panel" />
               <ActivityActionsMenu
                 loadedUnreadCount={unreadItems.length}
                 totalUnreadCount={unreadCount}
@@ -276,11 +280,11 @@ export function ActivityFeedList({
               ))}
             </div>
           )}
-          <div ref={loadMoreRef} className="flex h-8 justify-center py-2">
-            {mentionsIncluded &&
-              taskActivity.hasNextPage &&
-              taskActivity.isFetchingNextPage && <Spinner />}
-          </div>
+          {mentionsIncluded && taskActivity.hasNextPage && (
+            <div ref={loadMoreRef} className="flex h-8 justify-center py-2">
+              {taskActivity.isFetchingNextPage && <Spinner />}
+            </div>
+          )}
         </AutocompleteList>
       </div>
     </Autocomplete>

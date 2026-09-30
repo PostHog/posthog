@@ -74,6 +74,7 @@ export function TopicBadges({ topics, selectedKey, onSelect, className }: TopicB
                     size="small"
                     type="secondary"
                     active={selectedKey === topic.key}
+                    aria-pressed={selectedKey === topic.key}
                     icon={badgeIcon(topic)}
                     onClick={() => onSelect(selectedKey === topic.key ? null : topic.key)}
                     data-attr={`capability-badge-${topic.key}`}

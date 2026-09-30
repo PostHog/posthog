@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useMemo } from 'react'
+import { Fragment, ReactNode, useCallback, useMemo } from 'react'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
@@ -38,13 +38,18 @@ function SummaryMarkdown({ markdown, sourceOffset, chartPlacements, className }:
 interface ReportSummaryBodyProps {
     summary: string
     chartPlacements: ChartPlacements
-    /** The Create PR button, rendered under the Solution section when the report offers it. */
-    createPrButton?: ReactNode
+    implementButton?: ReactNode
     /**
      * Says a pull request with the fix is open and links to it. Rendered under the Solution section, or after
      * the body when the summary has no sections, so a report never hides that its fix already shipped.
      */
     pullRequestNote?: ReactNode
+    /**
+     * The report's supporting metric tiles. Rendered at the top of the Impact section; a summary without one
+     * gets an Impact section for them ahead of Solution, so the storyboard order holds.
+     */
+    impactMetrics?: ReactNode
+    expectedImpact?: ReactNode
 }
 
 /**
@@ -54,11 +59,29 @@ interface ReportSummaryBodyProps {
 export function ReportSummaryBody({
     summary,
     chartPlacements,
-    createPrButton,
+    implementButton,
     pullRequestNote,
+    impactMetrics,
+    expectedImpact,
 }: ReportSummaryBodyProps): JSX.Element {
     const parsed = useMemo(() => parseReportSummary(summary), [summary])
     const hasSolutionSection = parsed.sections.some((section) => section.kind === 'solution')
+    const hasImpactSection = parsed.sections.some((section) => section.kind === 'impact')
+    const hasExpectedImpactSection = parsed.sections.some((section) => section.kind === 'expected-impact')
+    const solutionIndex = parsed.sections.findIndex((section) => section.kind === 'solution')
+    const impactFallback =
+        impactMetrics && !hasImpactSection ? (
+            <section className="flex flex-col gap-2">
+                <h2 className="m-0 text-lg font-semibold">Impact</h2>
+                {impactMetrics}
+            </section>
+        ) : null
+    const expectedImpactFallback = expectedImpact && !hasExpectedImpactSection && (
+        <section className="flex flex-col gap-2">
+            <h2 className="m-0 text-lg font-semibold">Expected impact</h2>
+            {expectedImpact}
+        </section>
+    )
 
     if (parsed.sections.length === 0) {
         return (
@@ -68,6 +91,8 @@ export function ReportSummaryBody({
                     sourceOffset={parsed.leadOffset}
                     chartPlacements={chartPlacements}
                 />
+                {impactFallback}
+                {expectedImpactFallback}
                 {pullRequestNote}
             </div>
         )
@@ -83,18 +108,30 @@ export function ReportSummaryBody({
                     className="text-base text-primary leading-relaxed break-words [&>*+*]:mt-3.5"
                 />
             )}
-            {parsed.sections.map((section) => (
-                <section key={`${section.kind}-${section.bodyOffset}`} className="flex flex-col gap-2">
-                    <h2 className="m-0 text-lg font-semibold">{section.heading}</h2>
-                    <SummaryMarkdown
-                        markdown={section.body}
-                        sourceOffset={section.bodyOffset}
-                        chartPlacements={chartPlacements}
-                    />
-                    {section.kind === 'solution' && pullRequestNote && <div className="mt-2">{pullRequestNote}</div>}
-                    {section.kind === 'solution' && createPrButton && <div className="mt-2">{createPrButton}</div>}
-                </section>
+            {parsed.sections.map((section, index) => (
+                <Fragment key={`${section.kind}-${section.bodyOffset}`}>
+                    {index === solutionIndex && impactFallback}
+                    {index === solutionIndex && expectedImpactFallback}
+                    <section className="flex flex-col gap-2">
+                        <h2 className="m-0 text-lg font-semibold">{section.heading}</h2>
+                        {section.kind === 'impact' && impactMetrics && <div className="mb-1">{impactMetrics}</div>}
+                        <SummaryMarkdown
+                            markdown={section.body}
+                            sourceOffset={section.bodyOffset}
+                            chartPlacements={chartPlacements}
+                        />
+                        {section.kind === 'expected-impact' && expectedImpact}
+                        {section.kind === 'solution' && pullRequestNote && (
+                            <div className="mt-2">{pullRequestNote}</div>
+                        )}
+                        {section.kind === 'solution' && implementButton && (
+                            <div className="mt-2">{implementButton}</div>
+                        )}
+                    </section>
+                </Fragment>
             ))}
+            {!hasSolutionSection && impactFallback}
+            {!hasSolutionSection && expectedImpactFallback}
             {!hasSolutionSection && pullRequestNote}
         </div>
     )

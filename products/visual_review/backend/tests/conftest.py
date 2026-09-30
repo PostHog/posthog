@@ -258,6 +258,7 @@ def mock_github_api(local_git_repo):
                         "content": encoded,
                         "sha": blob_sha,
                         "encoding": "base64",
+                        "size": len(content.encode()),
                     }
                 ),
             )
@@ -315,6 +316,10 @@ def mock_github_api(local_git_repo):
             issue_comments.append({**data, "action": "updated"})
             return (200, {}, json.dumps({"id": 1, "body": data["body"]}))
 
+        def issue_comment_delete_callback(request):
+            issue_comments.append({"id": int(request.url.rsplit("/", 1)[-1]), "action": "deleted"})
+            return (204, {}, "")
+
         rsps.add_callback(
             responses.GET,
             re.compile(r"https://api\.github\.com/repos/.+/pulls/\d+"),
@@ -344,6 +349,11 @@ def mock_github_api(local_git_repo):
             responses.PATCH,
             re.compile(r"https://api\.github\.com/repos/.+/issues/comments/\d+"),
             callback=issue_comment_update_callback,
+        )
+        rsps.add_callback(
+            responses.DELETE,
+            re.compile(r"https://api\.github\.com/repos/.+/issues/comments/\d+"),
+            callback=issue_comment_delete_callback,
         )
 
         rsps.status_checks = status_checks  # type: ignore[attr-defined]

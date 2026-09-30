@@ -1,4 +1,5 @@
 import { Skeleton } from "@posthog/quill";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import type { ReactElement } from "react";
 import { yieldToPaint } from "./yieldToPaint";
 
@@ -138,4 +139,118 @@ export function AppPageSkeleton() {
       trailingAction
     />
   );
+}
+
+function SpaceTabsFrame({ children }: { children: ReactElement }) {
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col">
+      <div className="flex shrink-0 items-end gap-4 border-border border-b px-6 pt-2 pb-2">
+        <Skeleton className="h-4 w-14" />
+        <Skeleton className="h-4 w-14" />
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-4 w-14" />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+export function SpaceActivitySkeleton() {
+  return (
+    <SpaceTabsFrame>
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-3 px-6 pt-5">
+          <div className="flex w-full max-w-[900px] flex-col gap-2 border-border border-b pb-4">
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-4 w-44" />
+          </div>
+          <Skeleton className="h-3 w-14" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton row
+            <Skeleton key={i} className="h-7 w-full max-w-[900px]" />
+          ))}
+        </div>
+
+        <div className="flex w-[276px] shrink-0 flex-col gap-1 border-border border-l px-3.5 pt-4">
+          <Skeleton className="h-2.5 w-24" />
+          {Array.from({ length: 5 }).map((_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton row
+            <Skeleton key={i} className="h-6 w-full" />
+          ))}
+        </div>
+      </div>
+    </SpaceTabsFrame>
+  );
+}
+
+export function SpaceContextSkeleton() {
+  return (
+    <SpaceTabsFrame>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex h-11 shrink-0 items-center gap-2 border-border border-b px-6">
+          <Skeleton className="h-3.5 w-40" />
+          <div className="flex-1" />
+          <Skeleton className="h-7 w-28" />
+          <Skeleton className="h-7 w-36" />
+        </div>
+        <div className="flex flex-col gap-6 px-6 pt-6">
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="h-20 w-full max-w-md" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-12 w-full" />
+        </div>
+      </div>
+    </SpaceTabsFrame>
+  );
+}
+
+export function SpaceCanvasesSkeleton() {
+  return (
+    <SpaceTabsFrame>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-6 py-5">
+        <div className="flex items-center">
+          <Skeleton className="h-3.5 w-20" />
+          <div className="flex-1" />
+          <Skeleton className="h-7 w-28" />
+        </div>
+        <div className="grid grid-cols-3 content-start gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton card
+            <Skeleton key={i} className="h-56 w-full" />
+          ))}
+        </div>
+      </div>
+    </SpaceTabsFrame>
+  );
+}
+
+export function SpaceSettingsSkeleton() {
+  return (
+    <SpaceTabsFrame>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex h-11 shrink-0 items-center border-border border-b px-6">
+          <Skeleton className="h-3.5 w-80" />
+        </div>
+        <div className="flex max-w-[800px] flex-col gap-7 px-6 pt-6">
+          {Array.from({ length: 2 }).map((_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton section
+            <div key={i} className="flex flex-col gap-2">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-3 w-72" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </SpaceTabsFrame>
+  );
+}
+
+export function spaceRouteSkeleton(
+  tabbed: () => ReactElement,
+): () => ReactElement {
+  return function SpaceRouteSkeleton() {
+    return useWorkLayout() ? tabbed() : <ChannelSkeleton />;
+  };
 }

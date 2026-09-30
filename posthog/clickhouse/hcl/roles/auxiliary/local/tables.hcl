@@ -93,4 +93,18 @@ database "posthog" {
       type = "UInt64"
     }
   }
+
+  # Local stacks create every topic with one partition, so only one consumer of this group can
+  # get an assignment. The rest retry forever, which holds threads and floods the server log.
+  patch_table "kafka_property_values" {
+    engine "kafka" {
+      collection          = "warpstream_ingestion"
+      topic_list          = "clickhouse_property_values"
+      group_name          = "clickhouse_property_values"
+      format              = "JSONEachRow"
+      num_consumers       = 1
+      thread_per_consumer = true
+    }
+  }
+
 }

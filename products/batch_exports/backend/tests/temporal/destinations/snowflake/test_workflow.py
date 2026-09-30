@@ -14,7 +14,6 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
-from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -29,7 +28,6 @@ from products.batch_exports.backend.temporal.batch_exports import finish_batch_e
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
-    SnowflakeInsertInputs,
     insert_into_snowflake_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
@@ -39,6 +37,7 @@ from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils 
 )
 from products.batch_exports.backend.tests.temporal.utils.workflow import (
     WORKFLOW_REAL_TIME_LIMIT_SECONDS,
+    NeverFinishingActivity,
     mocked_start_batch_export_run,
 )
 
@@ -61,6 +60,7 @@ async def _run_workflow(
         batch_export_id=str(batch_export_id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=snowflake_batch_export.destination.integration_id,
         **snowflake_batch_export.destination.config,
     )
 
@@ -374,14 +374,11 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
         team_id=ateam.pk,
         batch_export_id=str(snowflake_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
+        integration_id=snowflake_batch_export.destination.integration_id,
         **snowflake_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_snowflake_activity_from_stage")
-    async def never_finish_activity_from_stage(_: SnowflakeInsertInputs) -> str:
-        while True:
-            activity.heartbeat()
-            await asyncio.sleep(1)
+    never_finish = NeverFinishingActivity("insert_into_snowflake_activity_from_stage")
 
     async with (
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
@@ -392,7 +389,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
             activities=[
                 mocked_start_batch_export_run,
                 insert_into_internal_stage_activity,
-                never_finish_activity_from_stage,
+                never_finish.defn,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -405,7 +402,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
             task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
-        await asyncio.sleep(5)
+        await never_finish.wait_until_started()
         await handle.cancel()
 
         with pytest.raises(WorkflowFailureError):

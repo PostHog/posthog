@@ -29,12 +29,12 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 
-from posthog.hogql import ast
+from posthog.hogql import ast, query_stats
+from posthog.hogql.query_stats import QueryStats
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.hogql_queries.insights.trends.math_functions import ALL_SUPPORTED_MATH_FUNCTIONS
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.math_functions import ALL_SUPPORTED_MATH_FUNCTIONS
 from posthog.hogql_queries.query_runner import QueryRunner
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
@@ -50,6 +50,7 @@ from products.experiments.backend.hogql_queries.trends_statistics_v2_count impor
 )
 from products.experiments.backend.hogql_queries.types import ExperimentMetricType
 from products.experiments.backend.models.experiment import Experiment
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
 
 class ExperimentTrendsQueryRunner(QueryRunner):
@@ -84,7 +85,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def _uses_math_aggregation_by_user_or_property_value(self, query: TrendsQuery):
         math_keys = ALL_SUPPORTED_MATH_FUNCTIONS
-        # "sum" doesn't need special handling, we *can* have custom exposure for sum filters
+        # "sum" works with a custom exposure query, so it needs no special handling.
         if "sum" in math_keys:
             math_keys.remove("sum")
         return any(entity.math in math_keys for entity in query.series)
@@ -98,10 +99,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             self.query.count_query.series[0].math = PropertyMathType.SUM
 
     def _get_date_range(self) -> DateRange:
-        """
-        Returns an DateRange object based on the experiment's start and end dates,
-        adjusted for the team's timezone if applicable.
-        """
         if self.team.timezone:
             tz = ZoneInfo(self.team.timezone)
             start_date = self.experiment.start_date.astimezone(tz) if self.experiment.start_date else None
@@ -129,7 +126,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         )
 
     def _get_metric_type(self) -> ExperimentMetricType:
-        # Currently, we rely on the math type to determine the metric type
         match self.query.count_query.series[0].math:
             case PropertyMathType.SUM | "hogql":
                 return ExperimentMetricType.CONTINUOUS
@@ -138,13 +134,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def _prepare_count_query(self) -> TrendsQuery:
         """
-        This method takes the raw trend query and adapts it
-        for the needs of experiment analysis:
-
-        1. Set the trend display type based on whether math aggregation is used
-        2. Set the date range to match the experiment's duration, using the project's timezone.
-        3. Configure the breakdown to use the feature flag key, which allows us
-           to separate results for different experiment variants.
+        Adapt the raw trends query for experiment analysis. The date range matches the experiment's
+        duration, and the breakdown on the feature flag property splits the results by variant.
         """
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
 
@@ -181,17 +172,15 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def _prepare_exposure_query(self) -> TrendsQuery:
         """
-        Exposure is the count of users who have seen the experiment. This is necessary to calculate the statistical
-        significance of the experiment.
+        Exposure is the count of users who saw the experiment, which the significance calculation needs.
 
-        There are 2 possible cases for the exposure query:
-        1. Otherwise, if an exposure query is provided, we use it as is, adapting it to the experiment's duration and breakdown
-        2. Otherwise, we construct a default exposure query (the count of $feature_flag_called events)
+        A custom exposure query is used as is, with the experiment's date range and breakdown applied.
+        Otherwise, and always for data warehouse metrics, the default query counts unique users with a
+        $feature_flag_called event.
         """
 
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
 
-        # 1. If an exposure query is provided, we use it as is, adapting it to the experiment's duration and breakdown
         if self.query.exposure_query and not self._is_data_warehouse_query(prepared_count_query):
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
             prepared_exposure_query.dateRange = self._get_date_range()
@@ -205,7 +194,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     type="event",
                 )
             ]
-        # 2. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
         else:
             prepared_exposure_query = TrendsQuery(
                 dateRange=self._get_date_range(),
@@ -240,8 +228,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         return prepared_exposure_query
 
     def _calculate(self) -> ExperimentTrendsQueryResponse:
-        # Adding experiment specific tags to the tag collection
-        # This will be available as labels in Prometheus
         tag_queries(
             query_type="ExperimentTrendsQuery",
             experiment_id=str(self.experiment.id),
@@ -252,9 +238,17 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         shared_results: dict[str, Optional[Any]] = {"count_result": None, "exposure_result": None}
         errors = []
 
-        def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
+        def run(
+            query_runner: TrendsQueryRunner,
+            result_key: str,
+            is_parallel: bool,
+            stats: Optional[QueryStats] = None,
+        ):
             try:
-                result = query_runner.calculate()
+                # A thread starts with no scope, so the totals are handed over, or the response
+                # under-reports what ClickHouse read.
+                with query_stats.use(stats):
+                    result = query_runner.calculate()
                 shared_results[result_key] = result
             except Exception as e:
                 errors.append(e)
@@ -262,7 +256,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 if is_parallel:
                     from django.db import connection
 
-                    # This will only close the DB connection for the newly spawned thread and not the whole app
+                    # This closes only the DB connection of this thread, not the connections of the app.
                     connection.close()
 
         # This exists so that we're not spawning threads during unit tests
@@ -270,14 +264,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             run(self.count_query_runner, "count_result", False)
             run(self.exposure_query_runner, "exposure_result", False)
         else:
+            stats = query_stats.get_active()
             jobs = [
-                threading.Thread(target=run, args=(self.count_query_runner, "count_result", True)),
-                threading.Thread(target=run, args=(self.exposure_query_runner, "exposure_result", True)),
+                threading.Thread(target=run, args=(self.count_query_runner, "count_result", True, stats)),
+                threading.Thread(target=run, args=(self.exposure_query_runner, "exposure_result", True, stats)),
             ]
             [j.start() for j in jobs]  # type: ignore
             [j.join() for j in jobs]  # type: ignore
 
-        # Raise any errors raised in a separate thread
         if errors:
             raise errors[0]
 
@@ -288,7 +282,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         self._validate_event_variants(count_result, exposure_result)
 
-        # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
         match self._get_metric_type():
             case ExperimentMetricType.CONTINUOUS:
@@ -384,13 +377,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if not count_result.results or not count_result.results[0]:
             raise ValidationError(code="no-results", detail=json.dumps(errors))
 
-        # Check if "control" is present
         for event in count_result.results:
             event_variant = event.get("breakdown_value")
             if event_variant == "control":
                 errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
                 break
-        # Check if at least one of the test variants is present
         test_variants = [variant for variant in self.variants if variant != "control"]
 
         for event in count_result.results:
@@ -409,7 +400,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")
 
-    # Cache results for 24 hours
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None

@@ -53,6 +53,11 @@ export const GeneratingAtNarrowWidths: Story = {
 
 /** A turn that has rendered nothing for a while — one long tool call, or a
  *  thinking block the model kept to itself. */
+export const GeneratingWithCurrentWorkAtNarrowWidths: Story = {
+  args: { ...generatingArgs, currentWork: "Writing regression tests" },
+  render: (args) => <AtWidths args={args} />,
+};
+
 export const GeneratingWhileQuietAtNarrowWidths: Story = {
   args: {
     ...generatingArgs,

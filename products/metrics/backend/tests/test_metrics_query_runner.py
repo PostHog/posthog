@@ -2,7 +2,7 @@ import datetime as dt
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -51,7 +51,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     groupBy=[MetricsQueryGroupBy(key="namespace")],
                 )
             ],
-            dateRange=DateRange(date_from="2026-07-01T00:00:00Z", date_to="2026-07-01T01:00:00Z"),
+            dateRange=DateRange(date_from="2026-09-19T00:00:00Z", date_to="2026-09-19T01:00:00Z"),
             interval="minute",
             formula=None,
         )
@@ -69,7 +69,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert request.interval == "minute"
         assert (request.date_to - request.date_from) == dt.timedelta(hours=1)
 
-    @freeze_time("2026-07-01T12:00:00Z")
+    @time_machine.travel("2026-09-19T12:00:00Z", tick=False)
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
             clauses=[MetricsQueryClause(name="a", metricName="http_requests_total", aggregation="sum")]
@@ -79,9 +79,9 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert (request.date_to - request.date_from) == dt.timedelta(hours=24)
 
-    @freeze_time("2026-07-01T12:00:00Z")
+    @time_machine.travel("2026-09-19T12:00:00Z", tick=False)
     def test_calculate_returns_one_series_per_group(self) -> None:
-        base = dt.datetime(2026, 7, 1, 11, 30, tzinfo=dt.UTC)
+        base = dt.datetime(2026, 9, 19, 11, 30, tzinfo=dt.UTC)
         for container, value in (("capture", 5.0), ("ingestion", 7.0)):
             seed_metric(
                 team_id=self.team.pk,
@@ -100,15 +100,15 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     groupBy=[MetricsQueryGroupBy(key="container")],
                 )
             ],
-            dateRange=DateRange(date_from="2026-07-01T11:00:00Z", date_to="2026-07-01T12:00:00Z"),
+            dateRange=DateRange(date_from="2026-09-19T11:00:00Z", date_to="2026-09-19T12:00:00Z"),
         )
 
         response = self._runner(query).calculate()
 
         by_container = {series.labels.get("container"): series for series in response.results}
         assert set(by_container) == {"capture", "ingestion"}
-        assert max(point.value for point in by_container["capture"].points) == 5.0
-        assert max(point.value for point in by_container["ingestion"].points) == 7.0
+        assert max(point.value for point in by_container["capture"].points if point.value is not None) == 5.0
+        assert max(point.value for point in by_container["ingestion"].points if point.value is not None) == 7.0
 
     def test_generic_query_endpoint_accepts_metrics_query(self) -> None:
         response = self.client.post(

@@ -30,7 +30,7 @@
  * ```
  */
 import { type App, useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     capture,
@@ -41,16 +41,30 @@ import {
     captureToolCancelled,
     captureToolInput,
     captureToolResult,
+    captureWaitTimeout,
     identifyUser,
     initPostHog,
 } from '../analytics/posthog'
 import { APP_DATA_META_KEY, extractAnalytics } from '../types'
+
+/**
+ * How long the app waits for the host before it reports a failure instead of a
+ * loading state. The host normally pushes the tool result within milliseconds of
+ * the connection handshake, so this budget only expires when a notification never
+ * arrives. A result that lands after the budget still clears the error and renders.
+ */
+export const DEFAULT_WAIT_TIMEOUT_MS = 20_000
 
 export interface UseToolResultOptions {
     /** App name shown to the host */
     appName: string
     /** App version */
     appVersion?: string
+    /**
+     * How long to wait for the host to connect, and then for it to deliver a tool
+     * result, before surfacing an error. Set to 0 to wait indefinitely.
+     */
+    waitTimeoutMs?: number
 }
 
 export interface ContainerDimensions {
@@ -81,11 +95,41 @@ export interface UseToolResultReturn<T> {
     refreshContainerDimensions: () => void
 }
 
+/** What the app is waiting for, which decides whether a watchdog is armed. */
+export type WaitPhase = 'connecting' | 'awaiting-result' | 'settled'
+
+export interface WaitPhaseInput {
+    isConnected: boolean
+    hasData: boolean
+    isCancelled: boolean
+    /** A connection or parse failure the app can already report on its own. */
+    hasError: boolean
+}
+
+/**
+ * Decide what the app is still waiting for. `settled` covers every state the app
+ * can already draw, including failures, so the watchdog never fires on top of an
+ * error the app is showing.
+ */
+export function resolveWaitPhase({ isConnected, hasData, isCancelled, hasError }: WaitPhaseInput): WaitPhase {
+    if (hasData || isCancelled || hasError) {
+        return 'settled'
+    }
+    return isConnected ? 'awaiting-result' : 'connecting'
+}
+
+const WAIT_TIMEOUT_MESSAGES: Record<Exclude<WaitPhase, 'settled'>, string> = {
+    connecting: "Couldn't load this app. Re-run the tool to try again.",
+    'awaiting-result': "This app didn't get any results. Re-run the tool to try again.",
+}
+
+const PARSE_ERROR_MESSAGE = "Couldn't read the results for this app. Re-run the tool to try again."
+
 /**
  * Parse tool result content, preferring structuredContent over the `_meta`
  * fallback. Never falls back to text content.
  */
-function parseToolResultContent<T>(structuredContent: unknown, meta?: unknown): T | null {
+export function parseToolResultContent<T>(structuredContent: unknown, meta?: unknown): T | null {
     // Prefer structuredContent when the host forwards it.
     if (structuredContent !== undefined && structuredContent !== null) {
         return structuredContent as T
@@ -137,10 +181,12 @@ function log(...args: any[]): void {
 export function useToolResult<T = unknown>({
     appName,
     appVersion = '1.0.0',
+    waitTimeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
 }: UseToolResultOptions): UseToolResultReturn<T> {
     const [data, setData] = useState<T | null>(null)
     const [parseError, setParseError] = useState<Error | null>(null)
     const [isCancelled, setIsCancelled] = useState(false)
+    const [timedOutPhase, setTimedOutPhase] = useState<Exclude<WaitPhase, 'settled'> | null>(null)
     const [containerDimensions, setContainerDimensions] = useState<ContainerDimensions | null>(null)
     const hasLoggedConnection = useRef(false)
 
@@ -203,16 +249,21 @@ export function useToolResult<T = unknown>({
                         identifyUser(analytics.distinctId, analytics.toolName)
                     }
 
+                    // `hasAppData` and `rendered` separate a healthy result that rode the
+                    // `_meta` channel from one the app could not draw at all, which
+                    // `hasStructuredContent` alone cannot tell apart.
                     captureToolResult({
                         hasStructuredContent: !!params.structuredContent,
+                        hasAppData: meta?.[APP_DATA_META_KEY] !== undefined && meta[APP_DATA_META_KEY] !== null,
                         contentLength: params.content?.length,
+                        rendered: parsed !== null,
                     })
 
                     if (parsed !== null) {
                         setData(parsed)
                         setParseError(null)
                     } else {
-                        const err = new Error('Unable to parse tool result')
+                        const err = new Error(PARSE_ERROR_MESSAGE)
                         console.error('[PostHog MCP App UI] Parse error:', err)
                         setParseError(err)
                     }
@@ -275,8 +326,43 @@ export function useToolResult<T = unknown>({
         setContainerDimensions(extractContainerDimensions(ctx as unknown as Record<string, unknown>))
     }, [app])
 
-    // Combine connection and parse errors
-    const error = connectionError || parseError
+    const waitPhase = resolveWaitPhase({
+        isConnected,
+        hasData: data !== null,
+        isCancelled,
+        hasError: connectionError !== null || parseError !== null,
+    })
+
+    // Without this watchdog a notification that never arrives leaves the app in its
+    // loading state forever, which reads as a broken render rather than a failure the
+    // person can retry.
+    useEffect(() => {
+        if (timedOutPhase !== null) {
+            // A late connection or a late result moves the app out of the phase that
+            // timed out, so drop the error and let the app draw what it now has.
+            if (timedOutPhase !== waitPhase) {
+                setTimedOutPhase(null)
+            }
+            return
+        }
+        if (waitPhase === 'settled' || waitTimeoutMs <= 0) {
+            return
+        }
+        const timer = setTimeout(() => {
+            log('Timed out waiting for the host', { waitPhase, waitTimeoutMs })
+            setTimedOutPhase(waitPhase)
+            captureWaitTimeout({ phase: waitPhase, timeoutMs: waitTimeoutMs })
+        }, waitTimeoutMs)
+        return () => clearTimeout(timer)
+    }, [waitPhase, timedOutPhase, waitTimeoutMs])
+
+    const timeoutError = useMemo(
+        () => (timedOutPhase === null ? null : new Error(WAIT_TIMEOUT_MESSAGES[timedOutPhase])),
+        [timedOutPhase]
+    )
+
+    // Combine connection, parse, and timeout errors
+    const error = connectionError || parseError || timeoutError
 
     return {
         data,

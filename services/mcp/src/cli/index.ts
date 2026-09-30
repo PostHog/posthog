@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import { createExecTool } from '@/tools/exec'
+import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import { buildAgentHelp } from './agent-help'
@@ -18,7 +18,7 @@ tools
 search <regex_pattern>
 info [--json] <tool_name>
 schema <tool_name> [field_path]
-call [--json] [--confirm] <tool_name> <json_input>`
+call [--json] [--confirm] <tool_name> [json_input]`
 
 interface BuiltExec {
     context: Context
@@ -40,7 +40,7 @@ Usage:
   posthog-cli api search <regex>
   posthog-cli api info [--json] <tool>
   posthog-cli api schema <tool> [field.path]
-  posthog-cli api call [--json] [--dry-run] [--confirm] <tool> '<json>'
+  posthog-cli api call [--json] [--dry-run] [--confirm] <tool> ['<json>']
   posthog-cli api skill list [--json]
   posthog-cli api skill install [--force] <skill-id>
   posthog-cli api agents-md install [--path AGENTS.md]
@@ -145,7 +145,10 @@ async function runDryCall(args: string[]): Promise<void> {
         throw new Error(`Invalid JSON input: ${detail}`)
     }
 
-    const validation = tool.schema.safeParse(parsed)
+    // The same rewrap the MCP paths apply, so a dry run reports what a real call would do.
+    const firstPass = tool.schema.safeParse(parsed, { reportInput: true })
+    const rewrapped = firstPass.success ? undefined : repairArgumentNesting(firstPass.error, parsed, tool.schema)
+    const validation = rewrapped ? tool.schema.safeParse(rewrapped, { reportInput: true }) : firstPass
     printResult({
         dryRun: true,
         tool: tool.name,
@@ -154,7 +157,9 @@ async function runDryCall(args: string[]): Promise<void> {
         outputFormat: forceJson ? 'json' : 'text',
         destructiveConfirmationRequired: tool.annotations.destructiveHint && !confirmed,
         valid: validation.success,
-        ...(validation.success ? { input: validation.data } : { error: validation.error.message }),
+        ...(validation.success
+            ? { input: validation.data }
+            : { error: formatInputValidationError(tool.name, validation.error, parsed, tool.schema) }),
     })
 }
 
@@ -246,7 +251,7 @@ async function main(): Promise<void> {
             const toolName = args.shift()
             const jsonBody = args.length > 0 ? args.join(' ') : '{}'
             if (!toolName) {
-                throw new Error('Usage: posthog-cli api call [--json] [--dry-run] [--confirm] <tool> <json>')
+                throw new Error('Usage: posthog-cli api call [--json] [--dry-run] [--confirm] <tool> [json]')
             }
             await runExecCommand(`call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`)
             return

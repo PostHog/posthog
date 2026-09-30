@@ -172,8 +172,6 @@ _ORG_COLS = [
     "allow_publicly_shared_resources",
     "plugins_access_level",
     "for_internal_metrics",
-    "default_experiment_stats_method",
-    "is_hipaa",
     "customer_id",
     "available_product_features",
     "usage",
@@ -193,7 +191,6 @@ _ORG_BOOL_FIELDS = [
     "members_can_use_personal_api_keys",
     "allow_publicly_shared_resources",
     "for_internal_metrics",
-    "is_hipaa",
     "never_drop_data",
     "setup_section_2_completed",
     "is_platform",
@@ -229,8 +226,6 @@ def _organization_ddl() -> str:
             allow_publicly_shared_resources UInt8,
             plugins_access_level Int16,
             for_internal_metrics UInt8,
-            default_experiment_stats_method Nullable(String),
-            is_hipaa Nullable(UInt8),
             customer_id Nullable(String),
             available_product_features Nullable(String),  -- JSON stored as String
             usage Nullable(String),  -- JSON stored as String

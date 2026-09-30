@@ -10,6 +10,7 @@ import { dateFromToText } from 'lib/utils/dateFilters'
 import { CompareFilter as CompareFilterType } from '~/queries/schema/schema-general'
 
 type CompareFilterProps = {
+    allowCustomComparison?: boolean
     compareFilter?: CompareFilterType | null
     updateCompareFilter: (compareFilter: CompareFilterType) => void
     disabled?: boolean
@@ -24,6 +25,7 @@ export function CompareFilter({
     disabled,
     disableReason,
     tooltip,
+    allowCustomComparison = true,
 }: CompareFilterProps): JSX.Element | null {
     // This keeps the state of the rolling date range filter, even when different drop down options are selected
     // The default value for this is one month
@@ -111,7 +113,7 @@ export function CompareFilter({
                 }
             }}
             data-attr="compare-filter"
-            options={options}
+            options={options.filter((option) => allowCustomComparison || option.value !== 'compareTo')}
             size="small"
             disabled={disabled}
             disabledReason={disableReason}

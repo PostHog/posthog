@@ -116,6 +116,9 @@ class SkillAuthor:
     email: str
     role: Literal["owner", "creator", "editor"]
     last_authored_at: datetime
+    # The routing identity itself: a scout passes this straight to `suggested_reviewers`, so an
+    # author with no GitHub account still gets the reports their scout files.
+    user_uuid: str
 
 
 @dataclass(frozen=True)
@@ -235,7 +238,7 @@ def _resolve_owner_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
         # canonical=True → exact environment team, matching how LLMSkill is scoped (see LLMSkillOwner).
         LLMSkillOwner.objects.for_team(team.id, canonical=True)
         .filter(skill_name=skill_name, user__in=team.all_users_with_access())
-        .values("user__first_name", "user__last_name", "user__email", "created_at")
+        .values("user__uuid", "user__first_name", "user__last_name", "user__email", "created_at")
         .order_by("created_at", "id")
     )
     authors: list[SkillAuthor] = []
@@ -248,6 +251,7 @@ def _resolve_owner_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
                 email=row["user__email"],
                 role="owner",
                 last_authored_at=row["created_at"],
+                user_uuid=str(row["user__uuid"]),
             )
         )
     return authors
@@ -306,6 +310,7 @@ def resolve_skill_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
             email=person["created_by__email"],
             role=role,
             last_authored_at=person["last_authored_at"],
+            user_uuid=str(person["created_by__uuid"]),
         )
 
     creator, *editors = people

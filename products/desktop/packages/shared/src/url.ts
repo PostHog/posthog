@@ -38,3 +38,23 @@ export function isSafePostHogUrl(url: string): boolean {
       parsed.hostname.endsWith(".posthog.com"))
   );
 }
+
+export function isSafeGitHubPullRequestUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return (
+    parsed.protocol === "https:" &&
+    parsed.hostname === "github.com" &&
+    !parsed.username &&
+    !parsed.password &&
+    !parsed.port &&
+    !parsed.search &&
+    /^\/[a-z0-9-]+\/[a-z0-9_.-]+\/pull\/[1-9]\d*(?:\/(?:files|commits|checks))?\/?$/i.test(
+      parsed.pathname,
+    )
+  );
+}

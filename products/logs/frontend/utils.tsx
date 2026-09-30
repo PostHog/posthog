@@ -132,6 +132,8 @@ const DISTINCT_ID_KEYS = [
     'posthog.distinct.id',
     'posthog.distinct_id',
 ]
+// Mirror of SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS in products/logs/backend/models.py — keep the
+// two in sync, or the impact counts stop covering logs this list renders as session links.
 // Some pipelines emit `posthogSessionId` even though no SDK does. Removing it breaks them.
 const SESSION_ID_KEYS = [
     'session.id',
@@ -242,8 +244,23 @@ export function getSessionIdFromLogAttributes(
     return getSessionIdWithKey(attributes, resourceAttributes, configuredKeys)?.value ?? null
 }
 
+// Log timestamps are ISO strings, but some pipelines send epoch numbers instead. Shared so every
+// surface reading `LogMessage.timestamp` parses it the same way.
+export function parseLogTimestamp(timestamp: string): dayjs.Dayjs {
+    const epoch = Number(timestamp)
+    return Number.isNaN(epoch) ? dayjs(timestamp) : dayjs(epoch)
+}
+
+// How far either side of a log the Related errors lookup searches for exceptions in the same
+// session. Shared so the drawer's tab and the row badge that opens it agree on the range.
+export const RELATED_ERRORS_WINDOW_HOURS = 6
+
 // Wide enough to cover a session around a single event without drowning it in unrelated logs.
 export const SESSION_LOGS_WINDOW_MINUTES = 30
+
+// Tighter than SESSION_LOGS_WINDOW_MINUTES because the exception card's Logs tab can run unscoped,
+// where the range is all that holds it off the project's whole log volume.
+export const EXCEPTION_LOGS_WINDOW_MINUTES = 5
 
 export function buildDateRangeAround(timestamp: string, windowMinutes: number): { date_from: string; date_to: string } {
     const center = dayjs(timestamp)
@@ -257,16 +274,15 @@ export function buildDateRangeAround(timestamp: string, windowMinutes: number): 
 // session replay). The session id goes to the server as a scope rather than a filter group: it
 // has to match across every configured and conventional key in both attribute maps, and the
 // query runner reads a filter group's inner group as an AND of its leaves, so a group could only
-// ever express "every key holds this id at once". A timestamp scopes the date range to ±30
-// minutes so old sessions aren't hidden by the default range.
+// ever express "every key holds this id at once". A timestamp scopes the date range to
+// windowMinutes either side, so old sessions aren't hidden by the viewer's default range.
 export function buildLogsSessionScope(
-    sessionId: string,
-    timestamp?: string
-): { sessionId: string; initialFilters?: Partial<LogsViewerFilters> } {
+    sessionId: string | undefined,
+    timestamp?: string,
+    windowMinutes: number = SESSION_LOGS_WINDOW_MINUTES
+): { sessionId?: string; initialFilters?: Partial<LogsViewerFilters> } {
     return {
         sessionId,
-        initialFilters: timestamp
-            ? { dateRange: buildDateRangeAround(timestamp, SESSION_LOGS_WINDOW_MINUTES) }
-            : undefined,
+        initialFilters: timestamp ? { dateRange: buildDateRangeAround(timestamp, windowMinutes) } : undefined,
     }
 }

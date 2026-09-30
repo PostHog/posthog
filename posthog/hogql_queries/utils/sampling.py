@@ -1,6 +1,6 @@
 from typing import Optional, Union
 
-from posthog.hogql_queries.insights.trends.math_functions import ALL_SUPPORTED_MATH_FUNCTIONS
+from posthog.hogql_queries.math_functions import ALL_SUPPORTED_MATH_FUNCTIONS
 
 
 def correct_result_for_sampling(

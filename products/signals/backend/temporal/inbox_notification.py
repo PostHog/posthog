@@ -26,7 +26,8 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.github_writeback import post_report_link_to_github_issues
+from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.support_writeback import post_report_findings_to_tickets
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
@@ -74,7 +75,12 @@ def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNoti
     # Resolved from the implementation tasks alone, not the report's surfaced PR: the wait exists to
     # give the implementation task time to open its PR, so a PR from some other task (a "Discuss"
     # chat that opened one) must not end it early.
-    pr_available = bool(tasks_facade.get_latest_pr_url_by_task(impl_task_ids))
+    from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
+
+    pr_available = any(
+        pr.task_id in impl_task_ids
+        for pr in fetch_implementation_prs_for_reports([report_id], team_id=team_id).get(report_id, [])
+    )
     # Most recent run across the report's implementation task(s).
     latest_run = max(
         tasks_facade.get_latest_run_by_task(impl_task_ids).values(),
@@ -177,6 +183,23 @@ async def send_report_inbox_notifications_activity(input: InboxNotificationInput
     )
 
 
+def _send_report_github_comments(team_id: int, report_id: str) -> int:
+    if not SignalTeamConfig.objects.filter(team_id=team_id, github_issue_writeback_enabled=True).exists():
+        return 0
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return 0
+    return post_report_link_to_github_issues(team, report_id, fetch_signals_for_report_sync(team, report_id))
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def send_report_github_comments_activity(input: InboxNotificationInput) -> int:
+    return await database_sync_to_async(_send_report_github_comments, thread_sensitive=False)(
+        input.team_id, input.report_id
+    )
+
+
 @temporalio.workflow.defn(name="signal-report-inbox-notification")
 class SignalReportInboxNotificationWorkflow:
     @staticmethod
@@ -251,6 +274,16 @@ class SignalReportInboxNotificationWorkflow:
             "inbox notification: dispatch complete",
             extra={**log_ctx, "messages_sent": sent, "pr_available": state.pr_available},
         )
+        if workflow.patched("signals-github-writeback-after-notification"):
+            try:
+                await workflow.execute_activity(
+                    send_report_github_comments_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except temporalio.exceptions.ActivityError:
+                workflow.logger.exception("inbox notification: GitHub write-back failed", extra=log_ctx)
         return sent
 
     async def _fetch_state(self, inputs: InboxNotificationInput) -> InboxNotificationState:

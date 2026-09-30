@@ -167,6 +167,7 @@ function PlayerWrapper({
         filters,
         visiblePinnedRecordings: pinnedRecordings,
         matchingEventsMatchType,
+        exposureSkipExperimentId,
         activeSessionRecording,
         allowHogQLFilters,
         totalFiltersCount,
@@ -210,6 +211,7 @@ function PlayerWrapper({
                         playerKey={props.logicKey ?? 'playlist'}
                         sessionRecordingId={activeSessionRecording.id}
                         matchingEventsMatchType={matchingEventsMatchType}
+                        exposureSkipExperimentId={exposureSkipExperimentId}
                         autoPlay={props.autoPlay}
                         onRecordingDeleted={() => {
                             loadAllRecordings()

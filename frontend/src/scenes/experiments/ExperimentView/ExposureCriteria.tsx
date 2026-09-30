@@ -169,8 +169,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         entitiesLimit={1}
                         mathAvailability={MathAvailability.None}
                         showNumericalPropsOnly={true}
+                        {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 </div>
             )}
@@ -195,8 +195,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         entitiesLimit={1}
                         mathAvailability={MathAvailability.None}
                         showNumericalPropsOnly={true}
+                        {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 </div>
             )}

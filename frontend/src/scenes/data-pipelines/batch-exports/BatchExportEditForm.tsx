@@ -84,10 +84,12 @@ export function BatchExportGeneralEditFields({
 export function BatchExportsEditFields({
     isNew,
     batchExportConfigForm,
+    savedConfig,
     selectedIntegration,
 }: {
     isNew: boolean
     batchExportConfigForm: BatchExportConfigurationForm
+    savedConfig?: Record<string, any> | null
     selectedIntegration?: IntegrationType | null
 }): JSX.Element {
     const destination = batchExportConfigForm.destination
@@ -99,6 +101,7 @@ export function BatchExportsEditFields({
                 <definition.Fields
                     isNew={isNew}
                     formValues={batchExportConfigForm}
+                    savedConfig={savedConfig}
                     selectedIntegration={selectedIntegration}
                 />
             )}

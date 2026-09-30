@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -814,7 +814,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.projected_monthly_credits == 0
 
-    @freeze_time("2026-09-16T00:00:00Z")
+    @time_machine.travel("2026-09-16T00:00:00Z", tick=False)
     def test_a_capped_scanner_projects_at_most_its_remaining_limit(self) -> None:
         self._make_scanner(team=self.team, name="capped", estimate=100, credit_limit=200)  # 1500 uncapped
         self._make_scanner(team=self.team, name="roomy", estimate=10, credit_limit=9000)  # 150, under its cap
@@ -884,7 +884,7 @@ class TestVisionSpendSeriesEndpoint(_VisionQuotaTestCase):
             credits=credits,
         )
 
-    @freeze_time("2026-03-10T12:00:00Z")
+    @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
     def test_zero_filled_daily_credits_from_period_start_through_today(self) -> None:
         self.organization.usage = {"period": ["2026-03-01T00:00:00+00:00", "2026-04-01T00:00:00+00:00"]}
         self.organization.save()

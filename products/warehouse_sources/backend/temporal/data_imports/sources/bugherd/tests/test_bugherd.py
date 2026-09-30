@@ -13,7 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bu
     bugherd_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.settings import BUGHERD_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.settings import (
+    BUGHERD_BASE_URL,
+    BUGHERD_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
     SinglePagePaginator,
@@ -332,3 +335,118 @@ class TestBugherdFanout:
 
         kwargs["resume_hook"]({"page": 4})
         manager.save_state.assert_called_once_with(BugherdResumeConfig(page=4))
+
+
+class TestBugherdChainedFanout:
+    def _comments_rows(self, requests_mock: Any) -> list[dict]:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        resp = bugherd_source(
+            api_key="key", endpoint="TaskComments", team_id=1, job_id="job-1", resumable_source_manager=manager
+        )
+
+        return [row for page in cast(Any, resp.items()) for row in page]
+
+    def test_walks_projects_then_tasks_then_comments(self, requests_mock: Any) -> None:
+        requests_mock.get(
+            f"{BUGHERD_BASE_URL}/api_v2/projects.json",
+            [{"json": {"projects": [{"id": 1000}]}}, {"json": {"projects": []}}],
+        )
+        requests_mock.get(
+            f"{BUGHERD_BASE_URL}/api_v2/projects/1000/tasks.json",
+            [{"json": {"tasks": [{"id": 98765, "project_id": 1000}]}}, {"json": {"tasks": []}}],
+        )
+        requests_mock.get(
+            f"{BUGHERD_BASE_URL}/api_v2/projects/1000/tasks/98765/comments.json",
+            [{"json": {"comments": [{"id": 8801, "text": "reproduced"}]}}, {"json": {"comments": []}}],
+        )
+
+        rows = self._comments_rows(requests_mock)
+
+        assert rows == [{"id": 8801, "text": "reproduced", "task_id": 98765, "project_id": 1000}]
+
+    def test_skips_a_task_that_disappeared_between_pages(self, requests_mock: Any) -> None:
+        requests_mock.get(
+            f"{BUGHERD_BASE_URL}/api_v2/projects.json",
+            [{"json": {"projects": [{"id": 1000}]}}, {"json": {"projects": []}}],
+        )
+        requests_mock.get(
+            f"{BUGHERD_BASE_URL}/api_v2/projects/1000/tasks.json",
+            [
+                {"json": {"tasks": [{"id": 1, "project_id": 1000}, {"id": 2, "project_id": 1000}]}},
+                {"json": {"tasks": []}},
+            ],
+        )
+        requests_mock.get(f"{BUGHERD_BASE_URL}/api_v2/projects/1000/tasks/1/comments.json", status_code=404, json={})
+        requests_mock.get(
+            f"{BUGHERD_BASE_URL}/api_v2/projects/1000/tasks/2/comments.json",
+            [{"json": {"comments": [{"id": 9, "text": "still here"}]}}, {"json": {"comments": []}}],
+        )
+
+        rows = self._comments_rows(requests_mock)
+
+        assert [row["id"] for row in rows] == [9]
+
+    def test_composite_primary_key(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        resp = bugherd_source(
+            api_key="key", endpoint="TaskComments", team_id=1, job_id="job-1", resumable_source_manager=manager
+        )
+
+        assert resp.primary_keys == ["task_id", "id"]
+        assert resp.partition_keys == ["created_at"]
+
+
+class TestBugherdProjectFanoutEndpoints:
+    @parameterized.expand(
+        [
+            ("ArchivedTasks", "/api_v2/projects/{project_id}/tasks/archive.json"),
+            ("FeedbackTasks", "/api_v2/projects/{project_id}/tasks/feedback.json"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd.build_dependent_resource")
+    def test_task_list_stays_full_refresh_when_incremental_is_requested(
+        self, endpoint: str, path: str, mock_build
+    ) -> None:
+        # These endpoints take no `updated_since`/`created_since`, so they declare no
+        # incremental fields and no query-param mapping — asking for incremental anyway
+        # must not reach the window factory, which would KeyError.
+        mock_build.return_value = iter([])
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        resp = bugherd_source(
+            api_key="key",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=manager,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+            incremental_field="updated_at",
+        )
+
+        assert resp.primary_keys == ["id"]
+        _, kwargs = mock_build.call_args
+        assert BUGHERD_ENDPOINTS[endpoint].path == path
+        assert BUGHERD_ENDPOINTS[endpoint].incremental_fields == []
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd.build_dependent_resource")
+    def test_columns_child_is_not_paginated(self, mock_build) -> None:
+        mock_build.return_value = iter([])
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        resp = bugherd_source(
+            api_key="key", endpoint="Columns", team_id=1, job_id="job-1", resumable_source_manager=manager
+        )
+
+        _, kwargs = mock_build.call_args
+        # Columns returns its whole collection in one response; a page paginator would
+        # re-request page 2 forever on an API that ignores `page`.
+        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], SinglePagePaginator)
+        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], PageNumberPaginator)
+        assert resp.primary_keys == ["project_id", "id"]

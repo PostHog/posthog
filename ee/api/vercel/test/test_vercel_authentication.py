@@ -11,11 +11,14 @@ from django.utils import timezone
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from parameterized import parameterized
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIRequestFactory
 
+from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
+
 from ee.api.authentication import VercelAuthentication
-from ee.api.vercel.types import VercelUser
+from ee.api.vercel.types import VercelUser, VercelUserClaims
 
 
 @patch("ee.api.authentication.get_vercel_jwks")
@@ -129,6 +132,20 @@ class TestVercelAuthentication(SimpleTestCase):
         assert user.claims.account_id == self.account_id
         assert user.claims.installation_id == self.installation_id
 
+    @parameterized.expand([("user",), ("system",)])
+    def test_valid_token_records_the_installation_as_the_activity_credential(self, mock_get_jwks, auth_type):
+        mock_get_jwks.return_value = self.mock_jwks
+        request = self._make_request(self._token(user=auth_type == "user"), auth_type)
+
+        activity_storage.mark_request_scoped()
+        try:
+            self.auth.authenticate(request)
+            credential = activity_storage.get_credential()
+        finally:
+            activity_storage.clear_all()
+
+        assert credential == ActivityCredential(type="vercel", id=self.installation_id)
+
     def test_missing_authorization_header(self, mock_get_jwks):
         request = self.factory.get("/", HTTP_X_VERCEL_AUTH="user")
         with self.assertRaises(AuthenticationFailed):
@@ -213,6 +230,23 @@ class TestVercelAuthentication(SimpleTestCase):
         assert result1 is not None
         assert result2 is not None
         assert mock_get_jwks.call_count >= 1
+
+    def test_user_auth_captures_email_verified_claim(self, mock_get_jwks):
+        mock_get_jwks.return_value = self.mock_jwks
+
+        verified_false_token = self._token(overrides={"user_email_verified": False})
+        result = self.auth.authenticate(self._make_request(verified_false_token))
+        assert result is not None
+        user, _ = result
+        assert isinstance(user.claims, VercelUserClaims)
+        assert user.claims.user_email_verified is False
+
+        token_without_claim = self._token()
+        result = self.auth.authenticate(self._make_request(token_without_claim))
+        assert result is not None
+        user, _ = result
+        assert isinstance(user.claims, VercelUserClaims)
+        assert user.claims.user_email_verified is None
 
     def test_none_algorithm_rejected(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks

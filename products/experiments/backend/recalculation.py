@@ -32,6 +32,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import resolve_scheduled_metrics, scheduled_metric_definitions
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -40,7 +41,7 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
-from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics, find_metric_dict
+from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
@@ -49,6 +50,10 @@ from products.experiments.backend.temporal.recalculation_logic import discover_e
 # never started (Temporal connect failure, transient infra issue, etc.). See the rollback in views.py for the
 # happy-path failure handling; this TTL is the defense-in-depth backstop if that rollback itself fails.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
+
+# A daily timeseries point older than this no longer stands in for a recalculation on the cold-start read. The
+# daily run happens once per day, so a fresh experiment always has a point inside the bound.
+TIMESERIES_FALLBACK_MAX_AGE = timedelta(hours=24)
 
 # `is_existing=True` reuse path — counts how often the idempotency guard saves us a workflow start.
 # A sustained climb here without a matching climb in requests is the signal the frontend is double-posting.
@@ -93,8 +98,9 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
     queries already finished during the run from system.query_log, matched by query_id prefix.
 
     Returns None unless the run is IN_PROGRESS. No storage needed: each metric query is tagged with the
-    deterministic client_query_id `experiment_metric_recalc_{recalc_id}_{metric_uuid}`, which ClickHouse
-    stamps into query_id as `{team_id}_{client_query_id}_{random}`. system.processes only holds a query
+    deterministic client_query_id `experiment_metric_recalc_{recalc_id}_{metric_uuid}_attempt{attempt:02d}`,
+    which ClickHouse stamps into query_id as `{team_id}_{client_query_id}_{random}`. The prefix matched below
+    stops at the recalc id, so the metric and attempt suffixes do not affect it. system.processes only holds a query
     while it executes, and the metric queries are usually shorter than the poll interval, so processes
     alone reads zero for most of the run; the query_log branch keeps finished queries counted, making
     rows_read cumulative and roughly monotonic across the run (modulo query_log flush lag).
@@ -379,9 +385,10 @@ def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetri
     ExperimentMetricResult" — the snapshot lives in the fingerprint, not in a stored column.
     """
     stats_method = get_experiment_stats_method(experiment)
+    definitions = scheduled_metric_definitions(experiment)
     fingerprints: dict[str, str] = {}
     for metric_uuid in recalc.metric_uuids or []:
-        metric_dict = find_metric_dict(experiment, metric_uuid)
+        metric_dict = definitions.get(metric_uuid)
         if metric_dict is None:
             continue
         config_fp = compute_metric_fingerprint(
@@ -434,22 +441,21 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     metrics-recalculation run exists yet. Timeseries rows live in ExperimentMetricResult under the metric's
     CONFIG fingerprint (not a per-run recalc fingerprint), so they're found without any recalc row.
 
-    Returns None when no metric has a completed timeseries point (caller then keeps the 404). query_to and
-    completed_at both pin to the freshest point's date so the frontend's >24h staleness path fires its own
-    recompute trigger (GET never triggers anything itself).
+    Only points younger than TIMESERIES_FALLBACK_MAX_AGE count. The frontend accepts a fallback that covers every
+    metric without starting a run, so an older point must read as a gap or the page would show weeks-old numbers
+    as completed. Returns None when no metric has a fresh completed point (caller then keeps the 404). query_to
+    and completed_at both pin to the freshest point's date. GET never triggers anything itself.
     """
     with team_scope(experiment.team_id, canonical=True):
-        metrics = discover_experiment_metrics(experiment)
+        metrics = resolve_scheduled_metrics(experiment)
         stats_method = get_experiment_stats_method(experiment)
 
+        now = timezone.now()
         results: list[dict] = []
         latest_query_to = None
         for metric in metrics:
-            metric_dict = find_metric_dict(experiment, metric.metric_uuid)
-            if metric_dict is None:
-                continue
             config_fp = compute_metric_fingerprint(
-                metric_dict,
+                metric.definition,
                 experiment.start_date,
                 stats_method,
                 experiment.exposure_criteria,
@@ -459,9 +465,13 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
             row = (
                 ExperimentMetricResult.objects.filter(
                     experiment=experiment,
-                    metric_uuid=metric.metric_uuid,
+                    metric_uuid=metric.uuid,
                     fingerprint=config_fp,
                     status=ExperimentMetricResult.Status.COMPLETED,
+                    # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry
+                    # a future query_to that would surface here as a future completion time.
+                    query_to__gte=now - TIMESERIES_FALLBACK_MAX_AGE,
+                    query_to__lte=now,
                 )
                 .order_by("-query_to")
                 .first()
@@ -490,7 +500,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
             "completed_metrics": len(results),
             "failed_metrics": 0,
             "metric_errors": {},
-            "trigger": ExperimentMetricsRecalculation.Trigger.COLD_RUN,
+            "metric_retries": {},
             "created_at": latest_query_to,
             "started_at": latest_query_to,
             "completed_at": latest_query_to,

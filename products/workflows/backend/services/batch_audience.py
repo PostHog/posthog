@@ -1,25 +1,43 @@
 from typing import Optional
 
+from django.conf import settings
+
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.user_blast_radius import (
+    PERSON_BATCH_SIZE as GROUP_AUDIENCE_PAGE_SIZE,
     get_user_blast_radius_persons,
     replace_proxy_properties,
     unevaluable_filters_as_validation_errors,
 )
 
-PERSON_BATCH_SIZE = 500
-
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
+
+
+def person_audience_page_size() -> int:
+    return settings.WORKFLOWS_PERSON_BATCH_SIZE
+
+
+def audience_page_size(group_type_index: Optional[GroupTypeIndex]) -> int:
+    """
+    Page size the resolver must compare a page length against to decide `has_more`.
+
+    Group audiences page through the flags-owned group query, which keeps its own fixed limit.
+    """
+    if group_type_index is not None:
+        return GROUP_AUDIENCE_PAGE_SIZE
+    return person_audience_page_size()
 
 
 def get_batch_audience_person_ids(
@@ -28,6 +46,7 @@ def get_batch_audience_person_ids(
     group_type_index: Optional[GroupTypeIndex] = None,
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
+    settings: Optional[HogQLGlobalSettings] = None,
 ) -> list[str]:
     """
     Enumerate one page of a batch workflow's audience (person UUIDs, cursor-paginated).
@@ -45,7 +64,9 @@ def get_batch_audience_person_ids(
         select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        response = execute_hogql_query(query=select_query, team=team)
+        # Background traffic: the only caller is the internal batch-send resolver, so route to
+        # the offline pool like the group branch does, away from interactive product queries.
+        response = execute_hogql_query(query=select_query, team=team, settings=settings, workload=Workload.OFFLINE)
 
     return [str(row[0]) for row in response.results] if response.results else []
 
@@ -69,7 +90,7 @@ def get_batch_audience_count(
     # if we ever add another supported key, this raise forces the caller to teach this
     # function about it too, rather than silently returning the email-deduped count.
     if dedupe_key == EMAIL_DEDUPE_KEY:
-        group_expr = _email_dedupe_group_expr()
+        group_expr = email_dedupe_group_expr()
     else:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
@@ -104,7 +125,7 @@ def get_batch_audience_count(
     return response.results[0][0] if response.results else 0
 
 
-def _email_dedupe_group_expr() -> ast.Expr:
+def email_dedupe_group_expr() -> ast.Expr:
     # Fields stay fully qualified so nothing resolves to an enclosing query's alias.
     return parse_expr(
         """
@@ -150,7 +171,7 @@ def _build_audience_person_query(
         distinct=True,
         where=ast.And(exprs=where_exprs),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["persons", "id"]), order="ASC")],
-        limit=ast.Constant(value=PERSON_BATCH_SIZE),
+        limit=ast.Constant(value=person_audience_page_size()),
     )
 
 
@@ -166,7 +187,7 @@ def _wrap_with_email_dedupe(where_exprs: list[ast.Expr], cursor: Optional[str]) 
         select=[ast.Alias(alias="person_id", expr=ast.Call(name="min", args=[ast.Field(chain=["persons", "id"])]))],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=ast.And(exprs=where_exprs),
-        group_by=[_email_dedupe_group_expr()],
+        group_by=[email_dedupe_group_expr()],
     )
 
     outer_where: Optional[ast.Expr] = None
@@ -182,5 +203,5 @@ def _wrap_with_email_dedupe(where_exprs: list[ast.Expr], cursor: Optional[str]) 
         select_from=ast.JoinExpr(table=inner_query),
         where=outer_where,
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["person_id"]), order="ASC")],
-        limit=ast.Constant(value=PERSON_BATCH_SIZE),
+        limit=ast.Constant(value=person_audience_page_size()),
     )

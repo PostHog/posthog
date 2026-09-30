@@ -137,7 +137,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         primaryYAxis,
         yAxes,
     } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
-    const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis)
+    const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
     // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
     // reads it automatically — no need to stamp each line here.

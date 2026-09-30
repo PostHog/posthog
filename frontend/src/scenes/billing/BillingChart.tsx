@@ -9,7 +9,7 @@ import type {
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { getSeriesColor } from 'lib/colors'
+import { getColorVar, getSeriesColor } from 'lib/colors'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
@@ -55,8 +55,15 @@ const NO_MARKERS: BillingPeriodMarker[] = []
 /** Series keys are stringified ids, so a word cannot collide with one. */
 const CUMULATIVE_KEY = 'cumulative'
 const CUMULATIVE_AXIS_ID = 'cumulative'
-/** Off the series palette, so it cannot be taken for one of the projects. */
-const CUMULATIVE_COLOR = 'var(--text-3000)'
+
+/**
+ * A green off the series palette, so the running total cannot be taken for a project.
+ * Resolved here: the canvas takes a concrete color, and a `var()` reaches it unresolved, so the
+ * line and its hover dot would keep whatever color the series before them used.
+ */
+function cumulativeColor(): string {
+    return getColorVar('success')
+}
 
 /** The series billing folds the projects beyond the cap into; its label starts with the folded name. */
 function isFoldedSeries(s: BillingSeriesType): boolean {
@@ -135,7 +142,7 @@ export function BillingChart({
                 key: CUMULATIVE_KEY,
                 label: cumulativeLabel,
                 data: runningTotal(visible, dates.length),
-                color: CUMULATIVE_COLOR,
+                color: cumulativeColor(),
                 type: 'line',
                 yAxisId: CUMULATIVE_AXIS_ID,
                 stroke: { pattern: [6, 4] },
@@ -221,12 +228,6 @@ export function BillingChart({
                     </TimeSeriesLineChart>
                 )}
             </div>
-            {cumulativeLabel && (
-                // Neither caller shows a legend, so the dashed line has to be named somewhere.
-                <div className="mt-1 text-xs text-secondary" data-attr="billing-chart-cumulative-note">
-                    Dashed line: {cumulativeLabel.toLowerCase()} across the selected range, against the right-hand axis.
-                </div>
-            )}
             {omittedCount > 0 && (
                 <div className="mt-1 text-xs text-secondary" data-attr="billing-chart-series-cap">
                     Charting the {drawnCount.toLocaleString()} largest series. {omittedCount.toLocaleString()} more are

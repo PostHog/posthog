@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
@@ -161,7 +161,7 @@ class TestYocoPaginator:
 
 
 class TestYocoResources:
-    @freeze_time("2026-05-01T00:00:00Z")
+    @time_machine.travel("2026-05-01T00:00:00Z", tick=False)
     def test_incremental_resource_windows_from_the_watermark(self) -> None:
         resource = cast(
             dict[str, Any],
@@ -179,7 +179,7 @@ class TestYocoResources:
         assert request.params["updated_at__lte"] == "2026-05-01T00:00:00Z"
 
     def test_window_never_exceeds_the_api_maximum(self) -> None:
-        with freeze_time("2026-05-01T00:00:00Z"):
+        with time_machine.travel("2026-05-01T00:00:00Z", tick=False):
             resource = cast(
                 dict[str, Any],
                 get_resource(
@@ -219,7 +219,7 @@ class TestYocoResources:
             ("endpoint_without_updated_at", "modifier_groups", None, "created_at__gte"),
         ]
     )
-    @freeze_time("2026-05-01T00:00:00Z")
+    @time_machine.travel("2026-05-01T00:00:00Z", tick=False)
     def test_incremental_field_selection(
         self, _name: str, endpoint: str, incremental_field: str | None, expected_param: str
     ) -> None:

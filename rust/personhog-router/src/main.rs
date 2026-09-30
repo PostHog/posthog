@@ -5,7 +5,7 @@ use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
 use k8s_awareness::K8sAwareness;
-use lifecycle::{ComponentOptions, Manager};
+use lifecycle::{ComponentOptions, Handle, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_common::metrics::WRITE_PATH_LATENCY_BUCKETS_MS;
@@ -13,12 +13,12 @@ use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
-use personhog_router::backend::discovery::{EndpointConfig, EndpointDiscovery};
+use personhog_router::backend::discovery::{DiscoveryReadiness, EndpointConfig, EndpointDiscovery};
 use personhog_router::backend::{
-    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaDnsConfig, StashTable,
+    ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
 };
-use personhog_router::config::{Config, ReplicaDiscoveryMode, RouterMode};
-use personhog_router::proxy::RawProxyService;
+use personhog_router::config::{Config, DiscoveryMode, RouterMode};
+use personhog_router::proxy::{IdentityProxyService, LifecycleProxyService, RawProxyService};
 use personhog_router::stash_handler::RouterStashHandler;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
@@ -70,6 +70,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Replica discovery mode: {}", config.replica_discovery_mode);
     tracing::info!("Replica URL: {}", config.replica_url);
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
+    tracing::info!(
+        "Identity proxy: {}",
+        if config.identity_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    if config.identity_enabled {
+        tracing::info!(
+            "Identity discovery mode: {}",
+            config.identity_discovery_mode
+        );
+        tracing::info!("Identity URL: {}", config.identity_url);
+        tracing::info!("Identity timeout: {}ms", config.identity_timeout_ms);
+    }
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!(
         "Retry config: max_retries={}, initial_backoff={}ms, max_backoff={}ms",
@@ -124,73 +140,61 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (None, None)
     };
 
-    // Register discovery handle before monitor_background() consumes the manager
-    let discovery_handle = if config.replica_discovery_mode == ReplicaDiscoveryMode::K8s {
-        Some(
-            manager.register(
-                "replica-discovery",
-                ComponentOptions::new()
-                    .with_graceful_shutdown(config.phase1_graceful_shutdown())
-                    .with_shutdown_phase(1),
-            ),
-        )
-    } else {
-        None
+    // Register discovery handles before monitor_background() consumes the manager
+    let discovery_options = || {
+        ComponentOptions::new()
+            .with_graceful_shutdown(config.phase1_graceful_shutdown())
+            .with_shutdown_phase(1)
     };
+    let replica_discovery_handle = (config.replica_discovery_mode == DiscoveryMode::K8s)
+        .then(|| manager.register("replica-discovery", discovery_options()));
+    let identity_discovery_handle = (config.identity_enabled
+        && config.identity_discovery_mode == DiscoveryMode::K8s)
+        .then(|| manager.register("identity-discovery", discovery_options()));
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
 
     let monitor_guard = manager.monitor_background();
 
-    // Create backend connection(s) to personhog-replica
-    let (replica_backend, discovery_readiness) = match config.replica_discovery_mode {
-        ReplicaDiscoveryMode::Dns => (
-            Arc::new(ReplicaBackend::new_dns(ReplicaDnsConfig {
-                url: config.replica_url.clone(),
-                timeout: config.backend_timeout(),
-                retry_config: config.retry_config(),
-                keepalive_interval: config.backend_keepalive_interval(),
-                keepalive_timeout: config.backend_keepalive_timeout(),
-                num_channels: config.replica_channels,
-            })),
-            None,
-        ),
-        ReplicaDiscoveryMode::K8s => {
-            let kube_client = kube::Client::try_default()
-                .await
-                .expect("failed to create K8s client for replica discovery");
-            let namespace = config
-                .resolve_replica_namespace()
-                .expect("failed to resolve replica service namespace");
+    let (replica_backend, discovery_readiness) = build_channel_backend(
+        BackendSpec {
+            role: "replica",
+            discovery_mode: config.replica_discovery_mode,
+            url: config.replica_url.clone(),
+            num_channels: config.replica_channels,
+            service_name: config.replica_service_name.clone(),
+            namespace: Config::resolve_replica_namespace,
+            port: config.replica_port,
+            timeout: config.backend_timeout(),
+        },
+        &config,
+        replica_discovery_handle,
+    )
+    .await;
 
-            let discovery_handle =
-                discovery_handle.expect("discovery handle must be registered in k8s mode");
-
-            let (channel, disc_readiness, discovery) = EndpointDiscovery::new(
-                kube_client,
-                namespace,
-                config.replica_service_name.clone(),
-                config.replica_port,
-                EndpointConfig {
-                    timeout: config.backend_timeout(),
-                    connect_timeout: config.backend_connect_timeout(),
-                    keepalive_interval: config.backend_keepalive_interval(),
-                    keepalive_timeout: config.backend_keepalive_timeout(),
-                },
-                discovery_handle.shutdown_token(),
-            );
-
-            tokio::spawn(async move {
-                let _guard = discovery_handle.process_scope();
-                discovery.run().await;
-            });
-
-            (
-                Arc::new(ReplicaBackend::new_k8s(channel, config.retry_config())),
-                Some(disc_readiness),
-            )
-        }
+    // Identity readiness gates each identity request in the proxy rather
+    // than the pod, so an identity outage never pulls a router out of the
+    // write path.
+    let identity_backend = if config.identity_enabled {
+        let (backend, _readiness) = build_channel_backend(
+            BackendSpec {
+                role: "identity",
+                discovery_mode: config.identity_discovery_mode,
+                url: config.identity_url.clone(),
+                num_channels: config.identity_channels,
+                service_name: config.identity_service_name.clone(),
+                namespace: Config::resolve_identity_namespace,
+                port: config.identity_port,
+                timeout: config.identity_timeout(),
+            },
+            &config,
+            identity_discovery_handle,
+        )
+        .await;
+        Some(backend)
+    } else {
+        None
     };
 
     // Metrics/health HTTP server (spawned after backend creation so it can
@@ -405,6 +409,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let proxy = RawProxyService::new(
             replica_backend,
+            identity_backend,
             leader_backend,
             retry_config,
             max_recv,
@@ -414,7 +419,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .http2_keepalive_interval(keepalive_interval)
             .http2_keepalive_timeout(keepalive_timeout)
             .layer(GrpcMetricsLayer::default())
-            .add_service(proxy)
+            .add_service(proxy.clone())
+            .add_service(IdentityProxyService(proxy.clone()))
+            .add_service(LifecycleProxyService(proxy))
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await;
 
@@ -425,6 +432,85 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     monitor_guard.wait().await?;
     Ok(())
+}
+
+/// What one channel backend needs to dial its pods in either discovery
+/// mode; the replica and identity backends differ only in these values.
+struct BackendSpec {
+    role: &'static str,
+    discovery_mode: DiscoveryMode,
+    url: String,
+    num_channels: usize,
+    service_name: String,
+    namespace: fn(&Config) -> Result<String, String>,
+    port: u16,
+    timeout: Duration,
+}
+
+/// Build a channel backend; in k8s mode this also starts its EndpointSlice
+/// discovery task under `discovery_handle` and returns the readiness the
+/// task drives.
+async fn build_channel_backend(
+    spec: BackendSpec,
+    config: &Config,
+    discovery_handle: Option<Handle>,
+) -> (Arc<ChannelBackend>, Option<DiscoveryReadiness>) {
+    let role = spec.role;
+    match spec.discovery_mode {
+        DiscoveryMode::Dns => (
+            Arc::new(ChannelBackend::new_dns(
+                role,
+                DnsBackendConfig {
+                    url: spec.url,
+                    timeout: spec.timeout,
+                    retry_config: config.retry_config(),
+                    keepalive_interval: config.backend_keepalive_interval(),
+                    keepalive_timeout: config.backend_keepalive_timeout(),
+                    num_channels: spec.num_channels,
+                },
+            )),
+            None,
+        ),
+        DiscoveryMode::K8s => {
+            let kube_client = kube::Client::try_default().await.unwrap_or_else(|e| {
+                panic!("failed to create K8s client for {role} discovery: {e}")
+            });
+            let namespace = (spec.namespace)(config)
+                .unwrap_or_else(|e| panic!("failed to resolve {role} service namespace: {e}"));
+            let discovery_handle = discovery_handle.unwrap_or_else(|| {
+                panic!("{role} discovery handle must be registered in k8s mode")
+            });
+
+            let (channel, readiness, discovery) = EndpointDiscovery::new(
+                kube_client,
+                namespace,
+                spec.service_name,
+                spec.port,
+                EndpointConfig {
+                    timeout: spec.timeout,
+                    connect_timeout: config.backend_connect_timeout(),
+                    keepalive_interval: config.backend_keepalive_interval(),
+                    keepalive_timeout: config.backend_keepalive_timeout(),
+                },
+                discovery_handle.shutdown_token(),
+            );
+
+            tokio::spawn(async move {
+                let _guard = discovery_handle.process_scope();
+                discovery.run().await;
+            });
+
+            (
+                Arc::new(ChannelBackend::new_k8s(
+                    role,
+                    channel,
+                    config.retry_config(),
+                    readiness.clone(),
+                )),
+                Some(readiness),
+            )
+        }
+    }
 }
 
 /// Must stay equal to `common_metrics::ETCD_PAYLOAD_SIZE_BUCKETS_BYTES`,

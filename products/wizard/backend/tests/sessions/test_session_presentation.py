@@ -217,6 +217,11 @@ class TestWizardSessionViewSet(APIBaseTest):
         response = self.client.get(self._url() + "?workflow_id=onboarding&skill_id=django")
         self.assertEqual(len(response.json()["results"]), 0)
 
+    def test_list_rejects_invalid_pagination(self):
+        response = self.client.get(self._url() + "?limit=invalid")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_list_empty_skill_id_is_ignored(self):
         # An empty skill_id is treated as no filter, so the session still shows up.
         self.client.post(

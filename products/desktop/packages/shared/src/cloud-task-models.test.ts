@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   adapterForModelId,
   buildCloudTaskConfigOptions,
@@ -7,9 +7,9 @@ import {
   formatGatewayModelName,
   type GatewayModel,
   getClaudeModelRecency,
+  getCloudTaskGatewayUrl,
   isAnthropicModel,
   isBasetenModel,
-  isBlockedModelId,
   isCloudflareModel,
   isDeepseekModelId,
   isModalModel,
@@ -17,6 +17,7 @@ import {
   normalizeGatewayModelsResponse,
   pickAllowedModel,
 } from "./cloud-task-models";
+import { configureCustomCloud } from "./custom-cloud";
 import { isCustomModelOption } from "./models";
 
 const model = (
@@ -69,25 +70,6 @@ describe("normalizeGatewayModelsResponse", () => {
     ]);
 
     expect(models[0]?.context_window).toBe(256000);
-  });
-});
-
-describe("isBlockedModelId", () => {
-  it.each([
-    "claude-opus-4-5",
-    "claude-opus-4-6",
-    "claude-opus-4-7",
-    "claude-sonnet-4-5",
-    "claude-sonnet-4-6",
-    "ANTHROPIC/CLAUDE-HAIKU-4-5",
-    "gpt-5.2",
-    "gpt-5.3",
-    "gpt-5.3-codex",
-    "OPENAI/GPT-5.3-CODEX",
-    "gpt-5.4",
-    "@cf/zai-org/glm-5.2",
-  ])("blocks %s", (modelId) => {
-    expect(isBlockedModelId(modelId)).toBe(true);
   });
 });
 
@@ -184,7 +166,7 @@ describe("buildCloudTaskConfigOptions", () => {
       [
         model("gpt-5.5", "openai"),
         model("claude-opus-4-7", "anthropic"),
-        model("claude-opus-4-8", "anthropic", false),
+        model("claude-opus-5-5", "anthropic", false),
         model("@cf/zai-org/glm-5.2", "cloudflare"),
       ],
       "claude",
@@ -197,11 +179,11 @@ describe("buildCloudTaskConfigOptions", () => {
         currentValue: "@cf/zai-org/glm-5.2",
         options: [
           { value: "claude-opus-4-7" },
+          { value: "@cf/zai-org/glm-5.2" },
           {
-            value: "claude-opus-4-8",
+            value: "claude-opus-5-5",
             _meta: { "posthog.code/restrictedModel": true },
           },
-          { value: "@cf/zai-org/glm-5.2" },
         ],
       },
       {
@@ -222,7 +204,7 @@ describe("buildCloudTaskConfigOptions", () => {
       [
         model("claude-opus-4-8"),
         model("gpt-5.6", "openai"),
-        model("gpt-5.5", "openai"),
+        model("gpt-6-sol", "openai"),
       ],
       "codex",
     );
@@ -231,8 +213,8 @@ describe("buildCloudTaskConfigOptions", () => {
       { id: "mode", currentValue: "auto" },
       {
         id: "model",
-        currentValue: "gpt-5.5",
-        options: [{ value: "gpt-5.6" }, { value: "gpt-5.5" }],
+        currentValue: "gpt-6-sol",
+        options: [{ value: "gpt-5.6" }, { value: "gpt-6-sol" }],
       },
       {
         id: "reasoning_effort",
@@ -242,6 +224,7 @@ describe("buildCloudTaskConfigOptions", () => {
           { value: "medium" },
           { value: "high" },
           { value: "xhigh" },
+          { value: "max" },
         ],
       },
     ]);
@@ -397,4 +380,41 @@ describe("buildProviderModelGroups", () => {
       expect(isCustomModelOption(groups[0]?.options[0]?._meta)).toBe(true);
     },
   );
+});
+
+describe("getCloudTaskGatewayUrl with a custom cloud", () => {
+  afterEach(() => {
+    configureCustomCloud(null);
+  });
+
+  it("uses the gateway of the custom cloud for its own host only", () => {
+    configureCustomCloud({
+      url: "https://posthog.example.com",
+      oauthClientId: "client-id",
+      gatewayUrl: "https://gateway.example.com",
+    });
+    expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
+      "https://gateway.example.com/posthog_code",
+    );
+    expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
+    );
+  });
+
+  it("keeps the derived gateway when the custom cloud has none", () => {
+    configureCustomCloud({ url: "https://posthog.example.com" });
+    expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
+    );
+  });
+
+  it("refuses a built-in host as the target, so its gateway never moves", () => {
+    configureCustomCloud({
+      url: "https://us.posthog.com",
+      gatewayUrl: "https://gateway.example.com",
+    });
+    expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
+    );
+  });
 });

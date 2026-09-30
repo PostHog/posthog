@@ -179,6 +179,9 @@
                             "type": "array"
                         },
                         "bytecode": {},
+                        "bytecode_contract": {
+                            "type": "string"
+                        },
                         "bytecode_error": {
                             "type": "string"
                         },
@@ -255,6 +258,9 @@
                             "bytecode": {
                                 "items": {},
                                 "type": "array"
+                            },
+                            "bytecode_contract": {
+                                "type": "string"
                             },
                             "order": {
                                 "type": "number"
@@ -392,6 +398,9 @@
                                                 "type": "array"
                                             },
                                             "bytecode": {},
+                                            "bytecode_contract": {
+                                                "type": "string"
+                                            },
                                             "bytecode_error": {
                                                 "type": "string"
                                             },
@@ -450,6 +459,9 @@
                                                 "bytecode": {
                                                     "items": {},
                                                     "type": "array"
+                                                },
+                                                "bytecode_contract": {
+                                                    "type": "string"
                                                 },
                                                 "order": {
                                                     "type": "number"
@@ -837,7 +849,7 @@
                 "type": {
                     "anyOf": [
                         {
-                            "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log",
+                            "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log\n* `legacy_destination` - Legacy Destination",
                             "enum": [
                                 "destination",
                                 "site_destination",
@@ -846,7 +858,8 @@
                                 "warehouse_source_webhook",
                                 "site_app",
                                 "transformation",
-                                "transformation_log"
+                                "transformation_log",
+                                "legacy_destination"
                             ],
                             "type": "string"
                         },
@@ -854,7 +867,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log"
+                    "description": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log\n* `legacy_destination` - Legacy Destination"
                 },
                 "updated_at": {
                     "format": "date-time",

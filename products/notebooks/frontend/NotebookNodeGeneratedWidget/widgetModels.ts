@@ -4,7 +4,7 @@ import type { WidgetGenerateRequestApi } from 'products/notebooks/frontend/gener
 
 export type WidgetModel = NonNullable<WidgetGenerateRequestApi['model']>
 
-export const DEFAULT_WIDGET_MODEL: WidgetModel = 'claude-sonnet-4-6'
+export const DEFAULT_WIDGET_MODEL: WidgetModel = 'claude-sonnet-5'
 export const DEFAULT_WIDGET_PROMPT = 'Create an interactive visualization of the data in this notebook.'
 export const MAX_WIDGET_PROMPT_LENGTH = 20_000
 export const MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH = 50_000

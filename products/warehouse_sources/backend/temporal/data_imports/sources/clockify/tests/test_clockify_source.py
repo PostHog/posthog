@@ -84,6 +84,7 @@ class TestEndpointConfig:
         # of the primary key or merges would collapse rows across parents.
         assert CLOCKIFY_ENDPOINTS["tasks"].primary_keys == ["workspace_id", "project_id", "id"]
         assert CLOCKIFY_ENDPOINTS["time_entries"].primary_keys == ["workspace_id", "user_id", "id"]
+        assert CLOCKIFY_ENDPOINTS["invoice_payments"].primary_keys == ["workspace_id", "invoice_id", "id"]
 
     def test_only_time_entries_has_a_server_side_filter(self) -> None:
         with_filter = [name for name, cfg in CLOCKIFY_ENDPOINTS.items() if cfg.incremental_param]

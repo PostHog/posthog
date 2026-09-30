@@ -1,6 +1,8 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
@@ -81,6 +83,22 @@ describe('definitionPopoverLogic', () => {
         cohortsModel.mount()
     })
 
+    it('resolves nested names when previewing an unselected cohort on an insight', async () => {
+        await expectLogic(cohortsModel).toFinishAllListeners()
+        router.actions.push('/insights/123')
+        useMocks({ get: { '/api/projects/:team/cohorts/3000/': { ...mockCohort, id: 3000, name: 'Nested cohort' } } })
+        logic = definitionPopoverLogic({ type: TaxonomicFilterGroupType.Cohorts })
+        logic.mount()
+        await expectLogic(logic, () =>
+            logic.actions.setDefinition({
+                ...mockCohort,
+                filters: { properties: { type: 'AND', values: [{ type: 'cohort', value: 3000 }] } },
+            } as unknown as CohortType)
+        ).toFinishAllListeners()
+        await expectLogic(cohortsModel).toFinishAllListeners()
+        expect(cohortsModel.values.cohortsById[3000]?.name).toBe('Nested cohort')
+    })
+
     describe('editing mode', () => {
         beforeEach(() => {
             logic = definitionPopoverLogic({
@@ -112,6 +130,7 @@ describe('definitionPopoverLogic', () => {
         })
 
         it('cancel', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
             await expectLogic(logic, async () => {
                 logic.actions.setDefinition(mockEventDefinitions[0])
                 logic.actions.setPopoverState(DefinitionPopoverState.Edit)
@@ -135,6 +154,8 @@ describe('definitionPopoverLogic', () => {
                     dirty: false,
                     localDefinition: mockEventDefinitions[0],
                 })
+            expect(capture).toHaveBeenCalledWith('definition cancelled', { type: TaxonomicFilterGroupType.Events })
+            capture.mockRestore()
         })
 
         describe('save', () => {

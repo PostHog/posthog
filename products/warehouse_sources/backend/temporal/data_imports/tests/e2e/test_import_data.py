@@ -3,12 +3,12 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 from asgiref.sync import sync_to_async
 
 from posthog.models.team.team import Team
-from posthog.tasks.test.test_usage_report import freeze_time
 
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -78,20 +78,26 @@ def _setup(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "rebuild_trigger",
+    "rebuild_trigger,expected_ceiling",
     [
-        {"reset_pipeline": True},
-        {
-            "delta_revive_required": {
-                "reason": "hollow",
-                "missing_path": "p",
-                "detected_at": "2026-01-01T00:00:00+00:00",
-            }
-        },
+        ({}, 100),
+        ({"reset_pipeline": True}, None),
+        (
+            {
+                "delta_revive_required": {
+                    "reason": "hollow",
+                    "missing_path": "p",
+                    "detected_at": "2026-01-01T00:00:00+00:00",
+                }
+            },
+            None,
+        ),
     ],
-    ids=["reset", "corrupt_delta_revive"],
+    ids=["no_rebuild", "reset", "corrupt_delta_revive"],
 )
-async def test_table_rebuild_drops_the_xmin_cursor(activity_environment, team, rebuild_trigger, **kwargs):
+async def test_table_rebuild_drops_the_xmin_cursor(
+    activity_environment, team, rebuild_trigger, expected_ceiling, **kwargs
+):
     # Both triggers delete the Delta table before the read. Keeping the cursor makes that read the
     # window since the last run, and the overwrite collapses the table to that slice.
     activity_inputs = await _setup(
@@ -117,8 +123,8 @@ async def test_table_rebuild_drops_the_xmin_cursor(activity_environment, team, r
 
     called_with = mock_postgres_source.call_args.kwargs
     assert called_with["is_xmin"] is True
-    assert called_with["xmin_last_value"] is None
-    assert called_with["xmin_num_wraparound"] is None
+    stored = called_with["xmin_cursor"].load()
+    assert (stored.ceiling_xid if stored is not None else None) == expected_ceiling
 
 
 @pytest.mark.django_db(transaction=True)
@@ -169,10 +175,11 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
+            xmin_cursor=None,
             byte_bounded_extraction=False,
             activity_attempt=1,
+            resumable_source_manager=mock.ANY,
+            keyset_full_load_enabled=False,
         )
 
 
@@ -224,10 +231,11 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
+            xmin_cursor=None,
             byte_bounded_extraction=False,
             activity_attempt=1,
+            resumable_source_manager=mock.ANY,
+            keyset_full_load_enabled=False,
         )
 
 
@@ -291,10 +299,11 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
+            xmin_cursor=None,
             byte_bounded_extraction=False,
             activity_attempt=1,
+            resumable_source_manager=mock.ANY,
+            keyset_full_load_enabled=False,
         )
 
 
@@ -373,10 +382,11 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
+            xmin_cursor=None,
             byte_bounded_extraction=False,
             activity_attempt=1,
+            resumable_source_manager=mock.ANY,
+            keyset_full_load_enabled=False,
         )
 
 
@@ -623,11 +633,18 @@ def test_report_heartbeat_timeout_heartbeat_within_timeout(team):
 def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
     logger = mock.MagicMock()
 
+    source = ExternalDataSource.objects.create(
+        team=team,
+        source_id="source_id",
+        connection_id="connection_id",
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.SNOWFLAKE,
+    )
     activity_inputs = ImportDataActivityInputs(
-        team_id=team.pk, schema_id=uuid.uuid4(), source_id=uuid.uuid4(), run_id="run_id"
+        team_id=team.pk, schema_id=uuid.uuid4(), source_id=source.id, run_id="run_id"
     )
 
-    with freeze_time("2024-01-01 12:00:00"):
+    with time_machine.travel("2024-01-01 12:00:00", tick=False):
         past_time = datetime.now() - timedelta(seconds=30)
 
         mock_info = mock.MagicMock()
@@ -678,5 +695,7 @@ def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
                     "workflow_run_id": mock_info.workflow_run_id,
                     "workflow_type": mock_info.workflow_type,
                     "attempt": mock_info.attempt,
+                    # The stamp that makes a death diagnosable per connector.
+                    "source_type": ExternalDataSourceType.SNOWFLAKE,
                 },
             )

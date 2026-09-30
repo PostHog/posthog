@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime/pprof"
 	"slices"
+	"strconv"
 	"strings"
 	"unsafe"
 )
@@ -20,6 +21,7 @@ const (
 	normalizationNone normalizationKind = iota
 	normalizationStringArray
 	normalizationObjectArray
+	normalizationObject
 )
 
 type propertiesKind byte
@@ -28,6 +30,14 @@ const (
 	eventProperties propertiesKind = iota
 	personProperties
 	temporaryProperties
+	eventEnvelope
+)
+
+const (
+	envelopeProperties = iota
+	envelopeTemporaryProperties
+	envelopePersonProperties
+	envelopeDocs
 )
 
 type pathRule struct {
@@ -43,34 +53,44 @@ const (
 	// Nested arrays can amplify ClickHouse type inference even for small documents.
 	maxJSONArrayDepth        = 8
 	unparseablePropertiesKey = "$unparseable_properties"
+	maxRecycledValues        = 4096
+	// Each null path repeats its ancestor keys, so a small document with a long key and many null
+	// children can expand to gigabytes of paths. The budget bounds that expansion per document.
+	maxNullKeyBytes = 256 * 1024
 )
 
 var errMaxJSONDepth = errors.New("maximum JSON depth exceeded")
 
-var droppedEventPropertyKeys = map[string]struct{}{
-	"$ai_input":                          {},
-	"$ai_output":                         {},
-	"$ai_output_choices":                 {},
-	"$ai_input_state":                    {},
-	"$ai_output_state":                   {},
-	"$ai_tools":                          {},
-	"ph_product_tours":                   {},
-	"$product_tours_activated":           {},
-	"$product_tours_enabled_server_side": {},
-	"$surveys_activated":                 {},
-	"$active_feature_flags":              {},
-	"$feature_flag_payload":              {},
-	"$feature_flag_bootstrapped_payload": {},
-	"$feature_flag_original_payload":     {},
-	"$feature_flag_payloads":             {},
-	"$transformations_succeeded":         {},
-	"$transformations_skipped":           {},
-	unparseablePropertiesKey:             {},
+func isDroppedEventProperty(key string) bool {
+	switch key {
+	case "$ai_input",
+		"$ai_output",
+		"$ai_output_choices",
+		"$ai_input_state",
+		"$ai_output_state",
+		"$ai_tools",
+		"ph_product_tours",
+		"$product_tours_activated",
+		"$product_tours_enabled_server_side",
+		"$surveys_activated",
+		"$active_feature_flags",
+		"$feature_flag_payload",
+		"$feature_flag_bootstrapped_payload",
+		"$feature_flag_original_payload",
+		"$feature_flag_payloads",
+		"$transformations_succeeded",
+		"$transformations_skipped",
+		unparseablePropertiesKey:
+		return true
+	}
+	return false
 }
 
 func isTemporaryProperty(key string) bool {
-	root, _, _ := strings.Cut(key, ".")
-	switch root {
+	if len(key) == 0 || key[0] != '$' {
+		return false
+	}
+	switch key {
 	case "$set", "$set_once", "$unset", "$group_set", "$feature_flag_request_id",
 		"$debug_first_full_snapshot_timestamp", "$snapshot_max_depth_exceeded",
 		"$sess_rec_flush_size", "$session_recording_remote_config",
@@ -78,7 +98,7 @@ func isTemporaryProperty(key string) bool {
 		"$replay_script_config", "$sent_at", "$lib_rate_limit_remaining_tokens", "$lib_custom_api_host":
 		return true
 	}
-	return strings.HasPrefix(root, "$sdk_debug_")
+	return strings.HasPrefix(key, "$sdk_debug_")
 }
 
 func makePathRules(paths ...string) *pathRule {
@@ -118,8 +138,14 @@ func makeEventPropertyRules() *pathRule {
 	addPathRules(root, normalizationObjectArray,
 		"$exception_list",
 	)
+	addPathRules(root, normalizationObject, "$feature_flags")
 	return root
 }
+
+// The typed map stores every flag value as a string, so a variant named "false" would read the same as a flag that
+// was evaluated and switched off (JSON false). The variant is stored under this sentinel instead. The query layer
+// maps it back to "false" and the flag API refuses it as a variant key.
+const falseVariantSentinel = "$false"
 
 type valueKind byte
 
@@ -151,22 +177,26 @@ type entryInfo struct {
 	hasNonEmpty   bool
 }
 
-type mergeKey struct {
-	parent *value
-	key    string
-}
-
 type processor struct {
-	data      []byte
-	pos       int
-	kind      propertiesKind
-	mutated   bool
-	rawSafe   bool
-	free      []*value
-	info      map[string]entryInfo
-	index     map[mergeKey]*value
-	stringBuf bytes.Buffer
-	depth     int
+	data          []byte
+	pos           int
+	kind          propertiesKind
+	mutated       bool
+	rawSafe       bool
+	free          []*value
+	info          map[string]entryInfo
+	stringBuf     bytes.Buffer
+	tooDeepArrays bool
+	discard       bool
+	collectNulls  bool
+	nullKeys      []string
+	path          []string
+	pathBuf       bytes.Buffer
+	docs          [envelopeDocs]bytes.Buffer
+	docNullKeys   [envelopeDocs][]string
+	nullKeySeen   map[string]struct{}
+	nullKeyBytes  int
+	nullKeysOver  bool
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -175,28 +205,60 @@ func processLine(rawLine []byte, buf *bytes.Buffer) error {
 }
 
 func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
-	p.data = rawLine
+	if p.kind == eventEnvelope {
+		return p.processEnvelopeLine(rawLine, buf)
+	}
+	p.prepareLine(rawLine, buf)
+	return p.processDocument(rawLine, buf)
+}
+
+func (p *processor) prepareLine(rawLine []byte, buf *bytes.Buffer) {
+	if buf.Cap() > max(64*1024, 2*len(rawLine)) {
+		*buf = bytes.Buffer{}
+	}
+	if p.stringBuf.Cap() > max(64*1024, 2*len(rawLine)) {
+		p.stringBuf = bytes.Buffer{}
+	}
+	p.resetParser(rawLine)
+}
+
+func (p *processor) resetParser(data []byte) {
+	p.data = data
 	p.pos = 0
 	p.mutated = false
 	p.rawSafe = true
-	p.depth = 0
+	p.tooDeepArrays = false
+}
 
-	parsed, err := p.parseValue()
+// A nil value with a nil error means the document is too deep or nests arrays too deeply; the caller quarantines it.
+func (p *processor) parseDocument(raw []byte) (*value, error) {
+	p.resetParser(raw)
+	parsed, err := p.parseValue(1, 0)
 	if err != nil {
 		if errors.Is(err, errMaxJSONDepth) {
-			p.writeUnparseableProperties(buf, rawLine)
-			return nil
+			return nil, nil
 		}
-		return fmt.Errorf("json parse error: %w", err)
+		return nil, fmt.Errorf("json parse error: %w", err)
 	}
 	p.skipWS()
 	if p.pos != len(p.data) {
 		p.recycle(parsed)
-		return fmt.Errorf("json parse error: trailing data at byte %d", p.pos)
+		return nil, fmt.Errorf("json parse error: trailing data at byte %d", p.pos)
 	}
-	// Check before filtering so the permanent cleaner preserves rejected temporary properties.
-	if exceedsJSONArrayDepth(parsed, 0) {
+	// Parsing counts arrays inside discarded properties so quarantine preserves rejected inputs.
+	if p.tooDeepArrays {
 		p.recycle(parsed)
+		return nil, nil
+	}
+	return parsed, nil
+}
+
+func (p *processor) processDocument(rawLine []byte, buf *bytes.Buffer) error {
+	parsed, err := p.parseDocument(rawLine)
+	if err != nil {
+		return err
+	}
+	if parsed == nil {
 		p.writeUnparseableProperties(buf, rawLine)
 		return nil
 	}
@@ -211,14 +273,13 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 		return fmt.Errorf("json clean error: %w", err)
 	}
 	// Normalization can decode stringified JSON and wrap objects in arrays.
-	if exceedsJSONArrayDepth(cleaned, 0) {
+	if p.mutated && exceedsJSONArrayDepth(cleaned, 0) {
 		p.recycle(cleaned)
 		p.writeUnparseableProperties(buf, rawLine)
 		return nil
 	}
 
 	buf.Reset()
-	buf.Grow(len(rawLine))
 	if !p.mutated && p.rawSafe {
 		buf.Write(rawLine)
 	} else {
@@ -254,7 +315,7 @@ func (p *processor) cleanProperties(v *value) (*value, error) {
 		return p.cleanTemporaryProperties(v)
 	}
 	if p.kind == personProperties {
-		return p.cleanNode(nil, v)
+		return p.cleanNode(nil, v, 1)
 	}
 	return p.cleanEventProperties(v)
 }
@@ -263,33 +324,30 @@ func (p *processor) cleanTemporaryProperties(v *value) (*value, error) {
 	if v.kind != kindObject {
 		return nil, fmt.Errorf("temporary properties must be a JSON object")
 	}
-	writeIdx := 0
-	for _, property := range v.entries {
-		if !isTemporaryProperty(property.key) {
-			p.mutated = true
-			p.recycle(property.value)
-			continue
-		}
-		v.entries[writeIdx] = property
-		writeIdx++
-	}
-	v.entries = v.entries[:writeIdx]
-	return p.cleanNode(nil, v)
+	return p.cleanNode(nil, v, 1)
 }
 
 func (p *processor) cleanEventProperties(v *value) (*value, error) {
 	if v.kind != kindObject {
-		return p.cleanNode(eventPropertyRules, v)
+		return p.cleanNode(eventPropertyRules, v, 1)
 	}
 
 	var featureFlags *value
 	hasFeatureProperties := false
+	hasFeatureKeys := false
 	for _, property := range v.entries {
+		if !strings.HasPrefix(property.key, "$feature") {
+			continue
+		}
+		hasFeatureKeys = true
 		if strings.HasPrefix(property.key, "$feature/") {
 			hasFeatureProperties = true
 		} else if property.key == "$feature_flags" && property.value.kind == kindObject && featureFlags == nil {
 			featureFlags = property.value
 		}
+	}
+	if !hasFeatureKeys {
+		return p.cleanNode(eventPropertyRules, v, 1)
 	}
 	createdFeatureFlags := hasFeatureProperties && featureFlags == nil
 	if createdFeatureFlags {
@@ -298,8 +356,7 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 
 	writeIdx := 0
 	for _, property := range v.entries {
-		_, drop := droppedEventPropertyKeys[property.key]
-		if drop || isTemporaryProperty(property.key) || hasFeatureProperties && property.key == "$feature_flags" && property.value != featureFlags {
+		if hasFeatureProperties && property.key == "$feature_flags" && property.value != featureFlags {
 			p.mutated = true
 			p.recycle(property.value)
 			continue
@@ -316,12 +373,18 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 	if createdFeatureFlags {
 		v.entries = append(v.entries, entry{key: "$feature_flags", value: featureFlags})
 	}
-	cleaned, err := p.cleanNode(eventPropertyRules, v)
+	cleaned, err := p.cleanNode(eventPropertyRules, v, 1)
 	if err != nil {
 		return nil, err
 	}
 	for _, property := range cleaned.entries {
 		if property.key == "$feature_flags" && property.value.kind == kindObject {
+			for _, flag := range property.value.entries {
+				if flag.value.kind == kindString && flag.value.s == "false" {
+					flag.value.s = falseVariantSentinel
+					p.mutated = true
+				}
+			}
 			compare := func(a, b entry) int { return strings.Compare(a.key, b.key) }
 			if !slices.IsSortedFunc(property.value.entries, compare) {
 				slices.SortFunc(property.value.entries, compare)
@@ -333,17 +396,17 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 }
 
 func (p *processor) newValue(kind valueKind) *value {
+	if p.discard {
+		return nil
+	}
 	n := len(p.free)
 	if n == 0 {
 		return &value{kind: kind}
 	}
 	v := p.free[n-1]
+	p.free[n-1] = nil
 	p.free = p.free[:n-1]
 	v.kind = kind
-	v.s = ""
-	v.b = false
-	v.entries = v.entries[:0]
-	v.values = v.values[:0]
 	return v
 }
 
@@ -351,11 +414,23 @@ func (p *processor) recycle(v *value) {
 	if v == nil {
 		return
 	}
+	if v.kind < kindObject && cap(v.entries) <= 16 && cap(v.values) <= 16 {
+		if len(p.free) < maxRecycledValues {
+			v.s = ""
+			v.b = false
+			p.free = append(p.free, v)
+		}
+		return
+	}
 	for _, entry := range v.entries {
 		p.recycle(entry.value)
 	}
 	for _, child := range v.values {
 		p.recycle(child)
+	}
+	// A single large retained property must not pin its entire tree in an executable pool worker.
+	if len(p.free) >= maxRecycledValues {
+		return
 	}
 	v.s = ""
 	v.b = false
@@ -367,18 +442,20 @@ func (p *processor) recycle(v *value) {
 		v.values = nil
 	}
 	// Truncated entries can still hold borrowed keys that retain entire input rows.
-	clear(v.entries[:cap(v.entries)])
-	clear(v.values[:cap(v.values)])
+	if v.kind == kindObject {
+		clear(v.entries[:cap(v.entries)])
+	} else if v.kind == kindArray {
+		clear(v.values[:cap(v.values)])
+	}
 	v.entries = v.entries[:0]
 	v.values = v.values[:0]
 	p.free = append(p.free, v)
 }
 
-func (p *processor) parseValue() (*value, error) {
-	if err := p.enterJSONDepth(); err != nil {
-		return nil, err
+func (p *processor) parseValue(depth, arrayDepth int) (*value, error) {
+	if depth > maxJSONDepth {
+		return nil, errMaxJSONDepth
 	}
-	defer p.leaveJSONDepth()
 
 	p.skipWS()
 	if p.pos >= len(p.data) {
@@ -387,23 +464,27 @@ func (p *processor) parseValue() (*value, error) {
 
 	switch p.data[p.pos] {
 	case '{':
-		return p.parseObject()
+		return p.parseObject(depth, arrayDepth)
 	case '[':
-		return p.parseArray()
+		return p.parseArray(depth, arrayDepth)
 	case '"':
 		s, err := p.parseString()
 		if err != nil {
 			return nil, err
 		}
 		v := p.newValue(kindString)
-		v.s = s
+		if v != nil {
+			v.s = s
+		}
 		return v, nil
 	case 't':
 		if !p.consumeLiteral("true") {
 			return nil, fmt.Errorf("invalid literal at byte %d", p.pos)
 		}
 		v := p.newValue(kindBool)
-		v.b = true
+		if v != nil {
+			v.b = true
+		}
 		return v, nil
 	case 'f':
 		if !p.consumeLiteral("false") {
@@ -422,6 +503,9 @@ func (p *processor) parseValue() (*value, error) {
 				return nil, err
 			}
 			v := p.newValue(kindNumber)
+			if v == nil {
+				return nil, nil
+			}
 			if shouldStringifyNumber(num) {
 				p.mutated = true
 				v.kind = kindString
@@ -433,7 +517,7 @@ func (p *processor) parseValue() (*value, error) {
 	}
 }
 
-func (p *processor) parseObject() (*value, error) {
+func (p *processor) parseObject(depth, arrayDepth int) (*value, error) {
 	p.pos++
 	obj := p.newValue(kindObject)
 	p.skipWS()
@@ -457,12 +541,29 @@ func (p *processor) parseObject() (*value, error) {
 			p.recycle(obj)
 			return nil, fmt.Errorf("expected ':' at byte %d", p.pos)
 		}
-		child, err := p.parseValue()
+		discard := p.discard
+		if depth == 1 {
+			switch p.kind {
+			case eventProperties:
+				p.discard = isDroppedEventProperty(key) || isTemporaryProperty(key)
+			case temporaryProperties:
+				p.discard = !isTemporaryProperty(key)
+			case eventEnvelope:
+				// Temporary properties are split off after parsing, so only the drop list is discarded here.
+				p.discard = isDroppedEventProperty(key)
+			}
+			p.mutated = p.mutated || p.discard
+		}
+		// Discarded properties still pass the same syntax and depth validation.
+		child, err := p.parseValue(depth+1, arrayDepth)
+		p.discard = discard
 		if err != nil {
 			p.recycle(obj)
 			return nil, err
 		}
-		obj.entries = append(obj.entries, entry{key: key, value: child})
+		if obj != nil && child != nil {
+			obj.entries = append(obj.entries, entry{key: key, value: child})
+		}
 		p.skipWS()
 		if p.consumeByte('}') {
 			return obj, nil
@@ -474,7 +575,11 @@ func (p *processor) parseObject() (*value, error) {
 	}
 }
 
-func (p *processor) parseArray() (*value, error) {
+func (p *processor) parseArray(depth, arrayDepth int) (*value, error) {
+	arrayDepth++
+	if arrayDepth > maxJSONArrayDepth {
+		p.tooDeepArrays = true
+	}
 	p.pos++
 	arr := p.newValue(kindArray)
 	p.skipWS()
@@ -483,12 +588,14 @@ func (p *processor) parseArray() (*value, error) {
 	}
 
 	for {
-		child, err := p.parseValue()
+		child, err := p.parseValue(depth+1, arrayDepth)
 		if err != nil {
 			p.recycle(arr)
 			return nil, err
 		}
-		arr.values = append(arr.values, child)
+		if arr != nil {
+			arr.values = append(arr.values, child)
+		}
 		p.skipWS()
 		if p.consumeByte(']') {
 			return arr, nil
@@ -500,80 +607,101 @@ func (p *processor) parseArray() (*value, error) {
 	}
 }
 
+var stringSpecialBytes = func() (special [256]bool) {
+	for i := range 0x20 {
+		special[i] = true
+	}
+	special['"'], special['\\'] = true, true
+	return
+}()
+
 func (p *processor) parseString() (string, error) {
 	quote := p.pos
-	p.pos++
-	start := p.pos
-	for p.pos < len(p.data) {
-		c := p.data[p.pos]
+	start := quote + 1
+	for i, c := range p.data[start:] {
+		if !stringSpecialBytes[c] {
+			continue
+		}
 		switch {
 		case c == '"':
-			s := borrowedString(p.data[start:p.pos])
-			p.pos++
+			s := borrowedString(p.data[start : start+i])
+			p.pos = start + i + 1
 			return s, nil
 		case c == '\\':
+			p.pos = start + i
 			return p.parseEscapedString(quote)
 		case c < 0x20:
-			return "", fmt.Errorf("invalid control character at byte %d", p.pos)
-		default:
-			p.pos++
+			return "", fmt.Errorf("invalid control character at byte %d", start+i)
 		}
 	}
 	return "", fmt.Errorf("unterminated string at byte %d", quote)
 }
 
 func (p *processor) parseEscapedString(quote int) (string, error) {
-	p.pos = quote + 1
 	p.stringBuf.Reset()
-
+	if !p.discard {
+		p.stringBuf.Write(p.data[quote+1 : p.pos])
+	}
 	for p.pos < len(p.data) {
-		c := p.data[p.pos]
-		switch {
-		case c == '"':
+		start := p.pos
+		p.pos = len(p.data)
+		for i, c := range p.data[start:] {
+			if stringSpecialBytes[c] {
+				p.pos = start + i
+				break
+			}
+		}
+		if !p.discard {
+			p.stringBuf.Write(p.data[start:p.pos])
+		}
+		if p.pos == len(p.data) {
+			break
+		}
+		switch p.data[p.pos] {
+		case '"':
 			p.pos++
 			return p.stringBuf.String(), nil
-		case c == '\\':
+		case '\\':
 			p.pos++
 			if p.pos >= len(p.data) {
 				return "", fmt.Errorf("unterminated escape at byte %d", p.pos)
 			}
+			var decoded byte
 			switch p.data[p.pos] {
 			case '"', '\\', '/':
-				if p.data[p.pos] == '/' {
+				decoded = p.data[p.pos]
+				if decoded == '/' {
 					p.rawSafe = false
 				}
-				p.stringBuf.WriteByte(p.data[p.pos])
-				p.pos++
 			case 'b':
-				p.stringBuf.WriteByte('\b')
-				p.pos++
+				decoded = '\b'
 			case 'f':
-				p.stringBuf.WriteByte('\f')
-				p.pos++
+				decoded = '\f'
 			case 'n':
-				p.stringBuf.WriteByte('\n')
-				p.pos++
+				decoded = '\n'
 			case 'r':
-				p.stringBuf.WriteByte('\r')
-				p.pos++
+				decoded = '\r'
 			case 't':
-				p.stringBuf.WriteByte('\t')
-				p.pos++
+				decoded = '\t'
 			case 'u':
 				p.rawSafe = false
 				r, err := p.parseUnicodeEscape()
 				if err != nil {
 					return "", err
 				}
-				p.stringBuf.WriteRune(r)
+				if !p.discard {
+					p.stringBuf.WriteRune(r)
+				}
+				continue
 			default:
 				return "", fmt.Errorf("invalid escape at byte %d", p.pos)
 			}
-		case c < 0x20:
-			return "", fmt.Errorf("invalid control character at byte %d", p.pos)
-		default:
-			p.stringBuf.WriteByte(c)
+			if !p.discard {
+				p.stringBuf.WriteByte(decoded)
+			}
 			p.pos++
+		default:
+			return "", fmt.Errorf("invalid control character at byte %d", p.pos)
 		}
 	}
 	return "", fmt.Errorf("unterminated string at byte %d", quote)
@@ -622,48 +750,49 @@ func hexRune(b []byte) (rune, bool) {
 }
 
 func (p *processor) parseNumber() (string, error) {
-	start := p.pos
-	if p.consumeByte('-') && p.pos >= len(p.data) {
-		return "", fmt.Errorf("short number at byte %d", start)
+	start, pos := p.pos, p.pos
+	if pos < len(p.data) && p.data[pos] == '-' {
+		pos++
 	}
-	if p.pos >= len(p.data) {
+	if pos >= len(p.data) {
 		return "", fmt.Errorf("short number at byte %d", start)
 	}
 
-	if p.data[p.pos] == '0' {
-		p.pos++
-	} else if p.data[p.pos] >= '1' && p.data[p.pos] <= '9' {
-		for p.pos < len(p.data) && isDigit(p.data[p.pos]) {
-			p.pos++
+	if p.data[pos] == '0' {
+		pos++
+	} else if p.data[pos] >= '1' && p.data[pos] <= '9' {
+		for pos < len(p.data) && isDigit(p.data[pos]) {
+			pos++
 		}
 	} else {
 		return "", fmt.Errorf("invalid number at byte %d", start)
 	}
 
-	if p.pos < len(p.data) && p.data[p.pos] == '.' {
-		p.pos++
-		if p.pos >= len(p.data) || !isDigit(p.data[p.pos]) {
-			return "", fmt.Errorf("invalid fraction at byte %d", p.pos)
+	if pos < len(p.data) && p.data[pos] == '.' {
+		pos++
+		if pos >= len(p.data) || !isDigit(p.data[pos]) {
+			return "", fmt.Errorf("invalid fraction at byte %d", pos)
 		}
-		for p.pos < len(p.data) && isDigit(p.data[p.pos]) {
-			p.pos++
-		}
-	}
-
-	if p.pos < len(p.data) && (p.data[p.pos] == 'e' || p.data[p.pos] == 'E') {
-		p.pos++
-		if p.pos < len(p.data) && (p.data[p.pos] == '+' || p.data[p.pos] == '-') {
-			p.pos++
-		}
-		if p.pos >= len(p.data) || !isDigit(p.data[p.pos]) {
-			return "", fmt.Errorf("invalid exponent at byte %d", p.pos)
-		}
-		for p.pos < len(p.data) && isDigit(p.data[p.pos]) {
-			p.pos++
+		for pos < len(p.data) && isDigit(p.data[pos]) {
+			pos++
 		}
 	}
 
-	return borrowedString(p.data[start:p.pos]), nil
+	if pos < len(p.data) && (p.data[pos] == 'e' || p.data[pos] == 'E') {
+		pos++
+		if pos < len(p.data) && (p.data[pos] == '+' || p.data[pos] == '-') {
+			pos++
+		}
+		if pos >= len(p.data) || !isDigit(p.data[pos]) {
+			return "", fmt.Errorf("invalid exponent at byte %d", pos)
+		}
+		for pos < len(p.data) && isDigit(p.data[pos]) {
+			pos++
+		}
+	}
+
+	p.pos = pos
+	return borrowedString(p.data[start:pos]), nil
 }
 
 func (p *processor) skipWS() {
@@ -699,20 +828,29 @@ func (p *processor) consumeLiteral(s string) bool {
 	return true
 }
 
-func (p *processor) cleanNode(pathRules *pathRule, v *value) (*value, error) {
-	if err := p.enterJSONDepth(); err != nil {
-		return nil, err
+func (p *processor) cleanNode(pathRules *pathRule, v *value, depth int) (*value, error) {
+	// Scalar children skip recursion, but must still fit below their container's depth.
+	if depth > maxJSONDepth || depth == maxJSONDepth && (len(v.entries) != 0 || len(v.values) != 0) {
+		return nil, errMaxJSONDepth
 	}
-	defer p.leaveJSONDepth()
 
 	switch v.kind {
 	case kindObject:
-		if err := p.cleanObject(pathRules, v); err != nil {
+		if err := p.cleanObject(pathRules, v, depth); err != nil {
 			return nil, err
 		}
 	case kindArray:
 		for i, child := range v.values {
-			cleaned, err := p.cleanNode(pathRules, child)
+			if child.kind < kindObject {
+				continue
+			}
+			if p.collectNulls {
+				p.path = append(p.path, strconv.Itoa(i))
+			}
+			cleaned, err := p.cleanNode(pathRules, child, depth+1)
+			if p.collectNulls {
+				p.path = p.path[:len(p.path)-1]
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -722,13 +860,8 @@ func (p *processor) cleanNode(pathRules *pathRule, v *value) (*value, error) {
 	return v, nil
 }
 
-func (p *processor) cleanObject(pathRules *pathRule, obj *value) error {
-	expanded, err := p.expandDottedEntries(obj.entries)
-	if err != nil {
-		return err
-	}
-	obj.entries = expanded
-
+func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) error {
+	var err error
 	var unparsable bytes.Buffer
 	writeIdx := 0
 	for readIdx, entry := range obj.entries {
@@ -736,15 +869,24 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value) error {
 		if pathRules != nil {
 			childPathRules = pathRules.children[entry.key]
 		}
-		cleaned, err := p.cleanNode(childPathRules, entry.value)
-		if err != nil {
-			p.retainUnprocessedEntries(obj, writeIdx, readIdx)
-			return err
+		cleaned := entry.value
+		if cleaned.kind >= kindObject {
+			if p.collectNulls {
+				p.path = append(p.path, entry.key)
+			}
+			cleaned, err = p.cleanNode(childPathRules, cleaned, depth+1)
+			if p.collectNulls {
+				p.path = p.path[:len(p.path)-1]
+			}
+			if err != nil {
+				p.retainUnprocessedEntries(obj, writeIdx, readIdx)
+				return err
+			}
 		}
 		if childPathRules != nil && childPathRules.normalization != normalizationNone {
 			p.mutated = true
 			original := cleaned
-			cleaned, err = p.normalizeValue(childPathRules.normalization, cleaned)
+			cleaned, err = p.normalizeValue(childPathRules.normalization, cleaned, depth)
 			if err != nil {
 				cleaned = original
 				if unparsable.Len() == 0 {
@@ -755,16 +897,25 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value) error {
 				writeJSONString(&unparsable, entry.key)
 				unparsable.WriteByte(':')
 				p.writeValue(&unparsable, cleaned)
-				cleaned = p.reuseAsEmptyArray(cleaned)
+				if childPathRules.normalization == normalizationObject {
+					p.resetValue(cleaned, kindObject)
+				} else {
+					cleaned = p.reuseAsEmptyArray(cleaned)
+				}
 			}
 		}
 		if cleaned.kind == kindNull {
 			p.mutated = true
+			if p.collectNulls {
+				p.recordNullKey(entry.key)
+			}
 			p.recycle(cleaned)
 			continue
 		}
-		obj.entries[writeIdx] = entry
-		obj.entries[writeIdx].value = cleaned
+		if writeIdx != readIdx || cleaned != entry.value {
+			obj.entries[writeIdx] = entry
+			obj.entries[writeIdx].value = cleaned
+		}
 		writeIdx++
 	}
 	obj.entries = obj.entries[:writeIdx]
@@ -784,56 +935,6 @@ func (p *processor) retainUnprocessedEntries(obj *value, writeIdx, readIdx int) 
 	obj.entries = obj.entries[:writeIdx+remaining]
 }
 
-func (p *processor) expandDottedEntries(entries []entry) ([]entry, error) {
-	needsExpand := false
-	for _, entry := range entries {
-		if strings.IndexByte(entry.key, '.') >= 0 {
-			if p.depth+strings.Count(entry.key, ".")+1 > maxJSONDepth {
-				return nil, errMaxJSONDepth
-			}
-			needsExpand = true
-		}
-	}
-	if !needsExpand {
-		return entries, nil
-	}
-	p.mutated = true
-
-	expanded := make([]entry, 0, len(entries))
-	if p.index == nil {
-		p.index = make(map[mergeKey]*value, len(entries))
-	}
-	for key := range p.index {
-		delete(p.index, key)
-	}
-
-	for _, entry := range entries {
-		if strings.IndexByte(entry.key, '.') < 0 {
-			p.appendEntry(nil, &expanded, entry.key, entry.value)
-		} else {
-			p.insertDottedKey(nil, &expanded, entry.key, entry.value)
-		}
-	}
-
-	for key := range p.index {
-		delete(p.index, key)
-	}
-	return expanded, nil
-}
-
-func (p *processor) enterJSONDepth() error {
-	p.depth++
-	if p.depth > maxJSONDepth {
-		p.depth--
-		return errMaxJSONDepth
-	}
-	return nil
-}
-
-func (p *processor) leaveJSONDepth() {
-	p.depth--
-}
-
 func (p *processor) writeUnparseableProperties(buf *bytes.Buffer, raw []byte) {
 	buf.Reset()
 	if p.kind == temporaryProperties {
@@ -849,49 +950,31 @@ func (p *processor) writeUnparseableProperties(buf *bytes.Buffer, raw []byte) {
 	buf.WriteByte('}')
 }
 
-func (p *processor) appendEntry(parent *value, entries *[]entry, key string, child *value) {
-	*entries = append(*entries, entry{key: key, value: child})
-	mk := mergeKey{parent: parent, key: key}
-	if child.kind == kindObject {
-		p.index[mk] = child
-	} else {
-		delete(p.index, mk)
+func (p *processor) deduplicateEntries(obj *value) {
+	if len(obj.entries) < 2 {
+		return
 	}
-}
-
-func (p *processor) insertDottedKey(parent *value, entries *[]entry, key string, child *value) {
-	for {
-		dot := strings.IndexByte(key, '.')
-		if dot < 0 {
-			p.appendEntry(parent, entries, key, child)
+	// Bound pairwise comparisons to small objects; wide objects use the hash table.
+	if len(obj.entries) <= 16 {
+		duplicate := false
+		for i, entry := range obj.entries {
+			for _, previous := range obj.entries[:i] {
+				if previous.key == entry.key {
+					duplicate = true
+					break
+				}
+			}
+			if duplicate {
+				break
+			}
+		}
+		if !duplicate {
 			return
 		}
-
-		head := key[:dot]
-		rest := key[dot+1:]
-		mk := mergeKey{parent: parent, key: head}
-		target := p.index[mk]
-		if target == nil {
-			target = p.newValue(kindObject)
-			p.appendEntry(parent, entries, head, target)
-		}
-		parent = target
-		entries = &parent.entries
-		key = rest
-	}
-}
-
-func (p *processor) deduplicateEntries(obj *value) {
-	if len(obj.entries) == 0 {
-		return
 	}
 	if p.info == nil {
 		p.info = make(map[string]entryInfo, len(obj.entries))
 	}
-	for key := range p.info {
-		delete(p.info, key)
-	}
-
 	for i, entry := range obj.entries {
 		info := p.info[entry.key]
 		info.last = i
@@ -910,7 +993,9 @@ func (p *processor) deduplicateEntries(obj *value) {
 			keep = info.firstNonEmpty == i
 		}
 		if keep {
-			obj.entries[writeIdx] = entry
+			if writeIdx != i {
+				obj.entries[writeIdx] = entry
+			}
 			writeIdx++
 		} else {
 			p.mutated = true
@@ -919,23 +1004,30 @@ func (p *processor) deduplicateEntries(obj *value) {
 	}
 	obj.entries = obj.entries[:writeIdx]
 
-	for key := range p.info {
-		delete(p.info, key)
+	if len(p.info) > maxRecycledValues {
+		p.info = nil
+	} else {
+		clear(p.info)
 	}
 }
 
-func (p *processor) normalizeValue(normalization normalizationKind, v *value) (*value, error) {
+func (p *processor) normalizeValue(normalization normalizationKind, v *value, depth int) (*value, error) {
 	switch normalization {
 	case normalizationStringArray:
-		return p.coerceStringArray(v)
+		return p.coerceStringArray(v, depth)
 	case normalizationObjectArray:
-		return p.coerceObjectArray(v)
+		return p.coerceObjectArray(v, depth)
+	case normalizationObject:
+		if v.kind != kindObject && v.kind != kindNull {
+			return nil, fmt.Errorf("cannot coerce %s to Map", valueKindName(v.kind))
+		}
+		return v, nil
 	default:
 		return v, nil
 	}
 }
 
-func (p *processor) coerceObjectArray(v *value) (*value, error) {
+func (p *processor) coerceObjectArray(v *value, depth int) (*value, error) {
 	switch v.kind {
 	case kindArray:
 		for _, child := range v.values {
@@ -955,11 +1047,11 @@ func (p *processor) coerceObjectArray(v *value) (*value, error) {
 		if isNullishString(raw) {
 			return p.reuseAsEmptyArray(v), nil
 		}
-		parsed, err := p.parseStringifiedJSON(raw)
+		parsed, err := p.parseStringifiedJSON(raw, depth)
 		if err != nil {
 			return nil, err
 		}
-		normalized, err := p.coerceObjectArray(parsed)
+		normalized, err := p.coerceObjectArray(parsed, depth)
 		if err != nil {
 			p.recycle(parsed)
 			return nil, err
@@ -994,7 +1086,7 @@ func valueKindName(kind valueKind) string {
 	}
 }
 
-func (p *processor) coerceStringArray(v *value) (*value, error) {
+func (p *processor) coerceStringArray(v *value, depth int) (*value, error) {
 	switch v.kind {
 	case kindArray:
 		oldValues := v.values
@@ -1020,11 +1112,11 @@ func (p *processor) coerceStringArray(v *value) (*value, error) {
 		if isEmptyArrayString(trimmed) {
 			return p.reuseAsEmptyArray(v), nil
 		}
-		if parsed, ok, err := p.parseStringifiedJSONArray(trimmed); err != nil {
+		if parsed, ok, err := p.parseStringifiedJSONArray(trimmed, depth); err != nil {
 			return nil, err
 		} else if ok {
 			p.recycle(v)
-			return p.coerceStringArray(parsed)
+			return p.coerceStringArray(parsed, depth)
 		}
 		return p.reuseAsStringArray(v, v.s), nil
 	default:
@@ -1039,6 +1131,8 @@ func (p *processor) resetValue(v *value, kind valueKind) {
 	for _, child := range v.values {
 		p.recycle(child)
 	}
+	clear(v.entries[:cap(v.entries)])
+	clear(v.values[:cap(v.values)])
 	v.kind = kind
 	v.s = ""
 	v.b = false
@@ -1059,7 +1153,7 @@ func (p *processor) reuseAsStringArray(v *value, s string) *value {
 	return v
 }
 
-func (p *processor) parseStringifiedJSON(raw string) (*value, error) {
+func (p *processor) parseStringifiedJSON(raw string, depth int) (*value, error) {
 	if raw == "" || (raw[0] != '[' && raw[0] != '{') {
 		return nil, fmt.Errorf("cannot coerce %q to Array(JSON)", raw)
 	}
@@ -1067,7 +1161,7 @@ func (p *processor) parseStringifiedJSON(raw string) (*value, error) {
 	oldData, oldPos := p.data, p.pos
 	p.data = borrowedBytes(raw)
 	p.pos = 0
-	parsed, err := p.parseValue()
+	parsed, err := p.parseValue(depth+1, 0)
 	if err != nil {
 		p.data, p.pos = oldData, oldPos
 		return nil, fmt.Errorf("cannot coerce %q to Array(JSON): %w", raw, err)
@@ -1078,7 +1172,7 @@ func (p *processor) parseStringifiedJSON(raw string) (*value, error) {
 		p.data, p.pos = oldData, oldPos
 		return nil, fmt.Errorf("cannot coerce %q to Array(JSON): trailing data", raw)
 	}
-	cleaned, err := p.cleanNode(nil, parsed)
+	cleaned, err := p.cleanNode(nil, parsed, depth+1)
 	p.data, p.pos = oldData, oldPos
 	if err != nil {
 		p.recycle(parsed)
@@ -1087,7 +1181,7 @@ func (p *processor) parseStringifiedJSON(raw string) (*value, error) {
 	return cleaned, nil
 }
 
-func (p *processor) parseStringifiedJSONArray(raw string) (*value, bool, error) {
+func (p *processor) parseStringifiedJSONArray(raw string, depth int) (*value, bool, error) {
 	if raw == "" || raw[0] != '[' {
 		return nil, false, nil
 	}
@@ -1095,7 +1189,7 @@ func (p *processor) parseStringifiedJSONArray(raw string) (*value, bool, error) 
 	oldData, oldPos := p.data, p.pos
 	p.data = borrowedBytes(raw)
 	p.pos = 0
-	parsed, err := p.parseValue()
+	parsed, err := p.parseValue(depth+1, 0)
 	if err != nil {
 		p.data, p.pos = oldData, oldPos
 		return nil, false, nil
@@ -1106,7 +1200,7 @@ func (p *processor) parseStringifiedJSONArray(raw string) (*value, bool, error) 
 		p.data, p.pos = oldData, oldPos
 		return nil, false, nil
 	}
-	cleaned, err := p.cleanNode(nil, parsed)
+	cleaned, err := p.cleanNode(nil, parsed, depth+1)
 	p.data, p.pos = oldData, oldPos
 	if err != nil {
 		return nil, false, err
@@ -1237,7 +1331,7 @@ func isEmptyArrayString(s string) bool {
 }
 
 func shouldStringifyNumber(num string) bool {
-	if len(num) == 0 {
+	if len(num) < 19 {
 		return false
 	}
 
@@ -1300,14 +1394,346 @@ func borrowedBytes(s string) []byte {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
+// Envelope rows arrive as JSONEachRow, {"properties": "<json>", "person_properties": "<json>"}, and go back as
+// {"result": {...}} matching the named tuple declared for JSONCleanPostHogEvent.
+
+const (
+	envelopePropertiesField       = "properties"
+	envelopePersonPropertiesField = "person_properties"
+)
+
+var envelopeDocNames = [envelopeDocs]string{
+	envelopeProperties:          "properties",
+	envelopeTemporaryProperties: "temporary_properties",
+	envelopePersonProperties:    "person_properties",
+}
+
+func (p *processor) processEnvelopeLine(rawLine []byte, buf *bytes.Buffer) error {
+	p.prepareLine(rawLine, buf)
+
+	// The outer row is trusted ClickHouse output, so a parse failure is a protocol error.
+	p.kind = personProperties
+	outer, err := p.parseDocument(rawLine)
+	p.kind = eventEnvelope
+	if err != nil {
+		return fmt.Errorf("envelope row: %w", err)
+	}
+	if outer == nil || outer.kind != kindObject {
+		p.recycle(outer)
+		return fmt.Errorf("envelope row: expected a JSON object")
+	}
+	var properties, personProperties string
+	for _, field := range outer.entries {
+		if field.value.kind != kindString {
+			continue
+		}
+		switch field.key {
+		case envelopePropertiesField:
+			properties = field.value.s
+		case envelopePersonPropertiesField:
+			personProperties = field.value.s
+		}
+	}
+	// Escaped strings were copied out of stringBuf; unescaped ones borrow rawLine, which outlives this call.
+	p.recycle(outer)
+
+	p.cleanEventDocument(borrowedBytes(properties))
+	p.cleanPersonDocument(borrowedBytes(personProperties))
+
+	buf.Reset()
+	buf.WriteString(`{"result":{`)
+	for i, name := range envelopeDocNames {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		writeJSONString(buf, name)
+		buf.WriteByte(':')
+		writeJSONString(buf, borrowedString(p.docs[i].Bytes()))
+	}
+	for i, name := range envelopeDocNames {
+		buf.WriteString(`,"`)
+		buf.WriteString(name)
+		buf.WriteString(`_null_keys":[`)
+		for j, key := range p.docNullKeys[i] {
+			if j > 0 {
+				buf.WriteByte(',')
+			}
+			writeJSONString(buf, key)
+		}
+		buf.WriteByte(']')
+	}
+	buf.WriteString("}}")
+
+	// Null keys can borrow the input row; drop them so the pool worker does not retain it.
+	for i := range p.docNullKeys {
+		clear(p.docNullKeys[i])
+		p.docNullKeys[i] = p.docNullKeys[i][:0]
+	}
+	clear(p.nullKeys)
+	p.nullKeys = p.nullKeys[:0]
+	return nil
+}
+
+func (p *processor) cleanEventDocument(raw []byte) {
+	permanent := &p.docs[envelopeProperties]
+	temporary := &p.docs[envelopeTemporaryProperties]
+	permanent.Reset()
+	temporary.Reset()
+	p.docNullKeys[envelopeProperties] = p.docNullKeys[envelopeProperties][:0]
+	p.docNullKeys[envelopeTemporaryProperties] = p.docNullKeys[envelopeTemporaryProperties][:0]
+
+	if isBlank(raw) {
+		permanent.WriteString("{}")
+		temporary.WriteString("{}")
+		return
+	}
+	quarantine := func() {
+		p.writeUnparseableProperties(permanent, raw)
+		temporary.Reset()
+		temporary.WriteString("{}")
+	}
+
+	parsed, err := p.parseDocument(raw)
+	if err != nil || parsed == nil || parsed.kind != kindObject {
+		p.recycle(parsed)
+		quarantine()
+		return
+	}
+
+	// Split the temporary allowlist off the top level; the drop list was discarded while parsing.
+	temporaryObject := p.newValue(kindObject)
+	writeIdx := 0
+	for _, property := range parsed.entries {
+		if isTemporaryProperty(property.key) {
+			temporaryObject.entries = append(temporaryObject.entries, property)
+			continue
+		}
+		parsed.entries[writeIdx] = property
+		writeIdx++
+	}
+	clear(parsed.entries[writeIdx:])
+	parsed.entries = parsed.entries[:writeIdx]
+
+	p.collectNulls = true
+	defer func() { p.collectNulls = false }()
+
+	p.resetNullKeys()
+	cleaned, err := p.cleanEventProperties(parsed)
+	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleaned, 0)) {
+		if err != nil {
+			p.recycle(parsed)
+		} else {
+			p.recycle(cleaned)
+		}
+		p.recycle(temporaryObject)
+		quarantine()
+		return
+	}
+	p.docNullKeys[envelopeProperties] = p.finishNullKeys(cleaned, p.docNullKeys[envelopeProperties])
+	p.writeValue(permanent, cleaned)
+	p.recycle(cleaned)
+
+	p.resetNullKeys()
+	cleanedTemporary, err := p.cleanNode(nil, temporaryObject, 1)
+	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleanedTemporary, 0)) {
+		// The permanent output already quarantines the raw document; do not duplicate it outside the allowlist.
+		if err != nil {
+			p.recycle(temporaryObject)
+		} else {
+			p.recycle(cleanedTemporary)
+		}
+		temporary.WriteString("{}")
+		return
+	}
+	p.docNullKeys[envelopeTemporaryProperties] = p.finishNullKeys(cleanedTemporary, p.docNullKeys[envelopeTemporaryProperties])
+	p.writeValue(temporary, cleanedTemporary)
+	p.recycle(cleanedTemporary)
+}
+
+func (p *processor) cleanPersonDocument(raw []byte) {
+	out := &p.docs[envelopePersonProperties]
+	out.Reset()
+	p.docNullKeys[envelopePersonProperties] = p.docNullKeys[envelopePersonProperties][:0]
+
+	if isBlank(raw) {
+		out.WriteString("{}")
+		return
+	}
+	p.kind = personProperties
+	parsed, err := p.parseDocument(raw)
+	p.kind = eventEnvelope
+	if err != nil || parsed == nil || parsed.kind != kindObject {
+		p.recycle(parsed)
+		p.writeUnparseableProperties(out, raw)
+		return
+	}
+
+	p.collectNulls = true
+	defer func() { p.collectNulls = false }()
+
+	p.resetNullKeys()
+	cleaned, err := p.cleanNode(nil, parsed, 1)
+	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleaned, 0)) {
+		if err != nil {
+			p.recycle(parsed)
+		} else {
+			p.recycle(cleaned)
+		}
+		p.writeUnparseableProperties(out, raw)
+		return
+	}
+	p.docNullKeys[envelopePersonProperties] = p.finishNullKeys(cleaned, p.docNullKeys[envelopePersonProperties])
+	p.writeValue(out, cleaned)
+	p.recycle(cleaned)
+}
+
+func isBlank(raw []byte) bool {
+	for _, c := range raw {
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return false
+		}
+	}
+	return true
+}
+
+func (p *processor) resetNullKeys() {
+	p.nullKeys = p.nullKeys[:0]
+	p.nullKeyBytes = 0
+	p.nullKeysOver = false
+}
+
+// %2E is the json_type_escape_dots_in_keys spelling, which tells the flat key `a.b` from the path `a` > `b`.
+func (p *processor) recordNullKey(key string) {
+	if p.nullKeysOver {
+		return
+	}
+	// Measure the path before building it, so an oversized path is never allocated.
+	size := encodedNullKeySegmentLen(key)
+	for _, segment := range p.path {
+		size += encodedNullKeySegmentLen(segment) + 1
+	}
+	p.nullKeyBytes += size
+	if p.nullKeyBytes > maxNullKeyBytes {
+		p.nullKeysOver = true
+		return
+	}
+	if len(p.path) == 0 && strings.IndexByte(key, '.') < 0 {
+		p.nullKeys = append(p.nullKeys, key)
+		return
+	}
+	p.pathBuf.Reset()
+	for _, segment := range p.path {
+		writeNullKeySegment(&p.pathBuf, segment)
+		p.pathBuf.WriteByte('.')
+	}
+	writeNullKeySegment(&p.pathBuf, key)
+	p.nullKeys = append(p.nullKeys, p.pathBuf.String())
+}
+
+func encodedNullKeySegmentLen(segment string) int {
+	return len(segment) + 2*strings.Count(segment, ".")
+}
+
+func writeNullKeySegment(buf *bytes.Buffer, segment string) {
+	for {
+		dot := strings.IndexByte(segment, '.')
+		if dot < 0 {
+			buf.WriteString(segment)
+			return
+		}
+		buf.WriteString(segment[:dot])
+		buf.WriteString("%2E")
+		segment = segment[dot+1:]
+	}
+}
+
+// A duplicate key can leave a non-null value under a recorded path after cleaning.
+// The seen set keeps deduplication linear, because one event can carry thousands of null fields.
+func (p *processor) finishNullKeys(root *value, out []string) []string {
+	// A partial list would claim that the unlisted fields were never sent, so record none.
+	if p.nullKeysOver || len(p.nullKeys) == 0 {
+		return out
+	}
+	if p.nullKeySeen == nil {
+		p.nullKeySeen = make(map[string]struct{}, len(p.nullKeys))
+	}
+	clear(p.nullKeySeen)
+	for _, key := range out {
+		p.nullKeySeen[key] = struct{}{}
+	}
+	for _, key := range p.nullKeys {
+		if _, seen := p.nullKeySeen[key]; seen || pathExists(root, key) {
+			continue
+		}
+		p.nullKeySeen[key] = struct{}{}
+		out = append(out, key)
+	}
+	// A pooled worker reuses the processor across rows, so drop a large set instead of keeping its memory.
+	if len(p.nullKeySeen) > 4096 {
+		p.nullKeySeen = nil
+	}
+	return out
+}
+
+// Each segment is one object key, with its dots written as %2E, or one array index.
+func pathExists(v *value, path string) bool {
+	for v != nil {
+		segment, rest, more := strings.Cut(path, ".")
+		switch v.kind {
+		case kindObject:
+			segment = strings.ReplaceAll(segment, "%2E", ".")
+			var next *value
+			for _, entry := range v.entries {
+				if entry.key == segment {
+					next = entry.value
+					break
+				}
+			}
+			v = next
+		case kindArray:
+			index, err := strconv.Atoi(segment)
+			if err != nil || index < 0 || index >= len(v.values) {
+				return false
+			}
+			v = v.values[index]
+		default:
+			return false
+		}
+		if v == nil {
+			return false
+		}
+		if !more {
+			return true
+		}
+		path = rest
+	}
+	return false
+}
+
+func readLine(reader *bufio.Reader) ([]byte, error) {
+	line, err := reader.ReadSlice('\n')
+	if err != bufio.ErrBufferFull {
+		return line, err
+	}
+	// Only rows larger than the reader buffer need an owned copy.
+	var full []byte
+	for {
+		full = append(full, line...)
+		if err != bufio.ErrBufferFull {
+			return full, err
+		}
+		line, err = reader.ReadSlice('\n')
+	}
+}
+
 func run(input io.Reader, output io.Writer, kind propertiesKind) error {
-	reader := bufio.NewReaderSize(input, 4*1024*1024)
-	writer := bufio.NewWriterSize(output, 4*1024*1024)
+	reader := bufio.NewReaderSize(input, 64*1024)
+	writer := bufio.NewWriterSize(output, 64*1024)
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
 	proc := processor{kind: kind}
 
 	for {
-		line, err := reader.ReadBytes('\n')
+		line, err := readLine(reader)
 		if err != nil && err != io.EOF {
 			return fmt.Errorf("stdin read error: %w", err)
 		}
@@ -1336,8 +1762,8 @@ func run(input io.Reader, output io.Writer, kind propertiesKind) error {
 }
 
 func runChunked(input io.Reader, output io.Writer, kind propertiesKind) error {
-	reader := bufio.NewReaderSize(input, 4*1024*1024)
-	writer := bufio.NewWriterSize(output, 4*1024*1024)
+	reader := bufio.NewReaderSize(input, 64*1024)
+	writer := bufio.NewWriterSize(output, 64*1024)
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
 	proc := processor{kind: kind}
 
@@ -1349,7 +1775,7 @@ func runChunked(input io.Reader, output io.Writer, kind propertiesKind) error {
 			return fmt.Errorf("chunk header read error: %w", err)
 		}
 		for range rows {
-			line, err := reader.ReadBytes('\n')
+			line, err := readLine(reader)
 			if err != nil {
 				return fmt.Errorf("stdin read error: %w", err)
 			}
@@ -1358,7 +1784,10 @@ func runChunked(input io.Reader, output io.Writer, kind propertiesKind) error {
 			if processErr := proc.processLine(line, buf); processErr != nil {
 				return fmt.Errorf("line processing error: %w", processErr)
 			}
-			if _, writeErr := writer.Write(append(buf.Bytes(), '\n')); writeErr != nil {
+			if _, writeErr := writer.Write(buf.Bytes()); writeErr != nil {
+				return fmt.Errorf("stdout write error: %w", writeErr)
+			}
+			if writeErr := writer.WriteByte('\n'); writeErr != nil {
 				return fmt.Errorf("stdout write error: %w", writeErr)
 			}
 		}
@@ -1373,9 +1802,16 @@ func main() {
 	chunked := flag.Bool("chunked", false, "read a row-count header before each input chunk")
 	cleanPersonProperties := flag.Bool("person-properties", false, "clean person properties without event-specific transformations")
 	cleanTemporaryProperties := flag.Bool("temporary-properties", false, "retain only temporary event properties")
+	envelope := flag.Bool("event", false, "read JSONEachRow rows of event and person properties and write a JSONEachRow named tuple with every cleaned output")
 	flag.Parse()
-	if *cleanPersonProperties && *cleanTemporaryProperties {
-		fmt.Fprintln(os.Stderr, "person-properties and temporary-properties are mutually exclusive")
+	modes := 0
+	for _, enabled := range []bool{*cleanPersonProperties, *cleanTemporaryProperties, *envelope} {
+		if enabled {
+			modes++
+		}
+	}
+	if modes > 1 {
+		fmt.Fprintln(os.Stderr, "person-properties, temporary-properties and event are mutually exclusive")
 		os.Exit(1)
 	}
 
@@ -1406,6 +1842,9 @@ func main() {
 	}
 	if *cleanTemporaryProperties {
 		kind = temporaryProperties
+	}
+	if *envelope {
+		kind = eventEnvelope
 	}
 	if err := runner(os.Stdin, os.Stdout, kind); err != nil {
 		fmt.Fprintln(os.Stderr, err)

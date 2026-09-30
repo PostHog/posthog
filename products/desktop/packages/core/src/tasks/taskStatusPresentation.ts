@@ -3,6 +3,7 @@ import type {
   Task,
   TaskRunEnvironment,
   TaskRunStatus,
+  UserBasic,
 } from "@posthog/shared/domain-types";
 
 export type TaskStatusPresentationKind =
@@ -60,4 +61,12 @@ export function getTaskStatusPresentationKind(
     default:
       return "chat";
   }
+}
+
+// Who to show a task under: only a task a person started names an author; an
+// agent-made one would otherwise credit whoever the backend recorded.
+export function taskStarter(task: Task): UserBasic | null {
+  return task.origin_product === "user_created"
+    ? (task.created_by ?? null)
+    : null;
 }

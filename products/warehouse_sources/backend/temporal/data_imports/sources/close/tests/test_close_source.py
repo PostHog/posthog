@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.close.sett
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
 
-INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Opportunities", "Activities", "Tasks"}
+INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Opportunities", "Activities", "Tasks", "Events"}
 
 
 class TestCloseSource:
@@ -69,10 +69,25 @@ class TestCloseSource:
         assert is_valid is False
         assert error_message == "Close API key is required"
 
+    def test_field_list_too_long_is_non_retryable(self) -> None:
+        # Close rejects an over-long `_fields` list with this message. It can never succeed on
+        # retry, so it must be classified non-retryable rather than looping in Temporal.
+        error_msg = 'Close rejected the search query: {"field-errors": {"_fields": "List is too long."}}'
+        matched = [msg for pattern, msg in self.source.get_non_retryable_errors().items() if pattern in error_msg]
+        assert len(matched) == 1
+        assert matched[0] is not None
+
     def test_retryable_errors_match_exhausted_connection_retries(self) -> None:
         error_msg = (
             "HTTPSConnectionPool(host='api.close.com', port=443): Max retries exceeded with "
             'url: /api/v1/data/search/ (Caused by ReadTimeoutError("HTTPSConnectionPool(host='
             "'api.close.com', port=443): Read timed out. (read timeout=60)\"))"
+        )
+        assert any(pattern in error_msg for pattern in self.source.get_retryable_errors())
+
+    def test_retryable_errors_match_organization_fetch_server_error(self) -> None:
+        error_msg = (
+            "500 Server Error: Internal Server Error for url: "
+            "https://api.close.com/api/v1/organization/orga_test1234567890/"
         )
         assert any(pattern in error_msg for pattern in self.source.get_retryable_errors())

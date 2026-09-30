@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_action, _create_event, _create_person
 
 from posthog.schema import (
@@ -703,7 +703,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
     def test_multiple_events_same_timestamp_doesnt_blow_up(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
-        with freeze_time("2024-01-10T12:01:00"):
+        with time_machine.travel("2024-01-10T12:01:00", tick=False):
             for _ in range(30):
                 _create_event(team=self.team, event="step one", distinct_id="test")
             _create_event(team=self.team, event="step two", distinct_id="test")

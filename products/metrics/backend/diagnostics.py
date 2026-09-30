@@ -38,12 +38,15 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.fundamentals import Sample, TemporalReducer, apply_plan, plan_reduction, reduce_temporal
 from products.metrics.backend.metric_query_runner import (
     _QUERY_SETTINGS,
-    MetricQueryRunner,
     _interval_step,
     counter_lookback,
-    filters_expr,
+    points_query,
+    series_labels_query,
+    series_scope_expr,
     type_filter_expr,
 )
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
+from products.metrics.backend.metrics4_samples import reads_metrics4_only
 
 # How much of a bucket the breakdown lists. Totals are computed over everything
 # in the bucket; these only bound what gets rendered, and the decomposition says
@@ -69,33 +72,56 @@ def _raw_samples_query(
     bucket_end: dt.datetime,
     filters: Sequence[MetricFilter],
     metric_type: str | None,
+    timezone: str,
 ) -> ast.SelectQuery:
+    # The labels are joined on after the LIMIT so the row bound applies to the
+    # data points read, not to the join output. A series without a row yet
+    # keeps its samples and shows empty labels.
     query = parse_select(
         """
             SELECT
-                service_name,
-                attributes,
-                resource_attributes,
-                metric_type,
-                aggregation_temporality,
-                timestamp,
-                value
-            FROM posthog.metrics
-            WHERE metric_name = {metric_name}
-              AND timestamp >= {date_from}
-              AND timestamp < {date_to}
-              AND {filters}
-              AND {type_filter}
-            ORDER BY timestamp ASC
-            LIMIT {row_limit}
+                s.series_fingerprint,
+                s.service_name,
+                ser.attributes,
+                ser.resource_attributes,
+                s.metric_type,
+                s.aggregation_temporality,
+                s.timestamp,
+                s.value
+            FROM (
+                SELECT
+                    series_fingerprint,
+                    service_name,
+                    metric_type,
+                    aggregation_temporality,
+                    timestamp,
+                    value
+                FROM {points}
+                ORDER BY timestamp ASC
+                LIMIT {row_limit}
+            ) AS s
+            LEFT JOIN {series_labels} AS ser ON s.series_fingerprint = ser.series_fingerprint
+            ORDER BY s.timestamp ASC
         """,
         placeholders={
-            "metric_name": ast.Constant(value=metric_name),
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=bucket_end),
-            "filters": filters_expr(filters),
-            "type_filter": type_filter_expr(metric_type),
+            "points": points_query(
+                from_samples=reads_metrics4_only(date_from),
+                columns=(
+                    "series_fingerprint",
+                    "service_name",
+                    "metric_type",
+                    "aggregation_temporality",
+                    "timestamp",
+                    "value",
+                ),
+                metric_names=(metric_name,),
+                date_from=date_from,
+                date_to=bucket_end,
+                timezone=timezone,
+                row_filters=(series_scope_expr(metric_name, filters), type_filter_expr(metric_type)),
+            ),
             "row_limit": ast.Constant(value=_MAX_ROWS_READ),
+            "series_labels": series_labels_query(metric_name),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -120,7 +146,7 @@ def _actual_value(
     functions' predecessor sample, so this asks for exactly the one bucket the
     decomposition is explaining.
     """
-    rows = MetricQueryRunner(
+    rows = build_metric_query_runner(
         team=team,
         metric_name=metric_name,
         aggregation=aggregation,
@@ -169,6 +195,7 @@ def decompose_bucket(
             bucket_end=bucket_end,
             filters=filters,
             metric_type=metric_type,
+            timezone=team.timezone,
         ),
         team=team,
         workload=Workload.LOGS,
@@ -177,20 +204,23 @@ def decompose_bucket(
     rows = response.results or []
     rows_truncated = len(rows) >= _MAX_ROWS_READ
 
-    # Group the raw rows into series, keyed the way a series is actually
-    # identified: everything that isn't the timestamp or the value.
-    grouped: dict[tuple, list[Sample]] = {}
-    predecessors: dict[tuple, Sample] = {}
-    identities: dict[tuple, tuple[str, dict[str, str], dict[str, str]]] = {}
+    # Group the raw rows into series by the fingerprint ingest assigned, which
+    # is the same identity the chart's window functions partition on.
+    grouped: dict[int, list[Sample]] = {}
+    predecessors: dict[int, Sample] = {}
+    identities: dict[int, tuple[str, dict[str, str], dict[str, str]]] = {}
     resolved_type = metric_type or ""
     temporality = ""
-    for service_name, attributes, resource_attributes, row_metric_type, row_temporality, timestamp, value in rows:
-        key = (
-            service_name,
-            tuple(sorted(dict(attributes).items())),
-            tuple(sorted(dict(resource_attributes).items())),
-            row_metric_type,
-        )
+    for (
+        key,
+        service_name,
+        attributes,
+        resource_attributes,
+        row_metric_type,
+        row_temporality,
+        timestamp,
+        value,
+    ) in rows:
         sample = Sample(timestamp=_as_utc(timestamp), value=float(value))
         if sample.timestamp < bucket_start:
             # Only a series' newest pre-bucket reading matters: it is the
@@ -200,7 +230,7 @@ def decompose_bucket(
                 predecessors[key] = sample
         else:
             grouped.setdefault(key, []).append(sample)
-        identities.setdefault(key, (service_name, dict(attributes), dict(resource_attributes)))
+        identities.setdefault(key, (service_name, dict(attributes or {}), dict(resource_attributes or {})))
         # A bucket normally holds one type and one temporality; when a name has
         # been ingested as several, the first is enough to plan a reduction and
         # the type check reports the blend separately.

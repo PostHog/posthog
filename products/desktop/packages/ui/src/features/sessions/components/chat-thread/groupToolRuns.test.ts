@@ -121,4 +121,396 @@ describe("groupToolRuns", () => {
     ]);
     expect(out[1]).toMatchObject({ id: "action" });
   });
+
+  it("keeps a chart-rendering tool call out of the chip so its UI app never hides behind it", () => {
+    // The group collapses to "Thinking…" while a later call in the run is live,
+    // hiding the already-rendered chart.
+    const chartCall = toolItem("chart", { toolCallId: "chart" });
+    chartCall.turnContext.toolCalls.set("chart", {
+      toolCallId: "chart",
+      title: "chart",
+      kind: "execute",
+      status: "completed",
+      rawOutput: {
+        _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+      },
+    });
+
+    const out = groupToolRuns([
+      toolItem("before-1"),
+      toolItem("before-2"),
+      chartCall,
+      toolItem("after-1"),
+      toolItem("after-2"),
+    ]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "tool_group",
+      "session_update",
+      "tool_group",
+    ]);
+    expect(out[1]).toMatchObject({ id: "chart" });
+  });
+
+  it("stands only the last chart-rendering call of a turn alone, folding earlier ones back into their run", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+    const inTurn = (id: string) => {
+      const item = toolItem(id);
+      item.turnContext = turnContext;
+      return item;
+    };
+
+    const out = groupToolRuns([
+      inTurn("before-1"),
+      inTurn("before-2"),
+      chart("chart-1"),
+      inTurn("between-1"),
+      inTurn("between-2"),
+      chart("chart-2"),
+      inTurn("after-1"),
+      inTurn("after-2"),
+    ]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "tool_group",
+      "session_update",
+      "tool_group",
+    ]);
+    expect(out[1]).toMatchObject({ id: "chart-2" });
+    expect(out[0]).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({ id: "chart-1" }),
+      ]),
+    });
+  });
+
+  it("groups an earlier chart even when it's the only other call in the run", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+
+    const out = groupToolRuns([chart("chart-1"), chart("chart-2")]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "tool_group",
+      "session_update",
+    ]);
+    expect(out[0]).toMatchObject({
+      items: [expect.objectContaining({ id: "chart-1" })],
+    });
+    expect(out[1]).toMatchObject({ id: "chart-2" });
+  });
+
+  it("holds every chart-rendering call inside its group until the turn completes", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: false,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+    const inTurn = (id: string) => {
+      const item = toolItem(id);
+      item.turnContext = turnContext;
+      return item;
+    };
+
+    const out = groupToolRuns([inTurn("before"), chart("chart-1")]);
+
+    expect(out.map((row) => row.type)).toEqual(["tool_group"]);
+  });
+
+  it("stands a chart alone once its turn errors out, even without turnComplete", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: false,
+    };
+    const chartCall = toolItem("chart-1", { toolCallId: "chart-1" });
+    chartCall.turnContext = turnContext;
+    turnContext.toolCalls.set("chart-1", {
+      toolCallId: "chart-1",
+      title: "chart-1",
+      kind: "execute",
+      status: "completed",
+      rawOutput: {
+        _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+      },
+    });
+    const inTurn = (id: string) => {
+      const item = toolItem(id);
+      item.turnContext = turnContext;
+      return item;
+    };
+    const errorItem: SessionUpdateItem = {
+      type: "session_update",
+      id: "error",
+      update: { sessionUpdate: "error", errorType: "runtime", message: "boom" },
+      turnContext,
+    };
+
+    const out = groupToolRuns([inTurn("before"), chartCall, errorItem]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "session_update",
+      "session_update",
+      "session_update",
+    ]);
+    expect(out[1]).toMatchObject({ id: "chart-1" });
+  });
+
+  it("keeps every chart grouped while an implicit turn is still growing", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+      isImplicit: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+
+    const out = groupToolRuns([chart("chart-1"), chart("chart-2")]);
+
+    expect(out.map((row) => row.type)).toEqual(["tool_group"]);
+  });
+
+  it("doesn't treat a turnless item after the chart as supersession", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+      isImplicit: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+    const shellExecuteItem: ConversationItem = {
+      type: "user_shell_execute",
+      id: "shell",
+      command: "ls",
+      cwd: "/repo",
+    };
+
+    const out = groupToolRuns([
+      chart("chart-1"),
+      chart("chart-2"),
+      shellExecuteItem,
+    ]);
+
+    expect(out.filter((row) => row.type === "tool_group")).toHaveLength(1);
+  });
+
+  it("stands the last chart alone once the session goes idle, even with nothing to supersede the implicit turn", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+      isImplicit: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+
+    const isPromptPending = false;
+    const out = groupToolRuns(
+      [chart("chart-1"), chart("chart-2")],
+      isPromptPending,
+    );
+
+    expect(out.map((row) => row.type)).toEqual([
+      "tool_group",
+      "session_update",
+    ]);
+    expect(out[0]).toMatchObject({
+      items: [expect.objectContaining({ id: "chart-1" })],
+    });
+    expect(out[1]).toMatchObject({ id: "chart-2" });
+  });
+
+  it("stands the last chart alone once a later turn supersedes the implicit one", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+      isImplicit: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+
+    const out = groupToolRuns([
+      chart("chart-1"),
+      chart("chart-2"),
+      toolItem("next-turn"),
+    ]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "tool_group",
+      "session_update",
+      "session_update",
+    ]);
+    expect(out[0]).toMatchObject({
+      items: [expect.objectContaining({ id: "chart-1" })],
+    });
+    expect(out[1]).toMatchObject({ id: "chart-2" });
+  });
+
+  it("keeps a finished turn's standalone chart in place once a new turn starts", () => {
+    const finishedTurn = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = finishedTurn;
+      finishedTurn.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+    const chartCall = chart("chart-1");
+
+    const before = groupToolRuns([toolItem("before"), chartCall]);
+    const after = groupToolRuns([
+      toolItem("before"),
+      chartCall,
+      toolItem("next-turn-1"),
+      toolItem("next-turn-2"),
+    ]);
+
+    expect(before[1]).toMatchObject({ id: "chart-1" });
+    expect(after[1]).toMatchObject({ id: "chart-1" });
+  });
+
+  it("still groups an MCP tool call whose result has no UI app", () => {
+    const execCall = toolItem("exec", {
+      toolCallId: "exec",
+      _meta: posthogToolMeta({
+        toolName: "mcp__posthog__exec",
+        mcp: { server: "posthog", tool: "exec" },
+      }),
+    });
+    execCall.turnContext.toolCalls.set("exec", {
+      toolCallId: "exec",
+      title: "exec",
+      kind: "execute",
+      status: "completed",
+      rawOutput: { content: [{ type: "text", text: "no chart here" }] },
+    });
+
+    const out = groupToolRuns([
+      toolItem("before"),
+      execCall,
+      toolItem("after"),
+    ]);
+
+    expect(out.map((row) => row.type)).toEqual(["tool_group"]);
+  });
 });

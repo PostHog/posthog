@@ -8,6 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
+from rest_framework.exceptions import (
+    PermissionDenied,
+    ValidationError as DRFValidationError,
+)
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import FilterLogicalOperator, RecordingsQuery
@@ -57,6 +62,8 @@ _ACTIVITY_HELPER = (
     "products.replay_vision.backend.temporal.activities.refresh_scanner_estimate.refresh_scanner_estimate"
 )
 _ESTIMATE_QUERY = "products.replay_vision.backend.queries.scanner_volume_estimate.estimate_scanner_session_volume"
+# The classifier defers this import, so the patch target is the facade attribute it reads.
+_RESOLVE_LINKAGE = "products.experiments.backend.facade.replay.resolve_exposure_linkage"
 
 
 def _make_scanner(**overrides: Any) -> ReplayScanner:
@@ -363,13 +370,57 @@ class TestRefreshScannerEstimateActivity:
         assert refreshed is False
         mock_refresh.assert_not_called()
 
-    def test_propagates_helper_errors(self) -> None:
+    @parameterized.expand(
+        [
+            ("unexpected_error", RuntimeError("boom")),
+            # Without experiment targeting there is no linkage to resolve: a DRF ValidationError
+            # means the scanner's own query no longer builds, which must stay a failed activity.
+            ("query_unbuildable", DRFValidationError("Action ID 424242 does not exist!")),
+        ]
+    )
+    def test_propagates_helper_errors(self, _name: str, error: Exception) -> None:
         scanner = _make_scanner()
-        with patch(_ACTIVITY_HELPER, side_effect=RuntimeError("boom")):
-            with pytest.raises(RuntimeError, match="boom"):
+        with patch(_ACTIVITY_HELPER, side_effect=error):
+            with pytest.raises(type(error)):
                 refresh_scanner_estimate_activity(
                     RefreshScannerEstimateInputs(scanner_id=scanner.id, team_id=scanner.team_id)
                 )
+
+    def test_propagates_query_errors_when_the_linkage_resolves(self) -> None:
+        # A targeted scanner can carry a broken query filter too. When the linkage itself
+        # resolves, the failure is the query, which no launch heals, so it stays loud.
+        scanner = _make_scanner(experiment_targeting={"experiment_id": 424242, "variant": None})
+        with (
+            patch(_ACTIVITY_HELPER, side_effect=DRFValidationError("Action ID 424242 does not exist!")),
+            patch(_RESOLVE_LINKAGE, return_value=MagicMock()),
+        ):
+            with pytest.raises(DRFValidationError):
+                refresh_scanner_estimate_activity(
+                    RefreshScannerEstimateInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+                )
+
+    @parameterized.expand(
+        [
+            ("experiment_cannot_answer", DRFValidationError("This experiment hasn't launched")),
+            ("creator_lost_experiment_access", PermissionDenied("no access")),
+        ]
+    )
+    def test_reports_an_unresolvable_experiment_as_not_refreshed(self, _name: str, error: Exception) -> None:
+        # The nonexistent experiment id makes the classifier's re-resolution raise, which is the
+        # linkage-unresolved state.
+        scanner = _make_scanner(experiment_targeting={"experiment_id": 424242, "variant": None})
+        labels = {"outcome": "experiment_linkage_unresolved"}
+        before = REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) or 0.0
+
+        with patch(_ACTIVITY_HELPER, side_effect=error):
+            refreshed = refresh_scanner_estimate_activity(
+                RefreshScannerEstimateInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert refreshed is False
+        # The workflow discards the return value, so this counter is the only thing that separates a
+        # skipped scanner from a refreshed one.
+        assert REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) == before + 1
 
 
 @pytest.mark.django_db(transaction=True)

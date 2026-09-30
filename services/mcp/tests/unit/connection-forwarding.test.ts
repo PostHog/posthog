@@ -117,6 +117,27 @@ describe('posthog connection forwarding', () => {
             })
         })
 
+        it('forwards the tool intent with a forwarded request', async () => {
+            const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 200, data: {} })))
+            vi.stubGlobal('fetch', fetch)
+            const forwarding = new ForwardingApiClient(
+                new ApiClient({ apiToken: 'local-token', baseUrl: 'https://us.posthog.com' }),
+                {
+                    connectionId: '99',
+                    localProjectId: '7',
+                    target: TARGET,
+                }
+            )
+
+            await forwarding.withIntent('updating the connected project').request({
+                method: 'POST',
+                path: '/api/projects/4242/insights/',
+                body: { name: 'Updated insight' },
+            })
+
+            expect(fetch.mock.calls[0]![1].headers['x-posthog-intent']).toBe('updating the connected project')
+        })
+
         it('surfaces a status the target returned as a thrown API error', async () => {
             // The forward endpoint answers 200 whatever the target said. Without re-raising it here,
             // a tool reads the error envelope as a successful result and reports made-up data.

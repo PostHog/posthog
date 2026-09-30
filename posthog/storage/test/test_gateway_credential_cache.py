@@ -363,6 +363,33 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         project_gateway_credential(credential)
         self.assertIsNone(self._read_blob(cache_hash))
 
+    @parameterized.expand(
+        [
+            ("verified", True, True, False, True),
+            ("legacy_null", None, True, False, True),
+            ("unverified", False, True, False, False),
+            ("unverified_instance_without_email", False, False, False, True),
+            ("unverified_org_verification_disabled", False, True, True, True),
+        ]
+    )
+    def test_email_verification_gating(
+        self,
+        _name: str,
+        is_email_verified: bool | None,
+        email_available: bool,
+        verification_disabled: bool,
+        should_write: bool,
+    ):
+        credential = self._make_oauth(GATEWAY_SCOPE)
+        self.user.is_email_verified = is_email_verified
+        self.user.save()
+        with (
+            patch("posthog.api.email_verification.is_email_available", return_value=email_available),
+            patch("posthog.api.email_verification.is_email_verification_disabled", return_value=verification_disabled),
+        ):
+            project_gateway_credential(credential)
+        self.assertEqual(self._read_blob(credential_hash(credential)) is not None, should_write)
+
     def test_oauth_scoped_team_outside_fails_closed(self):
         other = Team.objects.create(organization=self.organization, name="other")
         credential = self._make_oauth(GATEWAY_SCOPE)
@@ -664,6 +691,37 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
         self.assertIsNone(self._read_blob(cache_hash))
         mock_delay.assert_not_called()  # sync clear succeeded, no async retry needed
+
+    @parameterized.expand(
+        [
+            ("becomes_verified", False, True),
+            ("becomes_unverified", True, False),
+        ]
+    )
+    @patch("posthog.api.email_verification.is_email_available", return_value=True)
+    def test_user_email_verification_change_reprojects_synchronously(
+        self, _name: str, initial: bool, new: bool, _mock_email_available
+    ):
+        self.user.is_email_verified = initial
+        self.user.save()
+        oauth = self._make_oauth(GATEWAY_SCOPE)
+        project_gateway_credential(oauth)
+        cache_hash = credential_hash(oauth)
+        self.assertEqual(self._read_blob(cache_hash) is not None, initial)
+
+        with (
+            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
+            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
+            patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay") as mock_delay,
+        ):
+            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+            mock_transaction.on_commit.side_effect = lambda fn: fn()
+            user = User.objects.get(pk=self.user.pk)
+            user.is_email_verified = new
+            user.save()
+
+        self.assertEqual(self._read_blob(cache_hash) is not None, new)
+        mock_delay.assert_not_called()  # sync reprojection succeeded, no async retry needed
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")

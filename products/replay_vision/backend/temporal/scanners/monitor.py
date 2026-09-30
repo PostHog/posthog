@@ -10,6 +10,9 @@ from products.replay_vision.backend.temporal.scanners.base import (
     BaseScannerOutput,
     Segment,
     confidence_field,
+    notability_field,
+    notability_reason_field,
+    thumbnail_field,
 )
 
 MonitorVerdict = Literal["yes", "no", "inconclusive"]
@@ -27,7 +30,10 @@ class MonitorLlmResponse(BaseModel, frozen=True):
 
     reasoning: str = Field(description=_REASONING_DESCRIPTION)
     verdict: MonitorVerdict = Field(description=_VERDICT_DESCRIPTION)
+    notability_reason: str | None = notability_reason_field()
+    notability: float | None = notability_field()
     confidence: float = confidence_field()
+    thumbnail_t: int | None = thumbnail_field()
 
 
 class MonitorOutput(BaseScannerOutput, frozen=True):

@@ -51,6 +51,8 @@ type AllowedExperimentFields = Pick<
     | 'excluded_variants'
     | 'primary_metrics_ordered_uuids'
     | 'secondary_metrics_ordered_uuids'
+    | 'archived'
+    | 'description'
 > & {
     deleted: boolean
 }
@@ -106,17 +108,19 @@ function describeExcludedVariantsChange(before: string[] | undefined, after: str
 }
 
 /**
- * Detect a pure metric reorder. Returns the description only when the two
- * arrays contain the same set of UUIDs in a different order — additions,
- * removals, and swaps are described by the `metrics` field matcher instead.
+ * Detect a metric reorder. The ordering array is a display hint, so an add or remove can leave it
+ * out of sync with the metrics, and the next drag rewrites it from the metrics on screen. Without a
+ * move, that rewrite keeps the surviving uuids in their old relative order and appends the newly
+ * listed ones, so a diff of that shape is left to the `metrics` field matcher. Repeats are ignored
+ * because display order ignores them too.
  */
 const describeMetricReorder = (before: unknown, after: unknown, description: string): string | null => {
-    const b = (before as string[] | null) ?? []
-    const a = (after as string[] | null) ?? []
-    if (equal(b, a) || !equal([...b].sort(), [...a].sort())) {
-        return null
-    }
-    return description
+    const b = [...new Set((before as string[] | null) ?? [])]
+    const a = [...new Set((after as string[] | null) ?? [])]
+    const bSet = new Set(b)
+    const aSet = new Set(a)
+    const membershipOnlyRewrite = [...b.filter((uuid) => aSet.has(uuid)), ...a.filter((uuid) => !bSet.has(uuid))]
+    return equal(membershipOnlyRewrite, a) ? null : description
 }
 
 export const getExperimentChangeDescription = (
@@ -150,6 +154,14 @@ export const getExperimentChangeDescription = (
                 }
             }
 
+            /**
+             * a start_date clear rewrites the whole row to the 'reset' activity in the backend
+             * handler, so this only renders for rows logged before that rewrite shipped
+             */
+            if (action === 'deleted') {
+                return 'reset experiment:'
+            }
+
             return 'changed the start date'
         })
         .with({ field: 'end_date' }, ({ action, before, after }) => {
@@ -158,6 +170,10 @@ export const getExperimentChangeDescription = (
              */
             if (action === 'created' && before === null && after !== null) {
                 return 'stopped experiment'
+            }
+
+            if (action === 'deleted') {
+                return 'removed the end date of'
             }
 
             return 'changed the end date'
@@ -183,8 +199,16 @@ export const getExperimentChangeDescription = (
                 )
             }
 
+            if (action === 'deleted') {
+                return 'removed the conclusion of'
+            }
+
             return 'changed the conclusion'
         })
+        .with({ field: 'archived' }, ({ after }) =>
+            after === true ? 'archived experiment:' : 'unarchived experiment:'
+        )
+        .with({ field: 'description' }, () => 'updated the description')
         .with({ field: 'metrics', action: 'created', before: null }, () => 'added the first metric to')
         .with({ field: 'metrics', action: 'changed' }, ({ before, after }) =>
             getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])

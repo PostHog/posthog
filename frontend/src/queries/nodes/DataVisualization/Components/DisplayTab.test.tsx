@@ -236,6 +236,52 @@ describe('DisplayTab', () => {
         await waitFor(() => expect(query.chartSettings?.boxPlot?.excludeOutliers).toBe(false))
     })
 
+    it('offers only the metric settings for a metric and persists them', async () => {
+        initKeaTests()
+
+        const key = 'display-tab-metric-test'
+        let query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select day, revenue from summaries',
+            },
+            display: ChartDisplayType.Metric,
+            chartSettings: { metric: { summary: 'average' } },
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            setQuery: (setter) => {
+                query = setter(query)
+            },
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const user = userEvent.setup()
+
+        expect(await screen.findByText('Headline value')).toBeInTheDocument()
+        expect(screen.queryByText('Show legend')).not.toBeInTheDocument()
+        expect(screen.queryByText('Left Y-axis')).not.toBeInTheDocument()
+        expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+
+        await user.click(screen.getByText('Show change'))
+
+        await waitFor(() => expect(query.chartSettings?.metric).toEqual({ summary: 'average', showChange: false }))
+    })
+
     it('offers scatter axis settings and drops the panels a scatter has no support for', async () => {
         initKeaTests()
 

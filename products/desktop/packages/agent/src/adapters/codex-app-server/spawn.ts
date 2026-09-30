@@ -2,9 +2,19 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import { applyContextWikiEnv } from "../../context-wiki";
-import type { ContextWikiEnv, ProcessSpawnedCallback } from "../../types";
+import {
+  applyContextWikiEnv,
+  type ContextWikiEnv,
+} from "@posthog/harness/extensions/context-wiki";
+import { tomlBasicString } from "@posthog/shared";
+import type { ProcessSpawnedCallback } from "../../types";
 import { Logger } from "../../utils/logger";
+
+export interface ChatgptAuthTokens {
+  accessToken: string;
+  chatgptAccountId?: string;
+  chatgptPlanType?: string;
+}
 
 /**
  * Host-facing codex options passed through `createAcpConnection`'s
@@ -14,9 +24,16 @@ import { Logger } from "../../utils/logger";
 export interface CodexOptions {
   cwd?: string;
   apiBaseUrl?: string;
+  apiBaseUrlInConfig?: boolean;
   apiKey?: string;
   model?: string;
   reasoningEffort?: string;
+  /**
+   * OpenAI service tier requested for every turn on the thread ("default" |
+   * "priority" | "flex"). Sent as `thread/start`'s `serviceTier`; codex drops
+   * it when the model catalogue doesn't advertise that tier for the model.
+   */
+  serviceTier?: string;
   /**
    * Static HTTP headers forwarded on every request to the PostHog gateway
    * (the codex equivalent of Claude's `ANTHROPIC_CUSTOM_HEADERS`). Carries the
@@ -33,6 +50,8 @@ export interface CodexOptions {
   binaryPath?: string;
   codexHome?: string;
   useMachineAuth?: boolean;
+  chatgptAuthTokens?: ChatgptAuthTokens;
+  refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
   /** Extra codex `-c key=value` config overrides. */
   configOverrides?: Record<string, string | number>;
   /**
@@ -49,9 +68,12 @@ export interface CodexAppServerProcessOptions {
   binaryPath: string;
   cwd?: string;
   apiBaseUrl?: string;
+  apiBaseUrlInConfig?: boolean;
   apiKey?: string;
   codexHome?: string;
   useMachineAuth?: boolean;
+  /** Pins the ChatGPT login so an ambient API key cannot take over. */
+  useChatgptAuthTokens?: boolean;
   /** Guidance appended to Codex's base prompt via `developer_instructions`. */
   developerInstructions?: string;
   /**
@@ -114,17 +136,18 @@ function getUnixProcessTreePids(rootPid: number): number[] | undefined {
   return processTreePids;
 }
 
-/** Serialize a string map as a TOML basic string (escapes `\` and `"`). */
-function tomlBasicString(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
 /** Render a `Record<string, string>` as a TOML inline table. */
 function tomlInlineTable(entries: Record<string, string>): string {
   const pairs = Object.entries(entries).map(
     ([key, value]) => `${tomlBasicString(key)} = ${tomlBasicString(value)}`,
   );
   return `{ ${pairs.join(", ")} }`;
+}
+
+const BASE_URL_ARG = "model_providers.posthog.base_url=";
+
+function redactBaseUrlArg(arg: string): string {
+  return arg.startsWith(BASE_URL_ARG) ? `${BASE_URL_ARG}"[REDACTED]"` : arg;
 }
 
 export function buildAppServerArgs(
@@ -151,7 +174,7 @@ export function buildAppServerArgs(
   args.push("-c", `otel.trace_exporter="none"`);
   args.push("-c", "otel.log_user_prompt=false");
 
-  if (options.useMachineAuth) {
+  if (options.useMachineAuth || options.useChatgptAuthTokens) {
     args.push("-c", `model_provider="openai"`);
     args.push("-c", `forced_login_method="chatgpt"`);
     args.push("-c", `history.persistence="none"`);
@@ -191,7 +214,17 @@ export function buildAppServerArgs(
   if (options.apiBaseUrl) {
     args.push("-c", `model_provider="posthog"`);
     args.push("-c", `model_providers.posthog.name="PostHog Gateway"`);
-    args.push("-c", `model_providers.posthog.base_url="${options.apiBaseUrl}"`);
+    // The loopback proxy URL carries a secret path token, and argv is readable
+    // by any local user, so a desktop session names it in CODEX_HOME instead.
+    if (options.apiBaseUrlInConfig && !options.codexHome) {
+      throw new Error("A config-held gateway base URL needs a CODEX_HOME.");
+    }
+    if (!options.apiBaseUrlInConfig) {
+      args.push(
+        "-c",
+        `model_providers.posthog.base_url=${tomlBasicString(options.apiBaseUrl)}`,
+      );
+    }
     args.push("-c", `model_providers.posthog.wire_api="responses"`);
     args.push(
       "-c",
@@ -277,7 +310,7 @@ export function spawnCodexAppServerProcess(
 
   logger.info("Spawning codex app-server process", {
     command: options.binaryPath,
-    args,
+    args: args.map(redactBaseUrlArg),
     cwd: options.cwd,
   });
 

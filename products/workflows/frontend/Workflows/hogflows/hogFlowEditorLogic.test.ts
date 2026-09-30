@@ -2,7 +2,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
+import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -76,6 +77,84 @@ describe('computeMoveEdges', () => {
         expect(result).toEqual(expected)
     })
 
+    it('inserts a step after only the nested split paths', () => {
+        const edges = [
+            edge('trigger', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('onboarding', 'shared', 'continue'),
+            edge('guided', 'shared', 'continue'),
+            edge('self-serve', 'shared', 'continue'),
+            edge('shared', 'exit', 'continue'),
+        ]
+
+        expect(
+            computeInsertEdges(edges, 'after-onboarding', 0, [
+                edge('guided', 'shared', 'continue'),
+                edge('self-serve', 'shared', 'continue'),
+                edge('onboarding', 'shared', 'continue'),
+            ])
+        ).toEqual([
+            edge('trigger', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('shared', 'exit', 'continue'),
+            edge('onboarding', 'after-onboarding', 'continue'),
+            edge('guided', 'after-onboarding', 'continue'),
+            edge('self-serve', 'after-onboarding', 'continue'),
+            edge('after-onboarding', 'shared', 'continue'),
+        ])
+    })
+
+    it('moves a step after only the nested split paths', () => {
+        const edges = [
+            edge('trigger', 'move', 'continue'),
+            edge('move', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('onboarding', 'shared', 'continue'),
+            edge('guided', 'shared', 'continue'),
+            edge('self-serve', 'shared', 'continue'),
+            edge('shared', 'exit', 'continue'),
+        ]
+        const joinEdges = [
+            edge('guided', 'shared', 'continue'),
+            edge('self-serve', 'shared', 'continue'),
+            edge('onboarding', 'shared', 'continue'),
+        ]
+
+        expect(computeMoveEdges(edges, 'move', joinEdges[0], true, joinEdges)).toEqual([
+            edge('trigger', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('shared', 'exit', 'continue'),
+            edge('onboarding', 'move', 'continue'),
+            edge('guided', 'move', 'continue'),
+            edge('self-serve', 'move', 'continue'),
+            edge('move', 'shared', 'continue'),
+        ])
+    })
+
     it('returns null when moving node has no outgoing edge', () => {
         const edges = [edge('trigger', 'A', 'continue')]
         expect(computeMoveEdges(edges, 'A', edge('trigger', 'A', 'continue'), false)).toBeNull()
@@ -95,6 +174,42 @@ describe('hogFlowEditorLogic', () => {
         initKeaTests()
         logic = hogFlowEditorLogic()
         logic.mount()
+    })
+
+    it('resolves the selected action while React Flow nodes are still laying out', () => {
+        const action = logic.values.workflow.actions[0]
+        logic.actions.setNodesRaw([])
+        logic.actions.setSelectedNodeId(action.id)
+
+        expect(logic.values.selectedNode).toMatchObject({ id: action.id, data: action })
+    })
+
+    it('duplicates a linear step below itself', () => {
+        const delay: HogFlowAction = {
+            id: 'delay',
+            name: 'Delay',
+            description: '',
+            type: 'delay',
+            created_at: 0,
+            updated_at: 0,
+            config: { delay_duration: '1d' },
+        }
+        workflowLogic().actions.setWorkflowInfo({
+            actions: [NEW_WORKFLOW.actions[0], delay, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, delay.id, 'continue'), edge(delay.id, EXIT_NODE_ID, 'continue')],
+        })
+
+        logic.actions.duplicateNodeBelow(delay.id)
+
+        const duplicatedAction = logic.values.workflow.actions.find(
+            (action) => action.id !== delay.id && action.type === delay.type
+        )
+        expect(duplicatedAction).toMatchObject({ name: delay.name, config: delay.config })
+        expect(logic.values.workflow.edges).toEqual([
+            edge(TRIGGER_NODE_ID, delay.id, 'continue'),
+            edge(delay.id, duplicatedAction!.id, 'continue'),
+            edge(duplicatedAction!.id, EXIT_NODE_ID, 'continue'),
+        ])
     })
 
     describe('conditional branch naming', () => {

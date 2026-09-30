@@ -1,49 +1,24 @@
-"""Gated, recorded transport for calls to the Vapi API."""
+"""Recorded transport for calls to the Vapi API.
 
-import hashlib
+Vapi documents no REST request limit. The limit it does enforce is concurrent call slots, which a
+request-rate budget cannot model, so these calls are recorded but not gated. The caller maps Vapi's
+own 429 to a retryable error.
+"""
+
 from typing import Any
 
 import requests
 
-from posthog.egress.limiter.policies import Priority
-from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
-from posthog.egress.vapi.limiter import consume_vapi_api_sync
-from posthog.egress.vapi.observability import record_vapi_api_exception, record_vapi_api_response
+from posthog.egress.observability.observability import scope_fingerprint
+from posthog.egress.transport.transport import RecordedEgressClient
+from posthog.egress.vapi.observability import vapi_egress
 
 
-class VapiEgressBudgetExhausted(EgressBudgetExhausted):
-    pass
+class VapiClient(RecordedEgressClient):
+    observability = vapi_egress
 
-
-class VapiClient(EgressClient):
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json", "Content-Type": "application/json"}
-
-    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return consume_vapi_api_sync(scope, priority=priority, source=source)
-
-    def _record_response(
-        self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None
-    ) -> None:
-        record_vapi_api_response(
-            response,
-            source=source,
-            scope=scope or "",
-            method=method,
-            endpoint=endpoint or "unknown",
-        )
-
-    def _record_exception(self, *, source: str, scope: str | None, method: str, url: str, endpoint: str | None) -> None:
-        record_vapi_api_exception(
-            source=source,
-            scope=scope or "",
-            method=method,
-            endpoint=endpoint or "unknown",
-            url=url,
-        )
-
-    def _budget_exhausted_error(self, scope: str) -> VapiEgressBudgetExhausted:
-        return VapiEgressBudgetExhausted("Vapi egress budget exhausted")
 
 
 _vapi_client = VapiClient()
@@ -60,14 +35,12 @@ def vapi_request(
     session: requests.Session | None = None,
     **kwargs: Any,
 ) -> requests.Response:
-    scope = hashlib.sha256(api_token.encode()).hexdigest()[:16]
     return _vapi_client.request(
         method,
         url,
         source=source,
         headers={"Authorization": f"Bearer {api_token}"},
-        scope=scope,
-        priority=Priority.CRITICAL,
+        scope=scope_fingerprint(api_token),
         endpoint=endpoint,
         timeout=timeout,
         session=session,

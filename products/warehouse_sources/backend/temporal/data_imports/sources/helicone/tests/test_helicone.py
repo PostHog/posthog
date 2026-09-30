@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -177,7 +177,7 @@ class TestRequestsRows:
         # Helicone's filter AST requires one condition per leaf, wrapped in the table name.
         assert body["filter"] == {"request_response_rmt": {"request_created_at": {"gte": "2026-06-01T12:00:00.000Z"}}}
 
-    @freeze_time("2026-06-04 12:00:00")
+    @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_first_incremental_sync_bounds_backfill_to_lookback(self) -> None:
         session = _session_returning([_response(json_body={"data": [], "error": None})])
         manager = _no_resume_manager()
@@ -214,7 +214,7 @@ class TestRequestsRows:
 
 
 class TestSessionsRows:
-    @freeze_time("2026-06-04 12:00:00")
+    @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_sends_required_params_and_pages_until_short_page(self) -> None:
         with mock.patch(f"{MODULE}.SESSIONS_PAGE_SIZE", 2):
             session = _session_returning(

@@ -30,7 +30,6 @@ export function CustomerJourneysEmptyState({ embedded }: { embedded?: boolean })
 
     return (
         <ProductIntroduction
-            productName="Customer journeys"
             thingName="journey"
             description={description}
             action={() => router.actions.push(urls.customerJourneyTemplates())}

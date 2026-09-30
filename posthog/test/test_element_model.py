@@ -120,6 +120,11 @@ class TestElement(ClickhouseTestMixin, BaseTest):
         assert element_dicts[0]["href"] == "/a-url"
         assert element_dicts[0]["attr_class"] == ["small"]
 
+    def test_chain_to_element_dicts_skips_empty_attribute_keys(self) -> None:
+        element_dicts = chain_to_element_dicts('a:="x"nth-child="0"')
+        assert element_dicts[0]["attributes"] == {}
+        assert element_dicts[0]["nth_child"] == 0
+
     def test_build_attributes_filter_caps_entry_count(self) -> None:
         many_attrs = [f"data-attr-{i}" for i in range(100)]
         matcher = build_attributes_filter(many_attrs)

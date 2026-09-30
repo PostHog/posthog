@@ -42,6 +42,7 @@ from posthog.security.pinned_requests import PinnedIPAdapter, select_pinned_ip
 from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
 
 from .client_name import sanitize_client_name, validate_client_name
+from .logo_uri import usable_logo_uri
 
 if TYPE_CHECKING:
     from posthog.models.oauth_provisioning import ProvisioningConfig
@@ -398,15 +399,9 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
         # storing a URL we would never fetch.
         metadata.pop("jwks_uri", None)
 
-    # Validate logo_uri if present: must be HTTPS and pass SSRF checks
     logo_uri = metadata.get("logo_uri")
-    if logo_uri:
-        if not isinstance(logo_uri, str) or not logo_uri.startswith("https://"):
-            metadata.pop("logo_uri", None)
-        else:
-            logo_allowed, _ = is_url_allowed(logo_uri)
-            if not logo_allowed:
-                metadata.pop("logo_uri", None)
+    if logo_uri is not None and usable_logo_uri(logo_uri) is None:
+        metadata.pop("logo_uri", None)
 
     cache_ttl = _parse_cache_ttl(response)
     return metadata, cache_ttl

@@ -4,7 +4,7 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -12,14 +12,16 @@ from parameterized import parameterized
 from temporalio.converter import JSONPlainPayloadConverter
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
-from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
+from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE, SLACK_RUN_SCOPE
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
+    CONTEXT_LAYER_INTERNAL_SCOPE,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     RESEARCH_WITHHELD_SCOPES,
+    SCOUT_GRANTABLE_INTERNAL_SCOPES,
     SCOUT_GRANTABLE_WRITE_SCOPES,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_SCOPE_PRESETS,
@@ -38,6 +40,8 @@ from posthog.temporal.oauth import (
     scout_scope_posture,
 )
 
+from products.security.backend.facade.enums import Surface as SecuritySurface
+
 _WIZARD_CLIENT_ID = "wizard-test-client-id"
 
 
@@ -52,7 +56,12 @@ class TestResolveScopes(SimpleTestCase):
 
     def test_full_preset(self) -> None:
         result = resolve_scopes("full")
-        assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES)
+        assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES + [CONTEXT_LAYER_INTERNAL_SCOPE])
+
+    def test_context_layer_write_scope_requires_organization_write(self) -> None:
+        assert CONTEXT_LAYER_INTERNAL_SCOPE not in resolve_scopes("read_only")
+        assert CONTEXT_LAYER_INTERNAL_SCOPE not in resolve_scopes(["task:write"])
+        assert CONTEXT_LAYER_INTERNAL_SCOPE in resolve_scopes(["organization:write"])
 
     def test_signals_scout_preset_adds_scout_internal_write(self) -> None:
         # `signals_scout` = `read_only` content PLUS the scout's own internal write scope
@@ -96,7 +105,13 @@ class TestResolveScopes(SimpleTestCase):
 
     def test_signals_implementation_preset_is_full_plus_the_scratchpad(self) -> None:
         result = resolve_scopes("signals_implementation")
-        assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES)
+        assert set(result) == set(
+            MCP_READ_SCOPES
+            + MCP_WRITE_SCOPES
+            + INTERNAL_SCOPES
+            + SCRATCHPAD_INTERNAL_SCOPES
+            + [CONTEXT_LAYER_INTERNAL_SCOPE]
+        )
 
     def test_scratchpad_write_reaches_scouts_and_the_pipeline_only(self) -> None:
         # Splitting the scope out of `signal_scout_internal` must not cost scouts their
@@ -148,6 +163,9 @@ class TestResolveScopes(SimpleTestCase):
                 "llm_skill:write",
                 "warehouse_view:write",
             ),
+            # The scanner grant's exclusions live in the scanner API, so the token still has to
+            # carry the whole scope object for the rest of that surface to work.
+            ("scanner_grant", "signals_scout", "replay_scanner:write", "alert:write"),
         ]
     )
     def test_scout_posture_adds_only_the_granted_write_scopes(
@@ -278,9 +296,9 @@ class TestResolveScopes(SimpleTestCase):
         assert resolve_scopes(decoded) == resolve_scopes(posture)
 
     def test_grantable_write_scopes_are_mcp_write_scopes(self) -> None:
-        # A typo or an internal scope in the allowlist would offer a person a switch that grants
-        # nothing, because the MCP server gates its tools on scopes it advertises.
-        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES)
+        # A typo would offer a person a switch that grants nothing. An internal scope is allowed only
+        # where it is listed as deliberately grantable, since those are minted server-side.
+        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES) | SCOUT_GRANTABLE_INTERNAL_SCOPES
 
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]
@@ -400,6 +418,18 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_withheld_scopes_are_dropped_after_internal_scopes_are_added(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, withhold_scopes=["llm_gateway:read"])
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert "llm_gateway:read" not in scopes
+        assert "internal_run:read" in scopes
+        assert "task:write" in scopes
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
     def test_built_in_agent_scope_is_added_without_narrowing_scopes(self) -> None:
         self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
         user, team = self._create_user_and_team()
@@ -415,6 +445,17 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         # The marker is provenance only: built-in agents keep the task tools.
         assert "task:read" in scopes
         assert "task:write" in scopes
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_slack_run_scope_is_added_without_narrowing_scopes(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, include_slack_run_scope=True)
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert SLACK_RUN_SCOPE in scopes
+        assert "task:read" in scopes
 
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):
@@ -465,6 +506,20 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         assert access_token.application_id == app.id
         assert access_token.scoped_teams == [team.id]
         assert set(access_token.scope.split()) == set(scopes)
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
+    @patch("posthog.temporal.oauth.security_shadow_check")
+    def test_mint_records_a_shadow_access_check(self, shadow: MagicMock) -> None:
+        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
+        user, team = self._create_user_and_team()
+
+        create_wizard_oauth_access_token_for_user(user, team.id)
+
+        shadow.assert_called_once()
+        subject, surface = shadow.call_args.args
+        assert surface == SecuritySurface.AI_GATEWAY
+        assert subject.organization_ids == (str(team.organization_id),)
+        assert shadow.call_args.kwargs == {"call_site": "wizard_mint"}
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_requires_existing_app(self) -> None:

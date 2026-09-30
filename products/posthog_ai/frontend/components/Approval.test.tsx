@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
 import type { PermissionRequestRecord, ToolInvocation } from '../types/streamTypes'
@@ -252,7 +252,7 @@ describe('Sandbox approval input area', () => {
             expect(snippet().textContent).toContain('"c19"')
         })
 
-        it('renders diff evidence instead of the raw payload when the tool call carries a diff', () => {
+        it('renders diff evidence instead of the raw payload when the tool call carries a diff', async () => {
             render(
                 <PermissionInput
                     streamKey="conv-1"
@@ -267,8 +267,11 @@ describe('Sandbox approval input area', () => {
                 />
             )
 
-            const diff = document.querySelector('[data-attr="monaco-diff"]')
-            expect(diff).not.toBeNull()
+            const diff = await waitFor(() => {
+                const node = document.querySelector('[data-attr="monaco-diff"]')
+                expect(node).not.toBeNull()
+                return node
+            })
             expect(diff?.getAttribute('data-original')).toBe('let a := 1')
             expect(diff?.getAttribute('data-modified')).toBe('let a := 2')
             expect(screen.getByText('+1')).toBeInTheDocument()

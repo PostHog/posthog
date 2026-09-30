@@ -438,13 +438,24 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         data = []
         days = []
         labels = []
+        reached_from_step_count = []
+        reached_to_step_count = []
         for row in summary:
             timestamp: datetime = row["timestamp"]
             data.append(row["conversion_rate"])
             hour_min_sec = " %H:%M:%S" if interval.value == "hour" else ""
             days.append(timestamp.strftime(f"%Y-%m-%d{hour_min_sec}"))
             labels.append(format_label_date(timestamp, self._date_range(), self.context.team.week_start_day))
-        return {"count": count, "data": data, "days": days, "labels": labels}
+            reached_from_step_count.append(row["reached_from_step_count"])
+            reached_to_step_count.append(row["reached_to_step_count"])
+        return {
+            "count": count,
+            "data": data,
+            "days": days,
+            "labels": labels,
+            "reached_from_step_count": reached_from_step_count,
+            "reached_to_step_count": reached_to_step_count,
+        }
 
     def _date_range(self):
         return QueryDateRange(

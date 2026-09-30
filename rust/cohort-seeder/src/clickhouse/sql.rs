@@ -160,17 +160,21 @@ fn render_blob(column: &str, alias: &str, source: &BlobSource) -> String {
 /// them all, and the untouched blob then reaches the same parse, or the same parse failure and
 /// skipped-row metric, it reaches today.
 pub fn rebuild_expr(column: &str, keys: &ProjectedKeys) -> String {
-    let key_list = keys
-        .iter()
-        .map(clickhouse_string_literal)
-        .collect::<Vec<_>>()
-        .join(", ");
+    let key_list = key_list(keys);
     format!(
         "if(JSONType({column}) != 'Object', {column}, concat('{{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.1 IN ({key_list}), JSONExtractKeysAndValuesRaw({column}))), ','), '}}'))"
     )
 }
 
-fn clickhouse_string_literal(value: &str) -> String {
+/// `keys` as a comma-separated list of string literals, for an `IN (...)` or an array literal.
+pub(crate) fn key_list(keys: &ProjectedKeys) -> String {
+    keys.iter()
+        .map(clickhouse_string_literal)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub(crate) fn clickhouse_string_literal(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len() + 2);
     escaped.push('\'');
     for character in value.chars() {
@@ -211,7 +215,7 @@ mod tests {
     use chrono_tz::UTC;
 
     use super::*;
-    use crate::domain::{Boundary, SChunkMs, SeedDomain, UtcMillis};
+    use crate::domain::{SChunkMs, SeedDomain};
 
     /// The rendered scan for a spec, wide.
     fn full_sql(spec: &ScanSpec) -> String {
@@ -243,13 +247,7 @@ mod tests {
     }
 
     fn domain() -> SeedDomain {
-        SeedDomain::new(
-            1,
-            Boundary::new(UtcMillis::new(2 * 86_400_000), UTC),
-            UTC,
-            SChunkMs(200_000_000),
-        )
-        .unwrap()
+        SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap()
     }
 
     fn spec(event_names: Vec<String>, band: BandSpec) -> ScanSpec {

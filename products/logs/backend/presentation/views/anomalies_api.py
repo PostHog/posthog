@@ -29,7 +29,6 @@ from products.logs.backend.series_bands import (
     MAX_BUCKETS_PER_SERIES,
     MAX_WINDOW_DAYS,
     MAX_WINDOW_START_AGE_DAYS,
-    MIN_BASELINE_WEEKS_FOR_BAND,
     MIN_MEAN_PER_ALIVE_BUCKET,
     SeriesBandsFetchTruncated,
     SeriesBandsWindowInvalid,
@@ -58,6 +57,13 @@ class LogsAnomalyVerdict(models.TextChoices):
 
 
 _VERDICT_CHOICES = list(LogsAnomalyVerdict.values)
+
+
+class LogsSeriesBandVerdict(models.TextChoices):
+    ABOVE = "above", "Above the band"
+    BELOW = "below", "Below the band"
+
+
 _TIER_CHOICES = ["a", "b", "c", "d"]
 _COARSENED_REASON_CHOICES = ["sparse", "quiet"]
 _CONSTRAINT_CHOICES = ["team_retention", "byte_budget"]
@@ -264,11 +270,20 @@ class LogsSeriesBandBucketSerializer(serializers.Serializer):
     observed = serializers.IntegerField(help_text="Log count observed in this bucket.")
     lower = serializers.FloatField(
         allow_null=True,
-        help_text="Lower edge of the expected band. Null while the series has too little history to band.",
+        help_text="Lower edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.",
     )
     upper = serializers.FloatField(
         allow_null=True,
-        help_text="Upper edge of the expected band. Null while the series has too little history to band.",
+        help_text="Upper edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.",
+    )
+    verdict = serializers.ChoiceField(
+        choices=LogsSeriesBandVerdict.choices,
+        allow_null=True,
+        help_text=(
+            "Where the observed count sits against the band: above when it exceeds upper, below when it falls "
+            "under lower. Null while it sits inside the band, or while the band is not ready. "
+            "An out-of-range bucket is not a confirmed incident or an alert."
+        ),
     )
 
 
@@ -286,7 +301,7 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
     baseline_weeks = serializers.IntegerField(
         help_text=(
             f"Full weeks of history behind the band, 0 to {BASELINE_WEEKS}. "
-            f"Below {MIN_BASELINE_WEEKS_FOR_BAND} the series is still learning and its buckets carry no band."
+            "Four complete weeks are required: at least two for fitting and two separate weeks for calibration."
         )
     )
     history_start = serializers.DateTimeField(
@@ -299,7 +314,9 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
     band_ready_at = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "When this series gains its band, so a learning series can count down to it. Null once the band is drawn."
+            "Earliest end of a rolling window of this length with four complete preceding weeks. "
+            "Null when the band is ready. A fixed historical window does not gain history by waiting. "
+            "Check the buckets' lower and upper values to determine whether a band is present."
         ),
     )
     interval_minutes = serializers.IntegerField(

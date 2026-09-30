@@ -375,6 +375,10 @@ class TestBingAdsSource:
             # submits a fresh report request, so this must stay retryable rather than disable the schema.
             "Failed to generate ad_group_performance_report report: ReportingDownloadException: "
             "Reporting file download tracking status timeout.",
+            # A urllib transport failure against Bing's fixed SOAP endpoint. The endpoint is not
+            # customer-configured, so a refused connection is a network blip the next attempt clears —
+            # it must stay retryable rather than report as a bug or disable the schema.
+            "Failed to fetch customer ID: URLError: <urlopen error [Errno 111] Connection refused>",
         ],
     )
     def test_transient_failures_are_retryable_not_disabling(self, error_message):
@@ -404,6 +408,7 @@ class TestBingAdsSource:
         ):
             original = BingAdsResumeConfig(next_start_date="2025-02-01", end_date="2025-06-30")
             manager.save_state(original)
+            manager.commit()
             loaded = manager.load_state()
 
         assert isinstance(loaded, BingAdsResumeConfig)

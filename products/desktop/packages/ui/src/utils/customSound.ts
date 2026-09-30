@@ -1,3 +1,9 @@
+import {
+  DURATION_TOLERANCE_MS,
+  MAX_CUSTOM_SOUND_BYTES,
+  MAX_CUSTOM_SOUND_DURATION_MS,
+} from "@posthog/core/settings/schemas";
+
 // Helpers for capturing user-installed notification sounds (live recording or
 // file import). Custom clips are stored inline as base64 data URLs in the
 // settings store, so they're deliberately short: the duration cap keeps that
@@ -5,19 +11,19 @@
 
 // Hard cap on clip length. Live recordings auto-stop here; imported files longer
 // than this are rejected.
-export const MAX_CUSTOM_SOUND_DURATION_MS = 5_000;
+export { MAX_CUSTOM_SOUND_DURATION_MS };
 
 // Backstop on the stored payload regardless of reported duration (e.g. a
 // high-bitrate import). ~1 MB of base64 sits comfortably within the settings
 // store.
-export const MAX_CUSTOM_SOUND_BYTES = 1_000_000;
+export { MAX_CUSTOM_SOUND_BYTES };
 
 // Seconds form of the duration cap, for display copy.
 export const MAX_CUSTOM_SOUND_SECONDS = MAX_CUSTOM_SOUND_DURATION_MS / 1000;
 
 // Decoded durations can read a touch over the cap (encoder rounding); allow a
 // small slack before rejecting an otherwise-fine clip.
-export const DURATION_TOLERANCE_MS = 300;
+export { DURATION_TOLERANCE_MS };
 
 // Preferred recorder containers, best first. Chromium (the Electron renderer)
 // records Opus-in-WebM; the fallbacks cover other hosts.

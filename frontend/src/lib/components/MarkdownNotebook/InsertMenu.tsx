@@ -153,6 +153,9 @@ export function InsertMenu({
                                     <span className="MarkdownNotebook__insert-item-icon">{command.icon}</span>
                                 ) : null}
                                 <span>{renderHighlightedInsertCommandLabel(command.label, query)}</span>
+                                {command.badge ? (
+                                    <span className="MarkdownNotebook__insert-item-badge">{command.badge}</span>
+                                ) : null}
                             </button>
                         ))}
                     </div>
@@ -231,7 +234,8 @@ export function buildInsertCommands(
     focusInsertedCode: (nodeId: string) => void,
     openAIPrompt?: (nodeId: string) => void,
     isAskAIDisabled?: boolean,
-    extraCommands: InsertCommand[] = []
+    extraCommands: InsertCommand[] = [],
+    openBtw?: (nodeId: string) => void
 ): InsertCommand[] {
     const commonCategory = COMMON_INSERT_COMMAND_CATEGORY
 
@@ -520,6 +524,7 @@ export function buildInsertCommands(
                 description: insertCommand.description ?? definition.description,
                 aliases: insertCommand.aliases ?? definition.aliases,
                 icon: insertCommand.icon ?? definition.icon,
+                badge: insertCommand.badge,
                 run: (targetNodeId) =>
                     insertRegisteredComponent(
                         targetNodeId,
@@ -616,6 +621,20 @@ export function buildInsertCommands(
 
     return sortProductInsertCommandsLast([
         ...aiCommands,
+        ...(openBtw
+            ? [
+                  {
+                      key: 'ai-btw',
+                      label: 'BTW',
+                      category: commonCategory,
+                      description: 'Ask a side question about this notebook',
+                      aliases: ['btw', 'by the way', 'question'],
+                      icon: <IconSparkles />,
+                      disabled: isAskAIDisabled,
+                      run: openBtw,
+                  },
+              ]
+            : []),
         ...textCommands,
         ...sqlCommands,
         ...queryCommands,

@@ -3,6 +3,8 @@ import os
 import json
 from datetime import timedelta
 
+from django.core.exceptions import ImproperlyConfigured
+
 import structlog
 from corsheaders.defaults import default_headers
 from whitenoise.compress import Compressor
@@ -41,6 +43,8 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.ai_training.backend.apps.AiTrainingConfig",
+    "products.ml_inference.backend.apps.MlInferenceConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
@@ -48,6 +52,7 @@ PRODUCTS_APPS = [
     "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
+    "products.aeo.backend.apps.AEOConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
@@ -116,14 +121,15 @@ PRODUCTS_APPS = [
     "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
     "products.data_quality.backend.apps.DataQualityConfig",
+    "products.security.backend.apps.SecurityConfig",
 ]
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     # `SimpleAdminConfig` skips Django's eager `autodiscover_modules('admin')` at
-    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called
-    # lazily via `LazyAdminRegistry` on first `admin.site._registry` access), which
-    # keeps every product/admin import out of `django.setup()`.
+    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called by
+    # the admin URL conf in `ee/urls.py`, and by `LazyAdminRegistry`), which keeps
+    # every product/admin import out of `django.setup()`.
     "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -142,6 +148,7 @@ INSTALLED_APPS = [
     "axes",
     "django_structlog",
     "drf_spectacular",
+    "drf_spectacular_sidecar",
     *PRODUCTS_APPS,
     "django_otp",
     "django_otp.plugins.otp_static",
@@ -159,6 +166,9 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
+    # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
+    # the request path. AllowIPMiddleware and axes read the IP at or after the view.
+    "posthog.middleware.ManagedProxyClientIPMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "posthog.middleware.Fix204Middleware",
@@ -174,7 +184,7 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
-    "posthog.middleware.CSPMiddleware",
+    "posthog.csp_middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
     # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
     # resolution so the /api/environments → /api/projects rewrite is in place before the
@@ -186,7 +196,6 @@ MIDDLEWARE = [
     # Must run immediately after AuthenticationMiddleware so downstream middleware
     # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
     "posthog.middleware.AdminImpersonationMiddleware",
-    "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
@@ -200,10 +209,12 @@ MIDDLEWARE = [
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
+    # Must stay after AutoProjectMiddleware, which switches the user into the organization a
+    # `/project/<id>` URL names. Ahead of it, the check judges the organization being left.
+    "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
@@ -296,8 +307,11 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.auth_allowed",
     "ee.api.authentication.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
-    # Must stay ahead of association/provisioning so a mismatched re-auth identity is rejected first
+    # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
+    "posthog.api.authentication.social_identity_matches_session",
     "posthog.api.authentication.social_reauth",
+    # Must stay ahead of associate_by_email, which links an existing account by email with no check of its own
+    "posthog.api.authentication.social_email_verified_by_provider",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
@@ -335,6 +349,10 @@ SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_
 
 # For sensitive actions we have an additional permission (default 2 hour)
 SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
+
+# Changing the login email asks for a re-auth of its own, because the 2 hour window above is wide
+# enough for a stolen session cookie to take the account over (default 5 minutes)
+SESSION_FRESH_REAUTH_AGE = get_from_env("SESSION_FRESH_REAUTH_AGE", 60 * 5, type_cast=int)
 
 SESSION_COOKIE_NAME = get_from_env("SESSION_COOKIE_NAME", "sessionid")
 CSRF_COOKIE_NAME = "posthog_csrftoken"
@@ -493,6 +511,9 @@ SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
 BILLING_EXPORT_THROTTLE_RATE = get_from_env("BILLING_EXPORT_THROTTLE_RATE", "10/minute")
 BILLING_EXPORT_CONCURRENT_STREAMS = get_from_env("BILLING_EXPORT_CONCURRENT_STREAMS", 4, type_cast=int)
 
+WIZARD_RUN_CREATE_THROTTLE_RATE = get_from_env("WIZARD_RUN_CREATE_THROTTLE_RATE", "30/hour")
+WIZARD_RUN_READ_THROTTLE_RATE = get_from_env("WIZARD_RUN_READ_THROTTLE_RATE", "120/minute")
+
 # Email domains whose signups are created already-verified (skipping the email round-trip), so
 # non-prod deploy smoke-tests can sign up and act immediately. Empty by default — prod verifies
 # every signup.
@@ -530,6 +551,12 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "OAS_VERSION": "3.1.0",
+    # drf-spectacular loads the Swagger and Redoc UIs from a public CDN by default. The app policy
+    # refuses that CDN, which leaves both pages blank, and a third-party script on this origin
+    # would run with the visitor's session. The sidecar package serves them from our static files.
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
     "SERVERS": [
         {"url": "https://us.posthog.com", "description": "PostHog Cloud US"},
         {"url": "https://eu.posthog.com", "description": "PostHog Cloud EU"},
@@ -554,10 +581,12 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": ChoicesEnumNameOverrides(
         {
             # Most enum components are named automatically: ChoicesEnumNameOverrides walks
-            # every django.db.models.Choices subclass at schema-build time and names the
-            # component after the class (EarlyAccessFeature.Stage -> EarlyAccessFeatureStageEnum),
-            # so defining choices as a TextChoices class is all a new enum needs. See
-            # posthog/openapi/enum_names.py for the derivation and its safety rules.
+            # every django.db.models.Choices subclass and every posthog.enums labeled enum at
+            # schema-build time and names the component after the class
+            # (EarlyAccessFeature.Stage -> EarlyAccessFeatureStageEnum), so defining choices as
+            # a TextChoices class, or a LabeledStrEnum in a facade contract file, is all a new
+            # enum needs. See posthog/openapi/enum_names.py for the derivation and its safety
+            # rules.
             #
             # An entry below is for a choice set no class can carry, and each group states
             # why. drf-spectacular matches an entry to fields by a hash of the exact
@@ -576,42 +605,72 @@ SPECTACULAR_SETTINGS = {
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
             # Matches tasks' LoopVisibility (personal/team).
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
-            # BatchExport.Model and BatchExportOnDemand.Model are identical.
-            "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
             # Matches Subscription frequency (daily/weekly/monthly).
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
             # Matches the messaging email channel setup provider list.
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+            # Matches the shared alerts skeleton's PlatformAlert.State.
+            "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
+            "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
+            "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
-            # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
-            "ShiftBandKindEnum": ["inserted", "deleted"],
+            # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
+            "RoleEnum": ["primary", "supporting"],
+            # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
+            "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+            # The subset a client may write. Shared by the single-issue and bulk write serializers,
+            # and `status` is too generic a field name for drf-spectacular to name a third set on it.
+            "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
+            # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
+            # class carries them. The lists are derived from those literals.
+            "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
+            "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
+            "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
+            # Every grantable scope object, from posthog/scopes.py. The frontend's APIScopeObject type
+            # derives from this enum, so the object list is never copied by hand.
+            "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
+            # signals maps a warehouse import's status down to these three. Same values as the
+            # warehouse's own SyncStatus, but that class carries different labels, so the two are
+            # distinct choice sets and this one needs its own name.
+            "SignalSourceSyncStatusEnum": ["running", "completed", "failed"],
+            "RunSourceEnum": ["manual", "signal_report", "agent"],
+            "TaskBootstrapRunSourceEnum": ["manual", "signal_report"],
+            # Completion providers are a subset of LLMProvider that excludes evaluation-only models.
+            "LLMCompletionProviderEnum": "products.ai_observability.backend.models.provider_keys.llm_completion_provider_choices",
             #
             # The same choice set is declared in more than one product. A shared Choices
             # class would cross a product boundary, so the entry names the set centrally.
             "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+            "RunEnvironmentEnum": ["local", "cloud"],
+            # claude_model_access and codex_model_access carry the same pair.
+            "ModelAccessEnum": ["posthog-gateway", "own-subscription"],
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
             # growth's identity-matching tier and the signals scout suggestion confidence.
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #
-            # The definition site is a deliberately Django-free module (facade contracts,
-            # signals taxonomy), so it cannot define a models.Choices class.
+            # The definition site is a Django-free module, and no field builds these choices from a
+            # posthog.enums labeled enum, so no name derives. The engineering_analytics fields go
+            # through DataclassSerializer, which pairs each value with the member name, not a label.
+            # The signals entries need a member order, or a name without the Enum suffix, that no
+            # class derives.
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
             "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
-            "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
-            "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
-            "LifecycleStatusEnum": "products.notebooks.backend.widget_models.WIDGET_LIFECYCLE_STATUS_CHOICES",
+            "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
+            "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
+            "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
@@ -652,6 +711,17 @@ SPECTACULAR_SETTINGS = {
                 "workflow_variable",
             ],
             "PropertyGroupTypeEnum": ["cohort", "person", "group"],
+            # ReportMetric and its snapshot-only list projection share this inline set.
+            "ReportMetricKindEnum": [
+                "affected_users",
+                "affected_sessions",
+                "occurrences",
+                "conversion_rate",
+                "error_rate",
+                "duration",
+                "revenue",
+                "custom",
+            ],
             "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
                 "default",
                 "acceptEdits",
@@ -687,6 +757,7 @@ SPECTACULAR_SETTINGS = {
             ],
             "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "DataQualityCheckSeverityEnum": ["error", "warn"],
+            "DataQualityScheduleIntervalEnum": "products.data_quality.backend.facade.enums.schedule_interval_choices",
             "CanvasStateScopeEnum": ["user", "shared"],
             "CanvasKindEnum": ["freeform", "grid", "component"],
             "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
@@ -740,6 +811,15 @@ SPECTACULAR_SETTINGS = {
                 "user_attachment",
                 "skill_bundle",
             ],
+            "ArtifactType2f0Enum": [
+                "slack_message",
+                "slack_canvas",
+                "document",
+                "spreadsheet",
+                "dashboard",
+                "file",
+                "github_pr",
+            ],
             "AdapterEnum": ["slack_message", "slack_canvas", "slack_file", "document_connector", "github_pr"],
             "ActionStepMatchingEnum": ["contains", "regex", "exact"],
             "DetailModeValueEnum": ["minimal", "detailed"],
@@ -757,6 +837,7 @@ SPECTACULAR_SETTINGS = {
             "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
             "SurveyResultsWidgetTypeEnum": ["survey_results"],
             "LogsListWidgetTypeEnum": ["logs_list"],
+            "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
         }
     ),
@@ -840,6 +921,12 @@ PROXY_USE_GATEWAY_API = get_from_env("PROXY_USE_GATEWAY_API", False, type_cast=s
 PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
+# PostHog's own (first-party) organizations, set per-region to PostHog's internal org id(s).
+# A generic allowlist for gating internal-only behaviour; today it lets these orgs register
+# reserved, PostHog-owned proxy domains (e.g. internal proxies on posthog.com). Empty by
+# default, so every such gate stays closed for other orgs unless a deployment lists an id here.
+POSTHOG_INTERNAL_ORG_IDS = get_list(get_from_env("POSTHOG_INTERNAL_ORG_IDS", ""))
+
 # Cloudflare for SaaS proxy settings
 CLOUDFLARE_PROXY_ENABLED = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
 CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
@@ -870,6 +957,14 @@ FIRECRAWL_EGRESS_PER_MINUTE_BUDGET = get_from_env("FIRECRAWL_EGRESS_PER_MINUTE_B
 FIRECRAWL_EGRESS_HOURLY_BUDGET = get_from_env("FIRECRAWL_EGRESS_HOURLY_BUDGET", 1000, type_cast=int)
 
 ####
+# TypeSafe (System One judgments from the Jev model, see posthog/egress/typesafe/)
+TYPESAFE_API_KEY = get_from_env("TYPESAFE_API_KEY", "")
+# Half of TypeSafe's published per-minute request limit, which can change without notice.
+TYPESAFE_EGRESS_PER_MINUTE_BUDGET = get_from_env("TYPESAFE_EGRESS_PER_MINUTE_BUDGET", 600, type_cast=int)
+# An operator ceiling on spend, since TypeSafe bills every input token.
+TYPESAFE_EGRESS_HOURLY_BUDGET = get_from_env("TYPESAFE_EGRESS_HOURLY_BUDGET", 20000, type_cast=int)
+
+####
 # Feature flag billing analytics
 # Used to track feature flag requests for billing purposes.
 # Named "decide" for historical reasons: the /decide endpoint was the original
@@ -889,6 +984,10 @@ REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOIN
 REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
 
+HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED = get_from_env(
+    "HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED", False, type_cast=str_to_bool
+)
+
 # Versioned posthog-js S3 bucket — enables versioned JS content serving when set
 POSTHOG_JS_S3_BUCKET = get_from_env("POSTHOG_JS_S3_BUCKET", "")
 # CDN cache control for array.js responses
@@ -907,10 +1006,16 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
-# Monthly read-bytes allowance for organizations without an active subscription,
-# enforced from the product-owned counter in posthog/api_queries_quota.py. 0 disables it.
-API_QUERIES_FREE_TIER_READ_BYTES_LIMIT: int = get_from_env(
-    "API_QUERIES_FREE_TIER_READ_BYTES_LIMIT", 50_000_000_000_000, type_cast=int
+API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR: int = get_from_env(
+    "API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR", 20_000_000_000, type_cast=int
+)
+API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 10.0, type_cast=float)
+API_QUERIES_BUDGET_CAPACITY_HOURS: float = get_from_env("API_QUERIES_BUDGET_CAPACITY_HOURS", 24.0, type_cast=float)
+API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR: float = get_from_env(
+    "API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR", 82_000.0, type_cast=float
+)
+API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR: float = get_from_env(
+    "API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR", 5_000_000_000_000.0, type_cast=float
 )
 
 ####
@@ -976,6 +1081,13 @@ HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY
 # Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
 # opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
 HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 500000))
+# Persons per page when the batch resolver enumerates a workflow audience. Each page is a separate
+# ClickHouse query, so a bigger page means fewer scans per run; the resolver inserts a page as one
+# Postgres transaction, which is why this is not unbounded.
+WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 5000))
+if WORKFLOWS_PERSON_BATCH_SIZE < 1:
+    # An empty page reports has_more, so the resolver would refetch it forever.
+    raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
@@ -1080,6 +1192,13 @@ ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACK
 
 # webhook secret used initially for ET weekly digest workflow webhook but feel free to adopt it
 WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
+
+####
+# Inbound webhook ingress (see posthog/ingress/)
+# Wall-clock seconds one request's consumers share. Providers give a delivery a short window
+# and mostly never retry it, so this sits under the tightest of those (GitHub's ten seconds)
+# and leaves room for verification and the response itself.
+INGRESS_DELIVERY_BUDGET_SECONDS = get_from_env("INGRESS_DELIVERY_BUDGET_SECONDS", 8.0, type_cast=float)
 
 ####
 # OAuth
@@ -1197,6 +1316,10 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
+# Decision model behind the preview HogQL `__preview_promptJev` function. Per environment, so a
+# different model can be measured without a code change.
+HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jevk5-fp8-0.2")
+
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
 # Parsed defensively rather than with type_cast=json.loads: that runs at settings
@@ -1207,9 +1330,10 @@ try:
 except ValueError:
     AI_GATEWAY_TEAM_TIER_OVERRIDES = {}
 
-# Wizard gateway-token mint. WIZARD_GATEWAY_MINT_KEY unset disables the endpoint
-# (404), which the CLI treats as "stay on the legacy gateway".
+# Wizard gateway-token mint. Any of the four unset refuses every mint as
+# `unconfigured`, which ends the wizard run: there is no other gateway.
 WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
+WIZARD_GATEWAY_MINT_URL = get_from_env("WIZARD_GATEWAY_MINT_URL", "")
 WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
 # OAuth application client ids allowed to mint: llm_gateway:read is an internal
 # scope on every sandbox and agent token, so the scope alone does not identify the
@@ -1225,6 +1349,32 @@ WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20"
 # is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
 WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
+# Per-posture limits, JSON {"new"|"active"|"paid": {"cap_usd", "max_cap_usd",
+# "mints_per_week", "ttl_seconds"}}, each field optional and falling back to that
+# posture's floor in wizard_gateway_token, not to the flat settings above, whose
+# cap is wider than every tier. Per-program caps, JSON {program id: cap}, replace a
+# posture's cap_usd for that program up to its max_cap_usd. Both parsed
+# defensively like AI_GATEWAY_TEAM_TIER_OVERRIDES: a malformed value must not
+# take boot down.
+# The _INVALID flags separate "operator configured nothing" from "operator
+# configured something unreadable", which the empty dict cannot express. Each
+# mint counts the second case so a malformed value is alertable, not just logged.
+WIZARD_GATEWAY_TIERS_INVALID = False
+WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = False
+try:
+    WIZARD_GATEWAY_TIERS = json.loads(get_from_env("WIZARD_GATEWAY_TIERS", "{}"))
+except ValueError:
+    # Empty means every posture keeps its in-code floor, which is the tighter
+    # reading. Logged because the operator meant to configure something.
+    logger.warning("WIZARD_GATEWAY_TIERS is not JSON, falling back to the in-code tier floors")
+    WIZARD_GATEWAY_TIERS = {}
+    WIZARD_GATEWAY_TIERS_INVALID = True
+try:
+    WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = json.loads(get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM", "{}"))
+except ValueError:
+    logger.warning("WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM is not JSON, falling back to no per-program caps")
+    WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
+    WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = True
 
 # Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
 # when normal SSRF validation rejects their private/internal address. This is an
@@ -1240,6 +1390,17 @@ try:
     )
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
+
+MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS", ""))
+
+# AEO citation-tracking POC (products/aeo). The scheduled runner only covers
+# teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
+AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
+AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
+AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
+AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+EXA_API_KEY = get_from_env("EXA_API_KEY", "")
+CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
@@ -1260,6 +1421,14 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
 
+# Weekly (7-day) event-volume floor below which a team gets neither precompute
+# reads nor warming — their live path is sub-second and always fresh, while
+# bucket builds cost more than they save. 0 disables the floor. Enforced
+# fail-open: reads fall back to precompute when the volume set is unpublished.
+WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS", 100_000, type_cast=int
+)
+
 # Dogfooding list for the precompute-backed web analytics trends path — teams
 # here take it regardless of the `web-analytics-trends-precompute` rollout flag.
 # The shared precompute enrollment gate still applies underneath.
@@ -1275,6 +1444,14 @@ WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS: list[int] = [
 # Sized well above any realistic team; 0 disables the cap.
 WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
     "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
+)
+
+WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
+    "WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY", 4, type_cast=int
+)
+
+WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE: int = get_from_env(
+    "WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE", 100, type_cast=int
 )
 
 # Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment
