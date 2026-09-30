@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 import time_machine
@@ -282,6 +283,27 @@ class TestScoutTrialReportCapture(APIBaseTest):
         self.scout_run.task_run.save(update_fields=["status"])
         assert self._emit() == report_id
         assert self.judge.call_count == calls_before_replay
+
+    @parameterized.expand(
+        [
+            ("note", {"append_note": "A second fixture confirms it."}, False),
+            ("reviewers", {"suggested_reviewers": [ReviewerInput(github_login="synthetic-reviewer")]}, False),
+            ("summary", {"summary": "A revised synthetic explanation."}, True),
+        ]
+    )
+    def test_edit_moves_updated_at_only_when_production_would(
+        self, _name: str, change: dict[str, Any], moves: bool
+    ) -> None:
+        with time_machine.travel("2026-09-01T12:00:00Z", tick=False):
+            report_id = self._emit()
+        with time_machine.travel("2026-09-01T13:00:00Z", tick=False):
+            result = edit_report_sync(team=self.team, run=self.scout_run, report_id=report_id, **change)
+        assert result.changed
+        draft = self.store.get_report(report_id)
+        assert draft is not None
+        assert datetime.fromisoformat(str(draft.document["updated_at"])) == (
+            datetime(2026, 9, 1, 13, tzinfo=UTC) if moves else datetime(2026, 9, 1, 12, tzinfo=UTC)
+        )
 
     def test_editing_production_report_does_not_change_original(self) -> None:
         original = SignalReport.objects.create(
