@@ -215,8 +215,8 @@ export interface billingLogicValues {
     billingEntryUrl: string | null
     billingError: BillingError | null
     billingLoading: boolean
-    billingManagedByPartner: string | null
     billingManagedByPartnerDisabledReason: string | null
+    billingManagedByPartnerNotice: string | null
     billingPeriodUTC: BillingPeriod
     billingPlan: BillingPlan | null
     canAccessBilling: boolean
@@ -266,6 +266,7 @@ export interface billingLogicValues {
     isActivateLicenseSubmitting: boolean
     isActivateLicenseValid: boolean
     isAnnualPlanCustomer: boolean
+    isBillingManagedByPartner: boolean
     isCreditCTAHeroDismissed: boolean
     isCreditFormSubmitting: boolean
     isCreditFormValid: boolean
@@ -645,8 +646,9 @@ export interface billingLogicMeta {
         isProductAtOrOverUsageLimit: (billing: BillingType | null) => (productKey: ProductKey) => boolean
         billingPeriodUTC: (billing: BillingType | null) => BillingPeriod
         showBillingSummary: (billing: BillingType | null, isOnboarding: boolean) => boolean
-        billingManagedByPartner: (billing: BillingType | null) => string | null
-        billingManagedByPartnerDisabledReason: (billingManagedByPartner: string | null) => string | null
+        isBillingManagedByPartner: (billing: BillingType | null) => boolean
+        billingManagedByPartnerDisabledReason: (billing: BillingType | null) => string | null
+        billingManagedByPartnerNotice: (billingManagedByPartnerDisabledReason: string | null) => string | null
         showCreditCTAHero: (
             creditOverview: {
                 cc_last_four: null
@@ -658,13 +660,13 @@ export interface billingLogicMeta {
                 invoice_url: null
                 status: string
             },
-            billingManagedByPartner: string | null
+            isBillingManagedByPartner: boolean
         ) => boolean
         showBillingHero: (
             billing: BillingType | null,
             billingPlan: BillingPlan | null,
             showCreditCTAHero: boolean,
-            billingManagedByPartner: string | null
+            isBillingManagedByPartner: boolean
         ) => boolean
         isManagedAccount: (billing: BillingType | null) => boolean
         isExternallyBilled: (billing: BillingType | null) => boolean
@@ -1219,19 +1221,29 @@ export const billingLogic = kea<billingLogicType>([
                 return !isOnboarding && !!billing?.billing_period
             },
         ],
-        billingManagedByPartner: [
+        isBillingManagedByPartner: [
             (s) => [s.billing],
-            (billing: BillingType | null): string | null => billing?.billing_managed_by_partner?.partner_name ?? null,
+            (billing: BillingType | null): boolean => !!billing?.billing_managed_by_partner,
         ],
         billingManagedByPartnerDisabledReason: [
-            (s) => [s.billingManagedByPartner],
-            (billingManagedByPartner: string | null): string | null =>
-                billingManagedByPartner
-                    ? `Billing for this organization is managed by ${billingManagedByPartner}.`
+            (s) => [s.billing],
+            (billing: BillingType | null): string | null => {
+                const partner = billing?.billing_managed_by_partner
+                if (!partner) {
+                    return null
+                }
+                return `Billing for this organization is managed by ${partner.partner_name.trim() || 'your partner'}.`
+            },
+        ],
+        billingManagedByPartnerNotice: [
+            (s) => [s.billingManagedByPartnerDisabledReason],
+            (billingManagedByPartnerDisabledReason: string | null): string | null =>
+                billingManagedByPartnerDisabledReason
+                    ? `${billingManagedByPartnerDisabledReason} Contact them to change your plan or payment details.`
                     : null,
         ],
         showCreditCTAHero: [
-            (s) => [s.creditOverview, s.billingManagedByPartner],
+            (s) => [s.creditOverview, s.isBillingManagedByPartner],
             (
                 creditOverview: {
                     cc_last_four: null
@@ -1243,24 +1255,24 @@ export const billingLogic = kea<billingLogicType>([
                     invoice_url: null
                     status: string
                 },
-                billingManagedByPartner: string | null
+                isBillingManagedByPartner: boolean
             ): boolean => {
                 const isEligible = creditOverview.eligible
-                return !billingManagedByPartner && isEligible && creditOverview.status !== 'paid'
+                return !isBillingManagedByPartner && isEligible && creditOverview.status !== 'paid'
             },
         ],
         showBillingHero: [
-            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero, s.billingManagedByPartner],
+            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero, s.isBillingManagedByPartner],
             (
                 billing: BillingType | null,
                 billingPlan: BillingPlan | null,
                 showCreditCTAHero: boolean,
-                billingManagedByPartner: string | null
+                isBillingManagedByPartner: boolean
             ): boolean => {
                 const platformAndSupportProduct = billing?.products?.find(
                     (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
                 )
-                return !!billingPlan && !!platformAndSupportProduct && !showCreditCTAHero && !billingManagedByPartner
+                return !!billingPlan && !!platformAndSupportProduct && !showCreditCTAHero && !isBillingManagedByPartner
             },
         ],
         isManagedAccount: [
@@ -1587,7 +1599,8 @@ export const billingLogic = kea<billingLogicType>([
                 const { title, message } = buildUsageLimitReachedMessage(
                     productsAtOrOverLimit,
                     values.canAccessBilling,
-                    values.minimumBillingAccessLevel
+                    values.minimumBillingAccessLevel,
+                    values.billingManagedByPartnerNotice
                 )
 
                 actions.setBillingAlert({

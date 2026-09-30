@@ -10,7 +10,7 @@
 export type BillingOverviewResponseApiProductsItem = { [key: string]: unknown }
 
 export interface BillingManagedByPartnerApi {
-    /** Name of the partner that pays for this organization. */
+    /** Name of the partner that pays for this organization. Can be empty. */
     partner_name: string
 }
 
@@ -62,7 +62,7 @@ export interface BillingOverviewResponseApi {
     account_owner?: unknown
     customer_trust_scores?: unknown
     never_drop_data?: boolean
-    /** Set when a provisioning partner pays for this organization. Self-serve subscription and payment changes are refused while it is set. Null otherwise. */
+    /** Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise. */
     billing_managed_by_partner: BillingManagedByPartnerApi | null
 }
 
@@ -1150,6 +1150,8 @@ export interface BillingSubscriptionApi {
     billing_portal_url: string
     invoices_url?: string
     license: LicenseApi
+    /** Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise. */
+    billing_managed_by_partner: BillingManagedByPartnerApi | null
 }
 
 export interface UsageKeySummaryApi {

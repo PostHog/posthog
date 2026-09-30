@@ -145,10 +145,10 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
     }),
     listeners(({ actions, values }) => ({
         startPaymentEntryFlow: async ({ product, redirectPath }) => {
-            const { billing, billingManagedByPartnerDisabledReason } = billingLogic.values
+            const { billing, billingManagedByPartnerNotice } = billingLogic.values
 
-            if (billingManagedByPartnerDisabledReason) {
-                lemonToast.info(billingManagedByPartnerDisabledReason)
+            if (billingManagedByPartnerNotice) {
+                lemonToast.info(billingManagedByPartnerNotice)
                 return
             }
 

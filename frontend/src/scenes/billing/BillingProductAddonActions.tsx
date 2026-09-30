@@ -252,7 +252,10 @@ export const BillingProductAddonActions = ({
                 overlay={
                     <LemonButton
                         fullWidth
-                        disabledReason={switchPlanLoading ? 'Switching plans...' : undefined}
+                        disabledReason={
+                            billingManagedByPartnerDisabledReason ||
+                            (switchPlanLoading ? 'Switching plans...' : undefined)
+                        }
                         onClick={() => {
                             reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'downgrade')
                             showConfirmDowngradeModal()

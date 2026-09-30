@@ -121,12 +121,8 @@ describe('paymentEntryLogic', () => {
     })
 
     describe('startPaymentEntryFlow — billing managed by a partner', () => {
-        it.each([
-            { name: 'returning customer', customer: { customer_id: 'cus_test' } },
-            { name: 'new customer', customer: {} },
-        ])('neither activates nor opens the payment modal for a $name', async ({ customer }) => {
+        it('neither activates nor opens the payment modal', async () => {
             await seedBilling({
-                ...customer,
                 subscription_level: 'free',
                 billing_managed_by_partner: { partner_name: 'Example Partner' },
             })

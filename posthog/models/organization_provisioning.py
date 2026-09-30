@@ -45,7 +45,11 @@ class OrganizationProvisioning(models.Model):
         ]
 
 
-def get_paying_partner(organization: "Organization") -> OAuthApplication | None:
+def get_billing_lock_partner(organization: "Organization") -> OAuthApplication | None:
+    # customer_id is the organization's own Stripe customer, synced from billing. An organization
+    # that already has one keeps paying for itself, and keeps self-serve billing to manage it.
+    if organization.customer_id:
+        return None
     return OAuthApplication.objects.filter(
         provisioned_organizations__organization=organization,
         _provisioning_config__pays_for_customers=True,

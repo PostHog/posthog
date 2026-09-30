@@ -74,6 +74,7 @@ export const BillingManagedByPartner: Story = {
             get: {
                 '/api/billing/': {
                     ...billingUnsubscribedJson,
+                    customer_id: '',
                     billing_managed_by_partner: { partner_name: 'Example Partner' },
                 },
             },

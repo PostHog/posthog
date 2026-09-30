@@ -102,7 +102,7 @@ export interface payGateMiniLogicMeta {
             billing: BillingType | null
         ) => boolean
         ctaDisabledReason: (
-            gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+            isPaymentEntryFlow: boolean,
             billingManagedByPartnerDisabledReason: string | null
         ) => string | null
     }
@@ -304,11 +304,9 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             },
         ],
         ctaDisabledReason: [
-            (s) => [s.gateVariant, s.billingManagedByPartnerDisabledReason],
-            (
-                gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
-                billingManagedByPartnerDisabledReason: string | null
-            ): string | null => (gateVariant === 'add-card' ? billingManagedByPartnerDisabledReason : null),
+            (s) => [s.isPaymentEntryFlow, s.billingManagedByPartnerDisabledReason],
+            (isPaymentEntryFlow: boolean, billingManagedByPartnerDisabledReason: string | null): string | null =>
+                isPaymentEntryFlow ? billingManagedByPartnerDisabledReason : null,
         ],
     })),
 ])

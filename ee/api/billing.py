@@ -32,7 +32,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.models.organization_provisioning import get_paying_partner
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
@@ -40,7 +40,7 @@ from posthog.utils import generate_short_id, get_trusted_client_ip, relative_dat
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session
+from ee.billing.billing_manager import BillingManager, http_session, raise_if_billing_managed_by_partner
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.billing.grants import (
     BILLING_LIMIT_TODAYS_USAGE_KEYS,
@@ -264,14 +264,14 @@ class HasBillingUsageSpendReadAccess(permissions.BasePermission):
 class BillingNotManagedByPartner(permissions.BasePermission):
     def has_permission(self, request: Request, view: Any) -> bool:
         organization = view._get_org()
-        partner = get_paying_partner(organization) if organization else None
-        if partner is None:
-            return True
-        self.message = (
-            f"Billing for this organization is managed by {partner.name}. "
-            f"Contact {partner.name} to change your plan or payment details."
-        )
-        return False
+        if organization is not None:
+            raise_if_billing_managed_by_partner(organization)
+        return True
+
+
+def billing_managed_by_partner(organization: Organization | None) -> dict[str, str] | None:
+    partner = get_billing_lock_partner(organization) if organization else None
+    return {"partner_name": partner.name} if partner else None
 
 
 class BillingSerializer(serializers.Serializer):
@@ -280,7 +280,15 @@ class BillingSerializer(serializers.Serializer):
 
 
 class BillingManagedByPartnerSerializer(serializers.Serializer):
-    partner_name = serializers.CharField(help_text="Name of the partner that pays for this organization.")
+    partner_name = serializers.CharField(
+        allow_blank=True, help_text="Name of the partner that pays for this organization. Can be empty."
+    )
+
+
+BILLING_MANAGED_BY_PARTNER_HELP_TEXT = (
+    "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of "
+    "its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise."
+)
 
 
 @extend_schema_serializer(many=False)
@@ -323,11 +331,7 @@ class BillingOverviewResponseSerializer(serializers.Serializer):
     customer_trust_scores = serializers.JSONField(required=False)
     never_drop_data = serializers.BooleanField(required=False)
     billing_managed_by_partner = BillingManagedByPartnerSerializer(
-        allow_null=True,
-        help_text=(
-            "Set when a provisioning partner pays for this organization. Self-serve subscription and payment "
-            "changes are refused while it is set. Null otherwise."
-        ),
+        allow_null=True, help_text=BILLING_MANAGED_BY_PARTNER_HELP_TEXT
     )
 
 
@@ -723,8 +727,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if account_url:
                 response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
 
-        paying_partner = get_paying_partner(org) if org else None
-        response["billing_managed_by_partner"] = {"partner_name": paying_partner.name} if paying_partner else None
+        response["billing_managed_by_partner"] = billing_managed_by_partner(org)
 
         return Response(response)
 
