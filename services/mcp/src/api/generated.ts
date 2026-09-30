@@ -21741,10 +21741,10 @@ export namespace Schemas {
      * * `week` - Week
      * * `month` - Month
      */
-    export type SpaceGoalPeriodEnum = typeof SpaceGoalPeriodEnum[keyof typeof SpaceGoalPeriodEnum];
+    export type SpaceGoalWritePeriodEnum = typeof SpaceGoalWritePeriodEnum[keyof typeof SpaceGoalWritePeriodEnum];
 
 
-    export const SpaceGoalPeriodEnum = {
+    export const SpaceGoalWritePeriodEnum = {
       Day: 'day',
       Week: 'week',
       Month: 'month',
@@ -21776,7 +21776,7 @@ export namespace Schemas {
        * * `day` - Day
        * * `week` - Week
        * * `month` - Month */
-      period?: SpaceGoalPeriodEnum;
+      period?: SpaceGoalWritePeriodEnum;
       /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
        *
        * * `at_least` - At least
