@@ -36,6 +36,7 @@ import {
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
+import { ScoutStructuredOutputSection } from './ScoutStructuredOutputSection'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
 import { ScoutWriteAccessSection } from './ScoutWriteAccessSection'
 
@@ -331,6 +332,7 @@ export function ScoutConfigForm({
                 // Editable while the scout is disabled, for the same reason as the MCP selection.
                 disabledReason={updating ? 'Saving scout settings' : undefined}
             />
+            <ScoutStructuredOutputSection config={config} onUpdate={onUpdate} updating={updating} />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}
