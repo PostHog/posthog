@@ -1101,6 +1101,10 @@ def _create_run_row(
     # and deleting it nulls `scout_config`. Reports this run authors keep their background origin.
     if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND:
         metadata["managed_by"] = config.managed_by
+        # The band that sampled the project, so each band's pilot reads on its own. Absent for a
+        # hand-picked `team_ids` project.
+        if config.background_band is not None:
+            metadata["background_band"] = config.background_band
     # Dispatch-time snapshot of the structured-output contract. The prompt renders this exact
     # schema, so the record endpoint validates against the snapshot rather than the live config
     # value — a mid-run schema edit must not reject records that match what the run was shown.
@@ -1504,6 +1508,8 @@ def _attach_run_shape_props(
     properties["github_guidance"] = github_guidance
     properties["business_knowledge_maintained"] = business_knowledge_maintained
     properties["managed_by"] = config.managed_by
+    if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND and config.background_band is not None:
+        properties["background_band"] = config.background_band
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         properties["network_access"] = config.network_access
     if granted_write_scopes := _granted_write_scopes(config):
