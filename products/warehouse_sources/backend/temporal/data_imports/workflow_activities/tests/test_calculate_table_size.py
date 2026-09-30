@@ -132,6 +132,27 @@ class TestCalculateTableSizeActivity:
                 )
         assert not isinstance(exc_info.value, NonReportableError)
 
+    def test_reraises_transient_object_store_blip_as_non_reportable(self, tmp_path: Path) -> None:
+        # Opening the Delta log (_live_delta_size_mib) can hit a transient object-store blip talking
+        # to our own bucket (dropped connection, IMDS/STS hiccup) - delta-rs surfaces it as a bare
+        # OSError naming the object-store crate, not this worker's fd table. That used to fall
+        # through to the same `raise` as an unrelated OSError and reach error tracking as a fresh bug
+        # on every occurrence, even though a retry recovers on its own.
+        team = _team()
+        schema, _table, job = _schema_table_job(
+            team, table_format="DeltaS3Wrapper", queryable_folder="stripe_charge__query_a"
+        )
+
+        with (
+            override_settings(BUCKET_URL=str(tmp_path)),
+            patch(f"{_DELTA_TABLE_MODULE}.delta_storage_options", return_value={}),
+            patch("deltalake.DeltaTable", side_effect=OSError("Generic S3 error: connection reset")),
+        ):
+            with pytest.raises(NonReportableError):
+                calculate_table_size_activity(
+                    CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
+                )
+
     def test_reads_the_size_of_the_live_files_from_the_delta_log(self, tmp_path: Path) -> None:
         # An S3 listing of the query folder pages through every object and takes minutes on a large
         # table. The Delta log already carries the size of each live file, and the query folder holds
