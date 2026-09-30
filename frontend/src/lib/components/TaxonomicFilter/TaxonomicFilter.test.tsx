@@ -252,6 +252,9 @@ describe('TaxonomicFilter', () => {
                                     id: 'virt-pathname',
                                     name: '$pathname',
                                     virtual: true,
+                                    // Virtual properties have no seen flag, so this is the value the
+                                    // backend sends. The `!virtual` guard is what suppresses the tag.
+                                    is_seen_on_filtered_events: false,
                                 },
                                 {
                                     ...mockEventPropertyDefinition,
