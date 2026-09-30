@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -60,6 +60,31 @@ export const AIPropertyPicker: Story = {
         await userEvent.click(await page.findByRole('menuitem', { name: 'ai_events property' }))
         await userEvent.type(await page.findByPlaceholderText('Search by name…'), 'output')
         await page.findByRole('button', { name: 'output_choices ($ai_output_choices)' })
+    },
+}
+
+export const SavingAIPropertyRule: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                post: {
+                    '/api/projects/:id/property_access_controls/': () => new Promise<never>(() => {}),
+                },
+            },
+        },
+    },
+    play: async (context) => {
+        await AIPropertyPicker.play?.(context)
+        const page = within(document.body)
+        await userEvent.click(await page.findByRole('button', { name: 'output ($ai_output)' }))
+        const dialog = within(page.getByRole('dialog'))
+        const save = dialog.getByRole('button', { name: 'Add rule' })
+        await waitFor(() => {
+            if (save.getAttribute('aria-disabled') === 'true') {
+                throw new Error('Waiting for property selection')
+            }
+        })
+        await userEvent.click(save)
     },
 }
 

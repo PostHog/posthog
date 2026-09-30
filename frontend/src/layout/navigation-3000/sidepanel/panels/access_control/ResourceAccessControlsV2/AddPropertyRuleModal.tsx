@@ -39,6 +39,7 @@ export function AddPropertyRuleModal({
         <LemonModal
             isOpen={isOpen}
             onClose={closeModal}
+            closable={!ruleSaving}
             title="Add property rule"
             description={
                 scopeType === 'default'
@@ -47,7 +48,7 @@ export function AddPropertyRuleModal({
             }
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={closeModal}>
+                    <LemonButton type="secondary" onClick={closeModal} disabled={ruleSaving}>
                         Cancel
                     </LemonButton>
                     <LemonButton

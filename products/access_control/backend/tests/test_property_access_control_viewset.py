@@ -6,7 +6,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PropertyDefinition, User
+from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.presentation.serializers import PropertyAccessControlUpdateSerializer
@@ -89,29 +89,101 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
             == status.HTTP_204_NO_CONTENT
         )
 
-    @parameterized.expand([(True,), (False,)])
-    def test_ai_rule_reuses_existing_definition_and_preserves_other_rules(self, legacy_definition: bool) -> None:
+    @parameterized.expand(
+        [
+            (False, "current"),
+            (True, "current"),
+            (False, "sibling"),
+            (True, "sibling"),
+            (True, "secondary"),
+        ]
+    )
+    def test_ai_rule_reuses_existing_definition_and_preserves_other_rules(
+        self, legacy_definition: bool, environment: str
+    ) -> None:
+        target_team = (
+            self.team
+            if environment == "current"
+            else Team.objects.create(organization=self.organization, project_id=self.team.project_id)
+        )
+        definition_team = target_team if environment == "secondary" else self.team
+        url = f"/api/environments/{target_team.pk}/property_access_controls/"
         definition = PropertyDefinition.objects.create(
-            team=self.team,
+            team=definition_team,
             project_id=None if legacy_definition else self.team.project_id,
             name="$ai_input",
             type=PropertyDefinition.Type.EVENT,
             property_type="String",
         )
         member_rule = PropertyAccessControl.objects.create(
-            team=self.team,
+            team=definition_team,
             property_definition=definition,
             organization_member=self.organization_membership,
             access_level="read",
         )
-        response = self.client.post(self.url, {"ai_property": "$ai_input", "access_level": "none"}, format="json")
+        original_rule = PropertyAccessControl.objects.create(
+            team=definition_team, property_definition=definition, access_level="read"
+        )
+        response = self.client.post(url, {"ai_property": "$ai_input", "access_level": "none"}, format="json")
         assert response.status_code == status.HTTP_200_OK
-        assert PropertyAccessControl.objects.get(id=response.json()["id"]).property_definition_id == definition.id
+        rule = PropertyAccessControl.objects.get(id=response.json()["id"])
+        assert rule.property_definition_id == definition.id
+        assert rule.team_id == target_team.id
+        assert self.client.get(f"{url}?property_definition_id={definition.id}").json()["default_access_level"] == "none"
+        assert get_restricted_property_names(
+            team_id=target_team.id, user=None, property_type=PropertyDefinition.Type.EVENT
+        ) == {"$ai_input"}
+
+        updated = self.client.post(
+            url, {"property_definition_id": str(definition.id), "access_level": "read"}, format="json"
+        )
+        assert updated.status_code == status.HTTP_200_OK
+        assert updated.json()["id"] == response.json()["id"]
+        assert self.client.get(f"{url}?property_definition_id={definition.id}").json()["default_access_level"] == "read"
+        assert (
+            self.client.delete(f"{url}?property_definition_id={definition.id}").status_code
+            == status.HTTP_204_NO_CONTENT
+        )
+        assert not PropertyAccessControl.objects.filter(id=rule.id).exists()
+        if environment == "sibling":
+            original_rule.refresh_from_db()
+            assert original_rule.access_level == "read"
+
         definition.refresh_from_db()
         member_rule.refresh_from_db()
         assert definition.property_type == "String"
         assert member_rule.access_level == "read"
-        assert PropertyDefinition.objects.filter(team=self.team, name="$ai_input").count() == 1
+        assert PropertyDefinition.objects.filter(team__project_id=self.team.project_id, name="$ai_input").count() == 1
+
+    @parameterized.expand([(True,), (False,)])
+    def test_property_rule_rejects_definition_from_another_project(self, legacy_definition: bool) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        definition = PropertyDefinition.objects.create(
+            team=other_team,
+            project_id=None if legacy_definition else other_team.project_id,
+            name="$ai_input",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        rule = PropertyAccessControl.objects.create(
+            team=other_team, property_definition=definition, access_level="none"
+        )
+        assert (
+            self.client.get(f"{self.url}?property_definition_id={definition.id}").status_code
+            == status.HTTP_404_NOT_FOUND
+        )
+        assert (
+            self.client.post(
+                self.url, {"property_definition_id": str(definition.id), "access_level": "read"}, format="json"
+            ).status_code
+            == status.HTTP_404_NOT_FOUND
+        )
+        assert (
+            self.client.delete(f"{self.url}?property_definition_id={definition.id}").status_code
+            == status.HTTP_404_NOT_FOUND
+        )
+        rule.refresh_from_db()
+        assert rule.access_level == "none"
+        assert not PropertyAccessControl.objects.filter(team=self.team, property_definition=definition).exists()
 
     def test_unknown_ai_property_does_not_create_definition(self) -> None:
         response = self.client.post(self.url, {"ai_property": "input", "access_level": "none"}, format="json")
