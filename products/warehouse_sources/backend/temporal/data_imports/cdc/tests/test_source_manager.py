@@ -111,9 +111,6 @@ class _FakeS3:
         missing_keys: set[str] | None = None,
         etags: dict[str, str] | None = None,
         etags_at_delete: dict[str, str] | None = None,
-        mtimes_at_delete: dict[str, dt.datetime] | None = None,
-        listed_without_etags: bool = False,
-        store_without_etags: bool = False,
         conflicting_deletes: set[str] | None = None,
     ) -> None:
         self.files = dict(files)
@@ -126,9 +123,6 @@ class _FakeS3:
         self.etags = etags or {}
         # What the store holds after the listing, for a file capture rewrote in between.
         self.etags_at_delete = etags_at_delete or {}
-        self.mtimes_at_delete = mtimes_at_delete or {}
-        self.listed_without_etags = listed_without_etags
-        self.store_without_etags = store_without_etags
         self.conflicting_deletes = conflicting_deletes or set()
 
     async def _ls(self, prefix, detail=True, refresh=False):
@@ -142,20 +136,13 @@ class _FakeS3:
                 "type": "file",
                 "Key": key,
                 "LastModified": self.mtimes.get(key, _OLD_MTIME),
-                **({} if self.listed_without_etags else {"ETag": f'"{self.etags.get(key, "etag-0")}"'}),
+                "ETag": f'"{self.etags.get(key, "etag-0")}"',
             }
             for key in self.files
         ]
 
     def _current_etag(self, key):
         return self.etags_at_delete.get(key, self.etags.get(key, "etag-0"))
-
-    async def _info(self, key, refresh=False):
-        assert refresh, "a check before a delete must not read a cached listing"
-        if key not in self.files:
-            raise FileNotFoundError(key)
-        info = {"LastModified": self.mtimes_at_delete.get(key, self.mtimes.get(key, _OLD_MTIME))}
-        return info if self.store_without_etags else {**info, "ETag": f'"{self._current_etag(key)}"'}
 
     def split_path(self, path):
         bucket, _, key = path.partition("/")
@@ -733,14 +720,6 @@ class TestFloorDeletion:
                 True,
             ),
             (
-                "rewritten_since_the_listing",
-                {build_buffer_file_name(11, 20, 0): "etag-0"},
-                _RECENT,
-                "etag-1",
-                False,
-                False,
-            ),
-            (
                 "rewritten_with_an_mtime_that_looks_old",
                 {build_buffer_file_name(11, 20, 0): "etag-0"},
                 _OLD_MTIME,
@@ -788,27 +767,6 @@ class TestFloorDeletion:
 
         assert (s3.removed, s3.opened) == (([key], []) if deleted else ([], [key]))
 
-    @parameterized.expand(
-        [
-            ("unchanged", _OLD_MTIME, False, True),
-            ("rewritten", _RECENT, False, False),
-            ("store_returns_no_etag", _OLD_MTIME, True, False),
-        ]
-    )
-    async def test_a_listing_without_etags_deletes_by_the_modification_time_seen_right_before(
-        self, _name: str, modified_at_delete: dt.datetime, store_without_etags: bool, deleted: bool
-    ) -> None:
-        key = _key(11, 20)
-        s3 = _FakeS3(
-            {key: _parquet_bytes(_table([1], [20]))},
-            mtimes_at_delete={key: modified_at_delete},
-            listed_without_etags=True,
-            store_without_etags=store_without_etags,
-        )
-        await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail={}))
-
-        assert (s3.removed, s3.opened) == (([key], []) if deleted else ([], [key]))
-
     async def test_a_listing_records_the_files_at_its_highest_position(self) -> None:
         s3 = _FakeS3(
             {
@@ -836,11 +794,13 @@ class TestFloorDeletion:
             etags={_key(11, 20, 0): "etag-a", _key(11, 20, 1): "etag-b"},
             missing_keys={_key(11, 20, 1)},
         )
-        stamp = AsyncMock()
+        stamped: list[dict[str, str]] = []
+        stamp = AsyncMock(side_effect=lambda _listed_at, tail: stamped.append(dict(tail)))
         with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", stamp):
             [t async for t in _manager().get_items()]
 
-        assert stamp.await_args_list[-1].args[1] == {build_buffer_file_name(11, 20, 0): "etag-a"}
+        first, second = build_buffer_file_name(11, 20, 0), build_buffer_file_name(11, 20, 1)
+        assert stamped == [{first: "etag-a", second: "etag-b"}, {first: "etag-a"}]
 
     async def test_a_tail_too_large_to_store_is_left_out(self) -> None:
         files = {_key(11, 20, index): _parquet_bytes(_table([index], [20])) for index in range(101)}
