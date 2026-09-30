@@ -26,6 +26,7 @@ ee/clickhouse
 products/ai_observability/backend/tests/logic/traces
 products/cohorts
 products/customer_analytics/backend/hogql_queries
+products/customer_analytics/backend/test/test_membership_deletion.py
 products/error_tracking/backend/hogql_queries
 products/experiments
 products/marketing_analytics/backend/hogql_queries

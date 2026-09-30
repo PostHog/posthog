@@ -202,6 +202,8 @@ def _paginated_get_distinct_ids_for_person(
     team_id: int,
     person_id: int,
     page_size: int = 5000,
+    *,
+    read_options: ReadOptions | None = None,
 ) -> list[DistinctIdForPerson]:
     """Fetch all distinct IDs for a single person using keyset pagination."""
     client = _get_client()
@@ -214,6 +216,7 @@ def _paginated_get_distinct_ids_for_person(
             person_id=person_id,
             limit=page_size,
             cursor_id=cursor_id,
+            read_options=read_options,
         )
 
         resp = client.get_distinct_ids_for_person(request)
