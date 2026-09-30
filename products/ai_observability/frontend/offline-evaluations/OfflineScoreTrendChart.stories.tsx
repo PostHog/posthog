@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, waitFor } from '@testing-library/react'
+import { fireEvent, waitFor } from '@testing-library/dom'
 
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
 import { OFFLINE_STORY_POINTS, makeOfflineHistoryPoint } from './offlineScoreTrends.fixtures'

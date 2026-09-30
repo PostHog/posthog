@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, waitFor } from '@testing-library/react'
+import { fireEvent, waitFor } from '@testing-library/dom'
 
 import { playHoverAtFraction } from '@posthog/quill-charts/story-helpers'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -21,8 +22,8 @@ const meta: Meta<typeof OfflineExperimentsOverview> = {
         featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
     },
     decorators: [
-        (Story) => (
-            <div className="@container/main-content">
+        (Story, { parameters }) => (
+            <div className={cn('@container/main-content', parameters.narrow ? 'w-[520px]' : 'w-[1100px]')}>
                 <Story />
             </div>
         ),
@@ -119,7 +120,7 @@ export const SynchronizedHover: Story = {
                     throw new Error('The hover guides must mark the same time, even with missing experiments')
                 }
             })
-            fireEvent.mouseLeave(chart)
+            fireEvent.mouseOut(chart, { relatedTarget: canvasElement })
             await waitFor(() => {
                 if (canvasElement.querySelector('[data-attr="offline-score-crosshair"]')) {
                     throw new Error('The hover guides must clear when the pointer leaves')
@@ -130,21 +131,15 @@ export const SynchronizedHover: Story = {
     },
 }
 export const Narrow: Story = {
-    decorators: [
-        (Story) => (
-            <div className="@container/main-content w-[520px]">
-                <Story />
-            </div>
-        ),
-    ],
+    parameters: { narrow: true },
 }
 export const PartialHistoryNarrow: Story = {
     ...PartialHistory,
-    decorators: [PartialHistory.decorators, Narrow.decorators].flat().filter((decorator) => !!decorator),
+    parameters: { ...PartialHistory.parameters, ...Narrow.parameters },
 }
 export const SynchronizedHoverNarrow: Story = {
     ...SynchronizedHover,
-    decorators: [SynchronizedHover.decorators, Narrow.decorators].flat().filter((decorator) => !!decorator),
+    parameters: { ...SynchronizedHover.parameters, ...Narrow.parameters },
 }
 export const AllTimeSynchronizedHover: Story = {
     ...SynchronizedHover,
@@ -176,6 +171,7 @@ export const AllTimeSynchronizedHover: Story = {
 export const FilteredTrends: Story = {
     ...Narrow,
     parameters: {
+        ...Narrow.parameters,
         pageUrl: `${urls.aiObservabilityOfflineEvaluations()}?scores=${overviewScorers[0].id}&date_from=-7d&run_source=ci&statuses=completed`,
     },
 }
@@ -195,7 +191,7 @@ export const Empty: Story = {
 }
 export const EmptyNarrow: Story = {
     ...Empty,
-    decorators: [Empty.decorators, Narrow.decorators].flat().filter((decorator) => !!decorator),
+    parameters: { ...Empty.parameters, ...Narrow.parameters },
 }
 export const NoMatchingExperiments: Story = {
     parameters: { pageUrl: `${urls.aiObservabilityOfflineEvaluations()}?scores=&run_source=local` },
@@ -263,5 +259,6 @@ export const MultipleVersions: Story = {
     ],
 }
 export const MultipleVersionsNarrow: Story = {
-    decorators: [MultipleVersions.decorators, Narrow.decorators].flat().filter((decorator) => !!decorator),
+    ...MultipleVersions,
+    parameters: { ...MultipleVersions.parameters, ...Narrow.parameters },
 }
