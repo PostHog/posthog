@@ -10,10 +10,11 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - The `wait-for-handoff` job waits for GitHub Actions to hand the event off and exposes
 #   `handed_off`, true only when GitHub Actions handed the tests to this engine. Canonical's
-#   `Django Tests Pass` gate then relays this workflow's gate verdict. Neither the hand-off
-#   job nor the relay has a counterpart here. A GitHub rerun does not restart this workflow,
-#   so the relay's failure log prints the `depot ci` commands that retry it, and the label
-#   that sends the PR back to GitHub Actions. It also prints each failed step and its log
+#   `Django Tests Pass` gate then relays this workflow's gate verdict. Its first step posts the
+#   `Depot run started` check that canonical's router waits for. Neither the router, the
+#   hand-off job, nor the relay has a counterpart here. A GitHub rerun does not restart this
+#   workflow, so the relay's failure log prints the `depot ci` commands that retry it, and the
+#   label that sends the PR back to GitHub Actions. It also prints each failed step and its log
 #   lines, read with `depot ci diagnose`, because Depot's own checks carry no output.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
 # - turbo-discover adds the `origin` remote before its history fetch when it is missing.
@@ -253,6 +254,19 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
                   permission-checks: write
+            # .github/scripts/ci_backend_route.py waits for this check. Depot posts its own check
+            # for this job only when the job ends, which is after the hand-off.
+            - name: Tell GitHub Actions that Depot started a run for this event
+              if: github.event_name == 'pull_request' && steps.handoff-token.outputs.token != ''
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ steps.handoff-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  STARTED_CHECK: Backend CI on Depot / Depot run started (PR ${{ github.event.pull_request.number }}, event ${{ github.event.pull_request.updated_at }})
+              run: |
+                  gh api "repos/$REPO/check-runs" --method POST -f name="$STARTED_CHECK" -f head_sha="$SHA" \
+                      -f status=completed -f conclusion=success -f details_url="$DEPOT_JOB_URL" --silent
             - name: Wait for the hand-off check from GitHub Actions
               id: handoff
               env:
