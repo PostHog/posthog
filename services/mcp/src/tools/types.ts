@@ -2,7 +2,6 @@ import type { z } from 'zod'
 
 import type { ApiClient, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
-import type { ToolCallSessionRecord } from '@/hono/tool-call-session'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { SessionManager } from '@/lib/SessionManager'
@@ -48,7 +47,6 @@ export type State = {
     mcpVendorClient: string | undefined
     skillsLearnedAt: number | undefined
     skillsNoSkillsAckAt: number | undefined
-    toolCallSession: ToolCallSessionRecord | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &

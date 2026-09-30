@@ -103,13 +103,7 @@ discovery verbs (`tools`, `search`, `info`, `schema`) carry neither, so rate ali
 rows where `$mcp_input_keys` is set, not against every `$mcp_tool_call`. Group the two by
 `$mcp_client_name` to see which spelling each agent reaches for and how much of it the alias layer
 absorbs. A tool that wraps `normalizeParamAliases` inside its own preprocess (`read-data-schema`)
-reads as alias-free. When the request carries an
-`Mcp-Session-Id`, three per-session properties come from a Redis record (`tool-call-session.ts`,
-same cache and 24 h TTL as the skills-first gate): `$mcp_session_tool_call_index` (1 on the
-session's first `call`), `$mcp_session_age_ms` (since the session's first request), and, on
-exec-mode `call`s only, `$mcp_schema_read_before_call` (did this session run `info`/`schema` on
-that tool earlier). Sessions without the header (most Claude Code traffic on the 2026-07-28
-revision, see [stateless-and-sessions.md](stateless-and-sessions.md)) carry none of the three.
+reads as alias-free.
 `$mcp_server_build` is the git commit the server was built from (`dev` locally); prefer it to
 `$mcp_server_version`, which is the protocol-facing constant, when tying a change to a deploy.
 A `learn` call also carries `exec_learn_kind` (`search`, `load`, `list` for `learn skills` and a bare `learn`, `describe`, `guide`),

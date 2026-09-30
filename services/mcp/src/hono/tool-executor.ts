@@ -57,7 +57,6 @@ import { getEffectiveMCPClientContext, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
-import { type ToolCallObservation, buildToolCallSessionState } from './tool-call-session'
 import type { ToolCatalog } from './tool-catalog'
 
 interface ResolvedTool {
@@ -345,13 +344,6 @@ export class ToolExecutor {
         const rawToolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         // Computed on the raw input, before any alias is folded away by preprocess.
         const inputShape = inputShapeAnalyticsProperties(rawToolArgs, tool.schema)
-        // Started before the handler so the Redis round trip overlaps it; awaited at
-        // each event site below.
-        const sessionShape = this.observeToolCallSession(state, {
-            verb: 'call',
-            targetTool: tool.name,
-            schemaRequiresRead: false,
-        })
         const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
         const rewrapped = firstPass.success
             ? undefined
@@ -371,7 +363,6 @@ export class ToolExecutor {
                 message,
                 describeValidationError(validation.error, tool.schema)
             )
-            const sessionProperties = await sessionShape
             void trackToolCall(
                 tool.name,
                 0,
@@ -379,7 +370,6 @@ export class ToolExecutor {
                 state,
                 {
                     ...inputShape,
-                    ...sessionProperties,
                     ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 },
                 analyticsMeta,
@@ -443,7 +433,6 @@ export class ToolExecutor {
                 })
             }
 
-            const sessionProperties = await sessionShape
             void trackToolCall(
                 tool.name,
                 duration,
@@ -451,7 +440,6 @@ export class ToolExecutor {
                 state,
                 {
                     ...inputShape,
-                    ...sessionProperties,
                     ...skillShape,
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
@@ -498,7 +486,6 @@ export class ToolExecutor {
                 this.builtInSkillHint(state)
             )
 
-            const sessionProperties = await sessionShape
             void trackToolCall(
                 tool.name,
                 Date.now() - startMs,
@@ -506,7 +493,6 @@ export class ToolExecutor {
                 state,
                 {
                     ...inputShape,
-                    ...sessionProperties,
                     ...errorAnalyticsProperties(classification, error),
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
                 },
@@ -544,35 +530,6 @@ export class ToolExecutor {
         }
     }
 
-    /**
-     * Session properties for one request, or none when the request carries no MCP
-     * session id, the session cache is unreachable, or it does not answer within
-     * `SESSION_OBSERVE_TIMEOUT_MS`. The tool result awaits this, so a slow Redis costs
-     * the three session properties rather than response time. Telemetry never fails a call.
-     */
-    private async observeToolCallSession(
-        state: ResolvedState,
-        observation: ToolCallObservation
-    ): Promise<Record<string, unknown>> {
-        try {
-            const session = buildToolCallSessionState(state.reqCtx, state.requestContext.mcpSessionId)
-            if (!session) {
-                return {}
-            }
-            let timer: ReturnType<typeof setTimeout> | undefined
-            const deadline = new Promise<Record<string, unknown>>((resolve) => {
-                timer = setTimeout(() => resolve({}), SESSION_OBSERVE_TIMEOUT_MS)
-            })
-            try {
-                return await Promise.race([session.observe(observation).catch(() => ({})), deadline])
-            } finally {
-                clearTimeout(timer)
-            }
-        } catch {
-            return {}
-        }
-    }
-
     private async callExecTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
@@ -601,12 +558,6 @@ export class ToolExecutor {
         // arguments; the schema comes from this connection's catalog when the
         // target resolved to a tool in it.
         const execInputShape = execInputShapeAnalyticsProperties(toolArgs, execShape, state)
-        const sessionShape = this.observeToolCallSession(state, {
-            verb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
-            targetTool: recordedTargetTool(execShape),
-            schemaRequiresRead: true,
-        })
-
         const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
@@ -615,7 +566,6 @@ export class ToolExecutor {
                 message,
                 describeValidationError(validation.error, resolved.schema)
             )
-            const sessionProperties = await sessionShape
             void trackToolCall(
                 'exec',
                 0,
@@ -624,7 +574,6 @@ export class ToolExecutor {
                 {
                     ...execShape,
                     ...execInputShape,
-                    ...sessionProperties,
                     ...errorAnalyticsProperties(classifyToolError(rejection, 'exec'), rejection),
                 },
                 analyticsMeta
@@ -675,7 +624,6 @@ export class ToolExecutor {
                 ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
                 : undefined
 
-            const sessionProperties = await sessionShape
             void trackToolCall(
                 execToolName(),
                 duration,
@@ -684,7 +632,6 @@ export class ToolExecutor {
                 {
                     ...execShape,
                     ...execInputShape,
-                    ...sessionProperties,
                     ...(failureShape ?? execSkillShape),
                     ...(execMetrics.skillLookupMissKind
                         ? skillLookupMissProperties(execMetrics.skillLookupMissKind)
@@ -709,7 +656,6 @@ export class ToolExecutor {
                 toolCallsTotal.inc({ tool: 'exec', status })
             }
 
-            const sessionProperties = await sessionShape
             void trackToolCall(
                 metricTool,
                 Date.now() - startMs,
@@ -718,7 +664,6 @@ export class ToolExecutor {
                 {
                     ...execShape,
                     ...execInputShape,
-                    ...sessionProperties,
                     ...errorAnalyticsProperties(classification, error),
                     ...execMetrics.commandMeta,
                 },
@@ -879,14 +824,9 @@ export class ToolExecutor {
         }
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        // Same shape and session properties as every other tool call, so this event
-        // does not read as a call that sent no arguments.
+        // Same shape properties as every other tool call, so this event does not read
+        // as a call that sent no arguments.
         const inputShape = inputShapeAnalyticsProperties(toolArgs, renderUiTool.schema)
-        const sessionShape = this.observeToolCallSession(state, {
-            verb: 'call',
-            targetTool: 'render-ui',
-            schemaRequiresRead: false,
-        })
 
         const validation = renderUiTool.schema.safeParse(toolArgs)
         if (!validation.success) {
@@ -896,7 +836,6 @@ export class ToolExecutor {
                 formatInputValidationError('render-ui', validation.error),
                 describeValidationError(validation.error, renderUiTool.schema)
             )
-            const sessionProperties = await sessionShape
             void trackToolCall(
                 'render-ui',
                 0,
@@ -904,7 +843,6 @@ export class ToolExecutor {
                 state,
                 {
                     ...inputShape,
-                    ...sessionProperties,
                     ...errorAnalyticsProperties(classifyToolError(rejection, 'render-ui'), rejection),
                 },
                 analyticsMeta
@@ -918,13 +856,12 @@ export class ToolExecutor {
             const handlerResult = await renderUiTool.handler(state.context, validation.data)
             toolCallsTotal.inc({ tool: 'render-ui', status: 'success' })
             stop({ status: 'success' })
-            const sessionProperties = await sessionShape
             void trackToolCall(
                 'render-ui',
                 Date.now() - startMs,
                 false,
                 state,
-                { ...inputShape, ...sessionProperties },
+                inputShape,
                 analyticsMeta
             )
             // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
@@ -933,13 +870,12 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: 'render-ui', status: 'error' })
             stop({ status: 'error' })
             const classification = classifyToolError(error, 'render-ui')
-            const sessionProperties = await sessionShape
             void trackToolCall(
                 'render-ui',
                 Date.now() - startMs,
                 true,
                 state,
-                { ...inputShape, ...sessionProperties, ...errorAnalyticsProperties(classification, error) },
+                { ...inputShape, ...errorAnalyticsProperties(classification, error) },
                 analyticsMeta
             )
             const sessionUuid = await sessionUuidForError(state)
@@ -1125,9 +1061,6 @@ function safeUrlPath(url: string): string {
         return ''
     }
 }
-
-/** How long a tool result waits for the session record; a healthy Redis answers in about a millisecond. */
-const SESSION_OBSERVE_TIMEOUT_MS = 100
 
 /** The session lookup reads and writes Redis; an outage there must not replace the structured tool error. */
 async function sessionUuidForError(state: ResolvedState): Promise<string | undefined> {

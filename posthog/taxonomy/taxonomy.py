@@ -2972,24 +2972,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
             "examples": ["experiment-get", "unrecognized"],
         },
-        "$mcp_schema_read_before_call": {
-            "label": "MCP schema read before call",
-            "description": "On an exec-mode `call`, whether the same MCP session read the tool's schema (`info` or `schema`) earlier. Absent in tools mode, where the schema is in the tool listing, and absent when the request carries no MCP session id.",
-            "type": "Boolean",
-            "examples": [True, False],
-        },
-        "$mcp_session_tool_call_index": {
-            "label": "MCP session tool call index",
-            "description": "How many tool calls the MCP session has made so far, including this one; 1 on the first call. Discovery verbs (tools, search, info, schema) are stamped with the count but do not advance it. Absent when the request carries no MCP session id.",
-            "type": "Numeric",
-            "examples": [1, 2, 15],
-        },
-        "$mcp_session_age_ms": {
-            "label": "MCP session age (ms)",
-            "description": "Milliseconds since the MCP session's first observed request. 0 on that first request. Absent when the request carries no MCP session id.",
-            "type": "Numeric",
-            "examples": [0, 4200, 1800000],
-        },
         "$mcp_server_build": {
             "label": "MCP server build",
             "description": "The git commit (12 hex characters) PostHog's MCP server was built from, or `dev` outside a release build. $mcp_server_version stays the protocol-facing version clients display; use this one to tie a change in behaviour to the deploy that shipped it.",
