@@ -30,10 +30,7 @@ export function TodaySpacesRow({ label, icon, to, active, dataAttr, action }: To
                 <span className="min-w-0 flex-1 truncate">{label}</span>
             </Button>
             {action && (
-                <div
-                    data-not-quill
-                    className="absolute right-1 flex opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100"
-                >
+                <div className="absolute right-1 flex opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
                     {action}
                 </div>
             )}
