@@ -10,6 +10,7 @@ transaction as the terminal status write.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from contextvars import ContextVar
@@ -28,11 +29,19 @@ from products.warehouse_sources_queue.backend.core.batch_consumer import (
 )
 from products.warehouse_sources_queue.backend.core.generic_jobs import (
     JOB_LEASE_TTL_SECONDS,
+    RETRY_REASON_KEY,
     TERMINAL_JOB_STATES,
     Job,
     JobsTable,
+    RetryHistory,
 )
-from products.warehouse_sources_queue.backend.core.metrics import ConsumerMetrics, make_consumer_metrics
+from products.warehouse_sources_queue.backend.core.metrics import (
+    GENERIC_JOBS_CLAIMABLE,
+    GENERIC_JOBS_CLAIMS_GATED_TOTAL,
+    GENERIC_JOBS_OLDEST_UNCLAIMED_SECONDS,
+    ConsumerMetrics,
+    make_consumer_metrics,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources_queue.backend.core.batch_consumer import BatchConsumerAdapter, ProcessBatchFn
@@ -63,6 +72,9 @@ class Success:
 @frozen
 class Retry:
     reason: str
+    # Stored under ``RETRY_REASON_KEY`` on the waiting_retry status row, so a handler can tell
+    # this retry apart from others when it counts its attempts (see ``JobContext.retry_history``).
+    tag: str | None = None
 
 
 @frozen
@@ -82,6 +94,25 @@ class JobContext:
     """What a handler gets besides the job itself."""
 
     logger: logging.Logger
+    # Set when the consumer starts to shut down. A long handler watches it and returns early.
+    shutdown_event: asyncio.Event
+    database_url: str
+    # The engine fails a job without calling its handler past this attempt, so a handler that
+    # owns an external state must finish that state at this attempt at the latest.
+    max_attempts: int
+
+    async def retry_history(self, job: Job, *, uncounted_tag: str) -> RetryHistory:
+        """The job's earlier retries, without the ones a handler returned with ``uncounted_tag``."""
+        if job.latest_attempt <= 0:
+            return RetryHistory(counted_retries=0, last_error=None)
+        async with await psycopg.AsyncConnection.connect(self.database_url, autocommit=True) as conn:
+            return await JobsTable.get_retry_history(
+                conn,
+                job_id=job.id,
+                job_created_at=job.created_at,
+                max_retries=job.latest_attempt,
+                uncounted_reason=uncounted_tag,
+            )
 
 
 class JobHandler(Protocol):
@@ -113,11 +144,16 @@ class GenericJobAdapter:
         kinds: list[str],
         is_retryable: Callable[[Exception], bool] | None = None,
         recovery_sweep_limit: int = 100,
+        claim_gate: Callable[[], bool] | None = None,
+        retry_backoff_base_seconds: int = 0,
     ) -> None:
         self._lane = lane
         self._kinds = kinds
         self._is_retryable = is_retryable
         self._recovery_sweep_limit = recovery_sweep_limit
+        # False means the process cannot take more work now; the poll then claims nothing.
+        self._claim_gate = claim_gate
+        self._retry_backoff_base_seconds = retry_backoff_base_seconds
         # Attempt-local state follows the engine's group task. It cannot leak
         # into a later attempt when ownership is lost and the task is abandoned.
         self._pending_followers: ContextVar[tuple[str, tuple[FollowerSpec, ...]] | None] = ContextVar(
@@ -126,11 +162,17 @@ class GenericJobAdapter:
         self._executing_attempt: ContextVar[tuple[str, int] | None] = ContextVar(
             "generic_job_executing_attempt", default=None
         )
+        self._pending_retry_tag: ContextVar[tuple[str, str] | None] = ContextVar(
+            "generic_job_pending_retry_tag", default=None
+        )
 
     def stash_followers(self, job_id: str, followers: tuple[FollowerSpec, ...]) -> None:
         # An empty success deliberately replaces followers from any earlier
         # invocation in this task.
         self._pending_followers.set((job_id, followers))
+
+    def stash_retry_tag(self, job_id: str, tag: str | None) -> None:
+        self._pending_retry_tag.set((job_id, tag) if tag is not None else None)
 
     async def fetch_and_lock(
         self,
@@ -141,6 +183,9 @@ class GenericJobAdapter:
         owner_token: str,
         lease_ttl_seconds: int,
     ) -> list[Job]:
+        if self._claim_gate is not None and not self._claim_gate():
+            GENERIC_JOBS_CLAIMS_GATED_TOTAL.labels(lane=self._lane).inc()
+            return []
         return await JobsTable.get_unprocessed_and_lock(
             conn,
             owner_token=owner_token,
@@ -227,6 +272,12 @@ class GenericJobAdapter:
             self._pending_followers.set(None)
             self._executing_attempt.set(None)
             return
+
+        if job_state == self.waiting_retry_state:
+            pending_tag = self._pending_retry_tag.get()
+            if pending_tag is not None and pending_tag[0] == batch_id:
+                error_response = {**(error_response or {}), RETRY_REASON_KEY: pending_tag[1]}
+            self._pending_retry_tag.set(None)
 
         # Recovery fences on its observed timestamp; transitions made by the
         # active handler fence on the executing state and current attempt.
@@ -340,7 +391,14 @@ class GenericJobAdapter:
     ) -> None:
         # Nothing to reconcile: generic jobs have no external state machine to
         # repair (the batch queue's reconcile exists for ExternalDataJob rows).
-        return
+        # The cadence still suits the per-kind depth gauges.
+        for kind in self._kinds:
+            claimable = await JobsTable.get_claimable_count(
+                conn, lane=self._lane, kinds=[kind], retry_backoff_base_seconds=self._retry_backoff_base_seconds
+            )
+            oldest = await JobsTable.get_oldest_unclaimed_age_seconds(conn, lane=self._lane, kinds=[kind])
+            GENERIC_JOBS_CLAIMABLE.labels(lane=self._lane, kind=kind).set(claimable)
+            GENERIC_JOBS_OLDEST_UNCLAIMED_SECONDS.labels(lane=self._lane, kind=kind).set(oldest)
 
     async def should_process_batch(
         self,
@@ -392,6 +450,9 @@ class JobConsumer:
     enqueues followers atomically; ``Retry`` routes into the engine's
     waiting_retry cycle (attempt caps from ``config.max_attempts``); ``Fail``
     fails the job on first attempt.
+
+    ``claim_gate``, when it returns False, makes a poll claim nothing, for
+    example while the process is short of memory.
     """
 
     def __init__(
@@ -404,6 +465,7 @@ class JobConsumer:
         metrics: ConsumerMetrics | None = None,
         is_retryable: Callable[[Exception], bool] | None = None,
         recovery_sweep_limit: int = 100,
+        claim_gate: Callable[[], bool] | None = None,
     ) -> None:
         self._handlers = handlers
         self._adapter = GenericJobAdapter(
@@ -411,8 +473,9 @@ class JobConsumer:
             kinds=sorted(handlers),
             is_retryable=is_retryable,
             recovery_sweep_limit=recovery_sweep_limit,
+            claim_gate=claim_gate,
+            retry_backoff_base_seconds=config.retry_backoff_base_seconds,
         )
-        self._ctx = JobContext(logger=logger)
         # The engine is typed against the batch item; Job satisfies its runtime
         # attribute contract through the documented aliases, so the casts bridge
         # the vocabulary until the engine is generic over its item type.
@@ -423,6 +486,12 @@ class JobConsumer:
             health_reporter=health_reporter,
             metrics=metrics or _generic_job_metrics(),
         )
+        self._ctx = JobContext(
+            logger=logger,
+            shutdown_event=self._consumer._shutdown,
+            database_url=config.database_url,
+            max_attempts=config.max_attempts,
+        )
 
     async def _process(self, job: Job) -> None:
         handler = self._handlers.get(job.kind)
@@ -432,7 +501,8 @@ class JobConsumer:
         match outcome:
             case Success(followers=followers):
                 self._adapter.stash_followers(job.id, followers)
-            case Retry(reason=reason):
+            case Retry(reason=reason, tag=tag):
+                self._adapter.stash_retry_tag(job.id, tag)
                 raise JobRetryRequested(reason)
             case Fail(reason=reason):
                 raise PermanentBatchApplyError(reason)

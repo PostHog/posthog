@@ -362,24 +362,32 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         try:
             return await run_extraction(inputs, logger, control)
         except (OperationalError, InterfaceError, InternalError, PostHogInternalDatabaseError) as e:
-            # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
-            # own app DB through the Django ORM before the source's error handling takes over. A
-            # transient blip there — a PgBouncer server_login_retry cooldown, or a pooled connection
-            # left on a demoted standby by a failover, which rejects our writes as InternalError —
-            # raises these exception types, which can only mean our own infra, never the customer's
-            # source (every source talks to a customer database over a raw driver connection, not
-            # the ORM). Re-raise as NonReportableError so Temporal retries the whole activity and it
-            # self-heals. The raw driver string stays in the log but must not become the message
-            # that escapes: see POSTHOG_DATABASE_UNAVAILABLE_MESSAGE. _handle_import_error already
-            # classifies these types this way once the run is under way; this covers the setup calls
-            # that run before it.
-            if isinstance(e, InternalError) and not is_stale_connection_read_only_error(e):
-                # InternalError also covers corrupted data/indexes and failed-transaction states.
-                # Those are deterministic defects, so retrying burns the budget, and NonReportableError
-                # would keep them out of error tracking behind a message saying nothing is wrong.
-                raise
-            await logger.awarning(str(e))
-            raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
+            await raise_setup_app_db_error(e, logger)
+
+
+async def raise_setup_app_db_error(e: Exception, logger: FilteringBoundLogger) -> NoReturn:
+    """Re-raise an app-DB error from the setup phase of `run_extraction` in its retryable form.
+
+    Call it only for the exception types the activity catches around `run_extraction`.
+    """
+    # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
+    # own app DB through the Django ORM before the source's error handling takes over. A
+    # transient blip there — a PgBouncer server_login_retry cooldown, or a pooled connection
+    # left on a demoted standby by a failover, which rejects our writes as InternalError —
+    # raises these exception types, which can only mean our own infra, never the customer's
+    # source (every source talks to a customer database over a raw driver connection, not
+    # the ORM). Re-raise as NonReportableError so Temporal retries the whole activity and it
+    # self-heals. The raw driver string stays in the log but must not become the message
+    # that escapes: see POSTHOG_DATABASE_UNAVAILABLE_MESSAGE. _handle_import_error already
+    # classifies these types this way once the run is under way; this covers the setup calls
+    # that run before it.
+    if isinstance(e, InternalError) and not is_stale_connection_read_only_error(e):
+        # InternalError also covers corrupted data/indexes and failed-transaction states.
+        # Those are deterministic defects, so retrying burns the budget, and NonReportableError
+        # would keep them out of error tracking behind a message saying nothing is wrong.
+        raise e
+    await logger.awarning(str(e))
+    raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
 
 
 async def run_extraction(
@@ -999,6 +1007,7 @@ async def _run(
                 attempt=control.attempt,
                 workflow_id=control.workflow_id,
                 workflow_run_id=control.workflow_run_id,
+                on_rows_extracted=control.on_rows_extracted,
             )
         else:
             pipeline = PipelineNonDLT(

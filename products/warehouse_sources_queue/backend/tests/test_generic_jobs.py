@@ -9,6 +9,11 @@ import psycopg
 from products.warehouse_sources_queue.backend.core.batch_consumer import BatchConsumerConfig, _group_by_key
 from products.warehouse_sources_queue.backend.core.generic_jobs import JOB_LEASE_TABLE, JOB_TABLE, Job, JobsTable
 from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
+from products.warehouse_sources_queue.backend.core.metrics import (
+    GENERIC_JOBS_CLAIMABLE,
+    GENERIC_JOBS_CLAIMS_GATED_TOTAL,
+    GENERIC_JOBS_OLDEST_UNCLAIMED_SECONDS,
+)
 from products.warehouse_sources_queue.backend.sdk.jobs import (
     Fail,
     FollowerSpec,
@@ -17,6 +22,8 @@ from products.warehouse_sources_queue.backend.sdk.jobs import (
     JobContext,
     JobRetryRequested,
     Outcome,
+    Retry,
+    RetryHistory,
     Success,
 )
 from products.warehouse_sources_queue.backend.testing import (
@@ -315,6 +322,37 @@ class TestClaimableGauge:
         await _claim(conn)
         assert await JobsTable.get_claimable_count(conn, lane=LANE, kinds=[KIND]) == 0
 
+    @pytest.mark.asyncio
+    async def test_reconcile_cadence_publishes_depth_per_kind(self, conn):
+        other_kind = "test.other"
+        for index in range(2):
+            await _insert(conn, group_key=f"1:group-{index}")
+        await _insert(conn, kind=other_kind, group_key="1:group-other")
+        adapter = GenericJobAdapter(lane=LANE, kinds=[KIND, other_kind])
+
+        await adapter.reconcile_failed_runs(conn, grace_seconds=0, lookback_seconds=0, limit=0)
+
+        assert GENERIC_JOBS_CLAIMABLE.labels(lane=LANE, kind=KIND)._value.get() == 2
+        assert GENERIC_JOBS_CLAIMABLE.labels(lane=LANE, kind=other_kind)._value.get() == 1
+        assert GENERIC_JOBS_OLDEST_UNCLAIMED_SECONDS.labels(lane=LANE, kind=KIND)._value.get() >= 0
+
+
+@pytest.mark.django_db(transaction=True)
+class TestClaimGate:
+    @pytest.mark.parametrize("gate_open", [True, False])
+    @pytest.mark.asyncio
+    async def test_a_closed_gate_claims_nothing(self, gate_open, conn):
+        await _insert(conn)
+        adapter = GenericJobAdapter(lane=LANE, kinds=[KIND], claim_gate=lambda: gate_open)
+        gated_before = GENERIC_JOBS_CLAIMS_GATED_TOTAL.labels(lane=LANE)._value.get()
+
+        claimed = await adapter.fetch_and_lock(
+            conn, limit=10, retry_backoff_base_seconds=0, owner_token=OWNER_A, lease_ttl_seconds=60
+        )
+
+        assert len(claimed) == (1 if gate_open else 0)
+        assert GENERIC_JOBS_CLAIMS_GATED_TOTAL.labels(lane=LANE)._value.get() - gated_before == (0 if gate_open else 1)
+
 
 def test_explicit_retry_bypasses_custom_exception_classifier():
     adapter = GenericJobAdapter(lane=LANE, kinds=[KIND], is_retryable=lambda _: False)
@@ -405,3 +443,52 @@ class TestJobConsumerEndToEnd:
             await cur.execute(f"SELECT latest_state, payload->>'from' FROM {JOB_TABLE} WHERE kind = 'test.follower'")
             rows = await cur.fetchall()
         assert rows == [("succeeded", "parent")]
+
+    @pytest.mark.asyncio
+    async def test_tagged_retries_are_recorded_and_left_out_of_the_retry_history(self, conn, _db_url):
+        outcomes: list[Outcome] = [
+            Retry(reason="worker shutdown", tag="shutdown"),
+            Retry(reason="source said no"),
+            Success(),
+        ]
+        histories: list[RetryHistory] = []
+
+        class _ScriptedHandler:
+            async def handle(self, job: Job, ctx: JobContext) -> Outcome:
+                histories.append(await ctx.retry_history(job, uncounted_tag="shutdown"))
+                return outcomes[len(histories) - 1]
+
+        job_id = await _insert(conn)
+        consumer = JobConsumer(
+            config=BatchConsumerConfig(
+                database_url=_db_url,
+                max_concurrency=1,
+                poll_interval_seconds=0.05,
+                recovery_interval_seconds=3600,
+                reconcile_interval_seconds=3600,
+                retry_backoff_base_seconds=0,
+            ),
+            lane=LANE,
+            handlers={KIND: _ScriptedHandler()},
+        )
+        run_task = asyncio.create_task(consumer.run())
+        try:
+            async with asyncio.timeout(30):
+                while await JobsTable.get_latest_state(conn, job_id=job_id) != "succeeded":
+                    await asyncio.sleep(0.05)
+        finally:
+            consumer.request_shutdown()
+            await run_task
+
+        assert histories == [
+            RetryHistory(counted_retries=0, last_error=None),
+            RetryHistory(counted_retries=0, last_error=None),
+            RetryHistory(counted_retries=1, last_error="source said no"),
+        ]
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT error_response->>'reason' FROM queuejobstatus WHERE job_id = %s AND job_state = 'waiting_retry' "
+                "ORDER BY created_at",
+                (job_id,),
+            )
+            assert [row[0] for row in await cur.fetchall()] == ["shutdown", None]

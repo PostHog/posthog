@@ -207,6 +207,29 @@ QUEUE_QUERY_FAILURES_TOTAL = Counter(
     labelnames=["query", "reason"],
 )
 
+# Generic-job depth and freshness, per kind. Every pod reports the same queue-wide value, so
+# aggregate with max(), like the batch-queue gauges above.
+GENERIC_JOBS_CLAIMABLE = Gauge(
+    "warehouse_jobs_claimable",
+    "Generic jobs a consumer of this lane could claim now, by kind. Sampled on the reconcile cadence.",
+    labelnames=["lane", "kind"],
+    multiprocess_mode="livemax",
+)
+
+GENERIC_JOBS_OLDEST_UNCLAIMED_SECONDS = Gauge(
+    "warehouse_jobs_oldest_unclaimed_seconds",
+    "Age of the oldest pending generic job that no consumer picked up, by kind (0 = none waiting). "
+    "Sampled on the reconcile cadence.",
+    labelnames=["lane", "kind"],
+    multiprocess_mode="livemax",
+)
+
+GENERIC_JOBS_CLAIMS_GATED_TOTAL = Counter(
+    "warehouse_jobs_claims_gated_total",
+    "Polls that claimed nothing because the consumer's claim gate was closed.",
+    labelnames=["lane"],
+)
+
 
 def _failure_reason(exc: BaseException) -> str:
     """Small, fixed label set: exception class names (psycopg has hundreds) would bloat cardinality."""
