@@ -2,6 +2,10 @@ import { CSSProperties, MutableRefObject, useEffect, useRef, useState } from 're
 
 import { PLAYER_FRAME_CONTENT_ID, PLAYER_FRAME_SRC } from './playerFrameDocument'
 
+const SNAPSHOT_POLL_MS = 100
+// A resource that never finishes must not keep the clickmap from drawing.
+const SNAPSHOT_SETTLE_TIMEOUT_MS = 5000
+
 export interface ReplaySnapshotFrameProps {
     /** Inner markup of the replay iframe's <html> element. */
     html: string
@@ -61,17 +65,57 @@ export function ReplaySnapshotFrame({
         hostDocument.body.appendChild(snapshot)
         // Written rather than set as srcdoc: WebKit closes the page when a srcdoc frame loads inside
         // this sandboxed host. Nothing written here runs, because the sandbox has no allow-scripts.
+        let replaced = false
+        let settled = false
+        const snapshotWindow = snapshot.contentWindow
         const snapshotDocument = snapshot.contentDocument
+        const timers: ReturnType<typeof setTimeout>[] = []
+        // Consumers measure the snapshot, so they wait until its stylesheets, images and fonts settle.
+        const settle = (): void => {
+            if (settled || replaced || !snapshotDocument) {
+                return
+            }
+            settled = true
+            // Layout starts the font loads, so fonts.ready waits for them rather than resolving at once.
+            void snapshotDocument.body?.offsetHeight
+            void (snapshotDocument.fonts?.ready ?? Promise.resolve()).then(() => {
+                if (!replaced) {
+                    onSnapshotLoadRef.current?.()
+                }
+            })
+        }
+        const settleWhenComplete = (): void => {
+            if (snapshotDocument?.readyState === 'complete') {
+                settle()
+            }
+        }
         if (snapshotDocument) {
             snapshotDocument.open()
+            // document.open() clears the listeners of the document and its window, so they go on after it.
+            snapshotDocument.addEventListener('readystatechange', settleWhenComplete)
+            snapshotWindow?.addEventListener('load', settle, { once: true })
             snapshotDocument.write(`<!DOCTYPE html><html>${html}</html>`)
             snapshotDocument.close()
+            // WebKit completes a written document without firing either event, so it is polled.
+            const poll = (): void => {
+                settleWhenComplete()
+                if (!settled && !replaced) {
+                    timers.push(setTimeout(poll, SNAPSHOT_POLL_MS))
+                }
+            }
+            if (snapshotDocument.readyState !== 'complete') {
+                timers.push(setTimeout(poll, SNAPSHOT_POLL_MS))
+            }
+            timers.push(setTimeout(settle, SNAPSHOT_SETTLE_TIMEOUT_MS))
         }
         if (snapshotRef) {
             snapshotRef.current = snapshot
         }
-        onSnapshotLoadRef.current?.()
         return () => {
+            replaced = true
+            timers.forEach(clearTimeout)
+            snapshotDocument?.removeEventListener('readystatechange', settleWhenComplete)
+            snapshotWindow?.removeEventListener('load', settle)
             snapshot.remove()
             if (snapshotRef?.current === snapshot) {
                 snapshotRef.current = null

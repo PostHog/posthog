@@ -1,12 +1,12 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
 import { createRef, MutableRefObject } from 'react'
 
 import { ReplaySnapshotFrame } from './ReplaySnapshotFrame'
 
 describe('ReplaySnapshotFrame', () => {
-    it('mounts the snapshot inside the player frame document, not the app document', () => {
+    it('mounts the snapshot inside the player frame document, not the app document', async () => {
         const snapshotRef = createRef<HTMLIFrameElement>() as MutableRefObject<HTMLIFrameElement | null>
         const onSnapshotLoad = jest.fn()
         const { container } = render(
@@ -32,6 +32,6 @@ describe('ReplaySnapshotFrame', () => {
         expect(snapshot.ownerDocument).toBe(hostDocument)
         expect(snapshot).toHaveAttribute('sandbox', 'allow-same-origin')
         expect(snapshot.contentDocument!.body.textContent).toBe('recorded page')
-        expect(onSnapshotLoad).toHaveBeenCalledTimes(1)
+        await waitFor(() => expect(onSnapshotLoad).toHaveBeenCalledTimes(1))
     })
 })
