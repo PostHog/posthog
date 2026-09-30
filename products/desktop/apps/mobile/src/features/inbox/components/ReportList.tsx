@@ -124,10 +124,10 @@ export function ReportList({
             renderReport={renderReport}
           />
           <InboxReportSection
-            title="Needs a PR"
+            title="Needs decision"
             reports={needsPr}
             count={needsPr.length}
-            emptyNote="No reports are waiting for a pull request."
+            emptyNote="No reports are waiting on a decision."
             renderReport={renderReport}
           />
           {isFetchingNextPage ? (
