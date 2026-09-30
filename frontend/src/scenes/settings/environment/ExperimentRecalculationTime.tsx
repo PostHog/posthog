@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
@@ -95,25 +95,15 @@ export function ExperimentRecalculationTime(): JSX.Element {
                 data-attr="team-experiment-recalculation-time"
                 placeholder="Select recalculation time"
             />
-            {allowSecondTime && times.length > 1 && (
-                <LemonSelect
-                    value={utcHourFromTimeString(times[1]).toString()}
-                    onChange={(value) => handleTimeChange(1, value)}
-                    options={optionsForIndex(1)}
-                    disabledReason={commonDisabledReason}
-                    data-attr="team-experiment-second-recalculation-time"
-                />
-            )}
-            <span className="text-secondary">({projectTimezone})</span>
             {allowSecondTime &&
                 (times.length > 1 ? (
-                    <LemonButton
-                        icon={<IconX />}
-                        size="small"
-                        onClick={removeSecondTime}
+                    <LemonSelect
+                        allowClear
+                        value={utcHourFromTimeString(times[1]).toString()}
+                        onChange={(value) => (value === null ? removeSecondTime() : handleTimeChange(1, value))}
+                        options={optionsForIndex(1)}
                         disabledReason={commonDisabledReason}
-                        tooltip="Remove second time"
-                        data-attr="team-experiment-remove-second-recalculation-time"
+                        data-attr="team-experiment-second-recalculation-time"
                     />
                 ) : (
                     <LemonButton
