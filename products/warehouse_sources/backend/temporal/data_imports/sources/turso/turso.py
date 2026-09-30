@@ -126,7 +126,9 @@ def turso_source(
     if inputs.schema_name not in ENDPOINTS:
         raise ValueError(f"Unknown Turso table: {inputs.schema_name}")
     settings = ENDPOINTS[inputs.schema_name]
-    supports_resume = settings.paginator != "single_page"
+    # Every Turso resource uses replace/full-refresh writes, so resuming from a later page
+    # would replace previously fetched rows with only the remaining pages.
+    supports_resume = False
     resume = manager.load_state() if supports_resume and manager.can_resume() else None
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:

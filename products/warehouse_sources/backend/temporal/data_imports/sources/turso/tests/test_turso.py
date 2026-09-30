@@ -113,7 +113,7 @@ def test_usage_fanout_preserves_database_identity_and_nested_metrics(
     assert requests_mock.call_count == 1 + len(databases)
 
 
-def test_audit_pages_resume_only_after_yielded_rows(
+def test_audit_pages_restart_from_the_first_page(
     requests_mock: Mocker, config: TursoSourceConfig, inputs: SourceInputs, resume_storage: None
 ) -> None:
     inputs = replace(inputs, schema_name="audit_logs")
@@ -132,17 +132,14 @@ def test_audit_pages_resume_only_after_yielded_rows(
         complete_qs=True,
     )
     response = source.source_for_pipeline(config, manager, inputs)
-    pages = iter(cast(Iterable[list[dict[str, Any]]], response.items()))
-    assert next(pages) == [first]
+    assert list(cast(Iterable[list[dict[str, Any]]], response.items())) == [[first], [second]]
     assert manager.has_staged_state() is False
-    assert next(pages) == [second]
-    assert manager.has_staged_state() is True
-    manager.commit()
 
     restarted_manager = source.get_resumable_source_manager(inputs)
     restarted = source.source_for_pipeline(config, restarted_manager, inputs)
-    assert list(restarted.items()) == [[second]]
-    assert [request.qs["page"] for request in requests_mock.request_history] == [["1"], ["2"], ["2"]]
+    assert list(cast(Iterable[list[dict[str, Any]]], restarted.items())) == [[first], [second]]
+    assert [request.qs["page"] for request in requests_mock.request_history] == [["1"], ["2"], ["1"], ["2"]]
+    assert response.supports_resume is False
     assert response.primary_keys is None
     assert response.partition_keys == ["created_at"]
     assert response.sort_mode == "desc"
@@ -159,6 +156,7 @@ def test_empty_audit_log_stops_on_first_page(
     source = TursoSource()
     inputs = replace(inputs, schema_name="audit_logs")
     manager = source.get_resumable_source_manager(inputs)
-    assert list(source.source_for_pipeline(config, manager, inputs).items()) == []
+    response = source.source_for_pipeline(config, manager, inputs)
+    assert list(cast(Iterable[list[dict[str, Any]]], response.items())) == []
     assert requests_mock.call_count == 1
     assert manager.has_staged_state() is False

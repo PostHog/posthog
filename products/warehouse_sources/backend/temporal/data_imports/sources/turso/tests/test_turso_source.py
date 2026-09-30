@@ -1,4 +1,6 @@
+from collections.abc import Iterable
 from dataclasses import replace
+from typing import Any, cast
 
 import pytest
 
@@ -49,7 +51,7 @@ def test_invalid_organization_never_sends_credentials(
     assert message is not None and "organization slug" in message
     response = source.source_for_pipeline(config, source.get_resumable_source_manager(inputs), inputs)
     with pytest.raises(ValueError, match="organization slug"):
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
     assert requests_mock.call_count == 0
 
 
