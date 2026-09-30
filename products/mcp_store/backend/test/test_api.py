@@ -40,7 +40,11 @@ from products.mcp_store.backend.models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from products.mcp_store.backend.oauth import DcrClientRegistration, DCRRegistrationRejectedError
+from products.mcp_store.backend.oauth import (
+    DcrClientRegistration,
+    DCRRegistrationRejectedError,
+    OAuthMetadataValidationError,
+)
 from products.mcp_store.backend.presentation.gateway_views import (
     MAX_TOOL_POLICIES_PER_REQUEST,
     GatewayPoliciesUpsertSerializer,
@@ -3537,10 +3541,26 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         defaults.update(overrides)
         return MCPServerTemplate.objects.create(**defaults)
 
+    @parameterized.expand(
+        [
+            (
+                "unexpected_error_stays_generic",
+                ValueError("Issuer mismatch at https://internal.example.com"),
+                "OAuth discovery failed.",
+            ),
+            (
+                "validation_error_names_the_failed_check",
+                OAuthMetadataValidationError("OAuth endpoint 'token_endpoint' is on an unrelated domain from issuer"),
+                "OAuth discovery failed. OAuth endpoint 'token_endpoint' is on an unrelated domain from issuer",
+            ),
+        ]
+    )
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
-    def test_spoofed_issuer_fails_and_no_state_persisted(self, mock_discover, _allow):
-        mock_discover.side_effect = ValueError("Issuer mismatch in authorization server metadata")
+    def test_spoofed_issuer_fails_and_no_state_persisted(
+        self, _name, discovery_error, expected_detail, mock_discover, _allow
+    ):
+        mock_discover.side_effect = discovery_error
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -3549,6 +3569,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == expected_detail
         assert not MCPServerInstallation.objects.filter(url="https://evil.com/mcp").exists()
 
     @ALLOW_URL
