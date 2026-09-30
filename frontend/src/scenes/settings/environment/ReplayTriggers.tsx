@@ -506,14 +506,12 @@ function RecordingExclusions(): JSX.Element {
 
     return (
         <div>
-            <h3 className="text-base font-semibold mb-2">
+            <h3 className="text-base font-semibold mb-1">
                 Recording exclusions <Since web={{ version: '1.171.0' }} />
             </h3>
-            <LemonBanner type="info" className="mb-2">
-                The URL blocklist is global. It applies to trigger groups and to the legacy recording conditions. It
-                also takes priority over both, so a blocked URL pauses recording even when a trigger has already
-                activated. You cannot limit a blocklist pattern to a single trigger group.
-            </LemonBanner>
+            <p className="text-muted text-xs mb-2">
+                The URL blocklist is global. It applies to trigger groups and to the legacy recording conditions.
+            </p>
             <LemonCollapse
                 multiple
                 panels={[
