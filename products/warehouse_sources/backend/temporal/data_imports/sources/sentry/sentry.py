@@ -797,6 +797,19 @@ def _iter_issue_tag_values_rows(
 _UNAVAILABLE_DATASET_STATUSES = (400, 403, 404)
 # Per-project surfaces only ever go missing through permissions or an absent config.
 _MISSING_PROJECT_RESOURCE_STATUSES = (403, 404)
+# project_stats hits Sentry's per-project stats endpoint once per (project, stat) pair. Sentry
+# occasionally returns a persistent 5xx for a single one of those after _request_with_retry's
+# budget is exhausted — the same failure mode as the issue tags/tag-values endpoints (see
+# _skip_issue_on_tags_server_error) — so treat it as that slice being unavailable rather than
+# failing the whole schema.
+_PROJECT_STATS_UNAVAILABLE_STATUSES = (
+    *_MISSING_PROJECT_RESOURCE_STATUSES,
+    500,
+    502,
+    503,
+    504,
+    *CLOUDFLARE_TRANSIENT_STATUSES,
+)
 # Sentry's stats-summary endpoint 400s with this detail when the token's user has no
 # project membership in the org, even though the token itself is otherwise valid.
 _NO_PROJECTS_AVAILABLE_DETAIL = "No projects available"
@@ -1178,7 +1191,7 @@ def _iter_project_stats_rows(
             for row in _iter_rows_tolerating_unavailable(
                 _points(project_slug, stat),
                 "project_stats",
-                _MISSING_PROJECT_RESOURCE_STATUSES,
+                _PROJECT_STATS_UNAVAILABLE_STATUSES,
                 project_slug=project_slug,
                 stat=stat,
             ):
