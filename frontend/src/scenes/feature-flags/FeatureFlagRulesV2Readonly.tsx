@@ -69,10 +69,7 @@ function ValueCell({ rule }: { rule: FeatureFlagRulesV2Rule }): JSX.Element {
 
 export function FeatureFlagRulesV2Readonly({ config }: { config: FeatureFlagRulesV2Config }): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
-    const subjects =
-        config.aggregation_group_type_index != null
-            ? aggregationLabel(config.aggregation_group_type_index).plural
-            : 'users'
+    const subjects = aggregationLabel(config.aggregation_group_type_index, true).plural
 
     const columns: LemonTableColumns<FeatureFlagRulesV2Rule> = [
         {

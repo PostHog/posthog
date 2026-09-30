@@ -7,6 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 import { featureFlagLogic } from './featureFlagLogic'
 
 interface EditableOverviewSectionProps {
@@ -16,7 +17,6 @@ interface EditableOverviewSectionProps {
     disabledReason?: string
     /** Options passed to editFeatureFlag when the pencil is clicked */
     editOptions?: { expandAdvanced?: boolean }
-    readOnly?: boolean
 }
 
 export function EditableOverviewSection({
@@ -24,12 +24,11 @@ export function EditableOverviewSection({
     className,
     disabledReason,
     editOptions,
-    readOnly,
 }: EditableOverviewSectionProps): JSX.Element {
     const { featureFlag } = useValues(featureFlagLogic)
     const { editFeatureFlag } = useActions(featureFlagLogic)
 
-    const canShowEditButton = !featureFlag.deleted && !readOnly
+    const canShowEditButton = !featureFlag.deleted && isV1FeatureFlagConfig(featureFlag.filters)
 
     return (
         <div className={`relative rounded border p-4 bg-bg-light ${className ?? ''}`}>

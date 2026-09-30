@@ -25,7 +25,7 @@ import { createElement } from 'react'
 import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
+import { isAccessDeniedError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -128,7 +128,13 @@ import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from '
 import type { DefaultReleaseConditionsResponse } from './defaultReleaseConditionsLogic'
 import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
-import { FeatureFlagConfigFormat, featureFlagConfigFormat, isV1FeatureFlagConfig } from './featureFlagConfigFormat'
+import {
+    FeatureFlagConfigFormat,
+    featureFlagConfigFormat,
+    isStaleRowVersionError,
+    isV1FeatureFlagConfig,
+    rowVersionToken,
+} from './featureFlagConfigFormat'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import {
@@ -829,9 +835,14 @@ export const getRecordingFilterForFlagVariant = (
     }
 }
 
-// Rows in another config version are written with their row version; a 409 without a change request is a stale one.
-function isStaleRowVersionRejection(configFormat: FeatureFlagConfigFormat, error: any): boolean {
-    return configFormat !== 'v1' && error?.status === 409 && !isApprovalRequiredError(error)
+// The conflicting write may have replaced the whole document, so a stale row version reloads the flag.
+function reloadIfStaleRowVersion(token: { version?: number }, error: any, reload: () => void): boolean {
+    if (!isStaleRowVersionError(token, error)) {
+        return false
+    }
+    lemonToast.error(error?.detail || 'This flag changed elsewhere and has been reloaded.')
+    reload()
+    return true
 }
 
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
@@ -3855,9 +3866,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
-            if (isStaleRowVersionRejection(values.configFormat, errorObject)) {
-                lemonToast.error(errorObject?.detail || 'This flag changed elsewhere and has been reloaded.')
-                actions.refreshFeatureFlag()
+            if (reloadIfStaleRowVersion(values.rowVersionToken, errorObject, actions.refreshFeatureFlag)) {
                 return
             }
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
@@ -3971,7 +3980,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 flagId,
                 active,
                 filters: row?.filters,
-                ...(flagId === values.featureFlag.id ? values.rowVersionToken : {}),
             })
             if (!updatedFlag) {
                 actions.projectFlagActiveUpdateFailed(teamId, flagId)
@@ -4084,9 +4092,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         updateFeatureFlagArchivedFailure: ({ errorObject }) => {
-            if (isStaleRowVersionRejection(values.configFormat, errorObject)) {
-                lemonToast.error(errorObject?.detail || 'This flag changed elsewhere and has been reloaded.')
-                actions.refreshFeatureFlag()
+            if (reloadIfStaleRowVersion(values.rowVersionToken, errorObject, actions.refreshFeatureFlag)) {
                 return
             }
             // Archiving an enabled flag also disables it, which can trip the approval gate (409).
@@ -4458,12 +4464,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag({ ...flag, ...persisted })
                 lemonToast.success('Description saved')
             } catch (error: any) {
-                if (isStaleRowVersionRejection(values.configFormat, error)) {
-                    lemonToast.error(error?.detail || 'This flag changed elsewhere and has been reloaded.')
-                    actions.refreshFeatureFlag()
-                    return
+                if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {
+                    lemonToast.error('Failed to save description')
                 }
-                lemonToast.error('Failed to save description')
             }
         },
         saveTagsInline: async ({ tags }, breakpoint) => {
@@ -4525,9 +4528,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag({ ...flag, tags: previousTags })
                 // The server explains rule failures such as a project that requires tags, so show
                 // its message rather than a generic one the user cannot act on.
-                lemonToast.error(error?.detail || 'Failed to save tags')
-                if (isStaleRowVersionRejection(values.configFormat, error)) {
-                    actions.refreshFeatureFlag()
+                if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {
+                    lemonToast.error(error?.detail || 'Failed to save tags')
                 }
             }
         },
@@ -4655,13 +4657,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType): FeatureFlagConfigFormat => featureFlagConfigFormat(featureFlag.filters),
         ],
-        // Every write to a row in another config version must carry the row version; v1 keeps its merge semantics.
         rowVersionToken: [
             (s) => [s.featureFlag],
-            (featureFlag: FeatureFlagType): { version?: number } =>
-                isV1FeatureFlagConfig(featureFlag.filters) || featureFlag.version === null
-                    ? {}
-                    : { version: featureFlag.version },
+            (featureFlag: FeatureFlagType): { version?: number } => rowVersionToken(featureFlag),
         ],
         // Clamped in a selector rather than in urlToAction so it re-derives when the flag
         // loads (a deep-linked tab can arrive before `can_edit` is known)

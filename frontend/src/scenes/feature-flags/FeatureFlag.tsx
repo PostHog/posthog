@@ -83,7 +83,7 @@ import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products
 
 import { featureFlagContextItems } from './featureFlagAiContext'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
-import { featureFlagConfigFormatLabel } from './featureFlagConfigFormat'
+import { ARCHIVE_UNAVAILABLE_DISABLED_REASON, featureFlagConfigFormatLabel } from './featureFlagConfigFormat'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
@@ -339,9 +339,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <FeatureFlagEvaluationContexts
                                 tags={featureFlag.tags}
                                 evaluationContexts={featureFlag.evaluation_contexts || []}
-                                onSave={(updatedTags, updatedEvaluationContexts) =>
-                                    saveSidebarTags(updatedTags, updatedEvaluationContexts)
-                                }
+                                onSave={saveSidebarTags}
                                 evaluationContextsDisabledReason={
                                     isV1Config ? null : "Evaluation contexts can't be changed on this flag yet."
                                 }
@@ -424,7 +422,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         disabledReasons={{
                                             "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                                 !featureFlag.can_edit,
-                                            'Archiving is not available for this flag yet.': !isV1Config,
+                                            [ARCHIVE_UNAVAILABLE_DISABLED_REASON]: !isV1Config,
                                         }}
                                     >
                                         {featureFlag.archived ? <IconRewind /> : <IconArchive />}
@@ -653,21 +651,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     />
                 </SceneContent>
             </div>
-            {isV1Config && (
-                <QuickSurveyModal
-                    context={{
-                        type: QuickSurveyType.FEATURE_FLAG,
-                        flag: featureFlag,
-                        initialVariantKey: quickSurveyVariantKey,
-                    }}
-                    info="This survey will display to all users in this feature flag, filtered by any conditions you specify below."
-                    isOpen={isQuickSurveyModalOpen}
-                    onCancel={() => {
-                        setIsQuickSurveyModalOpen(false)
-                        setQuickSurveyVariantKey(null)
-                    }}
-                />
-            )}
+            <QuickSurveyModal
+                context={{
+                    type: QuickSurveyType.FEATURE_FLAG,
+                    flag: featureFlag,
+                    initialVariantKey: quickSurveyVariantKey,
+                }}
+                info="This survey will display to all users in this feature flag, filtered by any conditions you specify below."
+                isOpen={isQuickSurveyModalOpen}
+                onCancel={() => {
+                    setIsQuickSurveyModalOpen(false)
+                    setQuickSurveyVariantKey(null)
+                }}
+            />
         </>
     )
 }

@@ -9,7 +9,7 @@ import { FeatureFlagConfig } from '~/types'
 import { featureFlagsPartialUpdate, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
-import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
+import { isV1FeatureFlagConfig, rowVersionToken } from './featureFlagConfigFormat'
 
 /** Key for the per-row in-flight maps shared by the Projects tab toggles. */
 export function flagToggleKey(teamId: number, flagId: number): string {
@@ -68,28 +68,24 @@ export async function updateFlagActiveInProject({
     teamId,
     flagId,
     active,
-    version,
     filters,
 }: {
     teamId: number
     flagId: number
     active: boolean
-    version?: number
-    /** The row's stored document. Without a version, a row in another config version or of unknown format is fetched first. */
     filters?: FeatureFlagConfig
 }): Promise<FeatureFlagApi | null> {
     const actionDescription = `${active ? 'enable' : 'disable'} this feature flag`
     try {
-        if (version === undefined && !(filters && isV1FeatureFlagConfig(filters))) {
+        let versioned: { version?: number } = {}
+        if (!(filters && isV1FeatureFlagConfig(filters))) {
             const stored = await featureFlagsRetrieve(String(teamId), flagId)
-            if (!isV1FeatureFlagConfig(stored.filters as FeatureFlagConfig | undefined)) {
-                version = stored.version
-            }
+            versioned = rowVersionToken({
+                filters: stored.filters as FeatureFlagConfig | undefined,
+                version: stored.version,
+            })
         }
-        const updatedFlag = await featureFlagsPartialUpdate(String(teamId), flagId, {
-            active,
-            ...(version === undefined ? {} : { version }),
-        })
+        const updatedFlag = await featureFlagsPartialUpdate(String(teamId), flagId, { active, ...versioned })
         lemonToast.success(`Feature flag ${active ? 'enabled' : 'disabled'}`)
         return updatedFlag
     } catch (e: any) {
