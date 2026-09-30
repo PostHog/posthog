@@ -1,11 +1,9 @@
 import {
     type FailureKind,
-    type ModelNamingVariant,
     failureRetryGuidance,
     getModelOptions,
     modelLabel,
     modelName,
-    modelNamingVariant,
     observationRetryOffer,
 } from './types'
 
@@ -71,53 +69,22 @@ describe('scanner type helpers', () => {
     })
 
     describe('model naming', () => {
-        // Every tier map satisfies the same type, so wiring the wrong map into an arm (a Gemini name
-        // leaking into tier labels, or one scheme's labels into the other) would silently contaminate
-        // the naming experiment's arms.
-        it.each<[ModelNamingVariant | null, string[]]>([
-            [
-                null,
-                [
-                    'Gemini 3.5 Flash Lite · 2 credits/observation',
-                    'Gemini 3 Flash · 5 credits/observation',
-                    'Gemini 3.8 Flash · 15 credits/observation',
-                ],
-            ],
-            [
-                'test',
-                ['Basic · 2 credits/observation', 'Pro · 5 credits/observation', 'Ultra · 15 credits/observation'],
-            ],
-            [
-                'lite-standard-pro',
-                ['Lite · 2 credits/observation', 'Standard · 5 credits/observation', 'Pro · 15 credits/observation'],
-            ],
-        ])('labels models for naming variant %s', (variant, labels) => {
-            expect(getModelOptions(variant).map((o) => o.label)).toEqual(labels)
-        })
-
-        // The flag can serve values this build doesn't know (a new arm added before the frontend
-        // deploys, control, or a plain boolean); all of them must degrade to provider names, never
-        // to a tier scheme, or the control arm gets contaminated.
-        it.each<[unknown, ModelNamingVariant | null]>([
-            ['test', 'test'],
-            ['lite-standard-pro', 'lite-standard-pro'],
-            ['control', null],
-            ['some-future-arm', null],
-            [true, null],
-            [undefined, null],
-        ])('narrows flag value %p to naming variant %p', (flagValue, expected) => {
-            expect(modelNamingVariant(flagValue)).toBe(expected)
+        it('labels models with provider names and per-observation price', () => {
+            expect(getModelOptions().map((o) => o.label)).toEqual([
+                'Gemini 3.5 Flash Lite · 2 credits/observation',
+                'Gemini 3 Flash · 5 credits/observation',
+                'Gemini 3.8 Flash · 15 credits/observation',
+            ])
         })
 
         it('falls back to the raw id for retired models frozen in old observation snapshots', () => {
-            expect(modelLabel('gemini-1.5-retired', 'test')).toBe('gemini-1.5-retired')
-            expect(modelLabel('gemini-1.5-retired', null)).toBe('gemini-1.5-retired')
+            expect(modelLabel('gemini-1.5-retired')).toBe('gemini-1.5-retired')
         })
 
         // A model leaving the lineup must not turn every past observation's label into a raw slug.
         it.each(['gemini-3.7-flash', 'gemini-3.6-flash'])('still names retired model %s', (model) => {
-            expect(modelLabel(model, null)).toContain('Flash')
-            expect(modelName(model, 'test')).toContain('Flash')
+            expect(modelLabel(model)).toContain('Flash')
+            expect(modelName(model)).toContain('Flash')
         })
     })
 })
