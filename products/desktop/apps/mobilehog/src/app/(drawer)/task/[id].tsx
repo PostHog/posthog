@@ -121,6 +121,7 @@ export default function TaskScreen() {
         renderItem={({ item }) => (
           <TranscriptRowView
             row={item}
+            taskId={id}
             onPermission={(toolCallId, optionId) =>
               respondToPermission(id, toolCallId, optionId)
             }

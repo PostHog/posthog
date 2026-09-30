@@ -1,3 +1,4 @@
+import { Host, Image as SymbolImage } from "@expo/ui/swift-ui";
 import { memo, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -13,9 +14,16 @@ import { Glass } from "@/components/Glass";
 import { Markdown } from "@/components/Markdown";
 import { appResourceUri, McpAppHost } from "@/components/McpAppHost";
 import { ShimmerText } from "@/components/ShimmerText";
+import { sentPhotoUri } from "@/lib/attachments";
+import { usePhotoUrl } from "@/lib/queries";
 import type { TaskSession } from "@/lib/session";
 import { colors, fonts, radius } from "@/lib/theme";
-import type { Block, PermissionRequest, ToolStatus } from "@/lib/transcript";
+import type {
+  Block,
+  PermissionRequest,
+  PhotoRef,
+  ToolStatus,
+} from "@/lib/transcript";
 
 interface TranscriptProps {
   onPermission: (toolCallId: string, optionId: string) => void;
@@ -130,14 +138,16 @@ export function buildTranscriptRows(
 export const TranscriptRowView = memo(
   function TranscriptRowView({
     row,
+    taskId,
     onPermission,
   }: {
     row: TranscriptRow;
+    taskId: string;
     onPermission: TranscriptProps["onPermission"];
   }) {
     switch (row.kind) {
       case "block":
-        return <BlockView block={row.block} />;
+        return <BlockView block={row.block} taskId={taskId} />;
       case "app":
         return <McpAppHost block={row.block} />;
       case "activity":
@@ -185,12 +195,53 @@ export const TranscriptRowView = memo(
   },
 );
 
-function BlockView({ block }: { block: Block }) {
+// Shows the file on disk when this device sent it, else a download URL.
+function SentPhoto({ taskId, photo }: { taskId: string; photo: PhotoRef }) {
+  const localUri = sentPhotoUri(photo.artifactId);
+  const [localFailed, setLocalFailed] = useState(false);
+  const [remoteFailed, setRemoteFailed] = useState(false);
+  const showLocal = !!localUri && !localFailed;
+  const remote = usePhotoUrl(taskId, showLocal ? null : photo);
+  const uri = showLocal ? localUri : remote.data;
+  if (remote.isError || remoteFailed) {
+    return (
+      <View
+        accessibilityLabel={photo.name}
+        style={[styles.userImage, styles.userImageMissing]}
+      >
+        <Host matchContents>
+          <SymbolImage systemName="photo" size={20} color={colors.inkMute} />
+        </Host>
+      </View>
+    );
+  }
+  if (!uri) return <View style={styles.userImage} />;
+  return (
+    <Image
+      source={{ uri }}
+      accessibilityLabel={photo.name}
+      style={styles.userImage}
+      onError={() => (showLocal ? setLocalFailed(true) : setRemoteFailed(true))}
+    />
+  );
+}
+
+function BlockView({ block, taskId }: { block: Block; taskId: string }) {
   switch (block.kind) {
     case "user":
       return (
         <View style={styles.userRow}>
-          {block.images?.length ? (
+          {block.photos?.length ? (
+            <View style={styles.userImages}>
+              {block.photos.map((photo) => (
+                <SentPhoto
+                  key={photo.artifactId}
+                  taskId={taskId}
+                  photo={photo}
+                />
+              ))}
+            </View>
+          ) : block.images?.length ? (
             <View style={styles.userImages}>
               {block.images.map((uri) => (
                 <Image key={uri} source={{ uri }} style={styles.userImage} />
@@ -558,6 +609,10 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 16,
     backgroundColor: colors.fill,
+  },
+  userImageMissing: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   userBubble: {
     maxWidth: "84%",

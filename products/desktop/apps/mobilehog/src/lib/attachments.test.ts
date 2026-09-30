@@ -27,7 +27,7 @@ vi.mock("expo-image-picker", () => ({
 }));
 vi.mock("@/lib/client", () => ({ getClient: () => mocks.client }));
 
-import { uploadStagedPhotos } from "./attachments";
+import { sentPhotoUri, uploadStagedPhotos } from "./attachments";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -70,5 +70,6 @@ describe("uploadStagedPhotos", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(result).toEqual(["artifact-id"]);
+    expect(sentPhotoUri("artifact-id")).toBe("file:///photo.png");
   });
 });

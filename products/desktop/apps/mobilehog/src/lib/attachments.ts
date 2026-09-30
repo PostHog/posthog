@@ -10,6 +10,22 @@ import { getClient } from "@/lib/client";
 export const MAX_PHOTOS = 10;
 const MAX_PHOTO_BYTES = 30 * 1024 * 1024;
 
+// Photos sent from this device by artifact id, so the chat can show the file
+// already on disk rather than download it again.
+const sentPhotoUris = new Map<string, string>();
+
+export function sentPhotoUri(artifactId: string): string | undefined {
+  return sentPhotoUris.get(artifactId);
+}
+
+function rememberSent(photos: Photo[], artifactIds: string[]): string[] {
+  artifactIds.forEach((artifactId, index) => {
+    const photo = photos[index];
+    if (photo) sentPhotoUris.set(artifactId, photo.uri);
+  });
+  return artifactIds;
+}
+
 export interface Photo {
   id: string;
   uri: string;
@@ -95,7 +111,10 @@ export async function uploadStagedPhotos(
     taskId,
     prepared,
   );
-  return finalized.map((artifact) => artifact.id);
+  return rememberSent(
+    photos,
+    finalized.map((artifact) => artifact.id),
+  );
 }
 
 export async function uploadRunPhotos(
@@ -116,5 +135,8 @@ export async function uploadRunPhotos(
     runId,
     prepared,
   );
-  return finalized.map((artifact) => artifact.id);
+  return rememberSent(
+    photos,
+    finalized.map((artifact) => artifact.id),
+  );
 }

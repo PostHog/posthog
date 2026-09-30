@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { useRepo } from "@/lib/repo";
+import type { PhotoRef } from "@/lib/transcript";
 
 const TERMINAL: ReadonlySet<string> = new Set([
   "completed",
@@ -25,7 +26,14 @@ export const keys = {
   models: ["models"] as const,
   repository: ["repository"] as const,
   repositories: ["repositories"] as const,
+  runArtifacts: (taskId: string, runId: string) =>
+    ["run-artifacts", taskId, runId] as const,
+  photoUrl: (taskId: string, runId: string, artifactId: string) =>
+    ["photo-url", taskId, runId, artifactId] as const,
 };
+
+// Presigned photo URLs expire after an hour; refresh them well before that.
+const PHOTO_URL_TTL = 50 * 60_000;
 
 const PAGE_SIZE = 50;
 
@@ -214,5 +222,38 @@ export async function createAndRunTask(input: {
     pendingUserMessage: input.prompt,
     pendingUserArtifactIds: artifactIds.length ? artifactIds : undefined,
     ...currentRunConfig(),
+  });
+}
+
+// Resolves a sent photo to a short-lived download URL. Pass null to skip.
+export function usePhotoUrl(taskId: string, photo: PhotoRef | null) {
+  const session = useAuth((s) => s.session);
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: keys.photoUrl(
+      taskId,
+      photo?.runId ?? "",
+      photo?.artifactId ?? "",
+    ),
+    queryFn: async () => {
+      if (!photo) throw new Error("No photo");
+      const client = getClient();
+      // One manifest fetch serves every photo of the run.
+      const artifacts = await queryClient.fetchQuery({
+        queryKey: keys.runArtifacts(taskId, photo.runId),
+        queryFn: async () =>
+          (await client.getTaskRun(taskId, photo.runId)).artifacts ?? [],
+        staleTime: 10_000,
+      });
+      const storagePath = artifacts.find(
+        (artifact) => artifact.id === photo.artifactId,
+      )?.storage_path;
+      if (!storagePath) throw new Error("Photo not found");
+      return client.presignTaskRunArtifact(taskId, photo.runId, storagePath);
+    },
+    enabled: !!session && !!photo,
+    staleTime: PHOTO_URL_TTL,
+    gcTime: PHOTO_URL_TTL,
+    retry: false,
   });
 }
