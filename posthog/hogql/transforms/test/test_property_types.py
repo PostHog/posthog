@@ -1532,7 +1532,9 @@ _RUNTIME_JSON_KEY_SELECT = (
     "SELECT JSONExtractString(properties, properties.k), JSONHas(properties, properties.k), "
     "JSONType(properties, properties.k), JSONExtractRaw(properties, concat('sec', 'ret')), "
     "arrayMap(key -> JSONExtractString(properties, key), ['a', 'secret']), "
-    "JSONExtractString(properties, '$set', concat('em', 'ail'))"
+    "JSONExtractString(properties, '$set', concat('em', 'ail')), "
+    "JSONExtractString(properties, concat('$', 'set'), 'email'), JSONLength(properties, concat('$', 'set')), "
+    "JSONHas(properties, concat('$', 'set'))"
 )
 
 
@@ -1794,9 +1796,9 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 None,
                 None,
                 [
-                    ("1", 1, "String", '"s1"', ["1", "s1"], "user@example.com"),
-                    ("s2", 1, "String", '"s2"', ["3", "s2"], ""),
-                    ("", 0, "Null", "", ["", ""], ""),
+                    ("1", 1, "String", '"s1"', ["1", "s1"], "user@example.com", "user@example.com", 1, 1),
+                    ("s2", 1, "String", '"s2"', ["3", "s2"], "", "", 0, 0),
+                    ("", 0, "Null", "", ["", ""], "", "", 0, 0),
                 ],
             ),
             (
@@ -1805,9 +1807,20 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 "secret",
                 None,
                 [
-                    ("1", 1, "String", "", ["1", ""], "user@example.com"),
-                    ("", 0, "Null", "", ["3", ""], ""),
-                    ("", 0, "Null", "", ["", ""], ""),
+                    ("1", 1, "String", "", ["1", ""], "user@example.com", "user@example.com", 1, 1),
+                    ("", 0, "Null", "", ["3", ""], "", "", 0, 0),
+                    ("", 0, "Null", "", ["", ""], "", "", 0, 0),
+                ],
+            ),
+            (
+                "runtime_json_keys_restricted_moved",
+                _RUNTIME_JSON_KEY_SELECT,
+                "$set",
+                None,
+                [
+                    ("1", 1, "String", '"s1"', ["1", "s1"], "", "", 0, 0),
+                    ("s2", 1, "String", '"s2"', ["3", "s2"], "", "", 0, 0),
+                    ("", 0, "Null", "", ["", ""], "", "", 0, 0),
                 ],
             ),
             (

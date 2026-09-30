@@ -16,7 +16,7 @@ UNPARSEABLE_PROPERTIES_KEY = "$unparseable_properties"
 TEMPORARY_PROPERTIES_COLUMN = "temporary_properties"
 
 # Mirrors isTemporaryProperty in clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/main.go, so update both.
-_TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
+TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
     {
         "$set",
         "$set_once",
@@ -35,7 +35,7 @@ _TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
         "$lib_custom_api_host",
     }
 )
-_TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX = "$sdk_debug_"
+TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX = "$sdk_debug_"
 
 
 def is_temporary_event_property(key: str) -> bool:
@@ -46,7 +46,7 @@ def is_temporary_event_property(key: str) -> bool:
     if not key.startswith("$"):
         return False
     root = key.split(".", 1)[0]
-    return root in _TEMPORARY_EVENT_PROPERTY_ROOTS or root.startswith(_TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)
+    return root in TEMPORARY_EVENT_PROPERTY_ROOTS or root.startswith(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)
 
 
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {

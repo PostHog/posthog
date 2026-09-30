@@ -52,6 +52,8 @@ from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.events_json import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
+    TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX,
+    TEMPORARY_EVENT_PROPERTY_ROOTS,
     TEMPORARY_PROPERTIES_COLUMN,
     is_temporary_event_property,
 )
@@ -665,6 +667,35 @@ _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS = frozenset(
         "JSONType",
     }
 )
+
+# Every JSON function whose second argument is the first key of a path into the document.
+_JSON_KEY_PATH_FUNCTIONS = _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS | {
+    "JSONExtract",
+    "JSONExtractBool",
+    "JSONExtractFloat",
+    "JSONExtractInt",
+    "JSONExtractRaw",
+    "JSONExtractString",
+    "JSONExtractUInt",
+    "JSONHas",
+}
+
+
+def _names_temporary_event_property(key: ast.Expr) -> ast.Expr:
+    """The SQL form of `is_temporary_event_property`, for a key that is computed per row."""
+    root = ast.ArrayAccess(
+        array=_call("splitByChar", [_const("."), _call("toString", [key])]),
+        property=_const(1),
+        type=ast.StringType(nullable=True),
+    )
+    return _call(
+        "or",
+        [
+            _call("has", [ast.Array(exprs=[_const(name) for name in sorted(TEMPORARY_EVENT_PROPERTY_ROOTS)]), root]),
+            _call("startsWith", [clone_expr(root), _const(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)]),
+        ],
+    )
+
 
 _JSON_PATH_FIRST_MEMBER = re.compile(
     r"""^\$(?:\.(?:"(?P<dot_quoted>[^"]*)"|(?P<dot>[^.\[]+))|\[(?:"(?P<bracket_double>[^"]*)"|'(?P<bracket_single>[^']*)')\])"""
@@ -1300,6 +1331,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         if temporary_property_json_function is not None:
             return temporary_property_json_function
 
+        runtime_key_json_function = self._rewrite_json_function_with_runtime_key(node)
+        if runtime_key_json_function is not None:
+            return runtime_key_json_function
+
         temporary_property_json_value = self._rewrite_json_value_on_temporary_property(node)
         if temporary_property_json_value is not None:
             return temporary_property_json_value
@@ -1376,7 +1411,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
             return None
         if not isinstance(node.args[1], ast.Constant):
-            # A key computed per row reads the serialized `properties` document, where a moved key reads as missing.
+            # `_rewrite_json_function_with_runtime_key` handles a key computed per row.
             return None
         first_key = node.args[1].value
         if not isinstance(first_key, str) or not is_temporary_event_property(first_key):
@@ -1402,6 +1437,45 @@ class ClickHousePropertyResolver(CloningVisitor):
             type=node.type,
             name=node.name,
             args=args,
+            params=node.params,
+            distinct=node.distinct,
+            within_group=node.within_group,
+            order_by=node.order_by,
+            filter_expr=node.filter_expr,
+        )
+
+    def _rewrite_json_function_with_runtime_key(self, node: ast.Call) -> ast.Expr | None:
+        """`f(properties, <key computed per row>, ...)` on native events, reading the document that holds the key.
+
+        The serialized `properties` document has no moved keys, so a row whose key names one reads the serialized
+        `temporary_properties` document instead. The printer drops restricted keys from both documents.
+        """
+        if (
+            not self.context.uses_new_events_schema()
+            or node.name not in _JSON_KEY_PATH_FUNCTIONS
+            or len(node.args) < 2
+            or isinstance(node.args[1], ast.Constant)
+        ):
+            return None
+        field_type = resolve_field_type(node.args[0])
+        if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
+            return None
+        key = self.visit(node.args[1])
+        document = ast.Call(
+            name="if",
+            args=[
+                _names_temporary_event_property(clone_expr(key)),
+                _temporary_properties_document(field_type),
+                self.visit(node.args[0]),
+            ],
+            type=ast.StringType(nullable=False),
+        )
+        return ast.Call(
+            start=node.start,
+            end=node.end,
+            type=node.type,
+            name=node.name,
+            args=[document, key, *[self.visit(arg) for arg in node.args[2:]]],
             params=node.params,
             distinct=node.distinct,
             within_group=node.within_group,
