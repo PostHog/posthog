@@ -1,0 +1,9 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:test": {
+            // backend:test also runs evals/test/, which the root globs miss.
+            "inputs": ["$TURBO_EXTENDS$", "evals/**/*.py"]
+        }
+    }
+}
