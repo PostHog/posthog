@@ -5961,10 +5961,11 @@ class FeatureFlagViewSet(
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except requests.exceptions.HTTPError as e:
-            service_status = e.response.status_code if e.response is not None else None
-            if service_status == status.HTTP_400_BAD_REQUEST:
+            service_response = e.response
+            service_status = service_response.status_code if service_response is not None else None
+            if service_response is not None and service_status == status.HTTP_400_BAD_REQUEST:
                 # The service writes its 400 bodies as client-facing messages about the request input.
-                service_message = e.response.text.strip()[:500] if e.response is not None else ""
+                service_message = service_response.text.strip()[:500]
                 logger.warning(
                     "Flag evaluation service rejected test evaluation for flag %s: %s",
                     feature_flag.key,
