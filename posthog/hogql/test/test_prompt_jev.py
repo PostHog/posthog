@@ -106,24 +106,6 @@ class TestPromptJev(SimpleTestCase):
         properties = json.loads(request["headers"]["X-PostHog-Properties"])
         self.assertEqual(properties["team_id"], "123")
 
-    def test_each_model_gets_its_own_gateway_calls_and_cache(self) -> None:
-        runner = PromptJevRunner(team_id=123, distinct_id="test-user")
-        specs = []
-        for query in ["jev(body, 'Refund?')", "decide(body, 'Refund?', model := 'jevk5')"]:
-            node = parse_expr(query)
-            assert isinstance(node, ast.Call)
-            specs.append(PromptJevCall.parse(node))
-        with patch("httpx.AsyncClient.post", side_effect=gateway_response) as post:
-            for spec in specs:
-                self.assertEqual(runner.evaluate(spec, ["refund"]), [0.9])
-        self.assertEqual(
-            [
-                (call.kwargs["json"]["model"], call.kwargs["headers"]["X-PostHog-Product"])
-                for call in post.call_args_list
-            ],
-            [("posthog/hogference/jeeves-0.1", "hogql_decide"), ("posthog/hogference/jevk5-fp8-0.2", "hogql_decide")],
-        )
-
     @parameterized.expand([(42, "must be text"), ("x" * 8193, "8 KiB")])
     def test_rejects_invalid_input_before_network(self, value: object, message: str) -> None:
         node = parse_expr("jev(body, 'Refund?')")
@@ -327,6 +309,22 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(query, self.team, user=self.user)
         self.assertEqual(response.results, expected)
         self.assertLessEqual(post.call_count, 1)
+
+    def test_one_query_mixes_models_with_a_call_per_model(self) -> None:
+        with patch("httpx.AsyncClient.post", side_effect=gateway_response) as post:
+            response = execute_hogql_query(
+                "SELECT jev('refund', 'Refund?') AS a, decide('refund', 'Refund?', model := 'jevk5') AS b LIMIT 1",
+                self.team,
+                user=self.user,
+            )
+        self.assertEqual(response.results, [(0.9, 0.9)])
+        self.assertCountEqual(
+            [
+                (call.kwargs["json"]["model"], call.kwargs["headers"]["X-PostHog-Product"])
+                for call in post.call_args_list
+            ],
+            [("posthog/hogference/jeeves-0.1", "hogql_decide"), ("posthog/hogference/jevk5-fp8-0.2", "hogql_decide")],
+        )
 
     @parameterized.expand(
         [
