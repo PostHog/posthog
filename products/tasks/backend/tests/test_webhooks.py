@@ -846,23 +846,21 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(run.output["pr_url"], pr_url)
         self.assertEqual(run.state["verified_pr_urls"], [pr_url])
 
+    @parameterized.expand([("primary_url", False), ("additional_url", True)])
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.ingress.github.provider.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_pr_opened_repairs_missing_artifact_for_existing_pr_url(
-        self, mock_capture, mock_get_secret, mock_feature_enabled
+        self, _name, additional_url, mock_capture, mock_get_secret, mock_feature_enabled
     ) -> None:
         mock_get_secret.return_value = self.webhook_secret
         pr_url = "https://github.com/posthog/posthog/pull/780"
-        TaskRun.objects.create(
+        run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             branch="feature/missing-artifact",
-            output={
-                "pr_url": pr_url,
-                "head_branches": [{"repository": "posthog/posthog", "branch": "feature/missing-artifact"}],
-            },
+            output={"pr_urls": [pr_url]} if additional_url else {"pr_url": pr_url},
         )
         payload = {
             "action": "opened",
@@ -880,6 +878,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertTrue(
             TaskThreadMessage.objects.for_team(self.team.id).filter(task=self.task, payload__pr_url=pr_url).exists()
         )
+        run.refresh_from_db()
+        self.assertEqual(run.state["verified_pr_urls"], [pr_url])
 
     @patch("posthog.ingress.github.provider.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
@@ -2243,16 +2243,46 @@ class TestFindTaskRun(TestCase):
         )
         self.assertEqual(result, pr_run)
 
-    def test_caller_reported_pr_url_is_not_trusted_for_lookup(self):
+    @parameterized.expand(
+        [
+            ("no_branch", "123", None, "posthog/posthog", {}),
+            ("different_branch", "123", "other", "posthog/posthog", {}),
+            ("different_repository", "123", "main", "acme/other", {}),
+            ("different_pr", "999", "main", "posthog/posthog", {}),
+            (
+                "wizard_checkout",
+                "123",
+                "main",
+                "posthog/posthog",
+                {"wizard_head_branch": "posthog/instrumentation-ab12cd"},
+            ),
+            (
+                "self_driving_checkout",
+                "123",
+                "main",
+                "posthog/posthog",
+                {"self_driving_head_branch": "posthog-self-driving/fix-abc123"},
+            ),
+        ]
+    )
+    def test_reported_pr_requires_matching_branch_and_repository(
+        self, _name: str, pr_number: str, branch: str | None, repository: str, state: dict[str, str]
+    ) -> None:
         pr_url = "https://github.com/posthog/posthog/pull/123"
         TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+            state=state,
             output={"pr_url": pr_url, "pr_urls": [pr_url]},
         )
 
-        self.assertIsNone(find_task_run(pr_url=pr_url, repository="posthog/posthog"))
+        self.assertIsNone(
+            find_task_run(
+                pr_url=f"https://github.com/posthog/posthog/pull/{pr_number}", branch=branch, repository=repository
+            )
+        )
 
     def test_falls_back_to_branch_when_pr_url_not_found(self):
         branch_run = TaskRun.objects.create(

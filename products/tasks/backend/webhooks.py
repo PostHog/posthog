@@ -46,8 +46,8 @@ def find_task_run(
 ) -> TaskRun | None:
     """Find the TaskRun a GitHub webhook belongs to, preferably scoped to ``team_ids``.
 
-    A checkout branch does not prove PR ownership: a discussion can inspect a shared branch
-    without authoring a change. Only verified PR URLs and explicit head-branch records can match.
+    A checkout branch alone does not prove PR ownership: a discussion can inspect a shared
+    branch without authoring a change. Legacy branch matches also require the exact reported PR URL.
     """
     repository = repository.strip() if repository else None
 
@@ -146,6 +146,21 @@ def find_task_run(
             )
             if task_run:
                 return task_run
+
+        # Desktop clients can attach a PR URL and branch without reporting head_branches.
+        if pr_url:
+            return (
+                candidates.filter(
+                    _run_repository_filter(repository),
+                    Q(output__pr_url=pr_url) | Q(output__pr_urls__contains=[pr_url]),
+                    branch=branch,
+                    state__wizard_head_branch__isnull=True,
+                    state__self_driving_head_branch__isnull=True,
+                )
+                .order_by("-created_at", "-id")
+                .select_related(*TASK_RUN_SELECT_RELATED)
+                .first()
+            )
 
     return None
 
