@@ -51550,6 +51550,7 @@ export namespace Schemas {
     } as const;
 
     export interface HogFlowBatchJob {
+      /** ID of the batch run. */
       readonly id: string;
       /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
        *
@@ -51566,8 +51567,11 @@ export namespace Schemas {
       readonly filters: unknown;
       /** Variable value overrides applied to this run. */
       variables?: unknown;
+      /** When the batch run was created. */
       readonly created_at: string;
+      /** User who started the batch run. */
       readonly created_by: UserBasic;
+      /** When the batch run was last updated. */
       readonly updated_at: string;
     }
 
@@ -66192,6 +66196,8 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: EnterpriseEventDefinition[];
+      /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. */
+      count_is_capped?: boolean;
     }
 
     export interface PaginatedEnterprisePropertyDefinitionList {
@@ -114654,6 +114660,10 @@ export namespace Schemas {
 
     export type EventDefinitionsListParams = {
     /**
+     * `event_custom` keeps only names without a `$` prefix and `event_posthog` only names with one. Default `event`.
+     */
+    event_type?: EventDefinitionsListEventType;
+    /**
      * When true, omit events that have been explicitly hidden by a team admin (Enterprise only).
      */
     exclude_hidden?: boolean;
@@ -114662,7 +114672,12 @@ export namespace Schemas {
      */
     exclude_stale?: boolean;
     /**
+     * JSON-encoded list of event names to omit. The name matches the property definitions endpoint that shares it.
+     */
+    excluded_properties?: string;
+    /**
      * Number of results to return per page.
+     * @minimum 1
      */
     limit?: number;
     /**
@@ -114671,9 +114686,35 @@ export namespace Schemas {
     names?: string[];
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
+    /**
+     * Sort keys, prefixed with `-` for descending. Default `-last_seen_at::date` then `name`. Projects with more than 100000 event definitions default to `name`, unless the request sets `search`, `exclude_stale`, `verified`, `names`, `tags` or `event_type=event_posthog`.
+     */
+    ordering?: string[];
+    /**
+     * Case-insensitive match on the event name. Every whitespace-separated term has to match.
+     */
+    search?: string;
+    /**
+     * JSON-encoded list of tag names. Keeps events that carry any of them.
+     */
+    tags?: string;
+    /**
+     * When true, keep only verified events and core PostHog events. When false, keep the rest (Enterprise only).
+     */
+    verified?: boolean;
     };
+
+    export type EventDefinitionsListEventType = typeof EventDefinitionsListEventType[keyof typeof EventDefinitionsListEventType];
+
+
+    export const EventDefinitionsListEventType = {
+      Event: 'event',
+      EventCustom: 'event_custom',
+      EventPosthog: 'event_posthog',
+    } as const;
 
     export type EventDefinitionsByNameRetrieveParams = {
     /**
