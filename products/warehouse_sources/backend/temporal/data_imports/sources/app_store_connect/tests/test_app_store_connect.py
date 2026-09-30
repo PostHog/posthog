@@ -1337,6 +1337,23 @@ class TestAnalyticsSnapshotBackfill:
 
         assert [(row["processing_date"], row["_line"]) for row in rows] == [(date(2026, 8, 1), 1)]
 
+    def test_owed_snapshot_without_an_ongoing_report_is_fulfilled(self) -> None:
+        # A snapshot that is still pending for an app with no ongoing report must not preserve
+        # debt forever: the app has no in-module evidence of access to either report.
+        api = _analytics_api(reports=[], snapshot_reports=[])
+        fulfilled = [False]
+
+        rows = _collect_analytics(
+            api,
+            _FakeManager(),
+            should_use_incremental_field=True,
+            snapshot_owed=True,
+            snapshot_owed_fulfilled=fulfilled,
+        )
+
+        assert rows == []
+        assert fulfilled == [True]
+
     def test_fresh_incremental_sync_holds_while_an_ongoing_instance_below_the_snapshot_is_unready(self) -> None:
         # An ongoing instance without files below the snapshot would stop the walk mid-emission,
         # ratchet the watermark, and strand the history — readiness has to be checked up front.

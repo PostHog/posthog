@@ -1685,9 +1685,8 @@ def _get_analytics_report(
 
         if snapshot_plan is None:
             continue
-        if snapshot_plan.state == "pending":
-            snapshot_still_unavailable = True
         if snapshot_plan.state == "pending" and report_id is not None:
+            snapshot_still_unavailable = True
             # A live ongoing report is the only in-module evidence that the app is entitled to
             # this report at all. An app that is entitled to nothing stays "pending" forever, so
             # holding on it would keep the whole table empty forever. The accepted cost: an
