@@ -596,6 +596,9 @@ where
         .merge(status_router)
         .merge(flags_router)
         .merge(internal_endpoints)
+        .layer(axum::middleware::from_fn(
+            crate::managed_proxy_metrics::track_managed_proxy,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state);

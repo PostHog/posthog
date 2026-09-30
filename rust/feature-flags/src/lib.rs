@@ -8,6 +8,7 @@ pub mod database_pools;
 pub mod db_monitor;
 pub mod flags;
 pub mod handler;
+pub mod managed_proxy_metrics;
 pub mod metrics;
 pub mod properties;
 pub mod rayon_dispatcher;
