@@ -229,6 +229,7 @@ def _incident_activity_pages(client: RESTClient) -> Iterator[list[dict[str, Any]
                 json=body,
                 paginator=IncidentCursorPaginator(),
                 data_selector=activity.data_selector,
+                data_selector_required=True,
                 data_selector_empty_ok=True,
             ):
                 if activity_page:
