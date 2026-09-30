@@ -14,6 +14,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { OrganizationMemberType, UserBasicType } from '~/types'
 
+import { MemberMultiSelect } from './MemberMultiSelect'
 import { MemberSelectMultiplePopover } from './MemberSelectMultiplePopover'
 
 function member(id: string, user: UserBasicType, level: number): OrganizationMemberType {
@@ -29,12 +30,20 @@ function member(id: string, user: UserBasicType, level: number): OrganizationMem
     }
 }
 
-function StatefulPopover({ initialValue }: { initialValue: number[] }): JSX.Element {
+type PickerProps = { value: number[]; onChange: (value: number[]) => void }
+
+function StatefulPicker({
+    Picker,
+    initialValue,
+}: {
+    Picker: (props: PickerProps) => JSX.Element
+    initialValue: number[]
+}): JSX.Element {
     const [value, setValue] = useState(initialValue)
-    return <MemberSelectMultiplePopover value={value} onChange={setValue} />
+    return <Picker value={value} onChange={setValue} />
 }
 
-describe('MemberSelectMultiplePopover', () => {
+describe('multi-select member pickers', () => {
     beforeEach(async () => {
         useMocks({
             get: {
@@ -52,11 +61,11 @@ describe('MemberSelectMultiplePopover', () => {
         cleanup()
     })
 
-    function renderPopover(initialValue: number[] = []): void {
+    function renderPicker(Picker: (props: PickerProps) => JSX.Element, initialValue: number[] = []): void {
         render(
             <Provider>
                 <>
-                    <StatefulPopover initialValue={initialValue} />
+                    <StatefulPicker Picker={Picker} initialValue={initialValue} />
                     <button type="button">Outside</button>
                 </>
             </Provider>
@@ -70,7 +79,7 @@ describe('MemberSelectMultiplePopover', () => {
     }
 
     it('lists members selected at open first and keeps rows in place while toggling', async () => {
-        renderPopover()
+        renderPicker(MemberSelectMultiplePopover)
         await userEvent.click(screen.getByText('Created by'))
         await expectListedInOrder('John', 'Rose')
 
@@ -84,15 +93,27 @@ describe('MemberSelectMultiplePopover', () => {
         await expectListedInOrder('Rose', 'John')
     })
 
-    it('clears the selection from the trigger without opening the dropdown', async () => {
-        renderPopover([MOCK_SECOND_BASIC_USER.id])
+    it.each([
+        {
+            picker: 'MemberSelectMultiplePopover',
+            Picker: MemberSelectMultiplePopover,
+            selectedLabel: 'Created by (1)',
+            emptyLabel: 'Created by',
+        },
+        { picker: 'MemberMultiSelect', Picker: MemberMultiSelect, selectedLabel: 'Rose', emptyLabel: 'Any user' },
+    ])(
+        '$picker clears the selection from the trigger without opening the dropdown',
+        async ({ Picker, selectedLabel, emptyLabel }) => {
+            renderPicker(Picker, [MOCK_SECOND_BASIC_USER.id])
+            expect(await screen.findByText(selectedLabel)).toBeInTheDocument()
 
-        const clearButton = document.querySelector<HTMLElement>('[data-attr="member-filter-clear-x"]')
-        expect(clearButton).not.toBeNull()
-        await userEvent.click(clearButton!)
+            const clearButton = document.querySelector<HTMLElement>('[data-attr="member-filter-clear-x"]')
+            expect(clearButton).not.toBeNull()
+            await userEvent.click(clearButton!)
 
-        expect(screen.getByText('Created by')).toBeInTheDocument()
-        expect(document.querySelector('[data-attr="member-filter-clear-x"]')).toBeNull()
-        expect(screen.queryByLabelText('Members')).not.toBeInTheDocument()
-    })
+            expect(screen.getByText(emptyLabel)).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="member-filter-clear-x"]')).toBeNull()
+            expect(screen.queryByLabelText('Members')).not.toBeInTheDocument()
+        }
+    )
 })
