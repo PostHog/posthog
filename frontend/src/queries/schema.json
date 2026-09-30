@@ -30553,7 +30553,8 @@
                 "aws-redshift",
                 "s3-compatible",
                 "snowflake",
-                "youtube-analytics"
+                "youtube-analytics",
+                "twitter-ads"
             ],
             "type": "string"
         },

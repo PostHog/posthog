@@ -118,6 +118,7 @@ export interface integrationsLogicValues {
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
+            | 'twitter-ads'
             | 's3-compatible'
             | 'salesforce'
             | 'slack'
@@ -229,6 +230,7 @@ export interface integrationsLogicActions {
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
+            | 'twitter-ads'
             | 's3-compatible'
             | 'salesforce'
             | 'slack'
@@ -364,6 +366,7 @@ export interface integrationsLogicActions {
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
+                | 'twitter-ads'
                 | 's3-compatible'
                 | 'salesforce'
                 | 'slack'
@@ -427,6 +430,7 @@ export interface integrationsLogicActions {
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
+                | 'twitter-ads'
                 | 's3-compatible'
                 | 'salesforce'
                 | 'slack'
@@ -484,6 +488,7 @@ export interface integrationsLogicActions {
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
+            | 'twitter-ads'
             | 's3-compatible'
             | 'salesforce'
             | 'slack'
@@ -548,6 +553,7 @@ export interface integrationsLogicActions {
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
+            | 'twitter-ads'
             | 's3-compatible'
             | 'salesforce'
             | 'slack'
@@ -597,6 +603,7 @@ export interface integrationsLogicActions {
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
+            | 'twitter-ads'
             | 's3-compatible'
             | 'salesforce'
             | 'slack'
@@ -692,6 +699,7 @@ export interface integrationsLogicMeta {
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
+                | 'twitter-ads'
                 | 's3-compatible'
                 | 'salesforce'
                 | 'slack'
@@ -1178,6 +1186,38 @@ export const integrationsLogic = kea<integrationsLogicType>([
             cache.disposables.dispose('focusRefetch')
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
+            if (kind === 'twitter-ads') {
+                // The server binds the temporary token to the initiating user and project instead of a state cookie.
+                let replaceUrl = urls.settings('project-integrations')
+                try {
+                    if (searchParams.denied) {
+                        lemonToast.info('X Ads connection cancelled.')
+                    } else {
+                        const parsedTeamId = Number(getCookie('ph_twitter_ads_team_id'))
+                        const integration = await api.integrations.create(
+                            {
+                                kind,
+                                config: {
+                                    oauth_token: searchParams.oauth_token,
+                                    oauth_verifier: searchParams.oauth_verifier,
+                                },
+                            },
+                            Number.isFinite(parsedTeamId) && parsedTeamId > 0 ? parsedTeamId : undefined
+                        )
+                        const url = new URL(integration.config.next || replaceUrl, window.location.origin)
+                        url.searchParams.set(OAUTH_INTEGRATION_ID_PARAM, String(integration.id))
+                        replaceUrl = url.pathname + url.search + url.hash
+                        actions.loadIntegrations()
+                        lemonToast.success('Integration successful.')
+                    }
+                } catch (e) {
+                    toastApiError(e)
+                } finally {
+                    router.actions.replace(replaceUrl)
+                }
+                return
+            }
+
             const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
             const { next, token, source, server_id, team_id } = fromParamsGivenUrl(state)
             const resolvedKind = kind
