@@ -4058,7 +4058,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
-                object: { id: featureFlag.id, name: featureFlag.name },
+                object: { name: featureFlag.key, id: featureFlag.id },
                 callback: (undo) => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
                     if (undo) {
@@ -4074,20 +4074,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         restoreFeatureFlag: async ({ featureFlag }) => {
             try {
-                await deleteWithUndo({
-                    endpoint: `projects/${values.currentProjectId}/feature_flags`,
-                    object: { id: featureFlag.id, name: featureFlag.name },
-                    undo: true,
-                    // deleteWithUndo passes back its own `undo` flag, which restore always sets, so
-                    // this runs only for a successful restore: put the flag back in the tree.
-                    callback: () => {
-                        refreshTreeItem('feature_flag', String(featureFlag.id))
-                        actions.loadFeatureFlag()
-                        // The flag is no longer deleted, so its real verdict may differ from the retained
-                        // DELETED one. Refetch it so the banner reflects the restored flag.
-                        actions.loadFeatureFlagStatus()
-                    },
-                })
+                // deleteWithUndo sends its toast label as `name`, and `name` is the flag's description.
+                // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
+                const restoredFlag = await api.update(
+                    `api/projects/${values.currentProjectId}/feature_flags/${featureFlag.id}`,
+                    { deleted: false }
+                )
+                refreshTreeItem('feature_flag', String(featureFlag.id))
+                actions.loadFeatureFlag()
+                // The flag is no longer deleted, so its real verdict may differ from the retained
+                // DELETED one. Refetch it so the banner reflects the restored flag.
+                actions.loadFeatureFlagStatus()
+                // A deleted flag that an experiment uses has a tombstoned key. The response carries the restored key.
+                lemonToast.success(`${restoredFlag.key} has been restored`)
+            } catch (error: any) {
+                lemonToast.error(error?.detail || "Couldn't restore this feature flag. Try again.")
             } finally {
                 actions.restoreFeatureFlagFinished()
             }

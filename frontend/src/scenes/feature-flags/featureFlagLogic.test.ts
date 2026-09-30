@@ -2866,10 +2866,6 @@ describe('featureFlagLogic', () => {
     })
 
     describe('restoreFeatureFlag', () => {
-        // One test here rejects the restore request on purpose; kea-loaders would log the failure
-        beforeEach(silenceKeaLoadersErrors)
-        afterEach(resumeKeaLoadersErrors)
-
         // deleteWithUndo hands the callback the `undo: true` that restore sets, so branching on it
         // takes the delete path and drops the restored flag out of the files tree.
         it('puts the restored flag back in the files tree', async () => {
@@ -2884,11 +2880,9 @@ describe('featureFlagLogic', () => {
 
                 expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', String(MOCK_FEATURE_FLAG.id))
                 expect(deleteFromTree).not.toHaveBeenCalled()
-                expect(updateSpy.mock.calls[0][1]).toEqual({
-                    id: MOCK_FEATURE_FLAG.id,
-                    name: MOCK_FEATURE_FLAG.name,
-                    deleted: false,
-                })
+                // A `name` in the body overwrites the flag's description.
+                expect(updateSpy.mock.calls[0][1]).toEqual({ deleted: false })
+                expect(lemonToast.success).toHaveBeenCalledWith(`${MOCK_FEATURE_FLAG.key} has been restored`)
             } finally {
                 updateSpy.mockRestore()
             }
@@ -2905,6 +2899,7 @@ describe('featureFlagLogic', () => {
                     .toFinishAllListeners()
 
                 expect(refreshTreeItem).not.toHaveBeenCalled()
+                expect(lemonToast.error).toHaveBeenCalled()
             } finally {
                 updateSpy.mockRestore()
             }
