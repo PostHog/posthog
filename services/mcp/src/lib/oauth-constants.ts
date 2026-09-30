@@ -44,9 +44,12 @@ export function getUserAgent(opts: GetUserAgentOptions = {}): string {
     return parts.join(' ')
 }
 
-// A CIMD client id is the metadata document's URL, and the PostHog app for ChatGPT and Codex
-// uses this one document in both regions. Introspection supplies it, so a caller cannot claim
-// it. The Codex CLI's own client lives under `chatgpt.com/oauth/codex/` and is not this app.
+// The OAuth client id of the PostHog app on OpenAI's platform (the ChatGPT connector and the
+// Codex plugin), the same in US and EU. It is the URL of the app's client metadata document,
+// which OpenAI hosts, so it only changes if PostHog re-registers the app there; app version
+// updates do not touch it. Django reads it from the token during introspection, so a caller
+// cannot claim it by sending a header or a client name. Each Codex CLI install registers its
+// own id under `chatgpt.com/oauth/codex/`, so the CLI never matches this constant.
 export const CHATGPT_APP_OAUTH_CLIENT_ID = 'https://chatgpt.com/oauth/kxnWncnkxM6t/client.json'
 
 export function isChatGptAppConnection(oauthClientId: string | undefined): boolean {

@@ -38,8 +38,12 @@ const NOTEBOOK_RUN_TOOL = 'notebooks-run'
 const DOCS_SEARCH_TOOL = 'docs-search'
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 
-// Older PostHog app connections were granted a scope set without `llm_skill:read`, and a token
-// keeps its scope set on every refresh, so for that app a new connection is the only fix.
+// People who connected the PostHog app in ChatGPT or Codex before 2026-09-17, when the app
+// began requesting `llm_skill:read`, hold a grant without it. Neither host asks them to
+// re-consent when the app requests more scopes: a refresh keeps the old scope set for as long
+// as they stay connected. The generic wording tells them to reconnect "with that scope", which
+// the app does not let them choose, so for that one client the message says what to do
+// instead. Planned removal: after 2027-01-01, by which time those connections should be rare.
 function projectSkillsScopeReason(oauthClientId: string | undefined): string {
     if (isChatGptAppConnection(oauthClientId)) {
         return 'This connection is missing the llm_skill:read scope. A new connection to the PostHog app includes it: disconnect the PostHog app in ChatGPT or Codex and connect it again to read project skills.'
