@@ -116,6 +116,10 @@
     gap: 1px;
 }
 
+.TodaySpaceFeed {
+    max-width: 720px;
+}
+
 .TodayPane__group {
     padding: 12px 8px 4px;
     font-size: 11px;
@@ -152,6 +156,35 @@
     }
 }
 
+.TodayPane__add {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 6px 8px;
+    margin-top: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--today-muted);
+    text-align: left;
+    border: 1px dashed var(--today-input-border);
+    border-radius: 8px;
+    transition:
+        color 0.16s,
+        border-color 0.16s;
+
+    svg {
+        width: 13px;
+        height: 13px;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+        &:hover {
+            color: var(--today-ink);
+            border-color: var(--today-focus-border);
+        }
+    }
+}
+
 .TodayPane__state {
     display: flex;
     flex-direction: column;
@@ -161,10 +194,6 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--today-muted);
-
-    &--nested {
-        padding-left: 30px;
-    }
 }
 
 .TodayPane__hash {
@@ -184,10 +213,6 @@
     color: var(--today-body-text);
     text-align: left;
     border-radius: 8px;
-
-    &--nested {
-        padding-left: 30px;
-    }
 
     &[data-active='true'] {
         color: var(--today-ink);
@@ -243,14 +268,6 @@
     &:focus-within .TodayPaneRow__meta {
         visibility: hidden;
     }
-}
-
-.TodayPaneRow__chevron {
-    flex: 0 0 14px;
-    width: 14px;
-    height: 14px;
-    color: var(--today-faint);
-    transition: transform 0.16s;
 }
 
 .TodayPaneRow__wrap {
