@@ -57,6 +57,7 @@ dependencies = [
     "drf-exceptions-hog==0.4.0",
     "drf-extensions~=0.8.0",
     "drf-spectacular~=0.30.0",
+    "drf-spectacular-sidecar~=2026.9.1",
     "geoip2==4.6.0",
     "google-ads==31.2.0",
     "google-cloud-bigquery==3.26",
