@@ -2281,6 +2281,27 @@ button.MarkdownNotebook__component-title:focus-visible {
     --jupyter-table-stripe: color-mix(in sRGB, var(--color-bg-surface-primary) 94%, var(--color-text-primary));
     --jupyter-table-hover: color-mix(in sRGB, var(--color-bg-surface-primary) 80%, var(--color-blue-400));
     --markdown-notebook-canvas-max-width: 68rem;
+    --jupyter-paper-background: var(--color-bg-surface-primary);
+
+    // The notebook sits on a sheet of its own, centered on the page, as in classic Jupyter.
+    .MarkdownNotebook__canvas {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+        background: var(--jupyter-paper-background);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 2px;
+        box-shadow: 0 0 12px 1px rgb(0 0 0 / 10%);
+    }
+
+    &.MarkdownNotebook--edit .MarkdownNotebook__canvas {
+        padding-bottom: 6rem;
+    }
+
+    // The toolbar spans the sheet exactly, rather than stepping in to the text column.
+    .MarkdownNotebook__canvas-header {
+        padding-right: 0;
+        padding-left: 0;
+    }
 
     .MarkdownNotebook__text-group {
         width: calc(100% - var(--markdown-notebook-content-offset));
@@ -2505,6 +2526,11 @@ button.MarkdownNotebook__component-title:focus-visible {
 
 .MarkdownNotebook__jupyter-cell--active .MarkdownNotebook__jupyter-cell-actions {
     display: flex;
+}
+
+// The dark page already uses the primary surface, so the sheet takes the darker one to stand apart.
+[theme='dark'] .MarkdownNotebook--jupyter {
+    --jupyter-paper-background: var(--color-bg-surface-tertiary);
 }
 
 // pandas' `DataFrame._repr_html_` look, as JupyterLab renders it.

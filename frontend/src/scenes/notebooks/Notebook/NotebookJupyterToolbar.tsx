@@ -64,7 +64,7 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
     return (
         <>
             <div
-                className="NotebookJupyterToolbar sticky top-0 z-10 flex flex-wrap items-center gap-0.5 py-1 mb-2 border-b bg-surface-primary"
+                className="NotebookJupyterToolbar sticky top-0 z-10 flex flex-wrap items-center gap-0.5 py-1 mb-2 border rounded-xs bg-(--jupyter-paper-background)"
                 // Keeps focus, and with it command mode, on the selected cell while a button is clicked.
                 onMouseDown={(event) => event.preventDefault()}
                 data-attr="notebook-jupyter-toolbar"
