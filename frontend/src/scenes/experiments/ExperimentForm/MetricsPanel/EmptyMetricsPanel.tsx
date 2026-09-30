@@ -15,7 +15,6 @@ export const EmptyMetricsPanel = ({
 }: {
     helpText?: string
     isLaunched?: boolean
-    /** Hide the help line under the buttons, e.g. when the surrounding heading already explains it */
     showHelpText?: boolean
 } = {}): JSX.Element => {
     const { openMetricSourceModal } = useActions(metricSourceModalLogic)
