@@ -4058,7 +4058,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
-                object: { name: featureFlag.key, id: featureFlag.id },
+                object: { id: featureFlag.id },
+                label: featureFlag.key,
                 callback: (undo) => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
                     if (undo) {
@@ -4074,7 +4075,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         restoreFeatureFlag: async ({ featureFlag }) => {
             try {
-                // deleteWithUndo sends its toast label as `name`, and `name` is the flag's description.
                 // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
                 const restoredFlag = await api.update(
                     `api/projects/${values.currentProjectId}/feature_flags/${featureFlag.id}`,

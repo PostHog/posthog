@@ -7,9 +7,12 @@ import {
     MOCK_TEAM_ID,
 } from 'lib/api.mock'
 
+import { render } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
+import { lemonToast as sharedLemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -2865,9 +2868,28 @@ describe('featureFlagLogic', () => {
         })
     })
 
-    describe('restoreFeatureFlag', () => {
-        // deleteWithUndo hands the callback the `undo: true` that restore sets, so branching on it
-        // takes the delete path and drops the restored flag out of the files tree.
+    describe('deleting and restoring', () => {
+        it('deletes the flag without overwriting its description', async () => {
+            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: true })
+            // deleteWithUndo imports its toast from @posthog/lemon-ui, which the LemonToast mock above does not reach.
+            const toastSpy = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () =>
+                    logic.actions.deleteFeatureFlag(MOCK_FEATURE_FLAG)
+                ).toFinishAllListeners()
+
+                // A `name` in the body overwrites the flag's description.
+                expect(updateSpy.mock.calls[0][1]).toEqual({ id: MOCK_FEATURE_FLAG.id, deleted: true })
+                const [message] = toastSpy.mock.calls[0]
+                expect(render(message as JSX.Element).container.textContent).toBe(
+                    `${MOCK_FEATURE_FLAG.key} has been deleted`
+                )
+            } finally {
+                updateSpy.mockRestore()
+                toastSpy.mockRestore()
+            }
+        })
+
         it('puts the restored flag back in the files tree', async () => {
             const updateSpy = jest.spyOn(api, 'update').mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: false })
             try {
