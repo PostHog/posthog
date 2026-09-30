@@ -32,13 +32,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.depot.sett
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.depot import DepotSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, ExternalDataSourceType
 
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 
 
 _RETRY_LOOKBACK = datetime.timedelta(days=7)
 _RECONCILIATION_INTERVAL = datetime.timedelta(days=7)
+_APPEND_UNSUPPORTED = (
+    "Depot CI replays job attempts. Switch this table to incremental merge or full refresh to avoid duplicates."
+)
 
 
 @frozen
@@ -100,6 +103,7 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            _APPEND_UNSUPPORTED: _APPEND_UNSUPPORTED,
             "401 Client Error": "Depot didn't accept your API token. Create a new organization API token in Depot and reconnect.",
             "403 Client Error": "Your Depot API token can't read Depot CI runs. Use an organization API token and reconnect.",
         }
@@ -130,6 +134,8 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
         return DepotReconciliationCursor
 
     def source_for_pipeline(self, config: DepotSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        if inputs.sync_type == ExternalDataSchemaSyncType.APPEND:
+            raise ValueError(_APPEND_UNSUPPORTED)
         manager = self.get_cursor_manager(inputs)
         cursor = manager.load()
         now = datetime.datetime.now(datetime.UTC)

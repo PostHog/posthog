@@ -1,14 +1,21 @@
 import json
 import datetime as dt
 from collections.abc import Iterable, Iterator
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 import time_machine
 from unittest import mock
 
+import pyarrow as pa
+import deltalake
 from requests import HTTPError, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
+    make_local_table_ref,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import (
@@ -21,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.depot.sour
     DepotSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.depot import DepotSourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot"
 REPOSITORY = "example-org/example-repo"
@@ -289,6 +297,58 @@ class TestDepotSource:
 
 
 class TestDepotReconciliation:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("age_days,reconciled_days_ago", [(2, 1), (14, 7)])
+    async def test_replayed_attempts_update_storage_without_duplicates(
+        self, age_days: int, reconciled_days_ago: int, tmp_path: Path
+    ) -> None:
+        source = DepotSource()
+        config = DepotSourceConfig(api_token=API_TOKEN, repository=REPOSITORY)
+        run = _run("run-1", dt.timedelta(days=age_days))
+        workflow = _single_attempt_workflow(run)
+        workflow["workflowStatus"] = "failed"
+        job = workflow["jobs"][0]
+        job["attempts"][0]["status"] = "failed"
+        session = _fake_session([run], workflows_by_run={run["runId"]: [workflow]})
+        manager = SourceCursorManager(source.cursor_class(), None, source)
+        inputs = mock.MagicMock(
+            sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+            history_start=NOW - dt.timedelta(days=30),
+            source_cursor=manager,
+        )
+        with time_machine.travel(NOW, tick=False), mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            for sync in range(3):
+                writer = DeltaWriter(make_local_table_ref(str(tmp_path / "attempts")))
+                if sync == 1:
+                    workflow["workflowStatus"] = "finished"
+                    job["attempts"].append({"attemptId": "retry-2", "attempt": 2, "status": "finished"})
+                if sync > 0:
+                    inputs.db_incremental_field_last_value = _iso(NOW - dt.timedelta(minutes=10))
+                    inputs.source_cursor = SourceCursorManager(
+                        source.cursor_class(),
+                        DepotReconciliationCursor(reconciled_at=_iso(NOW - dt.timedelta(days=reconciled_days_ago))),
+                        source,
+                    )
+                response = source.source_for_pipeline(config, inputs)
+                rows = [row for batch in _batches(response) for row in batch]
+                batch = pa.Table.from_pylist(
+                    [{key: row[key] for key in ("attempt_id", "attempt_status", "workflow_status")} for row in rows]
+                )
+                await writer.write(
+                    data=batch,
+                    write_type="incremental",
+                    should_overwrite_table=False,
+                    primary_keys=response.primary_keys,
+                )
+                actual = deltalake.DeltaTable(str(tmp_path / "attempts")).to_pyarrow_table().to_pylist()
+                assert len(actual) == (1 if sync == 0 else 2)
+                assert {row["attempt_id"]: row["attempt_status"] for row in actual} == (
+                    {"run-1-attempt": "failed"} if sync == 0 else {"run-1-attempt": "failed", "retry-2": "finished"}
+                )
+                assert {row["workflow_status"] for row in actual} == {"failed" if sync == 0 else "finished"}
+
     @pytest.mark.parametrize(
         "reconciled_days_ago, history_days, has_watermark, expected_runs",
         [

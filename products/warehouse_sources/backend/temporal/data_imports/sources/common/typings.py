@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, Ty
 
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -176,3 +176,4 @@ class SourceInputs:
     # Set for a source that implements `CursorSource`. It holds the cursor stored by the last
     # successful run, or no cursor when this run rebuilds the table.
     source_cursor: Optional[SourceCursorManager[Any]] = None
+    sync_type: ExternalDataSchemaSyncType | None = None

@@ -536,6 +536,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
             source_inputs = SourceInputs(
                 schema_name=schema.name,
+                sync_type=ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None,
                 schema_id=str(schema.id),
                 source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
