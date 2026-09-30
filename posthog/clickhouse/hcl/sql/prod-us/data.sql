@@ -970,6 +970,30 @@ CREATE TABLE posthog.raw_sessions (
   page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('sessions', 'posthog', 'raw_sessions', cityHash64(session_id_v7));
+CREATE TABLE posthog.saved_query_reads_daily (
+  team_id Int64,
+  day Date,
+  read_kind Enum8('read'=1, 'refresh'=2),
+  subject_kind Enum8('saved_query'=1, 'table'=2),
+  subject_id String,
+  workflow_id String,
+  lc_kind LowCardinality(String),
+  lc_product LowCardinality(String),
+  lc_feature LowCardinality(String),
+  lc_access_method LowCardinality(String),
+  source LowCardinality(String),
+  scene LowCardinality(String),
+  has_user_id Bool,
+  names_only_this_subject Bool,
+  requests AggregateFunction(uniq, String),
+  users AggregateFunction(uniq, Int64),
+  read_count SimpleAggregateFunction(sum, UInt64),
+  duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+  read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+  duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  max_event_time SimpleAggregateFunction(max, DateTime)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.saved_query_reads_daily', '{replica}-{shard}') ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, names_only_this_subject) PARTITION BY toYYYYMMDD(day) TTL day + toIntervalDay(60) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.session_recording_events (
   uuid UUID,
   timestamp DateTime64(6, 'UTC'),
