@@ -1,3 +1,5 @@
+from contextlib import AbstractContextManager
+
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -73,7 +75,9 @@ class TestAccountRequests(StripeProvisioningTestBase):
             ),
         ]
     )
-    def test_new_user_is_not_created(self, _name, failure, error_code):
+    def test_new_user_is_not_created(
+        self, _name: str, failure: AbstractContextManager[object], error_code: str
+    ) -> None:
         organization_count = Organization.objects.count()
 
         with failure:

@@ -167,7 +167,7 @@ class TestAccountRequests(ProvisioningTestBase):
             ),
         ]
     )
-    def test_integrity_error_without_existing_user_returns_500(self, _name, failing_call):
+    def test_integrity_error_without_existing_user_returns_500(self, _name: str, failing_call: str) -> None:
         organization_count = Organization.objects.count()
         payload = self._account_request_payload(email="ghost@example.com")
         with patch(failing_call, side_effect=IntegrityError):

@@ -125,7 +125,7 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
         application = next((name for name, app in self.apps.items() if app.id == record.application_id), None)
         return record.partner, application
 
-    def _add_vercel_installation(self, config: dict) -> None:
+    def _add_vercel_installation(self, config: dict[str, object]) -> None:
         OrganizationIntegration.objects.create(
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
@@ -138,16 +138,21 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
             ("csv_partner_on_first_team", "csv", "first_team", ("provisioning_api", "partner")),
             ("csv_partner_on_later_team", "csv", "later_team", None),
             ("csv_partner_on_lowest_team_created_after_organization", "csv", "lowest_team_created_later", None),
+            ("csv_partner_on_first_team_attributed_to_other_partner", "csv", "first_team_other_partner", None),
             ("vercel_marketplace_install", "vercel_marketplace", None, ("vercel", None)),
             ("vercel_connectable_link", "vercel_connectable", None, None),
             ("csv_and_vercel_claim_the_same_organization", "csv+vercel_marketplace", "first_team", None),
         ]
     )
-    def test_live_run_records_organization_creator(self, _name, sources, team_choice, expected):
+    def test_live_run_records_organization_creator(
+        self, _name: str, sources: str, team_choice: str | None, expected: tuple[str, str | None] | None
+    ) -> None:
         later_team = Team.objects.create(organization=self.organization, name="Later team")
         team = later_team if team_choice == "later_team" else self.team
         if team_choice == "lowest_team_created_later":
             Team.objects.filter(id=self.team.id).update(created_at=self.organization.created_at + timedelta(days=30))
+        if team_choice == "first_team_other_partner":
+            self._seed_config(self.team, "other_partner")
         rows: list[tuple[object, object]] = []
         if "csv" in sources:
             rows.append((team.id, self.apps["partner"].id))

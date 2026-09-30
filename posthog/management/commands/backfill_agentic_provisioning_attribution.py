@@ -43,6 +43,7 @@ class OrganizationOutcome(StrEnum):
     SKIPPED_OTHER_PARTNER = "skipped_other_partner"
     SKIPPED_CONFLICTING_PARTNERS = "skipped_conflicting_partners"
     SKIPPED_NOT_FIRST_TEAM = "skipped_not_first_team"
+    SKIPPED_FIRST_TEAM_OTHER_APPLICATION = "skipped_first_team_other_application"
 
 
 Partner = OrganizationProvisioning.Partner
@@ -167,12 +168,20 @@ def _first_team_claims(
             created_at__lte=F("organization__created_at") + FIRST_TEAM_CREATION_WINDOW,
         ).values_list("id", flat=True)
     )
+    first_team_applications: dict[int, uuid.UUID] = dict(
+        TeamProvisioningConfig.objects.filter(team_id__in=first_team_ids, application__isnull=False).values_list(
+            "team_id", "application_id"
+        )
+    )
     claims = []
     for team_id, application_id in partner_by_team.items():
         if team_id not in team_organizations:
             continue
         if team_id not in first_team_ids:
             outcomes[OrganizationOutcome.SKIPPED_NOT_FIRST_TEAM] += 1
+            continue
+        if first_team_applications.get(team_id) not in (None, application_id):
+            outcomes[OrganizationOutcome.SKIPPED_FIRST_TEAM_OTHER_APPLICATION] += 1
             continue
         claims.append(
             _OrganizationClaim(
@@ -244,8 +253,9 @@ class Command(BaseCommand):
         "with team_id and partner_id (OAuthApplication id) columns. Creates a missing "
         "TeamProvisioningConfig row or fills a null application, and never replaces a different one. "
         "Also records the partner that created each organization: the CSV partner when the attributed "
-        "team is the organization's first team, and Vercel for organizations with a Vercel marketplace "
-        "installation. Never replaces an organization's recorded partner."
+        "team is the organization's first team and is not attributed to a different application, and "
+        "Vercel for organizations with a Vercel marketplace installation. Never replaces an "
+        "organization's recorded partner."
     )
 
     def add_arguments(self, parser: ArgumentParser) -> None:
