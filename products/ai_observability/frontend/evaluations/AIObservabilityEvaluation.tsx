@@ -957,7 +957,10 @@ function EvaluationModelPicker(): JSX.Element {
     // Evals always run on the team's own provider key, so only BYOK models are offered.
     const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
     const groups = evaluationProviderModelGroups.filter(
-        (group) => evaluation?.output_type === 'boolean' || group.provider !== 'system_one'
+        (group) =>
+            evaluation?.output_type === 'boolean' ||
+            evaluation?.output_type === 'categorical' ||
+            group.provider !== 'system_one'
     )
     const loading = byokModelsLoading || providerKeysLoading
 
@@ -986,8 +989,9 @@ function EvaluationModelPicker(): JSX.Element {
                         <ByokModelPickerNotice forEvaluation />
                         {evaluation?.model_configuration?.provider === 'system_one' && (
                             <p className="text-sm text-muted mt-2">
-                                This judge returns a probability without written reasoning. A probability of 50% or
-                                higher produces a true result.
+                                {evaluation.output_type === 'categorical'
+                                    ? 'This judge selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
+                                    : 'This judge returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
                             </p>
                         )}
                         {modelSelectionRequired && !selectedModel && (

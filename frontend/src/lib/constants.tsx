@@ -257,6 +257,7 @@ export const FEATURE_FLAGS = {
     ACTION_REFERENCE_COUNT: 'action-reference-count', // owner: @andyzzhao #team-product-analytics, gates bulk action reference counting on actions list
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AI_GATEWAY: 'ai-gateway', // owner: #team-agent-infra, gates the AI gateway UI and llm_gateway:read on project secret API keys
+    AI_OBSERVABILITY_TRACE_REDESIGN: 'ai-observability-trace-redesign', // owner: #team-ai-observability, gates the redesigned trace view
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_15_MINUTE_INTERVAL: 'alerts-15-minute-interval', // owner: #team-analytics-platform, gates 15-minute insight alert interval
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
@@ -298,7 +299,6 @@ export const FEATURE_FLAGS = {
     DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
     DATA_MODELING_INCREMENTAL_VIEWS: 'data-modeling-incremental-views', // owner: #team-data-modeling
     DATA_QUALITY_CHECKS: 'data-quality-checks', // owner: #team-data-modeling
-    DATA_WAREHOUSE_COLUMN_STATISTICS: 'data-warehouse-column-statistics', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-modeling
@@ -447,6 +447,7 @@ export const FEATURE_FLAGS = {
     PHAI_SCENE_AUTO_OPEN: 'phai-scene-auto-open', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
     PIPELINE_STATUS_PAGE: 'pipeline-status-page', // owner: @clr182 #team-support
+    PLATFORM_ALERTS: 'platform-alerts', // owner: #team-apm, gates the shared alerts platform read API and UI
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
     POSTHOG_AI_CHANGELOG: 'posthog-ai-changelog', // owner: #team-posthog-ai
     POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG: 'posthog-ai-conversation-feedback-config', // owner: #team-posthog-ai

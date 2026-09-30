@@ -600,7 +600,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fulcrum/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fullstory/fullstory.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fusionauth/fusionauth.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/fusionauth/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gainsight_px/gainsight_px.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gainsight_px/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gerrit/gerrit.py

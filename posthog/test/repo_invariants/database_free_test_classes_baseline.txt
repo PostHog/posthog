@@ -326,10 +326,6 @@ products/marketing_analytics/backend/test_max_tools.py::TestFormatTimestampForLl
 products/marketing_analytics/backend/test_max_tools.py::TestFormatUtmMappingSuggestionsForLlm
 products/marketing_analytics/backend/test_max_tools.py::TestSanitizeForPrompt
 products/mcp_store/backend/test/test_api.py::TestIsValidPosthogCodeCallbackUrl
-products/mcp_store/backend/test/test_oauth.py::TestAuthServerMetadataDiscoveryChain
-products/mcp_store/backend/test/test_oauth.py::TestResolveIssuer
-products/mcp_store/backend/test/test_oauth.py::TestSSRFProtection
-products/mcp_store/backend/test/test_oauth.py::TestValidateEndpointsBoundToIssuer
 products/messaging/backend/services/test_customerio_track_client.py::TestCustomerIOTrackClient
 products/metrics/backend/tests/test_metric_query_runner.py::TestAlignToInterval
 products/posthog_ai/eval_harness/test/test_acp_log.py::TestSandboxedTraceCaptureParser
