@@ -419,6 +419,11 @@ export class SettingsManager {
     return { decision: "ask" };
   }
 
+  /** The `env` block of the user's own settings file, without repo layers. */
+  getUserEnv(): Record<string, string> {
+    return { ...(this.userSettings.env ?? {}) };
+  }
+
   getSettings(): ClaudeCodeSettings {
     return this.mergedSettings;
   }
