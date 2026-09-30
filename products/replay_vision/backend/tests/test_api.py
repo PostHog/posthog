@@ -4288,6 +4288,8 @@ class TestWatchFeedQueryValidation(SimpleTestCase):
             ("bad_scanner_type", {"scanner_type": "nonsense"}),
             ("limit_too_high", {"limit": "51"}),
             ("limit_zero", {"limit": "0"}),
+            ("offset_negative", {"offset": "-1"}),
+            ("offset_past_candidate_cap", {"offset": "1001"}),
         ]
     )
     def test_rejects_invalid_query(self, _name: str, params: dict[str, str]) -> None:
@@ -4299,6 +4301,7 @@ class TestWatchFeedQueryValidation(SimpleTestCase):
         assert serializer.is_valid()
         assert serializer.validated_data["date_from"] == "-7d"
         assert serializer.validated_data["limit"] == 20
+        assert serializer.validated_data["offset"] == 0
 
 
 class TestWatchFeedAPI(_VisionAPITestCase):
@@ -4374,6 +4377,73 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(items[1]["reason"], {"kind": "verdict_yes"})
         self.assertEqual(items[2]["reason"], {"kind": "friction"})
         assert plain_new and hit and signal and plain_old
+
+    def test_pages_through_the_ranked_window_without_overlap(self) -> None:
+        scanner = self._create_scanner(
+            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
+        )
+        # Five identical friction findings: equal scores, so the ranking falls back to recency and the
+        # page boundaries are deterministic.
+        friction_result = {
+            "model_output": {
+                "scanner_type": "summarizer",
+                "title": "Checkout gone wrong",
+                "summary": "The user hit an error at checkout and retried payment twice.",
+                "confidence": 0.9,
+            },
+            "signals_count": 0,
+        }
+        for i in range(5):
+            self._succeeded_observation(scanner, f"sess-{i}", 10 + i, friction_result)
+
+        first = self.client.get(self.feed_url, {"limit": "2"})
+        self.assertEqual(first.status_code, 200, first.json())
+        first_body = first.json()
+        self.assertEqual([item["observation"]["session_id"] for item in first_body["results"]], ["sess-0", "sess-1"])
+        self.assertTrue(first_body["has_more"])
+        self.assertEqual(first_body["next_offset"], 2)
+
+        # The next page pins the echoed window, so the ranking cannot shift between requests.
+        second = self.client.get(
+            self.feed_url,
+            {
+                "limit": "2",
+                "offset": str(first_body["next_offset"]),
+                "date_from": first_body["date_from"],
+                "date_to": first_body["date_to"],
+            },
+        )
+        self.assertEqual(second.status_code, 200, second.json())
+        second_body = second.json()
+        self.assertEqual([item["observation"]["session_id"] for item in second_body["results"]], ["sess-2", "sess-3"])
+        self.assertTrue(second_body["has_more"])
+        self.assertEqual(second_body["next_offset"], 4)
+
+        third = self.client.get(
+            self.feed_url,
+            {
+                "limit": "2",
+                "offset": str(second_body["next_offset"]),
+                "date_from": second_body["date_from"],
+                "date_to": second_body["date_to"],
+            },
+        )
+        self.assertEqual(third.status_code, 200, third.json())
+        third_body = third.json()
+        self.assertEqual([item["observation"]["session_id"] for item in third_body["results"]], ["sess-4"])
+        self.assertFalse(third_body["has_more"])
+        self.assertEqual(third_body["next_offset"], 5)
+
+    def test_offset_past_the_ranked_list_returns_an_empty_page(self) -> None:
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(scanner, "only", 5, self._monitor_result("no", signals=1))
+
+        resp = self.client.get(self.feed_url, {"offset": "40"})
+        self.assertEqual(resp.status_code, 200, resp.json())
+        body = resp.json()
+        self.assertEqual(body["results"], [])
+        self.assertFalse(body["has_more"])
+        self.assertEqual(body["next_offset"], 40)
 
     def test_signal_reason_carries_the_persisted_problem_types(self) -> None:
         # The card counts what kinds of issue a signal row carries, so the reason must surface one entry
