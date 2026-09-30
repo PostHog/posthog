@@ -32,6 +32,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import resolve_scheduled_metrics, scheduled_metric_definitions
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -40,7 +41,7 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
-from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics, find_metric_dict
+from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
@@ -384,9 +385,10 @@ def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetri
     ExperimentMetricResult" — the snapshot lives in the fingerprint, not in a stored column.
     """
     stats_method = get_experiment_stats_method(experiment)
+    definitions = scheduled_metric_definitions(experiment)
     fingerprints: dict[str, str] = {}
     for metric_uuid in recalc.metric_uuids or []:
-        metric_dict = find_metric_dict(experiment, metric_uuid)
+        metric_dict = definitions.get(metric_uuid)
         if metric_dict is None:
             continue
         config_fp = compute_metric_fingerprint(
@@ -445,18 +447,15 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     and completed_at both pin to the freshest point's date. GET never triggers anything itself.
     """
     with team_scope(experiment.team_id, canonical=True):
-        metrics = discover_experiment_metrics(experiment)
+        metrics = resolve_scheduled_metrics(experiment)
         stats_method = get_experiment_stats_method(experiment)
 
         now = timezone.now()
         results: list[dict] = []
         latest_query_to = None
         for metric in metrics:
-            metric_dict = find_metric_dict(experiment, metric.metric_uuid)
-            if metric_dict is None:
-                continue
             config_fp = compute_metric_fingerprint(
-                metric_dict,
+                metric.definition,
                 experiment.start_date,
                 stats_method,
                 experiment.exposure_criteria,
@@ -466,7 +465,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
             row = (
                 ExperimentMetricResult.objects.filter(
                     experiment=experiment,
-                    metric_uuid=metric.metric_uuid,
+                    metric_uuid=metric.uuid,
                     fingerprint=config_fp,
                     status=ExperimentMetricResult.Status.COMPLETED,
                     # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry
