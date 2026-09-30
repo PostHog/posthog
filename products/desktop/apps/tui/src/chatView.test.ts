@@ -104,6 +104,10 @@ describe("ChatView", () => {
     const closed = plain(chat.render(40, 3)).map((line) => line.trim());
     expect(closed[2]).toBe("▸ Ran 2 shell commands · 1 failed");
 
+    expect(chat.hoverAt(2)).toBe(true);
+    expect(chat.hoverAt(2)).toBe(false);
+    expect(chat.render(40, 3)[2]).not.toContain("\u001b[2m▸");
+    expect(chat.hoverAt(null)).toBe(true);
     expect(chat.toggleAt(0)).toBe(false);
     expect(chat.toggleAt(2)).toBe(true);
     expect(plain(chat.render(40, 8)).map((line) => line.trim())).toEqual([

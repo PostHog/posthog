@@ -823,6 +823,16 @@ export function App({
         repaint((tick) => tick + 1);
     }
   };
+  const onMove = (move: Click): void => {
+    let changed = false;
+    for (const [paneId, element] of chatBoxes.current) {
+      const box = boxOf(element);
+      const row = hitTest(move, [["chat", box]]) ? move.row - box.top : null;
+      if (chatFor(`${paneId}:${paneTaskId(paneId)}`).hoverAt(row))
+        changed = true;
+    }
+    if (changed) repaint((tick) => tick + 1);
+  };
   const onWheel = (wheel: Wheel): void => {
     const panes = [...paneBoxes.current].map(
       ([paneId, element]) => [paneId, boxOf(element)] as [string, ScreenBox],
@@ -960,13 +970,14 @@ export function App({
     }
   };
 
-  const handlers = useRef({ onClick, onWheel, onKey, onSubmit });
-  handlers.current = { onClick, onWheel, onKey, onSubmit };
+  const handlers = useRef({ onClick, onMove, onWheel, onKey, onSubmit });
+  handlers.current = { onClick, onMove, onWheel, onKey, onSubmit };
 
   useEffect(() => {
     if (!mouse) return;
     const click = (at: Click): void => handlers.current.onClick(at);
     const wheel = (at: Wheel): void => handlers.current.onWheel(at);
+    const move = (at: Click): void => handlers.current.onMove(at);
     const keys = new StdinBuffer();
     keys.on("data", (sequence) => handlers.current.onKey(sequence));
     keys.on("paste", (text) =>
@@ -975,10 +986,12 @@ export function App({
     const raw = (data: string): void => keys.process(data);
     mouse.on("click", click);
     mouse.on("wheel", wheel);
+    mouse.on("move", move);
     mouse.on("keys", raw);
     return () => {
       mouse.off("click", click);
       mouse.off("wheel", wheel);
+      mouse.off("move", move);
       mouse.off("keys", raw);
       keys.destroy();
     };
