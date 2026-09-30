@@ -104,7 +104,7 @@ const REPORTS = [
         id: 'report-1',
         title: 'Signup form rejects plus-addressed emails',
         summary:
-            'Sign-ups with a plus sign in the email address fail validation since the last release.\n\n## Impact\n\nNew teams that use plus addressing cannot finish signing up.',
+            'Sign-ups with a plus sign in the email address fail validation since the last release.\n\n## Impact\n\nNew teams that use plus addressing cannot finish signing up.\n\n[Failed sign-ups](chart:failed-signups)',
         status: SignalReportStatus.READY,
         signal_count: 12,
         updated_at: '2026-09-28T07:00:00Z',
@@ -112,6 +112,18 @@ const REPORTS = [
         actionability: 'immediately_actionable',
         source_products: ['error_tracking', 'session_replay'],
         implementation_pr_url: 'https://github.com/example/app/pull/42',
+        charts: [
+            {
+                chart_id: 'failed-signups',
+                title: 'Failed sign-ups',
+                query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } },
+            },
+            {
+                chart_id: 'signup-errors',
+                title: 'Sign-up validation errors',
+                query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 2' } },
+            },
+        ],
     }),
     makeReport({
         id: 'report-2',
@@ -240,6 +252,15 @@ export const HomeWhenReportsFailToLoad: Story = {
 
 export const ReportWithPullRequest: Story = {
     parameters: { pageUrl: urls.todayReport('report-1') },
+}
+
+export const ReportNotFound: Story = {
+    parameters: { pageUrl: urls.todayReport('report-missing') },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/signals/reports/:id/': () => [404, { detail: 'Not found.' }] },
+        }),
+    ],
 }
 
 export const ReportWithSuggestedPrompts: Story = {

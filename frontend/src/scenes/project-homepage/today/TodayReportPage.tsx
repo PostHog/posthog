@@ -5,7 +5,7 @@ import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { ReportChart } from 'products/signals/frontend/inbox/components/detail/ReportChart'
+import { ReportChart, ReportChartsContext } from 'products/signals/frontend/inbox/components/detail/ReportChart'
 import { ReportSummaryBody } from 'products/signals/frontend/inbox/components/detail/ReportSummaryBody'
 
 import { TodayIcon } from './TodayIcon'
@@ -18,8 +18,16 @@ import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignal
 
 export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
     const logic = todayReportLogic({ reportId })
-    const { currentReport, reportFailed, fullReportLoading, chartPlacements, trailingCharts, reportUrl } =
-        useValues(logic)
+    const {
+        currentReport,
+        reportFailed,
+        reportNotFound,
+        fullReportLoading,
+        chartPlacements,
+        chartsById,
+        trailingCharts,
+        reportUrl,
+    } = useValues(logic)
     const { loadFullReport } = useActions(logic)
     const sampleDisabledReason = isSampleReportId(reportId) ? 'This is a sample report.' : undefined
 
@@ -29,7 +37,11 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                 <TodaySampleBanner />
                 <h1 className="TodayReport__heading">Couldn’t open this report.</h1>
                 <div className="TodayReport__body">
-                    <p>It may have been deleted, or the request failed. Try again, or go back to today’s briefing.</p>
+                    <p>
+                        {reportNotFound
+                            ? 'This report isn’t in the current project, or you don’t have access to it. If someone shared the link with you, ask them for access to the project it’s in.'
+                            : 'The request failed. Try again, or go back to today’s briefing.'}
+                    </p>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-6">
                     <LemonButton
@@ -94,16 +106,18 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                         Open in Inbox
                     </LemonButton>
                 </div>
-                <div className="TodayReport__body">
-                    {currentReport.summary ? (
-                        <ReportSummaryBody summary={currentReport.summary} chartPlacements={chartPlacements} />
-                    ) : (
-                        <p>No summary yet. An agent is still investigating.</p>
-                    )}
-                    {trailingCharts.map((chart) => (
-                        <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
-                    ))}
-                </div>
+                <ReportChartsContext.Provider value={chartsById}>
+                    <div className="TodayReport__body">
+                        {currentReport.summary ? (
+                            <ReportSummaryBody summary={currentReport.summary} chartPlacements={chartPlacements} />
+                        ) : (
+                            <p>No summary yet. An agent is still investigating.</p>
+                        )}
+                        {trailingCharts.map((chart) => (
+                            <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
+                        ))}
+                    </div>
+                </ReportChartsContext.Provider>
             </article>
             <TodayReportEvidence reportId={currentReport.id} />
             <TodayReportPrompts report={currentReport} reportUrl={reportUrl} />

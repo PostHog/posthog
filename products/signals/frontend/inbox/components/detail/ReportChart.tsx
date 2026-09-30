@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { createContext, useContext, useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -142,6 +142,9 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
     return <Query query={query} uniqueKey={uniqueKey} readOnly embedded />
 }
 
+/** Lets a page that shows a report outside the inbox give its charts without binding `inboxReportDetailLogic`. */
+export const ReportChartsContext = createContext<Map<string, ReportChartApi> | null>(null)
+
 /**
  * One chart attached to a report, drawn from the query its author supplied.
  *
@@ -157,6 +160,15 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
 /** Looks the chart up on the open report. Replay Vision reads reports through its own
  * scanner-scoped endpoint, so it renders `ReportChartCard` with the chart it already holds. */
 export function ReportChart({ chartId }: { chartId: string }): JSX.Element | null {
+    const providedCharts = useContext(ReportChartsContext)
+    if (providedCharts) {
+        const chart = providedCharts.get(chartId)
+        return chart ? <ReportChartCard chart={chart} /> : null
+    }
+    return <InboxReportChart chartId={chartId} />
+}
+
+function InboxReportChart({ chartId }: { chartId: string }): JSX.Element | null {
     const { chartsById } = useValues(inboxReportDetailLogic)
     const chart = chartsById.get(chartId)
     return chart ? <ReportChartCard chart={chart} /> : null
