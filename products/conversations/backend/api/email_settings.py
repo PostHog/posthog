@@ -179,6 +179,7 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "domain": config.domain,
         "domain_verified": config.domain_verified,
         "dns_records": config.dns_records,
+        "trusted_relay_sender": config.trusted_relay_sender,
         "is_default": config.is_default,
         "connection_status": config.connection_status,
         "setup_expires_at": setup.expires_at if setup is not None else None,
@@ -348,6 +349,17 @@ class ConfigIdSerializer(serializers.Serializer):
     config_id = serializers.UUIDField(help_text="Email channel ID.")
 
 
+class EmailSetTrustedRelaySerializer(ConfigIdSerializer):
+    trusted_relay_sender = serializers.EmailField(
+        allow_blank=True,
+        max_length=254,
+        help_text="Exact sender address of a trusted email relay. Leave blank to disable relay requester recovery.",
+    )
+
+    def validate_trusted_relay_sender(self, value: str) -> str:
+        return value.strip().lower()
+
+
 class EmailDnsRecordSerializer(serializers.Serializer):
     record_type = serializers.CharField(required=False, allow_blank=True, help_text="DNS record type.")
     name = serializers.CharField(required=False, allow_blank=True, help_text="DNS record hostname.")
@@ -388,6 +400,11 @@ class EmailChannelConfigSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text="DNS records required to verify the sending domain.",
+    )
+    trusted_relay_sender = serializers.EmailField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Exact sender address trusted to supply the customer in X-PostHog-Requester or Reply-To.",
     )
     is_default = serializers.BooleanField(
         read_only=True,
@@ -852,6 +869,46 @@ class EmailSetDefaultView(APIView):
                 config.save(update_fields=["is_default"])
 
         logger.info("email_channel_set_default", team_id=team.id, config_id=config_id, user_id=user.id)
+        return Response({"ok": True})
+
+
+class EmailSetTrustedRelayView(APIView):
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+
+    @extend_schema(
+        tags=["conversations"],
+        request=EmailSetTrustedRelaySerializer,
+        responses={
+            200: EmailChannelOperationResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
+    def post(self, request: Request, *args, **kwargs) -> Response:
+        result = _get_team_from_request(request)
+        if isinstance(result, Response):
+            return result
+        user, team = result
+
+        serializer = EmailSetTrustedRelaySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        config = _get_config_for_team(serializer.validated_data["config_id"], team)
+        if config is None:
+            return Response({"error": "Email config not found"}, status=404)
+        if config.kind != EmailChannelKind.SUPPORT:
+            return Response({"error": "Only support email channels can use a trusted relay."}, status=400)
+
+        trusted_relay_sender: str = serializer.validated_data["trusted_relay_sender"]
+        config.trusted_relay_sender = trusted_relay_sender
+        config.save(update_fields=["trusted_relay_sender"])
+
+        logger.info(
+            "email_channel_trusted_relay_updated",
+            team_id=team.id,
+            config_id=config.id,
+            enabled=bool(trusted_relay_sender),
+            user_id=user.id,
+        )
         return Response({"ok": True})
 
 

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonInput, LemonLabel, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -61,9 +61,21 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | n
 }
 
 function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
-    const { emailVerifyingConfigId, emailTestingConfigId, settingDefaultEmailConfigId } =
-        useValues(supportSettingsLogic)
-    const { disconnectEmail, verifyEmailDomain, sendTestEmail, setDefaultEmail } = useActions(supportSettingsLogic)
+    const {
+        emailVerifyingConfigId,
+        emailTestingConfigId,
+        settingDefaultEmailConfigId,
+        trustedRelaySenderDrafts,
+        trustedRelaySavingConfigId,
+    } = useValues(supportSettingsLogic)
+    const {
+        disconnectEmail,
+        verifyEmailDomain,
+        sendTestEmail,
+        setDefaultEmail,
+        setTrustedRelaySenderDraft,
+        saveTrustedRelaySender,
+    } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -74,6 +86,10 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
     const isTesting = emailTestingConfigId === config.id
     const isSettingDefault = settingDefaultEmailConfigId === config.id
     const isSettingAnyDefault = settingDefaultEmailConfigId !== null
+    const trustedRelaySender = trustedRelaySenderDrafts[config.id] ?? config.trusted_relay_sender ?? ''
+    const isTrustedRelayDirty = trustedRelaySender.trim().toLowerCase() !== (config.trusted_relay_sender ?? '')
+    const isSavingTrustedRelay = trustedRelaySavingConfigId === config.id
+    const isSavingAnyTrustedRelay = trustedRelaySavingConfigId !== null
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -119,6 +135,44 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                     )}
                 </div>
             </div>
+
+            {config.trusted_relay_sender !== undefined && (
+                <div className="border-t pt-3">
+                    <LemonLabel htmlFor={`trusted-relay-sender-${config.id}`}>Trusted relay sender</LemonLabel>
+                    <p className="text-xs text-muted-alt mb-2">
+                        Enter the exact From address used by your email relay. PostHog will identify the customer from
+                        X-PostHog-Requester or Reply-To only for authenticated email from this address. Clear the field
+                        to disable this behavior.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LemonInput
+                            id={`trusted-relay-sender-${config.id}`}
+                            type="email"
+                            value={trustedRelaySender}
+                            onChange={(value) => setTrustedRelaySenderDraft(config.id, value)}
+                            placeholder="no-reply@example.com"
+                            disabled={!!adminRestrictionReason || isSavingAnyTrustedRelay}
+                            fullWidth
+                        />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => saveTrustedRelaySender(config.id)}
+                            loading={isSavingTrustedRelay}
+                            disabledReason={
+                                adminRestrictionReason ??
+                                (!isTrustedRelayDirty
+                                    ? 'No changes to save'
+                                    : isSavingAnyTrustedRelay
+                                      ? 'Saving a trusted relay sender'
+                                      : undefined)
+                            }
+                        >
+                            Save relay sender
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
 
             {/* Default + disconnect */}
             <div className="flex justify-between items-center border-t pt-2">

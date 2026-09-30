@@ -1153,6 +1153,31 @@ class TestConversationEvents(BaseTest):
         assert stored.organization_id_source == OrganizationIdSource.PERSON
 
     @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_relayed_ticket_does_not_resolve_organization_from_asserted_requester(self, mock_get_persons, mock_capture):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id="customer@example.com",
+            channel_source="email",
+            identity_verified=False,
+            anonymous_traits={
+                "name": "Customer",
+                "email": "customer@example.com",
+                "email_relayed": True,
+            },
+        )
+
+        capture_ticket_created(ticket)
+
+        mock_get_persons.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+        ticket.refresh_from_db()
+        assert ticket.organization_id is None
+
+    @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events._resolve_org_groups")
     def test_capture_message_received_uses_stored_organization_id(self, mock_resolve, mock_capture):
         self.ticket.organization_id = "stored-org-123"

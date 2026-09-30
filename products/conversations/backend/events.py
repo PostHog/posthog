@@ -263,6 +263,9 @@ def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict |
     way, the person's own ``organization_id`` profile property is the last
     resort when the membership and analytics lookups both miss.
     """
+    if (ticket.anonymous_traits or {}).get("email_relayed") is True:
+        return False, None
+
     # 1. Real distinct_id (web widget). An identified person is authoritative: if they
     # have no org membership, don't guess via email (a shared email could resolve to a
     # different person's org), so return early instead of falling through.
