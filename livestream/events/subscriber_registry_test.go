@@ -87,6 +87,22 @@ func TestSubscriberRegistry_GraceWindowKeepsJustExpiredTokenPublished(t *testing
 	assert.False(t, r.ShouldPublish("tok"), "token must be skipped after the grace window")
 }
 
+func TestSubscriberRegistry_ActiveTokenStaysPublishableWhenRefreshLagsPastGrace(t *testing.T) {
+	ctx := context.Background()
+	r := newSubscriberRegistryFromClient(nil)
+	r.grace = 20 * time.Millisecond
+	r.staleAfter = time.Hour // a lagging refresh, not a stale snapshot: fail-open must not be what saves us
+
+	r.readActive = func(context.Context) ([]string, error) { return []string{"tok"}, nil }
+	require.NoError(t, r.refreshOnce(ctx))
+	assert.True(t, r.ShouldPublish("tok"))
+
+	// The refresher lags well past the grace window but stays within staleAfter. An actively
+	// watched token must keep publishing the whole time, never dropped at the grace boundary.
+	time.Sleep(3 * r.grace)
+	assert.True(t, r.ShouldPublish("tok"), "active token must stay published when refresh lags past grace but within staleAfter")
+}
+
 // TestSubscriberRegistry_RedisRoundTrip exercises the real ZADD/ZRANGEBYSCORE path against
 // an in-process Redis: a heartbeated token is seen by the publisher snapshot, an
 // unregistered one is not.

@@ -98,7 +98,8 @@ type SubscriberRegistry struct {
 	readActive func(ctx context.Context) ([]string, error)
 
 	mu              sync.RWMutex
-	publishUntil    map[string]time.Time // token -> deadline; present and in the future => publish
+	active          map[string]struct{}  // tokens present in the last good read; publishable while the snapshot is fresh
+	publishUntil    map[string]time.Time // token that just left the active set -> grace deadline
 	lastGoodRefresh time.Time
 	healthy         bool
 }
@@ -121,6 +122,7 @@ func newSubscriberRegistryFromClient(client rueidis.Client) *SubscriberRegistry 
 		refresh:      defaultRegistrySnapshotRefresh,
 		grace:        defaultRegistryGrace,
 		staleAfter:   defaultRegistryStaleAfter,
+		active:       make(map[string]struct{}),
 		publishUntil: make(map[string]time.Time),
 	}
 	r.readActive = r.readActiveFromRedis
@@ -143,6 +145,13 @@ func (r *SubscriberRegistry) ShouldPublish(token string) bool {
 		return true
 	}
 
+	// A token in the last good snapshot is actively watched: publish for as long as the
+	// snapshot is fresh (the staleness check above bounds that), so a lagging refresh never
+	// drops a watched event before the fail-open. A token that just left the snapshot keeps
+	// publishing until its grace deadline, to absorb read/prune/clock-skew races.
+	if _, ok := r.active[token]; ok {
+		return true
+	}
 	deadline, ok := r.publishUntil[token]
 	return ok && time.Now().Before(deadline)
 }
@@ -188,20 +197,26 @@ func (r *SubscriberRegistry) refreshOnce(ctx context.Context) error {
 	}
 
 	r.mu.Lock()
-	next := make(map[string]time.Time, len(tokens))
-	seen := make(map[string]struct{}, len(tokens))
+	active := make(map[string]struct{}, len(tokens))
 	for _, t := range tokens {
-		next[t] = now.Add(r.grace)
-		seen[t] = struct{}{}
+		active[t] = struct{}{}
 	}
-	// Carry over tokens that dropped out of the registry but are still inside their grace
-	// window, so a just-expired token keeps being published a little longer.
-	for t, deadline := range r.publishUntil {
-		if _, active := seen[t]; !active && deadline.After(now) {
-			next[t] = deadline
+	// A token that was active last refresh but is now gone starts its grace countdown from now.
+	// A token already counting down keeps its original deadline, so grace measures from when a
+	// token first left the active set, never longer.
+	grace := make(map[string]time.Time)
+	for t := range r.active {
+		if _, stillActive := active[t]; !stillActive {
+			grace[t] = now.Add(r.grace)
 		}
 	}
-	r.publishUntil = next
+	for t, deadline := range r.publishUntil {
+		if _, stillActive := active[t]; !stillActive && deadline.After(now) {
+			grace[t] = deadline
+		}
+	}
+	r.active = active
+	r.publishUntil = grace
 	r.lastGoodRefresh = now
 	r.healthy = true
 	r.mu.Unlock()
