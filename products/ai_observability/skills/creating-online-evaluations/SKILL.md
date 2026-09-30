@@ -321,17 +321,16 @@ enable yet) and what would unblock it.
 ### 2.7 — Offer to evaluate past data
 
 An enabled eval only scores traffic from now on. If the user wants results on data they already have, offer
-a backfill over a recent window, at most the last 30 days. The backfill tools are behind a feature flag. If
-`posthog:llma-evaluation-backfill-estimate` is not in your tools, skip the steps below and point the user to
-the Backfills tab on the evaluation.
+a backfill over a recent window, at most the last 30 days.
 
 1. Call `posthog:llma-evaluation-backfill-estimate` with the window, `conditions`, and `rerun_existing` the
    user wants. Tell the user `total_units`, the
    returned window (it is clamped, so it can differ from the one you asked for), and what each unit costs:
    one run of the eval, counted as an AI observability event, plus a model call for an `llm_judge`.
    `already_evaluated_units` already have a result and are left out unless `rerun_existing` is true.
-2. Call `posthog:llma-evaluation-backfill-create` only after the user says yes, with the same window,
-   `conditions`, and `rerun_existing`, so the run matches what they approved.
+2. Call `posthog:llma-evaluation-backfill-create` only after the user says yes. Pass the `window_start` and
+   `window_end` the estimate returned, not the ones you asked for, with the same `conditions` and
+   `rerun_existing`, so the run matches what they approved.
 3. Track it with `posthog:llma-evaluation-backfill-get`. Skipped units were already being evaluated by the
    eval itself, so they are covered, not missed. Once it completes, a `remaining_count` above zero means
    units were left without a result; offer another backfill over the same range. Offer it once. If the
