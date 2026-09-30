@@ -588,7 +588,10 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 .filter((run) => run.conclusion != null && !isPassingConclusion(run.conclusion))
                 .slice(0, MAX_FAILING_JOB_FETCHES)
                 .forEach((run) => {
-                    if (run.runId != null && !(jobCacheKey(run.runId, run.runAttempt) in values.runJobs)) {
+                    if (
+                        run.runId != null &&
+                        !(jobCacheKey(run.runId, run.runAttempt, run.ciEngine) in values.runJobs)
+                    ) {
                         actions.loadJobs({ runId: run.runId, runAttempt: run.runAttempt, ciEngine: run.ciEngine })
                     }
                 })
@@ -701,7 +704,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     if (run.conclusion == null || isPassingConclusion(run.conclusion) || run.runId == null) {
                         continue
                     }
-                    const jobs = runJobs[jobCacheKey(run.runId, run.runAttempt)]
+                    const jobs = runJobs[jobCacheKey(run.runId, run.runAttempt, run.ciEngine)]
                     if (!jobs) {
                         continue
                     }
