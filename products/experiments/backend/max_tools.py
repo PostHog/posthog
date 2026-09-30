@@ -121,7 +121,9 @@ class CreateExperimentTool(MaxTool):
         # The page that registered this tool (e.g. the create wizard's guide) passes where PostHog AI was
         # opened from, so `experiment created` can attribute AI-created experiments to an entry point
         entry_point = self.context.get("entry_point") if isinstance(self.context, dict) else None
-        analytics_properties = {"ai_entry_point": entry_point} if entry_point in AI_ENTRY_POINTS else None
+        analytics_properties = (
+            {"ai_entry_point": entry_point} if isinstance(entry_point, str) and entry_point in AI_ENTRY_POINTS else None
+        )
 
         @database_sync_to_async
         def create_experiment() -> Experiment:
