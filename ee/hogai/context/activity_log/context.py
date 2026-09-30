@@ -230,7 +230,7 @@ class ActivityLogContext:
         return entry.item_id or "(unknown)"
 
     def _format_changes(self, entry: ActivityLog) -> str:
-        detail = entry.safe_detail
+        detail = entry.detail
         if not detail or not isinstance(detail, dict):
             return ""
 

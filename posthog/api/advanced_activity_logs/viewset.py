@@ -170,11 +170,6 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
-    def to_representation(self, instance: ActivityLog) -> dict:
-        data = super().to_representation(instance)
-        data["detail"] = instance.safe_detail
-        return data
-
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""
         if "user" not in self.context:
@@ -557,7 +552,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
         ]
 
     def get_detail(self, obj):
-        return json.dumps(obj.safe_detail) if obj.detail else ""
+        return json.dumps(obj.detail) if obj.detail else ""
 
 
 class StaticFiltersSerializer(serializers.Serializer):

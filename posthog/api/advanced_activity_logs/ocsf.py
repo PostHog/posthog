@@ -75,7 +75,7 @@ def _classify(activity: str) -> tuple[int, int]:
 
 
 def _changes(instance: ActivityLog) -> list[dict[str, Any]]:
-    detail = instance.safe_detail or {}
+    detail = instance.detail or {}
     return [change for change in (detail.get("changes") or []) if isinstance(change, dict)]
 
 
@@ -86,7 +86,7 @@ class ActivityLogOCSFSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: ActivityLog) -> dict[str, Any]:
         class_uid, activity_id = _classify(instance.activity)
-        detail = instance.safe_detail or {}
+        detail = instance.detail or {}
         changes = _changes(instance)
         changed_fields = [change["field"] for change in changes if change.get("field")]
 
