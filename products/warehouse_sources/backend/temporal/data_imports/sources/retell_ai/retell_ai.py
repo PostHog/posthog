@@ -99,14 +99,14 @@ def get_resource(
         )
         pagination: dict[str, Any] = {"limit": 1 if probe else PAGE_SIZE, "sort_order": "ascending"}
         if settings.pagination_location == "json":
-            endpoint["json"] = pagination
             if should_use_incremental_field and name in INCREMENTAL_FIELDS and watermark is not None:
                 timestamp = parse_datetime_value(watermark)
                 if timestamp is None:
                     raise ValueError("Invalid Retell AI start_timestamp watermark")
-                endpoint["json"]["filter_criteria"] = {
+                pagination["filter_criteria"] = {
                     "start_timestamp": {"type": "number", "op": "ge", "value": int(timestamp.timestamp() * 1000)}
                 }
+            endpoint["json"] = pagination
         else:
             endpoint["params"] = pagination
     else:

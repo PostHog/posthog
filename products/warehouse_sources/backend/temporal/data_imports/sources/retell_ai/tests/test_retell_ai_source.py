@@ -1,6 +1,8 @@
 import json
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -42,7 +44,7 @@ def test_schema_lookback_refetches_recent_analysis(
     )
     http.return_value = response({"items": [], "has_more": False})
     result = source.source_for_pipeline(config, source.get_resumable_source_manager(inputs), inputs)
-    assert list(result.items()) == []
+    assert list(cast(Iterable[Any], result.items())) == []
     assert json.loads(http.call_args.args[1].body)["filter_criteria"]["start_timestamp"]["value"] == 1767225600000
 
 

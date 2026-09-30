@@ -1,6 +1,8 @@
 import json
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -44,7 +46,7 @@ def test_cursor_pages_and_terminal_page(
     inputs = replace(inputs, schema_name=name)
     manager = source.get_resumable_source_manager(inputs)
     result = source.source_for_pipeline(RetellAISourceConfig(api_key="fake-key"), manager, inputs)
-    iterator = iter(result.items())
+    iterator = iter(cast(Iterable[Any], result.items()))
     assert next(iterator) == [{key: "record-one"}]
     assert not manager.has_staged_state()
     assert next(iterator) == [{key: "record-two"}]
@@ -100,7 +102,7 @@ def test_incremental_filters_and_timestamp_units(
     result = source.source_for_pipeline(
         RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
     )
-    rows = list(result.items())
+    rows = list(cast(Iterable[Any], result.items()))
     assert rows[0][0]["start_timestamp"] == datetime(2026, 1, 1, 0, 0, 0, 123000, tzinfo=UTC)
     assert rows[0][0]["end_timestamp"] is None
     if name == "calls":
@@ -132,7 +134,7 @@ def test_resume_skips_written_pages(
     manager.commit()
     http.return_value = response({"items": [{"record": "remaining"}], "has_more": False})
     result = source.source_for_pipeline(RetellAISourceConfig(api_key="fake-key"), manager, inputs)
-    assert list(result.items()) == ([] if completed else [[{"record": "remaining"}]])
+    assert list(cast(Iterable[Any], result.items())) == ([] if completed else [[{"record": "remaining"}]])
     if completed:
         http.assert_not_called()
     else:
@@ -148,7 +150,7 @@ def test_voices_are_an_unpaginated_array(inputs: SourceInputs, http: MagicMock) 
     result = source.source_for_pipeline(
         RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
     )
-    assert list(result.items()) == [[{"voice_id": "voice-example", "provider": "example"}]]
+    assert list(cast(Iterable[Any], result.items())) == [[{"voice_id": "voice-example", "provider": "example"}]]
     assert result.supports_resume is False
     assert result.partition_keys is None
     assert http.call_count == 1
@@ -173,7 +175,7 @@ def test_malformed_responses_fail_instead_of_truncating(
         RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
     )
     with pytest.raises(ValueError):
-        list(result.items())
+        list(cast(Iterable[Any], result.items()))
     assert http.call_count == 1
 
 
@@ -188,7 +190,7 @@ def test_repeated_cursor_fails_instead_of_looping(
         RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
     )
     with pytest.raises(ValueError, match="repeated cursor"):
-        list(result.items())
+        list(cast(Iterable[Any], result.items()))
     assert http.call_count == 2
 
 
@@ -202,7 +204,7 @@ def test_auth_failures_match_terminal_error_policy(
         RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
     )
     with pytest.raises(HTTPError) as raised:
-        list(result.items())
+        list(cast(Iterable[Any], result.items()))
     assert any(pattern in str(raised.value) for pattern in source.get_non_retryable_errors())
     assert "fake-key" not in str(raised.value)
     assert http.call_count == 1
@@ -218,7 +220,7 @@ def test_transient_errors_use_framework_retries(
     result = source.source_for_pipeline(
         RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
     )
-    assert list(result.items()) == [[{"call_id": "call-recovered"}]]
+    assert list(cast(Iterable[Any], result.items())) == [[{"call_id": "call-recovered"}]]
     assert http.call_count == 2
 
 
@@ -231,5 +233,5 @@ def test_invalid_watermark_is_not_silently_ignored(
         RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
     )
     with pytest.raises(ValueError, match="watermark"):
-        list(result.items())
+        list(cast(Iterable[Any], result.items()))
     http.assert_not_called()
