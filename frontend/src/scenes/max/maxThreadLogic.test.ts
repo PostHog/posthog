@@ -48,7 +48,7 @@ import { EnhancedToolCall, MESSAGE_TOO_LONG, TOOL_DEFINITIONS } from './max-cons
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { MAX_DASHBOARD_CONTEXT_WAIT_MS, maxThreadLogic } from './maxThreadLogic'
+import { MAX_ATTACHED_TEXT_LENGTH, MAX_DASHBOARD_CONTEXT_WAIT_MS, maxThreadLogic } from './maxThreadLogic'
 import { MaxContextType } from './maxTypes'
 import {
     MOCK_CONVERSATION,
@@ -3861,6 +3861,25 @@ describe('maxThreadLogic', () => {
                     ]),
                 })
             )
+        })
+
+        it('truncates long text context so the backend accepts the send', async () => {
+            const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
+            attachedContextLogic.mount()
+            attachedContextLogic.actions.registerContext('test-provider', [
+                { type: 'sql_editor_state', value: 'x'.repeat(MAX_ATTACHED_TEXT_LENGTH + 500) },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['openSandboxSse'])
+
+            const textItem = openSpy.mock.calls[0][1].attached_context?.find((item) => item.type === 'text')
+            expect(textItem?.value).toHaveLength(MAX_ATTACHED_TEXT_LENGTH)
+            expect(textItem?.value?.endsWith('… [truncated]')).toBe(true)
         })
     })
 
