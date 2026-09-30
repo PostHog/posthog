@@ -98,7 +98,9 @@ def finish_account_audit(*, team_id: int, task_run_id: UUID) -> None:
         )
         if valid and run.created_by_distinct_id and team and team.organization.is_ai_data_processing_approved:
             cost = get_task_run_cost(run_id=task_run_id, team_id=team_id)
-            with ph_scoped_capture(region=get_instance_region() or "US", raise_on_error=True) as capture:
+            with ph_scoped_capture(
+                region="US", event_region=get_instance_region() or "US", raise_on_error=True
+            ) as capture:
                 capture(
                     distinct_id=run.created_by_distinct_id,
                     event="onboarding_audit_finished",

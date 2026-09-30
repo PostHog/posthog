@@ -37,7 +37,7 @@ class AccountAuditStartRequestSerializer(serializers.Serializer):
     skill_name = serializers.CharField(
         max_length=64,
         default="onboarding-account-audit",
-        help_text="Name of the single-file skill in the deployment's internal Growth project.",
+        help_text="Name of the single-file skill in the US internal Growth project (team 2).",
     )
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
@@ -71,6 +71,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         request=AccountAuditStartRequestSerializer,
         responses={
             202: AccountAuditStartResponseSerializer,
+            204: None,
             400: None,
             401: None,
             403: None,
@@ -111,6 +112,8 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         result = AccountAuditService.start(payload, public_key_id, webhook_id)
         if result.status == "accepted":
             return Response(AccountAuditStartResponseSerializer(instance=result).data, status=202)
+        if result.status == "skipped":
+            return Response(status=204)
         if result.status == "cooldown":
             return Response(
                 {

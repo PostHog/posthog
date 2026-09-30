@@ -82,7 +82,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             patch(
                 "products.growth.backend.account_audits.resolve_audit_actor_for_team", return_value=self.user.id
             ) as actor,
-            patch("products.growth.backend.account_audits.get_skill_prompt", return_value=MagicMock()) as skill,
+            patch("products.growth.backend.account_audits.get_audit_skill", return_value=MagicMock()) as skill,
             patch("products.growth.backend.account_audits.create_audit_task", return_value=uuid4()) as dispatch,
         ):
             yield actor, skill, dispatch
@@ -116,7 +116,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(notebook.status_code, 200)
         listed = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
         self.assertNotIn(admission.notebook_short_id, [item["short_id"] for item in listed.json()["results"]])
-        skill.assert_called_once_with(team_id=growth_team_id, skill_name="onboarding-account-audit")
+        skill.assert_called_once_with("onboarding-account-audit")
 
     @parameterized.expand([(False, False, False), (False, False, True), (True, False, True), (False, True, True)])
     def test_defaults_to_the_oldest_eligible_root_project_on_tied_activity(
@@ -192,7 +192,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload)
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], explicit_team.id)
-        skill.assert_called_once_with(team_id=2, skill_name="activation-audit")
+        skill.assert_called_once_with("activation-audit")
         self.assertEqual(dispatch.call_args.kwargs["skill"], skill.return_value)
         admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
         self.assertEqual(admission.reason, "activation-review")
@@ -308,15 +308,50 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
-    def test_rejects_without_ai_processing_approval(self) -> None:
+    @parameterized.expand([("US",), ("EU",)])
+    def test_skips_without_ai_processing_approval(self, region: str) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        with self._request_patches() as (_, _, dispatch):
-            response = self._post(payload)
+        payload = {"organization_id": str(self.organization.id), "reason": "activation"}
+        with (
+            self.settings(CLOUD_DEPLOYMENT=region),
+            self._request_patches() as (actor, skill, dispatch),
+            patch("products.growth.backend.account_audits.ph_scoped_capture") as capture_context,
+            patch("products.growth.backend.account_audits.notebooks_facade.create_notebook") as notebook,
+        ):
+            first = self._post(payload)
+            second = self._post(payload)
+        self.assertEqual(first.status_code, 204)
+        self.assertEqual(second.status_code, 204)
+        capture_context.assert_called_with(region="US", event_region=region, raise_on_error=True)
+        captures = capture_context.return_value.__enter__.return_value.call_args_list
+        self.assertEqual(captures[0], captures[1])
+        self.assertEqual(captures[0].kwargs["event"], "audit_not_run")
+        self.assertEqual(
+            captures[0].kwargs["properties"],
+            {
+                "organization_id": str(self.organization.id),
+                "team_id": self.team.id,
+                "reason": "no ai opt in",
+                "audit_reason": "activation",
+                "skill_name": "onboarding-account-audit",
+                "$insert_id": f"audit-not-run-{self.credential.public_key_id}-delivery-1",
+            },
+        )
+        actor.assert_not_called()
+        skill.assert_not_called()
+        dispatch.assert_not_called()
+        notebook.assert_not_called()
+        self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
-        self.assertEqual(response.status_code, 403)
-        self.assertFalse(dispatch.called)
+    def test_retries_a_skipped_event_if_capture_fails(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        with patch("products.growth.backend.account_audits.ph_scoped_capture") as capture:
+            capture.return_value.__exit__.side_effect = RuntimeError("capture unavailable")
+            self.assertEqual(self._post({"organization_id": str(self.organization.id)}).status_code, 503)
+            capture.return_value.__exit__.side_effect = None
+            self.assertEqual(self._post({"organization_id": str(self.organization.id)}).status_code, 204)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_rejects_a_deployment_that_cannot_capture_the_completion_event(self) -> None:
@@ -335,7 +370,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload)
 
         self.assertEqual(response.status_code, 400)
-        skill.assert_called_once_with(team_id=2, skill_name="onboarding-account-audit")
+        skill.assert_called_once_with("onboarding-account-audit")
         self.assertFalse(dispatch.called)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 

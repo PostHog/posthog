@@ -44,8 +44,8 @@ export const getGrowthAccountAuditsStartCreateUrl = () => {
 export const growthAccountAuditsStartCreate = async (
     accountAuditStartRequestApi: AccountAuditStartRequestApi,
     options?: RequestInit
-): Promise<AccountAuditStartResponseApi> => {
-    return apiMutator<AccountAuditStartResponseApi>(getGrowthAccountAuditsStartCreateUrl(), {
+): Promise<AccountAuditStartResponseApi | void> => {
+    return apiMutator<AccountAuditStartResponseApi | void>(getGrowthAccountAuditsStartCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

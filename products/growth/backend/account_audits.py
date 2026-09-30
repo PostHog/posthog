@@ -3,20 +3,21 @@ from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Count, F, FilteredRelation, Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.models import Team
+from posthog.event_usage import groups
+from posthog.models import Organization, Team
+from posthog.ph_client import ph_scoped_capture
 from posthog.utils import get_instance_region
 
 from products.growth.backend.audit_execution import create_audit_task
+from products.growth.backend.audit_skills import get_audit_skill
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.notebooks.backend.facade import api as notebooks_facade
 from products.signals.backend.facade.api import resolve_audit_actor_for_team
-from products.skills.backend.facade.api import get_skill_prompt
 
 COOLDOWN = timedelta(days=7)
 PROJECT_ACTIVITY_WINDOW = timedelta(days=30)
@@ -33,7 +34,9 @@ class AccountAuditRequest:
 
 @frozen
 class AccountAuditResult:
-    status: Literal["accepted", "invalid", "unauthorized", "forbidden", "conflict", "cooldown", "unavailable"]
+    status: Literal[
+        "accepted", "skipped", "invalid", "unauthorized", "forbidden", "conflict", "cooldown", "unavailable"
+    ]
     task_run_id: UUID | None = None
     team_id: int | None = None
     next_available_at: datetime | None = None
@@ -53,12 +56,33 @@ class AccountAuditService:
         credential = AccountAuditCredential.objects.select_related("owner").filter(public_key_id=public_key_id).first()
         if credential is None or not cls._credential_is_eligible(credential):
             return AccountAuditResult(status="unauthorized")
-        # The completion event can only be captured in US or EU, so an audit in any other deployment never finalizes.
         if (get_instance_region() or "US") not in ("US", "EU"):
             return AccountAuditResult(status="unavailable")
-        if not cls._ai_processing_is_approved(payload.organization_id):
+        organization = Organization.objects.filter(id=payload.organization_id).first()
+        if organization is None:
             return AccountAuditResult(status="forbidden")
         try:
+            if not organization.is_ai_data_processing_approved:
+                team_id = cls._resolve_team_id(payload)
+                if team_id is None:
+                    return AccountAuditResult(status="invalid")
+                with ph_scoped_capture(
+                    region="US", event_region=get_instance_region() or "US", raise_on_error=True
+                ) as capture:
+                    capture(
+                        distinct_id=str(organization.id),
+                        event="audit_not_run",
+                        properties={
+                            "organization_id": str(organization.id),
+                            "team_id": team_id,
+                            "reason": "no ai opt in",
+                            "audit_reason": payload.reason,
+                            "skill_name": payload.skill_name,
+                            "$insert_id": f"audit-not-run-{credential.public_key_id}-{webhook_id}",
+                        },
+                        groups=groups(organization, Team.objects.get(id=team_id)),
+                    )
+                return AccountAuditResult(status="skipped")
             return cls._admit(payload, credential, webhook_id)
         except Exception:
             logger.exception("account_audit_creation_failed")
@@ -103,7 +127,7 @@ class AccountAuditService:
             actor_id = resolve_audit_actor_for_team(team_id)
             if actor_id is None:
                 return AccountAuditResult(status="forbidden")
-            skill = get_skill_prompt(team_id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID, skill_name=payload.skill_name)
+            skill = get_audit_skill(payload.skill_name)
             if skill is None or not skill.body.strip():
                 return AccountAuditResult(status="invalid")
             notebook = notebooks_facade.create_notebook(
@@ -160,9 +184,3 @@ class AccountAuditService:
             and credential.owner.is_active
             and credential.owner.is_staff
         )
-
-    @staticmethod
-    def _ai_processing_is_approved(organization_id: UUID) -> bool:
-        return Team.objects.filter(
-            organization_id=organization_id, organization__is_ai_data_processing_approved=True
-        ).exists()

@@ -66,22 +66,21 @@ class TestAuditExecution(BaseTest):
         self.cost = patch(
             "products.growth.backend.audit_execution.get_task_run_cost", return_value=SimpleNamespace(token_cost=27)
         ).start()
-        self.capture = (
-            patch("products.growth.backend.audit_execution.ph_scoped_capture")
-            .start()
-            .return_value.__enter__.return_value
-        )
+        self.capture_context = patch("products.growth.backend.audit_execution.ph_scoped_capture").start()
+        self.capture = self.capture_context.return_value.__enter__.return_value
         self.addCleanup(patch.stopall)
 
     def finish(self) -> None:
         finish_account_audit(team_id=self.team.id, task_run_id=self.run_id)
         self.admission.refresh_from_db()
 
-    @parameterized.expand([(0,), (27,), (None,)])
-    def test_emits_verified_result_with_native_cost_once(self, token_cost: int | None) -> None:
+    @parameterized.expand([("US", 0), ("EU", 27), ("EU", None)])
+    def test_emits_verified_result_with_native_cost_once(self, region: str, token_cost: int | None) -> None:
         self.cost.return_value.token_cost = token_cost
-        self.finish()
-        self.finish()
+        with self.settings(CLOUD_DEPLOYMENT=region):
+            self.finish()
+            self.finish()
+        self.capture_context.assert_called_once_with(region="US", event_region=region, raise_on_error=True)
         self.capture.assert_called_once()
         event = self.capture.call_args.kwargs
         self.assertEqual(event["event"], "onboarding_audit_finished")
