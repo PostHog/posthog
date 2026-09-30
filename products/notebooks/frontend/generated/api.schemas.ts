@@ -1243,6 +1243,23 @@ export interface NotebookCellLastRunApi {
     error?: string | null
 }
 
+export interface NotebookCellVisualizationApi {
+    /** Chart type the cell opens on, a chart display value such as 'ActionsBar' or 'ActionsLineGraph'. */
+    display: string
+    /**
+     * Column on the X axis. Null means the chart picks it: the first date column.
+     * @nullable
+     */
+    x_axis: string | null
+    /** Columns plotted as Y series. Empty means the chart picks them: every numeric column. */
+    y_axis: string[]
+    /**
+     * Column that splits the Y series into one series per value, or null.
+     * @nullable
+     */
+    series_breakdown: string | null
+}
+
 export interface NotebookCellStateApi {
     /** Durable cell identity, used by the cell run and edit endpoints. */
     node_id: string
@@ -1264,6 +1281,8 @@ export interface NotebookCellStateApi {
     dependents: string[]
     /** Summary of the most recent run; null when never run. */
     last_run?: NotebookCellLastRunApi | null
+    /** SQL cells only: the chart the cell opens on, set in the editor or with the visualization parameter of notebooks-add-cell. Null when the cell opens on its results table. */
+    visualization?: NotebookCellVisualizationApi | null
 }
 
 export interface NotebookSQLV2StateResponseApi {
