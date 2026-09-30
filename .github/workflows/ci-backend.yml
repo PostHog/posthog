@@ -191,6 +191,7 @@ jobs:
                       .github/actions/paths-filter
                       .github/scripts/ci_backend_route.py
                       .github/scripts/ci_backend_relay.py
+                      .github/scripts/ci_backend_depot_failures.py
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
