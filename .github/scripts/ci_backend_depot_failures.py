@@ -6,7 +6,6 @@ check a PR author opens prints these lines instead.
 
 import re
 import json
-import secrets
 import subprocess
 from dataclasses import dataclass
 
@@ -38,22 +37,14 @@ def read_failures(org: str, workflow: str) -> list[Failure]:
     ]
 
 
-def escape(text: str) -> str:
-    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-
-
 def render(failures: list[Failure]) -> list[str]:
-    """Workflow log lines: one error annotation per failure, then the log lines as inert text.
+    """One error annotation per failure, with its log lines in the message.
 
-    The log lines come from pull request code. stop-commands keeps any `::` command in them
-    from running.
+    The log lines come from pull request code. Escaped as annotation data, the way
+    @actions/core escapes it, they stay on the annotation's line and cannot start a command.
     """
-    if not failures:
-        return []
-    token = secrets.token_hex(16)
     return [
-        *(f"::error title=Failed on Depot::{escape(failure.step)}" for failure in failures),
-        f"::stop-commands::{token}",
-        *(line for failure in failures for line in ("", failure.step, *failure.log_lines)),
-        f"::{token}::",
+        "::error title=Failed on Depot::"
+        + "\n".join((failure.step, *failure.log_lines)).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        for failure in failures
     ]
