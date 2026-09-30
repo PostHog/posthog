@@ -949,7 +949,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (!recurringRepeating) {
                     return `Sends once on ${dayjs(recurringStartsAt).tz(effectiveTimezone).format('MMMM D, YYYY h:mm A')} (${effectiveTimezone})`
                 }
-                return buildSummary(scheduleState, recurringStartsAt)
+                return buildSummary(scheduleState, recurringStartsAt, effectiveTimezone)
             },
         ],
         rateLimitedSendDuration: [
