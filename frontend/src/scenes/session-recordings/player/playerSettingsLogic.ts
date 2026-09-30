@@ -18,7 +18,7 @@ export interface playerSettingsLogicValues {
     autoplayDirection: AutoplayDirection
     hideRecordingsMenuLabelFor: (
         option: HideViewedRecordingsOptions
-    ) => 'Hide all viewed recordings' | 'Hide my viewed recordings' | 'All recordings'
+    ) => 'All recordings' | 'Hide all viewed recordings' | 'Hide my viewed recordings'
     hideViewedRecordings: HideViewedRecordingsOptions
     isPlaylistCollapsed: boolean
     isVerticallyStacked: boolean
