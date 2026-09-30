@@ -283,6 +283,7 @@ describe("AuthProxyService legacy hardening", () => {
           connection: "x-hop",
           "keep-alive": "timeout=999",
           "proxy-connection": "keep-alive",
+          "proxy-authenticate": "Basic",
           trailer: "x-sum",
           upgrade: "websocket",
           "x-hop": "1",
@@ -295,7 +296,13 @@ describe("AuthProxyService legacy hardening", () => {
     const res = await hopRequest(`${proxyUrl}/v1/models`, {});
 
     expect(res.headers["keep-alive"]).toBeUndefined();
-    for (const name of ["proxy-connection", "trailer", "upgrade", "x-hop"]) {
+    for (const name of [
+      "proxy-connection",
+      "proxy-authenticate",
+      "trailer",
+      "upgrade",
+      "x-hop",
+    ]) {
       expect(res.headers[name]).toBeUndefined();
     }
     expect(res.headers["x-kept"]).toBe("1");

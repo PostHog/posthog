@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { redactSecrets, SecretEventRedactor } from "./redact-secrets";
-import { SECRET_HEADERS, TOKEN_RULES } from "./secret-rules";
+import {
+  redactSecrets,
+  SecretEventRedactor,
+  secretHeaderReplacer,
+} from "./redact-secrets";
+import { SECRET_HEADERS, TOKEN_RULES, type TokenRule } from "./secret-rules";
 
 const CHUNK_KINDS = ["agent_message_chunk", "agent_thought_chunk"];
+
+// A shaped rule (the JWT) matches a complete string only in its full shape.
+function sampleToken(rule: TokenRule): string {
+  return rule.shape ? `${rule.prefix}aaaa.1111` : `${rule.prefix}aaaa1111`;
+}
 
 const chunkCases: [string, string, string, string][] = TOKEN_RULES.flatMap(
   (rule) =>
@@ -37,6 +46,11 @@ const headerCases: [
   [
     `${header} map entry`,
     { headers: { [header]: "Bearer leaked-value", "x-id": "123" } },
+    { headers: { [header]: "[REDACTED]", "x-id": "123" } },
+  ],
+  [
+    `${header} array map entry`,
+    { headers: { [header]: ["Bearer leaked-value"], "x-id": "123" } },
     { headers: { [header]: "[REDACTED]", "x-id": "123" } },
   ],
 ]);
@@ -106,6 +120,15 @@ describe("redactSecrets", () => {
     ).toEqual({ method: "session/new", params: { mcpServers: [expected] } });
   });
 
+  it.each(headerCases)(
+    "masks a %s in JSON output",
+    (_shape, server, expected) => {
+      expect(JSON.parse(JSON.stringify(server, secretHeaderReplacer))).toEqual(
+        expected,
+      );
+    },
+  );
+
   it.each([
     ["an oauth access token", "Bearer pha_abcDEF123_-xyz", "Bearer [REDACTED]"],
     ["an oauth refresh token", "refresh=phr_abc123", "refresh=[REDACTED]"],
@@ -147,6 +170,8 @@ describe("redactSecrets", () => {
         `x\\u001b[32m${prefix}aaaa1111 end`,
         `x\\u00e9${prefix}aaaa1111 end`,
         `x\\xe9${prefix}aaaa1111 end`,
+        `x\u001b[${"1;".repeat(40)}32m${prefix}aaaa1111 end`,
+        `x\\u001b[${"1;".repeat(40)}32m${prefix}aaaa1111 end`,
       ]) {
         for (let cut = 1; cut < text.length; cut++) {
           const out = streamText([text.slice(0, cut), text.slice(cut)]);
@@ -155,6 +180,12 @@ describe("redactSecrets", () => {
       }
     },
   );
+
+  it("keeps a long colour code's opener when a partial prefix is held", () => {
+    const colour = `\u001b[${"1;".repeat(40)}32m`;
+    const out = streamText(["x p", `${colour}ph`, "a_aaaa1111 end"]);
+    expect(out).not.toContain("aaaa1111");
+  });
 
   it("keeps the word check across a held prefix released with new text", () => {
     expect(streamText(["x p", "ing alp", "ha_blend end"])).toBe(
@@ -172,20 +203,22 @@ describe("redactSecrets", () => {
     ).toBe("see al[REDACTED] end");
   });
 
-  it.each(TOKEN_RULES.map((rule) => rule.prefix))(
+  it.each(TOKEN_RULES.map((rule) => [rule.prefix, sampleToken(rule)]))(
     "redacts %s after an escaped newline or a percent code",
-    (prefix) => {
-      expect(redactSecrets(`x\\n${prefix}aaaa1111`)).toBe("x\\n[REDACTED]");
-      expect(redactSecrets(`Bearer%20${prefix}aaaa1111`)).toBe(
-        "Bearer%20[REDACTED]",
-      );
+    (_prefix, token) => {
+      expect(redactSecrets(`x\\n${token}`)).toBe("x\\n[REDACTED]");
+      expect(redactSecrets(`Bearer%20${token}`)).toBe("Bearer%20[REDACTED]");
     },
   );
 
-  it.each(TOKEN_RULES.map((rule) => [rule.prefix, !!rule.wordStart] as const))(
+  it.each(
+    TOKEN_RULES.map(
+      (rule) => [rule.prefix, sampleToken(rule), !!rule.wordStart] as const,
+    ),
+  )(
     "applies the word-start guard to %s only when flagged",
-    (prefix, wordStart) => {
-      const input = `x${prefix}aaaa1111`;
+    (_prefix, token, wordStart) => {
+      const input = `x${token}`;
       expect(redactSecrets(input)).toBe(wordStart ? input : "x[REDACTED]");
     },
   );

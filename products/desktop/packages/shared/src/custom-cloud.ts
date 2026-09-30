@@ -140,16 +140,25 @@ export function isCredentialOriginAllowed(
   const target = safeUrl(url);
   const api = safeUrl(apiHost);
   if (!target || !api) return false;
+  const targetHost = target.hostname.replace(/\.+$/, "").toLowerCase();
+  const apiHostname = api.hostname.replace(/\.+$/, "").toLowerCase();
+  // The bearer never travels in cleartext, whichever branch admits the origin.
+  if (
+    target.protocol !== "https:" &&
+    !(target.protocol === "http:" && isLoopbackHost(targetHost))
+  ) {
+    return false;
+  }
   if (target.origin === api.origin) return true;
   if (extraOrigins.some((extra) => safeUrl(extra)?.origin === target.origin)) {
     return true;
   }
-  const customGateway = getCustomCloud()?.gatewayUrl;
+  const customGateway = isCustomCloudHost(apiHost)
+    ? getCustomCloud()?.gatewayUrl
+    : undefined;
   if (customGateway && safeUrl(customGateway)?.origin === target.origin) {
     return true;
   }
-  const targetHost = target.hostname.replace(/\.+$/, "").toLowerCase();
-  const apiHostname = api.hostname.replace(/\.+$/, "").toLowerCase();
   if (isLoopbackHost(targetHost)) return isLoopbackHost(apiHostname);
   // Only PostHog's own domains on the default port are trusted by name, and
   // only the API host's own one, so a prod token never reaches a dev host.

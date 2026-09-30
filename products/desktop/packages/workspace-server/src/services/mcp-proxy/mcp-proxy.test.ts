@@ -126,6 +126,7 @@ describe("McpProxyService", () => {
             "content-type": "application/json",
             "keep-alive": "timeout=5",
             "proxy-connection": "keep-alive",
+            "proxy-authenticate": "Basic",
             upgrade: "h2c",
             "x-hop": "1",
             connection: "x-hop",
@@ -144,6 +145,7 @@ describe("McpProxyService", () => {
               connection: "keep-alive, x-drop",
               "keep-alive": "timeout=5",
               "proxy-connection": "keep-alive",
+              "proxy-authorization": "Basic abc",
               te: "trailers",
               "x-drop": "1",
               "x-keep": "1",
@@ -163,13 +165,19 @@ describe("McpProxyService", () => {
         "connection",
         "keep-alive",
         "proxy-connection",
+        "proxy-authorization",
         "te",
         "x-drop",
       ]) {
         expect(sent).not.toContain(name);
       }
       expect(sent).toContain("x-keep");
-      for (const name of ["proxy-connection", "upgrade", "x-hop"]) {
+      for (const name of [
+        "proxy-connection",
+        "proxy-authenticate",
+        "upgrade",
+        "x-hop",
+      ]) {
         expect(res.headers[name]).toBeUndefined();
       }
       expect(res.headers["x-kept"]).toBe("yes");

@@ -158,7 +158,6 @@ describe("isCredentialOriginAllowed", () => {
     ["http://localhost:8787/mcp", "http://localhost:8010"],
     ["http://[::1]:8787/mcp", "http://localhost:8010"],
     ["http://localhost:8787/mcp", "http://[::1]:8010"],
-    ["http://posthog.internal:8000/api/x", "http://posthog.internal:8000"],
   ])("allows %s for %s", (url, apiHost) => {
     expect(isCredentialOriginAllowed(url, apiHost)).toBe(true);
   });
@@ -182,6 +181,7 @@ describe("isCredentialOriginAllowed", () => {
     ["https://gateway.dev.posthog.dev/x", "https://us.posthog.com"],
     ["http://[::1]:8787/mcp", "https://us.posthog.com"],
     ["https://mcp.posthog.com:8443/mcp", "https://us.posthog.com"],
+    ["http://posthog.internal:8000/api/x", "http://posthog.internal:8000"],
   ])("refuses %s for %s", (url, apiHost) => {
     expect(isCredentialOriginAllowed(url, apiHost)).toBe(false);
   });
@@ -223,5 +223,29 @@ describe("isCredentialOriginAllowed", () => {
         "https://posthog.acme.internal",
       ),
     ).toBe(true);
+  });
+
+  it("refuses a plain-http extra origin off loopback", () => {
+    expect(
+      isCredentialOriginAllowed(
+        "http://mcp.example.com/mcp",
+        "https://us.posthog.com",
+        ["http://mcp.example.com"],
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses the custom cloud gateway while signed in to another host", () => {
+    configureCustomCloud({
+      url: "https://posthog.acme.internal",
+      oauthClientId: "id",
+      gatewayUrl: "https://llm.other-domain.io",
+    });
+    expect(
+      isCredentialOriginAllowed(
+        "https://llm.other-domain.io/posthog_code/v1/messages",
+        "https://us.posthog.com",
+      ),
+    ).toBe(false);
   });
 });

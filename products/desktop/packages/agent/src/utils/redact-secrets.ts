@@ -16,9 +16,12 @@ function escapeLiteral(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Opens an ANSI colour code such as ESC[32m, raw or JSON-escaped.
+const ANSI_OPEN = String.raw`(?:\x1b|\\u001[bB]|\\x1[bB]|\\033|\\e)\[`;
+
 // Not after a letter or digit, unless it ends an escape: "\n", "%20", "\u00e9",
-// "\xe9", or an ANSI colour code such as ESC[32m (raw or JSON-escaped).
-const WORD_START = String.raw`(?<!(?<!\\|%[0-9A-Fa-f]?|\\[ux][0-9A-Fa-f]{0,3}|(?:\x1b|\\u001[bB]|\\x1[bB]|\\033|\\e)\[[0-9;]*)[A-Za-z0-9])`;
+// "\xe9", or an ANSI colour code.
+const WORD_START = String.raw`(?<!(?<!\\|%[0-9A-Fa-f]?|\\[ux][0-9A-Fa-f]{0,3}|${ANSI_OPEN}[0-9;]*)[A-Za-z0-9])`;
 
 function tokenSource(rule: TokenRule, repeat: "+" | "*"): string {
   const start = rule.wordStart ? WORD_START : "";
@@ -39,9 +42,11 @@ function trailingDots(match: string): string {
 }
 
 const TOKEN = new RegExp(
-  TOKEN_RULES.map((rule) => rule.shape?.source ?? tokenSource(rule, "+")).join(
-    "|",
-  ),
+  TOKEN_RULES.map((rule) =>
+    rule.shape
+      ? `${rule.wordStart ? WORD_START : ""}${rule.shape.source}`
+      : tokenSource(rule, "+"),
+  ).join("|"),
   "g",
 );
 
@@ -128,9 +133,7 @@ export function redactSecrets(value: unknown): unknown {
   return Object.fromEntries(
     Object.entries(record).map(([key, nested]) => [
       key,
-      isSecretHeader(key) && typeof nested === "string"
-        ? REDACTED
-        : redactSecrets(nested),
+      isSecretHeader(key) && nested != null ? REDACTED : redactSecrets(nested),
     ]),
   );
 }
@@ -140,7 +143,7 @@ export function redactSecrets(value: unknown): unknown {
  * walk, so cycles fail fast. Run `redactSecrets` over the output for tokens.
  */
 export function secretHeaderReplacer(key: string, value: unknown): unknown {
-  if (isSecretHeader(key) && typeof value === "string") return REDACTED;
+  if (isSecretHeader(key) && value != null) return REDACTED;
   if (value instanceof Error) {
     return { name: value.name, message: value.message, stack: value.stack };
   }
@@ -198,6 +201,16 @@ function withText(event: TextEvent, text: string): TextEvent {
 // Emitted text kept for WORD_START's lookbehind: the character before a prefix
 // plus the escape or colour code ahead of it.
 const CONTEXT_LENGTH = 32;
+const OPEN_ANSI_TAIL = new RegExp(`(${ANSI_OPEN})([0-9;]*[A-Za-z0-9]?)$`);
+
+// A colour code longer than the window keeps its opener, so the lookbehind
+// still reads it as an escape.
+function nextContext(text: string): string {
+  const tail = text.slice(-CONTEXT_LENGTH);
+  const open = OPEN_ANSI_TAIL.exec(text);
+  if (!open || open[0].length <= tail.length) return tail;
+  return open[1] + open[2].slice(-CONTEXT_LENGTH);
+}
 
 export class SecretEventRedactor {
   private pending: TextEvent | null = null;
@@ -275,7 +288,7 @@ export class SecretEventRedactor {
       if (previous) {
         const emitted = text.slice(0, -held);
         events.push(withText(previous, emitted));
-        this.context = (context + emitted).slice(-CONTEXT_LENGTH);
+        this.context = nextContext(context + emitted);
         this.pending = withText(redacted, text.slice(-held));
       } else {
         this.pending = redacted;
@@ -283,9 +296,9 @@ export class SecretEventRedactor {
       return events;
     }
     events.push(redacted);
-    this.context = (
-      context + redacted.notification.params.update.content.text
-    ).slice(-CONTEXT_LENGTH);
+    this.context = nextContext(
+      context + redacted.notification.params.update.content.text,
+    );
     return events;
   }
 }

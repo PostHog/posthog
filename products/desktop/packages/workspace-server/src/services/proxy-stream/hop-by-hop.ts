@@ -2,6 +2,8 @@ const HOP_BY_HOP_HEADERS = [
   "connection",
   "keep-alive",
   "proxy-connection",
+  "proxy-authenticate",
+  "proxy-authorization",
   "te",
   "trailer",
   "upgrade",
