@@ -16,7 +16,7 @@ const SPACES = [
     {
         id: 'space-me',
         name: 'me',
-        channel_type: 'private',
+        channel_type: 'personal',
         github_integration: null,
         repositories: [],
         auto_archive_after_days: null,
@@ -71,7 +71,8 @@ const PINNED_SESSIONS = [
         title: 'Fix the flaky checkout test',
         archived: false,
         last_activity_at: '2026-09-28T17:40:00Z',
-        latest_run: { status: 'in_progress', environment: 'cloud', output: null },
+        latest_run: { id: 'run-pinned', status: 'in_progress', environment: 'cloud', output: null },
+        channel: 'space-checkout',
         description_preview: 'The checkout test fails about once in ten runs. Find the race and make the test stable.',
         repository: 'example-org/webapp',
         created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
@@ -82,6 +83,7 @@ const RECENT_SESSIONS = [
     ...PINNED_SESSIONS,
     {
         id: 'task-1',
+        channel: 'space-checkout',
         title: 'Add a retry to the billing webhook',
         archived: false,
         last_activity_at: '2026-09-28T18:05:00Z',
@@ -97,6 +99,7 @@ const RECENT_SESSIONS = [
     },
     {
         id: 'task-2',
+        channel: 'space-checkout',
         title: 'Investigate the drop in trial starts',
         archived: false,
         last_activity_at: '2026-09-27T11:20:00Z',

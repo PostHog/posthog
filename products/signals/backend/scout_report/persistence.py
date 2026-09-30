@@ -338,6 +338,10 @@ def create_scout_report(
                         source="scout",
                     )
                 )
+            # In-txn and before the signal emits below: the autostart gate reads authorship from this
+            # tally, so a report must never commit without it, and a failed Kafka emit must not skip it.
+            if run is not None:
+                _record_report_emit(team_id=team_id, run_id=run.id, report_id=report_id)
     except IntegrityError:
         # A concurrent emit of the same emission won the race, so this transaction rolled back. Hand
         # its report back: the loser is a retry, and it wants the twin it just avoided creating.
@@ -366,9 +370,6 @@ def create_scout_report(
             _emit_bound_signal(
                 team_id=team_id, report_id=report_id, signal=signal, document_id=document_id, skill_name=skill_name
             )
-
-    if run is not None:
-        _record_report_emit(team_id=team_id, run_id=run.id, report_id=report_id)
 
     logger.info(
         "signals_scout.emit_report: created",
@@ -1384,22 +1385,16 @@ def _signal_metadata(*, report_id: str, source_id: str, weight: float, extra: di
 
 def _record_report_emit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> None:
     """Append `report_id` to the run's `emitted_report_ids` tally so "which reports did this run
-    author?" is a column lookup. Best-effort and observability only (mirrors `emit._record_emit`):
-    the report has already been created by the time this runs, so any failure here is swallowed rather
-    than surfaced as a false emit failure. Runs under `select_for_update` so the read-modify-write on
-    the JSON list is safe, and scopes the lookup to `team_id` via the fail-closed manager so the tally
-    write can never touch a foreign team's run even if the caller's ownership guard regresses."""
-    try:
-        with transaction.atomic():
-            run = SignalScoutRun.objects.for_team(team_id).select_for_update().filter(pk=run_id).first()
-            if run is None:
-                logger.warning("signals_scout.emit_report: run %s gone, skipping report tally", run_id)
-                return
-            report_ids = [*(run.emitted_report_ids or []), report_id]
-            run.emitted_report_ids = report_ids
-            run.save(update_fields=["emitted_report_ids"])
-    except Exception:
-        logger.exception("signals_scout.emit_report: failed to record report emit for run %s", run_id)
+    author?" is a column lookup. Unlike `emit._record_emit` this is not best-effort: the autostart
+    gate reads the tally to hold back reports a background scout authored. So the caller runs it in
+    the report's transaction, and any failure here (run row gone included) rolls the report back
+    instead of leaving it without its authoring run. Runs under `select_for_update` so the
+    read-modify-write on the JSON list is safe, and scopes the lookup to `team_id` via the fail-closed
+    manager so the tally write can never touch a foreign team's run even if the caller's ownership
+    guard regresses."""
+    run = SignalScoutRun.objects.for_team(team_id).select_for_update().get(pk=run_id)
+    run.emitted_report_ids = [*(run.emitted_report_ids or []), report_id]
+    run.save(update_fields=["emitted_report_ids"])
 
 
 def record_report_edit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> None:

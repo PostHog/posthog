@@ -36,7 +36,7 @@ from products.experiments.backend.facade.timeseries import (
     backfill_experiment_timeseries,
     build_metric,
     is_daily_timeseries_metric,
-    merge_saved_metric_breakdowns,
+    resolve_saved_metric_definition,
     sync_timeseries_recalculation,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
@@ -398,11 +398,11 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                 )
                 continue
 
-            # Fingerprint the effective config (with link-metadata breakdowns), the same dict the calc
+            # Fingerprint the effective definition (with the link overrides), the same dict the calc
             # activity computes and every reader (timeseries sync, chart read) resolves. Hashing the raw
-            # saved query here would file breakdown-configured metrics under a hash no reader looks up.
+            # saved query here would file override-configured metrics under a hash no reader looks up.
             fingerprint = compute_metric_fingerprint(
-                merge_saved_metric_breakdowns(saved_metric.query, exp_to_saved_metric.metadata),
+                resolve_saved_metric_definition(saved_metric.query, exp_to_saved_metric.metadata),
                 experiment.start_date,
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
@@ -479,12 +479,12 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     # The frontend receives saved metrics with two extra fields injected before
-    # they get posted back to /query: a breakdownFilter wrapper (from the link
-    # metadata, via sharedMetricsToExperimentMetrics in experimentLogic.tsx) and
+    # they get posted back to /query: the link overrides (via resolveSharedMetric
+    # in experiments/utils.ts, which mirrors resolve_saved_metric_definition) and
     # a fingerprint (added by the experiment API serializer). The activity must
     # apply both or the response cache key diverges from /query's.
     query = {
-        **merge_saved_metric_breakdowns(saved_metric.query, saved_metric_metadata),
+        **resolve_saved_metric_definition(saved_metric.query, saved_metric_metadata),
         "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")
