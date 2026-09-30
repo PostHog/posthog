@@ -12,7 +12,14 @@ from prometheus_client import REGISTRY
 from posthog.egress.limiter.policies import Priority, resolve_policy
 from posthog.egress.typesafe.client import TypeSafeNotConfigured, TypeSafeRequestFailed, system_one
 from posthog.egress.typesafe.limiter import typesafe_account_key
-from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, NoulAnswer, NoulQuestion, Question
+from posthog.llm.system_one import (
+    ChoiceAnswer,
+    ChoiceQuestion,
+    NoulAnswer,
+    NoulQuestion,
+    Question,
+    SystemOneNotConfigured,
+)
 
 _FAKE_API_KEY = "fake-key-for-tests"
 
@@ -55,8 +62,18 @@ def _with_answer(question_id: str, answer: dict[str, Any]) -> str:
     return json.dumps({**_ANSWERS, "answers": {**_ANSWERS["answers"], question_id: answer}})
 
 
-@override_settings(TYPESAFE_API_KEY=_FAKE_API_KEY)
+@override_settings(TYPESAFE_API_KEY=_FAKE_API_KEY, CLOUD_DEPLOYMENT="LOCAL")
 class TestTypeSafeEgress(SimpleTestCase):
+    @parameterized.expand(["US", "EU", "DEV", "E2E"])
+    def test_cloud_never_calls_typesafe_even_with_a_key(self, deployment: str) -> None:
+        with (
+            override_settings(CLOUD_DEPLOYMENT=deployment),
+            patch("requests.request") as request,
+            self.assertRaisesRegex(SystemOneNotConfigured, "ai-gateway"),
+        ):
+            system_one(state="hi", questions=_QUESTIONS, source="test")
+        request.assert_not_called()
+
     def test_sends_the_documented_request_and_records_it_without_the_key(self) -> None:
         consume = MagicMock(return_value=True)
         before = REGISTRY.get_sample_value("typesafe_api_requests_total", _COUNTER_LABELS) or 0.0

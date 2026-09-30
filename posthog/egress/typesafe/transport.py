@@ -8,12 +8,15 @@ like the other incarnations, so the caller owns where the API key comes from:
 
 from typing import Any
 
+from django.conf import settings
+
 import requests
 
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
 from posthog.egress.typesafe.limiter import ACCOUNT_SCOPE_ID, consume_typesafe_sync
 from posthog.egress.typesafe.observability import typesafe_egress
+from posthog.llm.system_one import SystemOneNotConfigured
 
 
 class TypeSafeEgressBudgetExhausted(EgressBudgetExhausted):
@@ -44,6 +47,10 @@ _typesafe_client = TypeSafeClient()
 DEFAULT_TIMEOUT: tuple[float, float] = (3.0, 15.0)
 
 
+def typesafe_allowed() -> bool:
+    return settings.CLOUD_DEPLOYMENT in (None, "LOCAL")
+
+
 def typesafe_request(
     method: str,
     url: str,
@@ -61,6 +68,8 @@ def typesafe_request(
     can do without the judgment. A CRITICAL call is never shed, so it would skip the hourly ceiling,
     which is the only cap on per-token spend. This function rejects CRITICAL for that reason.
     """
+    if not typesafe_allowed():
+        raise SystemOneNotConfigured("TypeSafe is disabled on PostHog Cloud; use the ai-gateway System One model")
     if priority is Priority.CRITICAL:
         raise ValueError("TypeSafe calls must be sheddable, so use NORMAL or BATCH")
     return _typesafe_client.request(
