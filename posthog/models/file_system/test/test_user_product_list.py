@@ -1,5 +1,9 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.utils.functional import SimpleLazyObject
 
 from parameterized import parameterized
 
@@ -99,7 +103,7 @@ class TestStarCustomProductsForSimpleSidebar(BaseTest):
         with patch(
             "posthog.models.file_system.starred_products.posthoganalytics.feature_enabled", return_value=flag_enabled
         ):
-            add_default_products_for_user(user, self.team)
+            add_default_products_for_user(cast(User, SimpleLazyObject(lambda: user)), self.team)
 
         assert set(self._starred(user)) == expected_starred
         user.refresh_from_db()
