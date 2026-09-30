@@ -3,17 +3,14 @@ import { useRef, useState } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
-import { cn } from 'lib/utils/css-classes'
-
 import { todaySessionMenuLogic } from './todaySessionMenuLogic'
 
 interface TodaySessionRenameInputProps {
     sessionId: string
     title: string
-    depth?: number
 }
 
-export function TodaySessionRenameInput({ sessionId, title, depth = 0 }: TodaySessionRenameInputProps): JSX.Element {
+export function TodaySessionRenameInput({ sessionId, title }: TodaySessionRenameInputProps): JSX.Element {
     const [value, setValue] = useState(title)
     const finished = useRef(false)
     const { renameSession, stopRenaming } = useActions(todaySessionMenuLogic)
@@ -32,7 +29,7 @@ export function TodaySessionRenameInput({ sessionId, title, depth = 0 }: TodaySe
     }
 
     return (
-        <div className={cn('TodayPaneRow', depth > 0 && 'TodayPaneRow--nested')}>
+        <div className="TodayPaneRow">
             <LemonInput
                 size="xsmall"
                 fullWidth

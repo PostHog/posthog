@@ -21,6 +21,7 @@ from posthog.temporal.oauth import (
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     RESEARCH_WITHHELD_SCOPES,
+    SCOUT_GRANTABLE_INTERNAL_SCOPES,
     SCOUT_GRANTABLE_WRITE_SCOPES,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_SCOPE_PRESETS,
@@ -295,9 +296,9 @@ class TestResolveScopes(SimpleTestCase):
         assert resolve_scopes(decoded) == resolve_scopes(posture)
 
     def test_grantable_write_scopes_are_mcp_write_scopes(self) -> None:
-        # A typo or an internal scope in the allowlist would offer a person a switch that grants
-        # nothing, because the MCP server gates its tools on scopes it advertises.
-        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES)
+        # A typo would offer a person a switch that grants nothing. An internal scope is allowed only
+        # where it is listed as deliberately grantable, since those are minted server-side.
+        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES) | SCOUT_GRANTABLE_INTERNAL_SCOPES
 
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]
