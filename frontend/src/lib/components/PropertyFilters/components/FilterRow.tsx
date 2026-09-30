@@ -9,7 +9,7 @@ import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
-import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
+import { PathCleaningFilter, PropertyFilterRow } from '~/types'
 
 import { OperandTag } from './OperandTag'
 import { PropertyFilterButton } from './PropertyFilterButton'
@@ -17,7 +17,7 @@ import { PropertyFilterButton } from './PropertyFilterButton'
 interface FilterRowProps {
     item: Record<string, any>
     index: number
-    filters: AnyPropertyFilter[] | PathCleaningFilter[]
+    filters: PropertyFilterRow[] | PathCleaningFilter[]
     pageKey: string
     showConditionBadge?: boolean
     totalCount: number

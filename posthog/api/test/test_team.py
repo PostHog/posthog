@@ -49,8 +49,8 @@ from posthog.utils import get_context_for_template, get_instance_realm
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
@@ -1265,6 +1265,23 @@ def team_api_test_factory():
             assert response.json()["modifiers"]["customChannelTypeRules"] == [
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
+
+        def test_modifiers_use_new_events_schema_is_not_client_writable(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"useNewEventsSchema": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert "useNewEventsSchema" not in response.json()["modifiers"]
+
+            self.team.modifiers = {"useNewEventsSchema": True}
+            self.team.save()
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"useNewEventsSchema": False, "bounceRateDurationSeconds": 30}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
 
         @parameterized.expand(
             [

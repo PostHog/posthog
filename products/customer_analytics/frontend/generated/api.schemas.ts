@@ -1771,6 +1771,8 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
     usePreaggregatedTableTransforms?: boolean | null
@@ -4524,10 +4526,10 @@ export interface PatchedGroupUsageMetricApi {
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
  */
-export type PinnedAccountPropertyKindEnumApi =
-    (typeof PinnedAccountPropertyKindEnumApi)[keyof typeof PinnedAccountPropertyKindEnumApi]
+export type AccountPropertyPinKindEnumApi =
+    (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
 
-export const PinnedAccountPropertyKindEnumApi = {
+export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
 } as const
@@ -4537,7 +4539,7 @@ export interface PinnedAccountPropertyApi {
      *
      * * `custom_property` - Custom property
      * * `relationship` - Relationship */
-    kind: PinnedAccountPropertyKindEnumApi
+    kind: AccountPropertyPinKindEnumApi
     /** Team-scoped custom property or relationship definition UUID. */
     id: string
 }

@@ -87,6 +87,31 @@ async function expectNodeCentered(canvasElement: HTMLElement, nodeId: string, me
     )
 }
 
+async function expectNodesCentered(canvasElement: HTMLElement, message: string): Promise<void> {
+    await waitFor(
+        () => {
+            const graph = canvasElement.querySelector<HTMLElement>('.react-flow')
+            const nodes = [...(graph?.querySelectorAll<HTMLElement>('.react-flow__node') ?? [])]
+            if (!graph || nodes.length < 2) {
+                throw new Error(message)
+            }
+            const nodeBounds = nodes.map((node) => node.getBoundingClientRect())
+            const left = Math.min(...nodeBounds.map((bounds) => bounds.left))
+            const right = Math.max(...nodeBounds.map((bounds) => bounds.right))
+            const top = Math.min(...nodeBounds.map((bounds) => bounds.top))
+            const bottom = Math.max(...nodeBounds.map((bounds) => bounds.bottom))
+            const graphBounds = graph.getBoundingClientRect()
+            if (
+                Math.abs((left + right) / 2 - (graphBounds.left + graphBounds.right) / 2) > 5 ||
+                Math.abs((top + bottom) / 2 - (graphBounds.top + graphBounds.bottom) / 2) > 5
+            ) {
+                throw new Error(message)
+            }
+        },
+        { timeout: VIEWPORT_SETTLE_MS }
+    )
+}
+
 type Story = StoryObj<typeof LineageGraph>
 const meta: Meta<typeof LineageGraph> = {
     title: 'Products/Data modeling/Lineage graph',
@@ -139,6 +164,9 @@ export const Loading: Story = {
             panels={<span>Graph tools</span>}
         />
     ),
+    play: async ({ canvasElement }) => {
+        await expectNodesCentered(canvasElement, 'The loading skeleton must be centered in the lineage viewport')
+    },
 }
 
 export const LoadingFocused: Story = {
@@ -155,6 +183,12 @@ export const LoadingFocused: Story = {
             panels={<span>Graph tools</span>}
         />
     ),
+    play: async ({ canvasElement }) => {
+        await expectNodesCentered(
+            canvasElement,
+            'The focused loading skeleton must be centered in the lineage viewport'
+        )
+    },
 }
 
 export const LoadingDarkMode: Story = {

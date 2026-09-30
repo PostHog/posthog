@@ -12,6 +12,12 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import (
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -67,12 +73,24 @@ class ValidationWarningCode(StrEnum):
 
 
 _GENERIC_ERROR = "Validation could not run. Try again, and contact support if it keeps failing."
+_TOO_EXPENSIVE_ERROR = (
+    "Validation ran out of time or memory on this project's data. "
+    "Narrow the population, for example to people who performed a specific event, or shorten the training lookback."
+)
+_TOO_EXPENSIVE_ERRORS = (
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+)
 
 
 def _exposed_error(exc: Exception) -> str:
     # Exposed errors describe the caller's own definition, so anything else is our infrastructure and stays in the log.
     if isinstance(exc, ExposedHogQLError | ExposedCHQueryError):
         return str(exc)
+    # A definition that reads too much data is one the caller can narrow. Cluster memory pressure is transient.
+    if isinstance(exc, _TOO_EXPENSIVE_ERRORS) and not isinstance(exc, ClickHouseClusterMemoryLimitExceeded):
+        return _TOO_EXPENSIVE_ERROR
     return _GENERIC_ERROR
 
 
