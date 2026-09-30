@@ -15,25 +15,20 @@ PROMPT_REFRESH_SECONDS = 60
 
 logger = structlog.get_logger(__name__)
 
+# PostHog's own prompts live in this project on US cloud. EU and self-hosted have no copy of it,
+# and project 2 there belongs to someone else, so callers keep their bundled copy.
+POSTHOG_PROMPTS_TEAM_ID = 2
+
 
 def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptResult | None:
-    """The `production` version, or `version` when given, read straight from the prompt rows.
-
-    None without a configured project (tests, local dev, self-hosted): callers keep their bundled
-    copy. PostHog's own prompts live in the US project, so every US pod reads the same Postgres it
-    already talks to. This replaces the Prompts SDK path, which needed a personal API key the pods
-    do not have and so failed every fetch in production.
-    """
-    if settings.APP_PROMPTS_TEAM_ID is None:
+    """The `production` version, or `version` when given. None outside US cloud."""
+    if (settings.CLOUD_DEPLOYMENT or "").upper() != "US":
         return None
-    return _get_app_prompt_from_db(prompt_name, version=version)
 
-
-def _get_app_prompt_from_db(prompt_name: str, *, version: int | None = None) -> PromptResult | None:
     from posthog.models import Team
     from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-    team = Team.objects.only("id").get(id=settings.APP_PROMPTS_TEAM_ID)
+    team = Team.objects.only("id").get(id=POSTHOG_PROMPTS_TEAM_ID)
     label = PROMPT_LABEL if version is None else None
     serialized = get_prompt_by_name_from_cache(team, prompt_name, version=version, label=label)
     if serialized is None:

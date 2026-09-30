@@ -83,6 +83,8 @@ class TestModelConfig(SimpleTestCase):
 class TestGetAppPromptFromDatabase(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(override_settings(CLOUD_DEPLOYMENT="US"))
+        self.enterContext(patch.object(managed_decision_model, "POSTHOG_PROMPTS_TEAM_ID", self.team.id))
         self._clear_caches()
         self.addCleanup(self._clear_caches)
 
@@ -103,23 +105,29 @@ class TestGetAppPromptFromDatabase(BaseTest):
             created_by=self.user,
         )
 
-    def test_without_a_configured_project_it_returns_none(self) -> None:
-        with override_settings(APP_PROMPTS_TEAM_ID=None):
+    def _label_production(self, version: int) -> None:
+        LLMPromptLabel.objects.create(
+            team=self.team,
+            prompt_name="emoji-search-suggestions",
+            name="production",
+            prompt=LLMPrompt.objects.get(team=self.team, name="emoji-search-suggestions", version=version),
+            created_by=self.user,
+        )
+
+    @parameterized.expand([("eu", "EU"), ("self_hosted", None)])
+    def test_outside_us_cloud_it_returns_none(self, _name: str, region: str | None) -> None:
+        self._publish_prompt(version=1, config={"model": NEW_MODEL})
+        self._label_production(1)
+
+        with override_settings(CLOUD_DEPLOYMENT=region):
             assert managed_decision_model.get_app_prompt("emoji-search-suggestions") is None
 
     def test_the_production_label_resolves(self) -> None:
         self._publish_prompt(version=1, config={"model": DEFAULT_DECISION_MODEL})
         self._publish_prompt(version=2, config={"model": NEW_MODEL})
-        LLMPromptLabel.objects.create(
-            team=self.team,
-            prompt_name="emoji-search-suggestions",
-            name="production",
-            prompt=LLMPrompt.objects.get(team=self.team, name="emoji-search-suggestions", version=2),
-            created_by=self.user,
-        )
+        self._label_production(2)
 
-        with override_settings(APP_PROMPTS_TEAM_ID=self.team.id):
-            result = managed_decision_model.get_app_prompt("emoji-search-suggestions")
+        result = managed_decision_model.get_app_prompt("emoji-search-suggestions")
 
         assert result is not None
         assert result.config == {"model": NEW_MODEL}
@@ -130,29 +138,21 @@ class TestGetAppPromptFromDatabase(BaseTest):
         self._publish_prompt(version=1, config={"model": DEFAULT_DECISION_MODEL})
         self._publish_prompt(version=2, config={"model": NEW_MODEL})
 
-        with override_settings(APP_PROMPTS_TEAM_ID=self.team.id):
-            result = managed_decision_model.get_app_prompt("emoji-search-suggestions", version=1)
+        result = managed_decision_model.get_app_prompt("emoji-search-suggestions", version=1)
 
         assert result is not None
         assert result.config == {"model": DEFAULT_DECISION_MODEL}
         assert result.label is None
 
     def test_a_missing_prompt_returns_none(self) -> None:
-        with override_settings(APP_PROMPTS_TEAM_ID=self.team.id):
-            assert managed_decision_model.get_app_prompt("emoji-search-suggestions") is None
+        assert managed_decision_model.get_app_prompt("emoji-search-suggestions") is None
 
     def test_the_model_refresher_reads_the_database(self) -> None:
         self._publish_prompt(version=1, config={"model": NEW_MODEL})
-        LLMPromptLabel.objects.create(
-            team=self.team,
-            prompt_name="emoji-search-suggestions",
-            name="production",
-            prompt=LLMPrompt.objects.get(team=self.team, name="emoji-search-suggestions", version=1),
-            created_by=self.user,
-        )
+        self._label_production(1)
 
-        with override_settings(APP_PROMPTS_TEAM_ID=self.team.id):
-            managed = ManagedDecisionModel("emoji-search-suggestions")
-            managed._refresher._refresh()
-            assert managed.current() == NEW_MODEL
-            assert managed.fetch(version=1) == NEW_MODEL
+        managed = ManagedDecisionModel("emoji-search-suggestions")
+        managed._refresher._refresh()
+
+        assert managed.current() == NEW_MODEL
+        assert managed.fetch(version=1) == NEW_MODEL

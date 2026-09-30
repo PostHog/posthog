@@ -391,16 +391,6 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env(
     "GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 1 if (CLOUD_DEPLOYMENT or "").upper() == "EU" else 2, type_cast=int
 )
-# The project holding PostHog's own managed prompts (posthog/llm/managed_decision_model.py). The
-# prompts live in the US project, so readers there fetch them straight from the database. Empty
-# on EU and self-hosted: there the prompt rows belong to an arbitrary customer's project, and
-# readers fall back to the bundled prompt copy.
-_env_app_prompts_team_id = os.getenv("APP_PROMPTS_TEAM_ID")
-APP_PROMPTS_TEAM_ID: int | None = (
-    int(_env_app_prompts_team_id)
-    if _env_app_prompts_team_id
-    else (2 if (CLOUD_DEPLOYMENT or "").upper() == "US" and not TEST else None)
-)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
