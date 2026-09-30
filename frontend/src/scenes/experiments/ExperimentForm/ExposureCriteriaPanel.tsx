@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCollapse, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -265,7 +265,14 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                         <span className="flex items-center gap-1 whitespace-nowrap text-sm text-secondary">
                             Exposure event
                             <Tooltip title="People count toward the results once this event happens for them. By default, that's when your code checks the experiment's feature flag.">
-                                <IconInfo className="text-base shrink-0" />
+                                <LemonButton
+                                    size="xsmall"
+                                    noPadding
+                                    icon={<IconInfo className="text-base text-secondary" />}
+                                    aria-label="About the exposure event"
+                                    data-attr="experiment-analytics-exposure-event-help"
+                                    className="shrink-0"
+                                />
                             </Tooltip>
                         </span>
                         <LemonSelect
@@ -344,7 +351,14 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                     <span className="flex items-center gap-1 whitespace-nowrap text-sm text-secondary">
                         Multiple variant handling
                         <Tooltip title="Some people see more than one variant, for example after the split changes. Excluding them keeps the results clean. Using their first variant keeps them in, but can bias the results.">
-                            <IconInfo className="text-base shrink-0" />
+                            <LemonButton
+                                size="xsmall"
+                                noPadding
+                                icon={<IconInfo className="text-base text-secondary" />}
+                                aria-label="About multiple variant handling"
+                                data-attr="experiment-analytics-multiple-variant-handling-help"
+                                className="shrink-0"
+                            />
                         </Tooltip>
                     </span>
                     <LemonSelect

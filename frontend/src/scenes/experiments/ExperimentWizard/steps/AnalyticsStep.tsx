@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -31,7 +31,13 @@ export function AnalyticsStep(): JSX.Element {
                     <h3 className="text-lg font-semibold mb-1 flex items-center gap-1">
                         How to measure impact?
                         <Tooltip title="Add metrics to measure your experiment's impact. You can add them before or after launching.">
-                            <IconInfo className="text-secondary text-base" />
+                            <LemonButton
+                                size="xsmall"
+                                noPadding
+                                icon={<IconInfo className="text-base text-secondary" />}
+                                aria-label="About measuring impact"
+                                data-attr="experiment-analytics-metrics-help"
+                            />
                         </Tooltip>
                     </h3>
                     <MetricsPanel
