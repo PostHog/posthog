@@ -34,7 +34,6 @@ const PERSON_PROPERTIES_ANSWER = {
     is_confident: true,
     suggests_switch: true,
     method: 'model',
-    prompt_version: 4,
 }
 
 describe('taxonomicSearchIntentLogic', () => {
@@ -155,7 +154,6 @@ describe('taxonomicSearchIntentLogic', () => {
             expect.objectContaining({
                 variant: 'control',
                 predictedGroupType: 'person_properties',
-                promptVersion: 4,
                 suggestsSwitch: true,
                 wouldPromote: false,
                 shown: false,
