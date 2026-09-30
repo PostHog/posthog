@@ -678,10 +678,14 @@ def _str_as_timedelta_seconds(s: str) -> dt.timedelta:
     return dt.timedelta(seconds=int(s))
 
 
+def _str_to_timedelta_milliseconds(s: str) -> dt.timedelta:
+    return dt.timedelta(milliseconds=int(s))
+
+
 class Command(BaseCommand):
     help = "Start Temporal Python Django-aware Worker"
 
-    def add_arguments(self, parser: argparse.ArgumentParser):
+    def add_arguments(self, parser: "argparse.ArgumentParser"):
         parser.add_argument(
             "--temporal-host",
             default=settings.TEMPORAL_HOST,
@@ -786,8 +790,12 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--activity-ramp-throttle-ms",
-            type=_str_as_timedelta_seconds,
-            default=dt.timedelta(milliseconds=settings.TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS),
+            type=_str_to_timedelta_milliseconds,
+            default=(
+                dt.timedelta(milliseconds=settings.TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS)
+                if settings.TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS is not None
+                else None
+            ),
             help="Minimum milliseconds between two activity slot issues when the resource-based tuner is on",
             dest="activity_ramp_throttle",
         )

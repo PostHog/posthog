@@ -474,7 +474,11 @@ async def create_worker(
                         if activity_slot_options.maximum_slots is not None
                         else max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS
                     ),
-                    ramp_throttle=activity_slot_options.ramp_throttle,
+                    ramp_throttle=(
+                        activity_slot_options.ramp_throttle
+                        if activity_slot_options.ramp_throttle is not None
+                        else activity_ramp_throttle
+                    ),
                 ),
             ),
             # Worker will flush heartbeats every
