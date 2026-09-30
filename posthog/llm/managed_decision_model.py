@@ -1,6 +1,4 @@
-import os
 import time
-import functools
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -9,8 +7,7 @@ from typing import Any
 from django.conf import settings
 
 import structlog
-import posthoganalytics
-from posthoganalytics.ai.prompts import PromptResult, Prompts
+from posthoganalytics.ai.prompts import PromptResult
 
 DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 PROMPT_LABEL = "production"
@@ -19,53 +16,17 @@ PROMPT_REFRESH_SECONDS = 60
 logger = structlog.get_logger(__name__)
 
 
-PROMPTS_API_KEY_ENV = "POSTHOG_PROMPTS_PERSONAL_API_KEY"
-PERSONAL_API_KEY_PREFIX = "phx_"
-
-
-def prompts_api_key() -> str | None:
-    # Flag local evaluation accepts a project secret key, but the prompts API accepts only a personal key.
-    # Any other key gets a 401 on every refresh, so no request is sent with it.
-    key = os.environ.get(PROMPTS_API_KEY_ENV) or posthoganalytics.personal_api_key
-    if key and key.startswith(PERSONAL_API_KEY_PREFIX):
-        return key
-    return None
-
-
-@functools.cache
-def app_prompts() -> Prompts | None:
-    """None without a personal API key (tests, local dev, self-hosted, or a key of the wrong type)."""
-    # PostHog's own prompts live in the US project, and EU has no copy of that project, so every region
-    # reads them through the SDK. One client per process keeps the last good copy when a fetch fails.
-    # It is built on first use, because apps.ready() sets the key after this module can be imported.
-    # A zero TTL leaves the refresh interval to BackgroundRefresher alone.
-    key = prompts_api_key()
-    if key is None:
-        if posthoganalytics.personal_api_key:
-            logger.warning("managed_prompt_key_not_personal", env_var=PROMPTS_API_KEY_ENV)
-        return None
-    return Prompts(personal_api_key=key, project_api_key=posthoganalytics.api_key, default_cache_ttl_seconds=0)
-
-
 def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptResult | None:
-    """The `production` version, or `version` when given.
+    """The `production` version, or `version` when given, read straight from the prompt rows.
 
-    On a deployment whose own project holds the prompt rows (US cloud), the read goes through the
-    database, so no personal API key is needed. Everywhere else this falls back to the Prompts SDK,
-    which is None without a personal API key.
+    None without a configured project (tests, local dev, self-hosted): callers keep their bundled
+    copy. PostHog's own prompts live in the US project, so every US pod reads the same Postgres it
+    already talks to. This replaces the Prompts SDK path, which needed a personal API key the pods
+    do not have and so failed every fetch in production.
     """
-    if settings.APP_PROMPTS_TEAM_ID is not None:
-        return _get_app_prompt_from_db(prompt_name, version=version)
-    prompts = app_prompts()
-    if prompts is None:
-        if version is not None:
-            raise RuntimeError(
-                f"Reading {prompt_name} version {version} needs a personal API key ({PERSONAL_API_KEY_PREFIX}...) "
-                f"in {PROMPTS_API_KEY_ENV} or POSTHOG_PERSONAL_API_KEY"
-            )
+    if settings.APP_PROMPTS_TEAM_ID is None:
         return None
-    label = PROMPT_LABEL if version is None else None
-    return prompts.get(prompt_name, with_metadata=True, label=label, version=version)
+    return _get_app_prompt_from_db(prompt_name, version=version)
 
 
 def _get_app_prompt_from_db(prompt_name: str, *, version: int | None = None) -> PromptResult | None:

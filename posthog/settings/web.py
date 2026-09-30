@@ -392,9 +392,9 @@ GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env(
     "GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 1 if (CLOUD_DEPLOYMENT or "").upper() == "EU" else 2, type_cast=int
 )
 # The project holding PostHog's own managed prompts (posthog/llm/managed_decision_model.py). The
-# prompts live in the US project, so readers there fetch them straight from the database instead
-# of going through the Prompts SDK, which needs a personal API key the pods do not have. Empty on
-# EU and self-hosted: there the prompt rows belong to an arbitrary customer's project.
+# prompts live in the US project, so readers there fetch them straight from the database. Empty
+# on EU and self-hosted: there the prompt rows belong to an arbitrary customer's project, and
+# readers fall back to the bundled prompt copy.
 _env_app_prompts_team_id = os.getenv("APP_PROMPTS_TEAM_ID")
 APP_PROMPTS_TEAM_ID: int | None = (
     int(_env_app_prompts_team_id)

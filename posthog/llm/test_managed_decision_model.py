@@ -1,4 +1,3 @@
-import os
 import threading
 from concurrent.futures import Future
 
@@ -8,7 +7,6 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
-from posthoganalytics.ai.prompts import PromptResult
 
 from posthog.llm import managed_decision_model
 from posthog.llm.managed_decision_model import (
@@ -24,12 +22,6 @@ from posthog.utils import safe_cache_delete
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
 
 NEW_MODEL = "posthog/hogference/jeeves-0.1"
-
-
-def managed_result(model: str = NEW_MODEL) -> PromptResult:
-    return PromptResult(
-        source="api", prompt="Emoji search", name="emoji-search-suggestions", version=3, config={"model": model}
-    )
 
 
 class TestBackgroundRefresher(SimpleTestCase):
@@ -74,11 +66,7 @@ class TestBackgroundRefresher(SimpleTestCase):
         assert refresher.current() == expected
 
 
-class TestManagedDecisionModel(SimpleTestCase):
-    def setUp(self) -> None:
-        managed_decision_model.app_prompts.cache_clear()
-        self.addCleanup(managed_decision_model.app_prompts.cache_clear)
-
+class TestModelConfig(SimpleTestCase):
     @parameterized.expand(
         [
             ("valid", {"model": NEW_MODEL}, NEW_MODEL),
@@ -90,56 +78,6 @@ class TestManagedDecisionModel(SimpleTestCase):
     )
     def test_model_config(self, _name: str, config: dict, expected: str) -> None:
         assert model_from_config(config) == expected
-
-    @parameterized.expand(
-        [
-            ("shared_personal_key", "phx_test", None, "phx_test"),
-            ("dedicated_key_wins", "phx_test", "phx_prompts", "phx_prompts"),
-            ("dedicated_key_beside_secret_key", "phs_secret", "phx_prompts", "phx_prompts"),
-        ]
-    )
-    @patch("posthog.llm.managed_decision_model.posthoganalytics.api_key", "phc_project")
-    @patch("posthog.llm.managed_decision_model.Prompts")
-    def test_every_refresh_reads_the_posthog_project_through_one_sdk_client(
-        self, _name: str, shared_key: str, dedicated_key: str | None, expected_key: str, prompts_class
-    ) -> None:
-        prompts_class.return_value.get.return_value = managed_result()
-        with (
-            patch.dict("os.environ"),
-            patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", shared_key),
-        ):
-            os.environ.pop("POSTHOG_PROMPTS_PERSONAL_API_KEY", None)
-            if dedicated_key:
-                os.environ["POSTHOG_PROMPTS_PERSONAL_API_KEY"] = dedicated_key
-            managed = ManagedDecisionModel("emoji-search-suggestions")
-            managed._refresher._refresh()
-            managed._refresher._refresh()
-            assert managed.fetch(version=3) == NEW_MODEL
-
-        assert managed.current() == NEW_MODEL
-        prompts_class.assert_called_once_with(
-            personal_api_key=expected_key, project_api_key="phc_project", default_cache_ttl_seconds=0
-        )
-        get = prompts_class.return_value.get
-        get.assert_any_call("emoji-search-suggestions", with_metadata=True, label="production", version=None)
-        get.assert_any_call("emoji-search-suggestions", with_metadata=True, label=None, version=3)
-
-    @parameterized.expand([("no_key", None), ("project_secret_key", "phs_secret")])
-    @patch("posthog.llm.managed_decision_model.Prompts")
-    def test_without_a_personal_key_no_request_is_sent(self, _name: str, key: str | None, prompts_class) -> None:
-        with (
-            patch.dict("os.environ"),
-            patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", key),
-        ):
-            os.environ.pop("POSTHOG_PROMPTS_PERSONAL_API_KEY", None)
-            managed = ManagedDecisionModel("emoji-search-suggestions")
-
-            managed._refresher._refresh()
-
-            assert managed.current() == DEFAULT_DECISION_MODEL
-            with self.assertRaisesRegex(RuntimeError, "version 3 needs a personal API key"):
-                managed.fetch(version=3)
-        prompts_class.assert_not_called()
 
 
 class TestGetAppPromptFromDatabase(BaseTest):
@@ -165,14 +103,11 @@ class TestGetAppPromptFromDatabase(BaseTest):
             created_by=self.user,
         )
 
-    @override_settings(APP_PROMPTS_TEAM_ID=None)
-    def test_none_team_id_falls_back_to_the_sdk(self) -> None:
-        with patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", None):
-            with patch("posthog.llm.managed_decision_model.Prompts") as prompts_class:
-                assert managed_decision_model.get_app_prompt("emoji-search-suggestions") is None
-                prompts_class.assert_not_called()
+    def test_without_a_configured_project_it_returns_none(self) -> None:
+        with override_settings(APP_PROMPTS_TEAM_ID=None):
+            assert managed_decision_model.get_app_prompt("emoji-search-suggestions") is None
 
-    def test_the_production_label_resolves_without_an_api_key(self) -> None:
+    def test_the_production_label_resolves(self) -> None:
         self._publish_prompt(version=1, config={"model": DEFAULT_DECISION_MODEL})
         self._publish_prompt(version=2, config={"model": NEW_MODEL})
         LLMPromptLabel.objects.create(
@@ -205,3 +140,19 @@ class TestGetAppPromptFromDatabase(BaseTest):
     def test_a_missing_prompt_returns_none(self) -> None:
         with override_settings(APP_PROMPTS_TEAM_ID=self.team.id):
             assert managed_decision_model.get_app_prompt("emoji-search-suggestions") is None
+
+    def test_the_model_refresher_reads_the_database(self) -> None:
+        self._publish_prompt(version=1, config={"model": NEW_MODEL})
+        LLMPromptLabel.objects.create(
+            team=self.team,
+            prompt_name="emoji-search-suggestions",
+            name="production",
+            prompt=LLMPrompt.objects.get(team=self.team, name="emoji-search-suggestions", version=1),
+            created_by=self.user,
+        )
+
+        with override_settings(APP_PROMPTS_TEAM_ID=self.team.id):
+            managed = ManagedDecisionModel("emoji-search-suggestions")
+            managed._refresher._refresh()
+            assert managed.current() == NEW_MODEL
+            assert managed.fetch(version=1) == NEW_MODEL
