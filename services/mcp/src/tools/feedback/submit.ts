@@ -1,7 +1,7 @@
 import type { z } from 'zod'
 
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import { FeedbackSubmitSchema } from '@/schema/tool-inputs'
+import { FEEDBACK_PRODUCT_AREAS, FeedbackSubmitSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = FeedbackSubmitSchema
@@ -21,10 +21,24 @@ const RESPONSE_MESSAGE =
     "Submitting feedback does not mean your work is done: keep going and finish the user's task " +
     'using the other available tools.'
 
+const PRODUCT_AREA_NUDGE = ` Next time, set \`product_area\` to one of: ${FEEDBACK_PRODUCT_AREAS.join(', ')}.`
+
+const normalizeProductArea = (value: string | undefined): string | undefined => {
+    const normalized = value
+        ?.trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_')
+    return normalized || undefined
+}
+
+const isKnownProductArea = (value: string | undefined): boolean =>
+    (FEEDBACK_PRODUCT_AREAS as readonly (string | undefined)[]).includes(value)
+
 export const submitFeedbackHandler: ToolBase<typeof schema, Result>['handler'] = async (
     context: Context,
     params: Params
 ) => {
+    const productArea = normalizeProductArea(params.product_area)
     // `context.trackEvent` is itself best-effort (the MCP-class implementation wraps
     // analytics in its own try/catch). The outer try/catch here defends against any
     // unexpected throw on the way *to* trackEvent (e.g. a future refactor) so the
@@ -34,7 +48,7 @@ export const submitFeedbackHandler: ToolBase<typeof schema, Result>['handler'] =
             feedback_summary: params.summary,
             feedback_type: params.feedback_type,
             feedback_sentiment: params.sentiment,
-            feedback_product_area: params.product_area,
+            feedback_product_area: productArea,
             feedback_category: params.category,
             feedback_scout_skill_name: params.scout_skill_name,
             feedback_scout_skill_version: params.scout_skill_version,
@@ -55,7 +69,7 @@ export const submitFeedbackHandler: ToolBase<typeof schema, Result>['handler'] =
         summary: params.summary,
         feedback_type: params.feedback_type,
         sentiment: params.sentiment,
-        message: RESPONSE_MESSAGE,
+        message: isKnownProductArea(productArea) ? RESPONSE_MESSAGE : RESPONSE_MESSAGE + PRODUCT_AREA_NUDGE,
     }
 }
 

@@ -67,16 +67,28 @@ describe('agent-feedback submit handler', () => {
     })
 
     it.each([
-        ['missing', {}],
-        ['empty', { product_area: '' }],
-        ['free-text', { product_area: 'insights' }],
-    ])('rejects feedback with %s product_area', (_case, areaFields) => {
-        const result = FeedbackSubmitSchema.safeParse({
+        ['listed value', 'product_analytics', 'product_analytics', false],
+        ['spaced variant', ' Product Analytics ', 'product_analytics', false],
+        ['hyphenated variant', 'session-replay', 'session_replay', false],
+        ['unlisted value', 'insights', 'insights', true],
+        ['missing value', undefined, undefined, true],
+        ['empty value', '', undefined, true],
+    ])('records feedback with a %s for product_area', async (_case, productArea, recorded, nudged) => {
+        const trackEvent = vi.fn().mockResolvedValue(undefined)
+        const context = { trackEvent } as unknown as Context
+
+        const result = await submitFeedbackHandler(context, {
             summary: 'query-trends errors on breakdown limits',
             feedback_type: 'mcp',
             sentiment: 'negative',
-            ...areaFields,
+            product_area: productArea,
         })
-        expect(result.success).toBe(false)
+
+        expect(trackEvent).toHaveBeenCalledWith(
+            'mcp feedback submitted',
+            expect.objectContaining({ feedback_product_area: recorded })
+        )
+        expect(result.received).toBe(true)
+        expect(result.message.includes('set `product_area` to one of')).toBe(nudged)
     })
 })

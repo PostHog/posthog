@@ -269,7 +269,7 @@ export const PromptListInputSchema = z.object({
         ),
 })
 
-const FEEDBACK_PRODUCT_AREAS = [
+export const FEEDBACK_PRODUCT_AREAS = [
     'product_analytics',
     'web_analytics',
     'session_replay',
@@ -311,9 +311,10 @@ export const FeedbackSubmitSchema = z
                 'The overall tone. Use "negative" for something broken or blocking, "mixed" for mostly-fine-but-with-a-concrete-problem, "neutral" for a suggestion or feature request with no strong sentiment, and "positive" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.'
             ),
         product_area: z
-            .enum(FEEDBACK_PRODUCT_AREAS)
+            .string()
+            .optional()
             .describe(
-                'Required for every feedback type: the PostHog product the feedback concerns. Pick the product, not the tool — tool names go in `tools_used`. "product_analytics" covers trends, funnels, retention, stickiness, lifecycle, paths, insights, dashboards, cohorts, actions, persons and events. "data_warehouse" covers SQL (execute-sql), sources, views and the data catalog. "data_pipelines" covers destinations, transformations and batch exports. "posthog_ai" covers PostHog AI, signals and tasks. "platform" covers organizations, projects, access control, billing and integrations. "mcp" is for the MCP server as a whole (instructions, tool discovery, auth) when no single product fits. Use "other" only when nothing else fits.'
+                `Strongly recommended for every feedback type: the PostHog product the feedback concerns, as exactly one of: ${FEEDBACK_PRODUCT_AREAS.join(', ')}. Pick the product, not the tool — tool names go in \`tools_used\`. "product_analytics" covers trends, funnels, retention, stickiness, lifecycle, paths, insights, dashboards, cohorts, actions, persons and events. "data_warehouse" covers SQL (execute-sql), sources, views and the data catalog. "data_pipelines" covers destinations, transformations and batch exports. "posthog_ai" covers PostHog AI, signals and tasks. "platform" covers organizations, projects, access control, billing and integrations. "mcp" is for the MCP server as a whole (instructions, tool discovery, auth) when no single product fits. Use "other" only when nothing else fits.`
             ),
         category: z
             .enum([

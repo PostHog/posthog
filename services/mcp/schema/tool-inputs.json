@@ -633,30 +633,8 @@
                     "description": "The overall tone. Use \"negative\" for something broken or blocking, \"mixed\" for mostly-fine-but-with-a-concrete-problem, \"neutral\" for a suggestion or feature request with no strong sentiment, and \"positive\" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems."
                 },
                 "product_area": {
-                    "type": "string",
-                    "enum": [
-                        "product_analytics",
-                        "web_analytics",
-                        "session_replay",
-                        "feature_flags",
-                        "experiments",
-                        "surveys",
-                        "error_tracking",
-                        "logs",
-                        "data_warehouse",
-                        "data_pipelines",
-                        "llm_analytics",
-                        "revenue_analytics",
-                        "marketing_analytics",
-                        "customer_analytics",
-                        "workflows",
-                        "notebooks",
-                        "posthog_ai",
-                        "platform",
-                        "mcp",
-                        "other"
-                    ],
-                    "description": "Required for every feedback type: the PostHog product the feedback concerns. Pick the product, not the tool — tool names go in `tools_used`. \"product_analytics\" covers trends, funnels, retention, stickiness, lifecycle, paths, insights, dashboards, cohorts, actions, persons and events. \"data_warehouse\" covers SQL (execute-sql), sources, views and the data catalog. \"data_pipelines\" covers destinations, transformations and batch exports. \"posthog_ai\" covers PostHog AI, signals and tasks. \"platform\" covers organizations, projects, access control, billing and integrations. \"mcp\" is for the MCP server as a whole (instructions, tool discovery, auth) when no single product fits. Use \"other\" only when nothing else fits."
+                    "description": "Strongly recommended for every feedback type: the PostHog product the feedback concerns, as exactly one of: product_analytics, web_analytics, session_replay, feature_flags, experiments, surveys, error_tracking, logs, data_warehouse, data_pipelines, llm_analytics, revenue_analytics, marketing_analytics, customer_analytics, workflows, notebooks, posthog_ai, platform, mcp, other. Pick the product, not the tool — tool names go in `tools_used`. \"product_analytics\" covers trends, funnels, retention, stickiness, lifecycle, paths, insights, dashboards, cohorts, actions, persons and events. \"data_warehouse\" covers SQL (execute-sql), sources, views and the data catalog. \"data_pipelines\" covers destinations, transformations and batch exports. \"posthog_ai\" covers PostHog AI, signals and tasks. \"platform\" covers organizations, projects, access control, billing and integrations. \"mcp\" is for the MCP server as a whole (instructions, tool discovery, auth) when no single product fits. Use \"other\" only when nothing else fits.",
+                    "type": "string"
                 },
                 "category": {
                     "description": "For MCP feedback (`feedback_type: \"mcp\"`) only: the single category that best describes the dominant theme. Pick \"missing_tool\" if a capability was absent, \"tool_description\" if the tool docs were unclear, \"tool_input_schema\" if input args were confusing, \"tool_output_format\" if the response was hard to consume, \"instructions_clarity\" if these MCP instructions were unclear, \"tool_correctness\" if a tool returned wrong data, \"error_message\" if an error was unhelpful, \"performance\" if latency was the issue. Omit for product, docs, or other feedback.",
@@ -723,7 +701,7 @@
                     "type": "string"
                 }
             },
-            "required": ["summary", "feedback_type", "sentiment", "product_area"]
+            "required": ["summary", "feedback_type", "sentiment"]
         },
         "InsightQueryInputSchema": {
             "type": "object",
