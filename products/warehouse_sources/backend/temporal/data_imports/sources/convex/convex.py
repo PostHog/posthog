@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # Data sync and cursor conversion are read-only POSTs, so the GET retry policy is safe for them.
 _CONVEX_RETRY = DEFAULT_RETRY.new(allowed_methods=DEFAULT_RETRY.allowed_methods | {"POST"})
 _DATA_SYNC_RESUME_NAMESPACE = "data_sync"
+_SNAPSHOT_RESUME_NAMESPACE = "list_snapshot"
 
 
 @frozen
@@ -40,8 +41,11 @@ class ConvexDataSyncCursor:
 
 @frozen
 class ConvexResumeConfig:
-    cursor: str
-    started_from_cursor: bool
+    # Shared by both read paths, which keep their state in separate namespaces: `list_snapshot`
+    # uses `cursor` and `snapshot`, and the data sync uses `cursor` and `started_from_cursor`.
+    cursor: int | str
+    snapshot: int | None = None
+    started_from_cursor: bool = False
 
 
 _CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)?\.convex\.cloud$")
@@ -284,8 +288,16 @@ def data_sync(
             cursor = response.json()["cursor"]
             if not isinstance(cursor, str) or not cursor:
                 raise ValueError("Convex cursor conversion returned no cursor")
-        except Exception:
-            logger.warning("Convex legacy watermark conversion failed for table '%s'", inputs.schema_name)
+        except HTTPError as e:
+            # Only Convex refusing the conversion (an old backend, or a watermark past retention) means
+            # the position is gone. A 429 or 5xx is transient: retry rather than resync every table.
+            status = e.response.status_code if e.response is not None else None
+            if status is None or not 400 <= status < 500 or status == 429:
+                raise
+            logger.warning("Convex refused the legacy watermark conversion for table '%s'", inputs.schema_name)
+            _request_full_resync(inputs, manager, "the legacy sync position could not be converted")
+        except (KeyError, TypeError, ValueError):
+            logger.warning("Convex returned an unusable cursor conversion for table '%s'", inputs.schema_name)
             _request_full_resync(inputs, manager, "the legacy sync position could not be converted")
         started_from_cursor = True
         logger.info("Converted the Convex legacy watermark for table '%s' without a resync", inputs.schema_name)
@@ -321,7 +333,13 @@ def data_sync(
         next_cursor = page["pagination"]["nextCursor"]
         if not isinstance(next_cursor, str) or not next_cursor:
             raise ValueError("Convex data sync response is missing a cursor")
-        rows = [{**entry["value"], "_ts": entry["ts"], "_deleted": entry["deleted"]} for entry in page["values"]]
+        # A document can appear at several revisions in one page, in increasing `ts` order. Keep the
+        # last so a merge on `_id` never sees two source rows for one target row.
+        latest: dict[str, dict[str, Any]] = {}
+        for entry in page["values"]:
+            row = {**entry["value"], "_ts": entry["ts"], "_deleted": entry["deleted"]}
+            latest[row["_id"]] = row
+        rows = list(latest.values())
         if rows:
             yield _normalize_timestamps(rows)
 
@@ -333,6 +351,56 @@ def data_sync(
             if inputs.should_use_incremental_field:
                 cursor_manager.stage(ConvexDataSyncCursor(cursor=cursor))
             return
+
+
+def list_snapshot(
+    deploy_url: str,
+    deploy_key: str,
+    table_name: str,
+    resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
+    component: str = _ROOT_COMPONENT,
+) -> Generator[list[dict[str, Any]]]:
+    """Read one consistent snapshot of a table, each document exactly once.
+
+    Full-refresh runs use this legacy endpoint rather than the data sync: a fresh data sync emits a
+    document again at each revision it reaches while catching up, and full-refresh loads append
+    batches instead of merging them on `_id`.
+    """
+    base_url = f"{deploy_url.rstrip('/')}/api/list_snapshot"
+    # Convex returns the snapshot cursor as an opaque {tablet, id} string, not an integer.
+    cursor: int | str | None = None
+    snapshot: int | None = None
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None:
+        cursor = resume_config.cursor
+        snapshot = resume_config.snapshot
+
+    while True:
+        params: dict[str, Any] = {"tableName": table_name, "format": "json"}
+        if component:
+            params["component"] = component
+        if cursor is not None:
+            params["cursor"] = cursor
+        if snapshot is not None:
+            params["snapshot"] = snapshot
+
+        response = _convex_get(base_url, deploy_key, params, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+
+        values = data.get("values", [])
+        if values:
+            yield values
+
+        snapshot = data.get("snapshot", snapshot)
+        cursor = data.get("cursor")
+        if not data.get("hasMore", False):
+            return
+
+        if cursor is not None:
+            resumable_source_manager.save_state(ConvexResumeConfig(cursor=cursor, snapshot=snapshot))
+            resumable_source_manager.safe_point()
 
 
 def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | None]:
@@ -376,7 +444,13 @@ def convex_source(
     clean_url = validate_deploy_url(deploy_url)
 
     def items_generator() -> Generator[list[dict[str, Any]]]:
-        yield from data_sync(clean_url, deploy_key, inputs, resumable_source_manager, cursor_manager)
+        if inputs.should_use_incremental_field:
+            yield from data_sync(clean_url, deploy_key, inputs, resumable_source_manager, cursor_manager)
+            return
+        component, table = split_qualified_table_name(inputs.schema_name)
+        snapshot_manager = resumable_source_manager.with_namespace(_SNAPSHOT_RESUME_NAMESPACE)
+        for batch in list_snapshot(clean_url, deploy_key, table, snapshot_manager, component=component):
+            yield _normalize_timestamps(batch)
 
     return SourceResponse(
         name=inputs.schema_name,

@@ -116,6 +116,11 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         return {
             "401 Client Error": "Authentication failed. Check your Convex deploy key.",
             "403 Client Error": "Access denied. Check your Convex deploy key.",
+            # Convex answers a read with a 404 when the table discovery listed is gone at read time
+            # (deleted on the source, or a component table streaming export doesn't serve). The next
+            # run reissues the identical request, so every retry replays the same 404. Cloudflare
+            # surfaces transient edge problems as the 52x/530 family instead (retried in
+            # `_CONVEX_RETRY`), so a 404 is never a transient blip that this could disable a sync over.
             "404 Client Error": (
                 "PostHog couldn't find this table in your Convex deployment. It was likely deleted, so "
                 "turn off syncing for this table, then re-enable the sync."
@@ -128,6 +133,9 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                 "PostHog can't send your Convex deploy key. Copy the key again from your Convex "
                 "dashboard, then update this source's credentials."
             ),
+            # Convex treats a `list_snapshot` cursor conflict as deterministic rather than transient. It
+            # surfaces when a data import or backup restore invalidates the cursor's position, so every
+            # retry replays the same request against the same now-invalid cursor.
             "409 Client Error": (
                 "PostHog's sync position for this table no longer matches your Convex deployment. "
                 "This can happen after a data import or backup restore. Trigger a full resync of "

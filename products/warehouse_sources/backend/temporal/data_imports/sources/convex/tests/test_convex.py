@@ -505,12 +505,12 @@ def test_single_table_selection_and_legacy_rows(
     assert (resource.partition_keys, resource.partition_format) == (["_creationTime"], "week")
 
 
-@pytest.mark.parametrize("incremental,stored", [(True, "stored"), (True, None), (False, "ignored")])
+@pytest.mark.parametrize("stored", ["stored", None])
 @pytest.mark.parametrize("final_has_more", [False, True])
-def test_catches_up_and_stages_only_incremental_cursor(
-    incremental: bool, stored: str | None, final_has_more: bool, redis_boundary: Mock, http_boundary: Mock
+def test_catches_up_and_stages_the_cursor(
+    stored: str | None, final_has_more: bool, redis_boundary: Mock, http_boundary: Mock
 ) -> None:
-    inputs = _inputs(incremental=incremental, stored=stored, watermark=123 if stored else None)
+    inputs = _inputs(stored=stored, watermark=123 if stored else None)
     manager = ConvexSource().get_resumable_source_manager(inputs)
     http_boundary.post.side_effect = [
         _page("snapshot", status="snapshotting", has_more=False),
@@ -519,14 +519,47 @@ def test_catches_up_and_stages_only_incremental_cursor(
     ]
     assert list(_resource(inputs, manager).items()) == []
     requests = [call.kwargs["json"] for call in http_boundary.post.call_args_list]
-    assert requests[0].get("cursor") == (stored if incremental else None)
+    assert requests[0].get("cursor") == stored
     assert [body["cursor"] for body in requests[1:]] == ["snapshot", "stale"]
     assert inputs.source_cursor is not None
-    assert inputs.source_cursor.staged == (ConvexDataSyncCursor(cursor="end") if incremental else None)
+    assert inputs.source_cursor.staged == ConvexDataSyncCursor(cursor="end")
     manager.commit()
     assert manager.with_namespace("data_sync").load_state() == ConvexResumeConfig(
-        cursor="end", started_from_cursor=incremental and stored is not None
+        cursor="end", started_from_cursor=stored is not None
     )
+
+
+def test_full_refresh_reads_one_list_snapshot(redis_boundary: Mock, http_boundary: Mock) -> None:
+    inputs = _inputs(incremental=False, stored="ignored", table="auth.users")
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    http_boundary.get.side_effect = [
+        _make_response({"values": [{"_id": "a", "_ts": 1}], "cursor": "c1", "snapshot": 5, "hasMore": True}),
+        _make_response({"values": [{"_id": "b", "_ts": 2}], "cursor": "c2", "snapshot": 5, "hasMore": False}),
+    ]
+    assert list(_resource(inputs, manager).items()) == [[{"_id": "a", "_ts": 1}], [{"_id": "b", "_ts": 2}]]
+    http_boundary.post.assert_not_called()
+    first, second = http_boundary.get.call_args_list
+    assert first.args[0] == "https://x.convex.cloud/api/list_snapshot"
+    assert first.kwargs["params"] == {"tableName": "users", "format": "json", "component": "auth"}
+    assert (second.kwargs["params"]["cursor"], second.kwargs["params"]["snapshot"]) == ("c1", 5)
+    assert inputs.source_cursor is not None
+    assert inputs.source_cursor.staged is None
+
+
+def test_page_keeps_only_the_latest_revision_of_each_document(redis_boundary: Mock, http_boundary: Mock) -> None:
+    inputs = _inputs()
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    http_boundary.post.return_value = _page(
+        "end",
+        values=[
+            {"component": "", "table": "users", "ts": 100, "deleted": False, "value": {"_id": "a", "name": "v1"}},
+            {"component": "", "table": "users", "ts": 101, "deleted": False, "value": {"_id": "b"}},
+            {"component": "", "table": "users", "ts": 102, "deleted": True, "value": {"_id": "a"}},
+        ],
+    )
+    assert list(_resource(inputs, manager).items()) == [
+        [{"_id": "a", "_ts": 102, "_deleted": True}, {"_id": "b", "_ts": 101, "_deleted": False}]
+    ]
 
 
 def test_legacy_watermark_converts_once_and_retries_from_saved_cursor(
@@ -555,18 +588,18 @@ def test_legacy_watermark_converts_once_and_retries_from_saved_cursor(
     )
 
 
-@pytest.mark.parametrize("failure", [404, 400, 403, "invalid_response", "connection"])
-def test_failed_legacy_conversion_requests_reset(failure: int | str, redis_boundary: Mock, http_boundary: Mock) -> None:
+@pytest.mark.parametrize("failure", [404, 400, 403, "invalid_response"])
+def test_refused_legacy_conversion_requests_reset(
+    failure: int | str, redis_boundary: Mock, http_boundary: Mock
+) -> None:
     inputs = _inputs(watermark=123)
     manager = ConvexSource().get_resumable_source_manager(inputs)
     if isinstance(failure, int):
         response = _make_response({}, status_code=failure)
         response.raise_for_status.side_effect = HTTPError(f"{failure} Client Error", response=response)
         http_boundary.post.return_value = response
-    elif failure == "invalid_response":
-        http_boundary.post.return_value = _make_response({})
     else:
-        http_boundary.post.side_effect = RequestsConnectionError("unavailable")
+        http_boundary.post.return_value = _make_response({})
     with (
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.update_sync_type_config_keys"
@@ -582,13 +615,38 @@ def test_failed_legacy_conversion_requests_reset(failure: int | str, redis_bound
     assert http_boundary.post.call_count == 1
 
 
-@pytest.mark.parametrize("origin", ["stored", "converted", "in_run", "fresh", "fresh_in_run", "full_refresh"])
+@pytest.mark.parametrize("failure", [500, 429, "connection"])
+def test_transient_legacy_conversion_failure_retries_without_reset(
+    failure: int | str, redis_boundary: Mock, http_boundary: Mock
+) -> None:
+    inputs = _inputs(watermark=123)
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    if isinstance(failure, int):
+        response = _make_response({}, status_code=failure)
+        response.raise_for_status.side_effect = HTTPError(f"{failure} Error", response=response)
+        http_boundary.post.return_value = response
+        expected: type[Exception] = HTTPError
+    else:
+        http_boundary.post.side_effect = RequestsConnectionError("unavailable")
+        expected = RequestsConnectionError
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.update_sync_type_config_keys"
+        ) as reset,
+        patch.object(_convex_post.retry, "stop", return_value=True),
+        patch.object(_convex_post.retry, "sleep"),
+        pytest.raises(expected),
+    ):
+        list(_resource(inputs, manager).items())
+    reset.assert_not_called()
+
+
+@pytest.mark.parametrize("origin", ["stored", "converted", "in_run", "fresh", "fresh_in_run"])
 @pytest.mark.parametrize("event", ["truncate", "expired"])
 def test_truncates_and_expiry_reset_only_when_required(
     origin: str, event: str, redis_boundary: Mock, http_boundary: Mock
 ) -> None:
     inputs = _inputs(
-        incremental=origin != "full_refresh",
         stored="stored" if origin == "stored" else None,
         watermark=123 if origin == "converted" else None,
         table="auth.users",
