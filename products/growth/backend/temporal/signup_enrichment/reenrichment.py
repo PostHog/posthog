@@ -361,6 +361,8 @@ class IcpReenrichmentSweepWorkflow(PostHogWorkflow):
                 failed += 1
 
         summary = SweepRunSummary(selected=len(candidates), attempted=attempted, matched=matched, failed=failed)
+        # Keep this call until no execution that recorded this patch through workflow.patched() can
+        # replay, including closed executions inside namespace retention. Their replays fail without it.
         workflow.deprecate_patch("icp-sweep-run-summary-2026-08")
         # Keep analytics I/O in an activity so workflow replay remains deterministic.
         await workflow.execute_activity(

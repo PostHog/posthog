@@ -252,6 +252,8 @@ class SignupEnrichmentWorkflow(PostHogWorkflow):
         first_result = await _execute_enrich_activity(inputs, is_recheck=False)
         first_attempt_matched = bool(first_result.get("matched"))
 
+        # Keep this call until no execution that recorded this patch through workflow.patched() can
+        # replay, including closed executions inside namespace retention. Their replays fail without it.
         workflow.deprecate_patch("signup-enrichment-recheck-child-2026-09")
         try:
             await workflow.start_child_workflow(
