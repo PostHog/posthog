@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_action, _create_event, _create_person
 
 from parameterized import parameterized
 
 from posthog.schema import (
+    ActionsNode,
     CachedFunnelsQueryResponse,
     DashboardFilter,
     DateRange,
@@ -144,13 +145,36 @@ class TestFunnelsSeriesCustomNames(BaseTest):
 
     @parameterized.expand(
         [
-            ("ordered_funnel_takes_the_rename", StepOrderValue.ORDERED, "step1", "Signed up", True),
-            ("unordered_funnel_keeps_its_positional_label", StepOrderValue.UNORDERED, "Completed 1 step", None, False),
+            (
+                "ordered_funnel_takes_the_rename",
+                EventsNode(event="step1", name="Signed up"),
+                StepOrderValue.ORDERED,
+                "step1",
+                "Signed up",
+                True,
+            ),
+            (
+                "unordered_funnel_keeps_its_positional_label",
+                EventsNode(event="step1", name="Signed up"),
+                StepOrderValue.UNORDERED,
+                "Completed 1 step",
+                None,
+                False,
+            ),
+            (
+                "stale_action_name_is_not_a_rename",
+                ActionsNode(id=1, name="Old action name"),
+                StepOrderValue.ORDERED,
+                "Current action name",
+                None,
+                False,
+            ),
         ]
     )
     def test_apply_funnels_custom_names_resolves_a_name_rename(
         self,
         _name: str,
+        series_node: EventsNode | ActionsNode,
         order_type: StepOrderValue,
         cached_step_name: str,
         expected_custom_name: str | None,
@@ -158,10 +182,7 @@ class TestFunnelsSeriesCustomNames(BaseTest):
     ):
         # Separate from the cases above because the series differs: the rename lands in `name`,
         # which is where the query editor, the API and experiment metrics write it.
-        query = FunnelsQuery(
-            series=[EventsNode(event="step1", name="Signed up")],
-            funnelsFilter=FunnelsFilter(funnelOrderType=order_type),
-        )
+        query = FunnelsQuery(series=[series_node], funnelsFilter=FunnelsFilter(funnelOrderType=order_type))
 
         runner = FunnelsQueryRunner(query=query, team=self.team)
 
@@ -185,15 +206,18 @@ class TestFunnelsStepCustomNames(ClickhouseTestMixin, APIBaseTest):
         _create_person(distinct_ids=["user_1"], team=self.team)
         _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2026-01-01T12:00:00Z")
         _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2026-01-01T12:01:00Z")
+        _create_event(team=self.team, event="step three", distinct_id="user_1", timestamp="2026-01-01T12:02:00Z")
+        action = _create_action(team=self.team, name="step three")
 
         query = FunnelsQuery(
             series=[
                 EventsNode(event="step one", name="Signed up"),
                 EventsNode(event="step two", custom_name="Activated"),
+                ActionsNode(id=action.id, name="Old action name"),
             ],
             dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-02"),
         )
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual([step["custom_name"] for step in results], ["Signed up", "Activated"])
+        self.assertEqual([step["custom_name"] for step in results], ["Signed up", "Activated", None])

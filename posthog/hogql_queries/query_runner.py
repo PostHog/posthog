@@ -39,6 +39,7 @@ from rest_framework.exceptions import (
 from posthog.schema import (
     AccountsQuery,
     AccountsTableQuery,
+    ActionsNode,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BreakdownType,
@@ -60,6 +61,7 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsQuery,
     GenericCachedQueryResponse,
+    GroupNode,
     GroupsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -1803,6 +1805,16 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
     return None
 
 
+def resolve_funnel_step_custom_name(series: Any, raw_label: str | None) -> str | None:
+    # An action step's raw label is the action's current name from the database, and a group step's raw
+    # label joins its members' current names. The UI stores a copy of that label as the node's `name`
+    # when the query is saved, so an action rename makes the two differ without any rename of the step.
+    # Both node types rename through `custom_name` only, as resolveSeriesCustomName in funnelDataLogic does.
+    if isinstance(series, ActionsNode | GroupNode):
+        return getattr(series, "custom_name", None) or None
+    return resolve_series_custom_name(series, raw_label)
+
+
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
     # A correlation query has no modifiers field. It uses the modifiers of the funnel it analyzes,
     # so that the correlation reads the same events table and person data as that funnel.
@@ -3287,7 +3299,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     if order is not None and order in series_by_order:
                         s = series_by_order[order]
                         new_name = (
-                            resolve_series_custom_name(s, step.get("name"))
+                            resolve_funnel_step_custom_name(s, step.get("name"))
                             if honor_name
                             else getattr(s, "custom_name", None)
                         )
@@ -3303,7 +3315,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if order is not None and order in series_by_order:
                     s = series_by_order[order]
                     new_name = (
-                        resolve_series_custom_name(s, step.get("name"))
+                        resolve_funnel_step_custom_name(s, step.get("name"))
                         if honor_name
                         else getattr(s, "custom_name", None)
                     )
