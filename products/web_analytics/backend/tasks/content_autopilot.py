@@ -7,7 +7,7 @@ from posthog.tasks.utils import CeleryQueue
 
 from products.web_analytics.backend.content_autopilot.generation import (
     ProposalMode,
-    finish_run,
+    finish_timed_out_run,
     generate_run,
     process_proposal,
 )
@@ -31,12 +31,7 @@ def generate_content_autopilot_run_task(team_id: int, run_id: str) -> None:
         generate_run(team_id, run_id)
     except SoftTimeLimitExceeded:
         logger.warning("content_autopilot_run_timed_out", team_id=team_id, run_id=run_id)
-        finish_run(
-            team_id,
-            run_id,
-            errors=[{"error_code": "timed_out", "message": "Drafting took too long. Try fewer opportunities at once."}],
-            ready=0,
-        )
+        finish_timed_out_run(team_id, run_id)
 
 
 @shared_task(

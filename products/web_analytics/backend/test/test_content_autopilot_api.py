@@ -354,6 +354,29 @@ class TestContentAutopilotAPI(APIBaseTest):
         run_task.delay.assert_called_once_with(self.team.id, draft.json()["id"])
         self.assertEqual(too_many.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_a_run_that_cannot_be_queued_fails_and_frees_its_opportunities(self) -> None:
+        profile = create_content_autopilot_profile(self.team)
+        opportunity = create_content_autopilot_opportunity(self.team, profile, cluster_key="drafted")
+
+        with (
+            patch(
+                "products.web_analytics.backend.content_autopilot.workflow.generate_content_autopilot_run_task"
+            ) as run_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            run_task.delay.side_effect = ConnectionError("broker unavailable")
+            draft = self.client.post(
+                self._opportunities_url("draft/"),
+                {"profile_id": str(profile.id), "opportunity_ids": [str(opportunity.id)]},
+                format="json",
+            )
+
+        run = ContentAutopilotRun.objects.for_team(self.team.id).get(id=draft.json()["id"])
+        opportunity.refresh_from_db()
+        self.assertEqual(run.run_status, ContentAutopilotRun.RunStatus.FAILED)
+        self.assertEqual([entry["error_code"] for entry in run.errors], ["dispatch_failed"])
+        self.assertEqual(opportunity.status, "new")
+
     def test_edit_stores_markdown_whitespace_exactly(self) -> None:
         proposal = self._reviewable_proposal()
         markdown = "    indented code block\n\n# Reviewed draft\n\nUseful content.\n"

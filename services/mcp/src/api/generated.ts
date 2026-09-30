@@ -23183,6 +23183,13 @@ export namespace Schemas {
       token: string;
     }
 
+    export interface ContentAutopilotBriefCompetitor {
+      /** Product to compare against. */
+      name: string;
+      /** The product's own page to research. */
+      url: string;
+    }
+
     export interface ContentAutopilotBrief {
       /** What the person asking wants to know or decide. */
       intent?: string;
@@ -23190,6 +23197,12 @@ export namespace Schemas {
       audience?: string;
       /** Whether the brief recommends new_content or page_improvement. */
       recommended_type?: string;
+      /** Site page the brief chose to improve. Empty for a new page. */
+      target_page?: string;
+      /** Site pages the brief asked to read for facts. */
+      site_pages_to_read?: string[];
+      /** Products the brief asked to research for a comparison. */
+      competitors_to_research?: ContentAutopilotBriefCompetitor[];
       /** Working title for the page. */
       working_title?: string;
       /** Planned sections, in order. */
@@ -23457,13 +23470,30 @@ export namespace Schemas {
       checks: ContentAutopilotValidationCheck[];
     }
 
+    /**
+     * * `site` - site
+     * * `competitor` - competitor
+     */
+    export type ContentAutopilotSourceLedgerEntryKindEnum = typeof ContentAutopilotSourceLedgerEntryKindEnum[keyof typeof ContentAutopilotSourceLedgerEntryKindEnum];
+
+
+    export const ContentAutopilotSourceLedgerEntryKindEnum = {
+      Site: 'site',
+      Competitor: 'competitor',
+    } as const;
+
     export interface ContentAutopilotSourceLedgerEntry {
       /** Factual claim the draft makes. */
       claim: string;
-      /** Site page that supports the claim. */
+      /** Page that supports the claim. */
       source_url: string;
       /** Short quote from the source page. */
       quote: string;
+      /** Whether the source is one of the site's pages or a competitor's own page.
+       *
+       * * `site` - site
+       * * `competitor` - competitor */
+      kind?: ContentAutopilotSourceLedgerEntryKindEnum;
     }
 
     export interface ContentAutopilotProposal {

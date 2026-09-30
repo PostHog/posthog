@@ -9,6 +9,7 @@ from django.utils import timezone
 
 import structlog
 from anthropic import Anthropic
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -90,6 +91,7 @@ MIN_EDIT_WORDS = 300
 MAX_EDIT_WORDS = 1_200
 PAGE_OPENING_CHARS = 2_000
 MAX_KEY_SITE_PAGES = 200
+TIMED_OUT_PROPOSAL_MESSAGE = "Drafting took too long. Regenerate to try again."
 MAX_REQUESTED_SITE_PAGES = 3
 DRAFT_ATTEMPTS = 2
 
@@ -871,6 +873,10 @@ def _draft_opportunity(
                     "message": f"{title}: the draft didn't pass its checks. Open it to see what to fix.",
                 }
             )
+    except SoftTimeLimitExceeded:
+        opportunity.refresh_from_db(fields=["proposal"])
+        _fail_proposal(opportunity.proposal, TIMED_OUT_PROPOSAL_MESSAGE)
+        raise
     except ContentAutopilotLLMError as error:
         errors.append({"error_code": "generation_failed", "message": f"{title}: {error}"})
         _fail_proposal(opportunity.proposal, str(error))
@@ -915,6 +921,8 @@ def generate_run(team_id: int, run_id: str, *, client: Anthropic | None = None) 
                     break
                 if _draft_opportunity(resolved_client, run=run, opportunity=opportunity, site=site, errors=errors):
                     ready += 1
+    except SoftTimeLimitExceeded:
+        raise
     except ContentAutopilotLLMError as error:
         errors.append({"error_code": "generation_failed", "message": str(error)})
     except Exception as error:
@@ -927,6 +935,20 @@ def generate_run(team_id: int, run_id: str, *, client: Anthropic | None = None) 
             }
         )
     finish_run(team_id, run_id, errors=errors, ready=ready)
+
+
+def finish_timed_out_run(team_id: int, run_id: str) -> None:
+    ready = (
+        ContentAutopilotProposal.objects.for_team(team_id)
+        .filter(run_id=run_id, lifecycle_status=ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW)
+        .count()
+    )
+    error = {"error_code": "timed_out", "message": "Drafting took too long. Try fewer opportunities at once."}
+    finish_run(team_id, run_id, errors=[error], ready=ready)
+
+
+def fail_proposal(team_id: int, proposal_id: str, message: str) -> None:
+    _fail_proposal(ContentAutopilotProposal.objects.for_team(team_id).get(id=proposal_id), message)
 
 
 def finish_run(team_id: int, run_id: str, *, errors: list[dict[str, str]], ready: int) -> None:
@@ -987,6 +1009,8 @@ def process_proposal(team_id: int, proposal_id: str, mode: ProposalMode, *, clie
                 original_markdown=proposal.original_markdown,
             )
             _save_result(proposal, draft=draft, checks=checks, site=site, research=research)
+    except SoftTimeLimitExceeded:
+        _fail_proposal(proposal, TIMED_OUT_PROPOSAL_MESSAGE)
     except ContentAutopilotLLMError as error:
         _fail_proposal(proposal, str(error))
     except Exception as error:

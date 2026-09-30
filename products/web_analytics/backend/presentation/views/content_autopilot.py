@@ -186,11 +186,25 @@ class ContentAutopilotPackageSerializer(serializers.Serializer):
     )
 
 
+class ContentAutopilotBriefCompetitorSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Product to compare against.")
+    url = serializers.CharField(help_text="The product's own page to research.")
+
+
 class ContentAutopilotBriefSerializer(serializers.Serializer):
     intent = serializers.CharField(required=False, help_text="What the person asking wants to know or decide.")
     audience = serializers.CharField(required=False, help_text="Who the content is for.")
     recommended_type = serializers.CharField(
         required=False, help_text="Whether the brief recommends new_content or page_improvement."
+    )
+    target_page = serializers.CharField(
+        required=False, allow_blank=True, help_text="Site page the brief chose to improve. Empty for a new page."
+    )
+    site_pages_to_read = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Site pages the brief asked to read for facts."
+    )
+    competitors_to_research = ContentAutopilotBriefCompetitorSerializer(
+        many=True, required=False, help_text="Products the brief asked to research for a comparison."
     )
     working_title = serializers.CharField(required=False, help_text="Working title for the page.")
     outline = serializers.ListField(
@@ -216,8 +230,13 @@ class ContentAutopilotBriefSerializer(serializers.Serializer):
 
 class ContentAutopilotSourceLedgerEntrySerializer(serializers.Serializer):
     claim = serializers.CharField(help_text="Factual claim the draft makes.")
-    source_url = serializers.CharField(help_text="Site page that supports the claim.")
+    source_url = serializers.CharField(help_text="Page that supports the claim.")
     quote = serializers.CharField(help_text="Short quote from the source page.")
+    kind = serializers.ChoiceField(
+        choices=["site", "competitor"],
+        required=False,
+        help_text="Whether the source is one of the site's pages or a competitor's own page.",
+    )
 
 
 class ContentAutopilotEngineAnswerSerializer(serializers.Serializer):

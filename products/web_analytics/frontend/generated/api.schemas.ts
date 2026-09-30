@@ -1228,6 +1228,13 @@ export interface ContentAutopilotPackageApi {
     llms_txt_line?: string
 }
 
+export interface ContentAutopilotBriefCompetitorApi {
+    /** Product to compare against. */
+    name: string
+    /** The product's own page to research. */
+    url: string
+}
+
 export interface ContentAutopilotBriefApi {
     /** What the person asking wants to know or decide. */
     intent?: string
@@ -1235,6 +1242,12 @@ export interface ContentAutopilotBriefApi {
     audience?: string
     /** Whether the brief recommends new_content or page_improvement. */
     recommended_type?: string
+    /** Site page the brief chose to improve. Empty for a new page. */
+    target_page?: string
+    /** Site pages the brief asked to read for facts. */
+    site_pages_to_read?: string[]
+    /** Products the brief asked to research for a comparison. */
+    competitors_to_research?: ContentAutopilotBriefCompetitorApi[]
     /** Working title for the page. */
     working_title?: string
     /** Planned sections, in order. */
@@ -1249,13 +1262,30 @@ export interface ContentAutopilotBriefApi {
     disambiguation?: string
 }
 
+/**
+ * * `site` - site
+ * * `competitor` - competitor
+ */
+export type ContentAutopilotSourceLedgerEntryKindEnumApi =
+    (typeof ContentAutopilotSourceLedgerEntryKindEnumApi)[keyof typeof ContentAutopilotSourceLedgerEntryKindEnumApi]
+
+export const ContentAutopilotSourceLedgerEntryKindEnumApi = {
+    Site: 'site',
+    Competitor: 'competitor',
+} as const
+
 export interface ContentAutopilotSourceLedgerEntryApi {
     /** Factual claim the draft makes. */
     claim: string
-    /** Site page that supports the claim. */
+    /** Page that supports the claim. */
     source_url: string
     /** Short quote from the source page. */
     quote: string
+    /** Whether the source is one of the site's pages or a competitor's own page.
+     *
+     * * `site` - site
+     * * `competitor` - competitor */
+    kind?: ContentAutopilotSourceLedgerEntryKindEnumApi
 }
 
 export interface ContentAutopilotProposalApi {
