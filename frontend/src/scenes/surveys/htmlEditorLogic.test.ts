@@ -63,6 +63,20 @@ describe('htmlEditorLogic', () => {
         expect(onChange.mock.calls).toEqual(expectedValue === null ? [] : [[expectedValue]])
     })
 
+    it('does not convert again when the browser tab is hidden and shown', () => {
+        mountEditor('a < b', 'text')
+        logic.actions.selectTab('rich')
+        jest.runOnlyPendingTimers()
+
+        for (const visibilityState of ['hidden', 'visible']) {
+            Object.defineProperty(document, 'visibilityState', { value: visibilityState, configurable: true })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        jest.runOnlyPendingTimers()
+
+        expect(onChange.mock.calls).toEqual([['a &lt; b']])
+    })
+
     it('stays on the HTML tab when an edit makes the HTML supported', () => {
         mountEditor('<div>Custom</div>', 'html')
         htmlEditorLogic.build({ ...logic.props, value: 'Custom' })

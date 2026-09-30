@@ -103,15 +103,25 @@ function syncFromProps(logic: htmlEditorLogicType): void {
         return
     }
     // This runs while React renders, and a parent that keeps the value in React state can't update then
-    cache.disposables.add(() => {
-        const timer = window.setTimeout(() => {
-            actions.setPendingConversion(null)
-            if (props.value) {
-                props.onChange(conversion === 'toHtml' ? plainTextToHtml(props.value) : htmlToPlainText(props.value))
-            }
-        }, 0)
-        return () => window.clearTimeout(timer)
-    }, 'pendingConversion')
+    // A second run of this setup must not convert again, because that escapes HTML that is already converted
+    cache.disposables.add(
+        () => {
+            const timer = window.setTimeout(() => {
+                if (logic.values.pendingConversion !== conversion) {
+                    return
+                }
+                actions.setPendingConversion(null)
+                if (props.value) {
+                    props.onChange(
+                        conversion === 'toHtml' ? plainTextToHtml(props.value) : htmlToPlainText(props.value)
+                    )
+                }
+            }, 0)
+            return () => window.clearTimeout(timer)
+        },
+        'pendingConversion',
+        { pauseOnPageHidden: false }
+    )
 }
 
 export const htmlEditorLogic: LogicWrapper<htmlEditorLogicType> = kea<htmlEditorLogicType>([
