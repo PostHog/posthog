@@ -1,5 +1,9 @@
+import os
 import uuid
+import signal
+import socket
 import asyncio
+import contextlib
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -10,6 +14,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.tests.utils.workflow import Waiter, WaitInputs, WaitMode, WaitWorkflow
 
 
@@ -171,3 +176,34 @@ async def test_shutdown_monitor_sync(temporal_client: Client, task_queue: str, w
             err.__cause__.__cause__.type == "WorkerShuttingDownError"
             or err.__cause__.__cause__.type == "WorkerShutdown"
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wakeup_fd_full", [False, True])
+async def test_shutdown_signal_listener_keeps_the_first_signal(wakeup_fd_full: bool):
+    previous_handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    read_sock, write_sock = socket.socketpair()
+    write_sock.setblocking(False)
+    previous_wakeup_fd = signal.set_wakeup_fd(write_sock.fileno()) if wakeup_fd_full else None
+    try:
+        if wakeup_fd_full:
+            with contextlib.suppress(BlockingIOError):
+                while True:
+                    write_sock.send(b"\0" * 4096)
+
+        listener = ShutdownSignalListener(poll_interval_seconds=0.01)
+        listener.install()
+
+        os.kill(os.getpid(), signal.SIGTERM)
+        assert await asyncio.wait_for(listener.wait(), timeout=5) == signal.SIGTERM
+
+        os.kill(os.getpid(), signal.SIGINT)
+        await asyncio.sleep(0.05)
+        assert listener.received == signal.SIGTERM
+    finally:
+        if previous_wakeup_fd is not None:
+            signal.set_wakeup_fd(previous_wakeup_fd)
+        for sig, handler in previous_handlers.items():
+            signal.signal(sig, handler)
+        read_sock.close()
+        write_sock.close()
