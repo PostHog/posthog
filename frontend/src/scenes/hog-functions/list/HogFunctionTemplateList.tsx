@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import posthog from 'posthog-js'
+import { MouseEvent, useEffect } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
@@ -11,6 +12,8 @@ import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType 
 
 import { SourceReleaseTag } from 'products/data_warehouse/frontend/shared/components/SourceReleaseTag'
 import { isManagedSourceTemplate } from 'products/data_warehouse/frontend/utils'
+import { destinationCrossSellLogic } from 'products/workflows/frontend/crossSell/destinationCrossSellLogic'
+import { DestinationCrossSellModal } from 'products/workflows/frontend/crossSell/DestinationCrossSellModal'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
@@ -30,6 +33,30 @@ export function HogFunctionTemplateList({
         hogFunctionTemplateListLogic(props)
     )
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
+    const { shouldIntercept } = useValues(destinationCrossSellLogic)
+    const { openModal } = useActions(destinationCrossSellLogic)
+    // Alert sub-templates and the workflow editor's own picker render this list too. Only the destination
+    // catalog offers workflows in place of a competing tool.
+    const offersWorkflows = props.type === 'destination' && !props.subTemplateIds?.length
+
+    const onCreateClick = (
+        event: MouseEvent<HTMLElement>,
+        template: HogFunctionTemplateType,
+        via: 'button' | 'name'
+    ): void => {
+        const url = urlForTemplate(template)
+        // pinned: analytics event name
+        posthog.capture('hog function template create clicked', {
+            template_id: template.id,
+            template_name: template.name,
+            type: template.type,
+            via,
+        })
+        if (offersWorkflows && url && shouldIntercept(template)) {
+            event.preventDefault()
+            openModal(template, url)
+        }
+    }
 
     useEffect(() => {
         if (!props.manualTemplatesOnly) {
@@ -97,6 +124,7 @@ export function HogFunctionTemplateList({
                             return (
                                 <LemonTableLink
                                     to={hasAccess ? (urlForTemplate(template) ?? undefined) : undefined}
+                                    onClick={hasAccess ? (event) => onCreateClick(event, template, 'name') : undefined}
                                     title={
                                         <>
                                             {template.name}
@@ -154,6 +182,7 @@ export function HogFunctionTemplateList({
                                     icon={<IconPlusSmall />}
                                     className="whitespace-nowrap"
                                     to={urlForTemplate(template) ?? undefined}
+                                    onClick={(event) => onCreateClick(event, template, 'button')}
                                     disabledReason={dataWarehouseSourceAccessDisabledReason ?? undefined}
                                 >
                                     Create
@@ -173,6 +202,7 @@ export function HogFunctionTemplateList({
                     )
                 }
             />
+            {offersWorkflows ? <DestinationCrossSellModal /> : null}
         </div>
     )
 }

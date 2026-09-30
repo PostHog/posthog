@@ -11,6 +11,7 @@ import {
     EDITOR_MODE_VALUE,
     aiComposerAvailable,
     isAiFirstVariant,
+    readHandoffSource,
 } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
@@ -134,17 +135,29 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
                 sceneIntegrationEnabled: boolean,
                 searchParams: Record<string, any>,
                 location: { pathname: string }
-            ): boolean =>
-                aiComposerAvailable(
+            ): boolean => {
+                const eligibleRoute =
+                    isNewWorkflowRoute(location.pathname) &&
+                    !searchParams.templateId &&
+                    !searchParams.editTemplateId &&
+                    !searchParams[TRIGGER_PREFILL_PARAM]
+                // A handoff from another surface names the composer in its URL, so it opens without the
+                // experiment gate. The variant still decides where the plain "New workflow" entry lands.
+                if (readHandoffSource(searchParams)) {
+                    return (
+                        sceneIntegrationEnabled &&
+                        eligibleRoute &&
+                        searchParams[EDITOR_MODE_PARAM] === AI_COMPOSER_MODE_VALUE
+                    )
+                }
+                return aiComposerAvailable(
                     FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW,
                     featureFlags,
                     sceneIntegrationEnabled,
                     searchParams,
-                    isNewWorkflowRoute(location.pathname) &&
-                        !searchParams.templateId &&
-                        !searchParams.editTemplateId &&
-                        !searchParams[TRIGGER_PREFILL_PARAM]
-                ),
+                    eligibleRoute
+                )
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

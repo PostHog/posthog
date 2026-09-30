@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -24,6 +24,7 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
+import { newWorkflowComposerPromptLogic } from './newWorkflowComposerPromptLogic'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
 import { WorkflowSuggestionsNotice } from './suggestions/WorkflowSuggestionsNotice'
@@ -136,6 +137,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         // The composer is the page while drafting; the panel opens itself once the draft exists.
         autoOpen: !showAiComposer,
     })
+    const { consumeComposerPrompt } = useActions(newWorkflowComposerPromptLogic)
+    // Declared after useSceneAgentPanel on purpose. Effects run in declaration order, and child effects run
+    // first, so the composer's own mount effects (composerShown empties the seed) and the draft-first context
+    // registration have both run by now. An auto-submitted prompt then carries that context in its first message.
+    useEffect(() => {
+        if (showAiComposer) {
+            consumeComposerPrompt()
+        }
+    }, [showAiComposer, consumeComposerPrompt])
 
     if (showAiComposer) {
         return (

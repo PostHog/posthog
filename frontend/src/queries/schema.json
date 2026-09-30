@@ -40443,6 +40443,7 @@
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "workflow_created",
+                "workflows_cross_sell_from_destination",
                 "data_pipeline_created",
                 "batch_export_created",
                 "batch_export_updated",

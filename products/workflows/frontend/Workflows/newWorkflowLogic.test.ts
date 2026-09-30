@@ -18,6 +18,7 @@ const AI_FIRST_FLAGS = [
     FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN,
     FEATURE_FLAGS.PHAI_SANDBOX_MODE,
 ]
+const SCENE_INTEGRATION_FLAGS = [FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN, FEATURE_FLAGS.PHAI_SANDBOX_MODE]
 
 describe('newWorkflowLogic', () => {
     const setFlags = (flags: string[], variants: Record<string, string | boolean> = {}): void => {
@@ -113,6 +114,49 @@ describe('newWorkflowLogic', () => {
             logic.mount()
 
             router.actions.push(path, search, {})
+
+            expect(logic.values.aiComposerAvailable).toBe(available)
+        })
+
+        // A handoff from another surface names the composer in its URL, so it opens without the experiment
+        // variant. It still needs PostHog AI and the AI mode, and a malformed source falls back to the gate.
+        it.each([
+            {
+                name: 'a handoff with a source',
+                flags: SCENE_INTEGRATION_FLAGS,
+                search: { mode: 'ai', source: 'cdp_destination_cross_sell' },
+                available: true,
+            },
+            {
+                name: 'a handoff without the scene integration',
+                flags: [FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW],
+                search: { mode: 'ai', source: 'cdp_destination_cross_sell' },
+                available: false,
+            },
+            {
+                name: 'a handoff without the AI mode',
+                flags: SCENE_INTEGRATION_FLAGS,
+                search: { source: 'cdp_destination_cross_sell' },
+                available: false,
+            },
+            {
+                name: 'a handoff with a starting point',
+                flags: SCENE_INTEGRATION_FLAGS,
+                search: { mode: 'ai', source: 'cdp_destination_cross_sell', templateId: 'tpl-1' },
+                available: false,
+            },
+            {
+                name: 'a malformed source',
+                flags: SCENE_INTEGRATION_FLAGS,
+                search: { mode: 'ai', source: '<script>' },
+                available: false,
+            },
+        ])('aiComposerAvailable is $available for $name', ({ flags, search, available }) => {
+            setFlags(flags)
+            const logic = newWorkflowLogic()
+            logic.mount()
+
+            router.actions.push('/workflows/new/workflow', search, {})
 
             expect(logic.values.aiComposerAvailable).toBe(available)
         })

@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -94,6 +95,32 @@ describe('aiFirstHandoffLogic', () => {
         expect(seeds.values.seed).toEqual({ prompt: '', autoSubmit: false })
 
         seeds.unmount()
+    })
+
+    // A handoff names its surface in the URL. The run's events carry it, so the funnel closes across pages,
+    // and a value that is not a plain identifier never reaches analytics.
+    it.each([
+        { name: 'a handoff source', source: 'cdp_destination_cross_sell', expected: 'cdp_destination_cross_sell' },
+        { name: 'a malformed source', source: '<script>', expected: null },
+    ])('reads $name when the composer is shown and puts it on the events', async ({ source, expected }) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        router.actions.push('/things/new', { source }, {})
+
+        await expectLogic(logic, () => {
+            logic.actions.composerShown()
+        }).toFinishAllListeners()
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-2' })
+
+        expect(logic.values.entrySource).toBe(expected)
+        if (expected) {
+            expect(capture).toHaveBeenCalledWith('thing ai composer viewed', { source: expected })
+            expect(capture).toHaveBeenCalledWith('thing ai composer submitted', { source: expected })
+        } else {
+            expect(capture).toHaveBeenCalledWith('thing ai composer viewed')
+            expect(capture).toHaveBeenCalledWith('thing ai composer submitted')
+        }
+
+        capture.mockRestore()
     })
 
     // The exec path keeps the created record on the result's metadata. Names are not unique, so a record's id

@@ -9235,6 +9235,7 @@ export enum ProductIntentContext {
 
     // Workflows
     WORKFLOW_CREATED = 'workflow_created',
+    WORKFLOWS_CROSS_SELL_FROM_DESTINATION = 'workflows_cross_sell_from_destination',
 
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',

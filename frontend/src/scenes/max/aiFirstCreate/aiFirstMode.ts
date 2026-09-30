@@ -8,6 +8,16 @@ export const EDITOR_MODE_PARAM = 'mode'
 export const EDITOR_MODE_VALUE = 'editor'
 export const AI_COMPOSER_MODE_VALUE = 'ai'
 
+// pinned: URL search param naming the surface that handed a person to an AI-first page, e.g. a cross-sell dialog.
+export const HANDOFF_SOURCE_PARAM = 'source'
+const HANDOFF_SOURCE_PATTERN = /^[a-z0-9_-]{1,64}$/
+
+/** The handoff source from the URL, or null when absent or not a plain identifier, so analytics stay clean. */
+export function readHandoffSource(searchParams: Record<string, any>): string | null {
+    const source = searchParams[HANDOFF_SOURCE_PARAM]
+    return typeof source === 'string' && HANDOFF_SOURCE_PATTERN.test(source) ? source : null
+}
+
 /** Reading the flag captures `$feature_flag_called`, the experiment's exposure, so callers run this after every cheaper check. */
 export function isAiFirstVariant(flagKey: FeatureFlagKey, featureFlags: FeatureFlagsSet): boolean {
     const variant = featureFlags[flagKey]
