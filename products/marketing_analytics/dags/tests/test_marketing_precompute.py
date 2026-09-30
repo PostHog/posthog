@@ -173,7 +173,8 @@ class TestConversionWarming(APIBaseTest):
         costs_only = self._make_team("costs_only", goals=[_PRECOMPUTABLE_GOAL])
         costs_inactive = self._make_team("costs_inactive", goals=[])
         costs_no_tables = self._make_team("costs_no_tables", goals=[])
-        for team in (costs_only, costs_inactive):
+        costs_unflagged = self._make_team("costs_unflagged", goals=[])
+        for team in (costs_only, costs_inactive, costs_unflagged):
             DataWarehouseTable.objects.create(
                 team=team, name="ads_stats", format="Parquet", url_pattern="https://example.com/ads/*.parquet"
             )
@@ -188,7 +189,7 @@ class TestConversionWarming(APIBaseTest):
         with (
             patch.dict(os.environ, {}, clear=False),
             patch(_IS_CLOUD, return_value=cloud),
-            patch(_SYNC_EXECUTE, return_value=[(costs_only.pk,), (costs_no_tables.pk,)]),
+            patch(_SYNC_EXECUTE, return_value=[(costs_only.pk,), (costs_no_tables.pk,), (costs_unflagged.pk,)]),
             patch(_FF, side_effect=read_flag) as feature_enabled,
         ):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
