@@ -53,10 +53,10 @@ from posthog.api.app_metrics2 import (
     AppMetricsMixin,
     AppMetricsRequestSerializer,
     AppMetricsTotalsResponseSerializer,
-    MetricSeries,
     fetch_app_metric_totals,
     fetch_app_metric_totals_by_source,
     fetch_app_metric_totals_by_team_and_source,
+    fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_invocation_cancel import (
@@ -4845,13 +4845,11 @@ def mint_audience_confirm_token(
 WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogFlowSerializer.Meta.read_only_fields)
 
 
-class HogFlowMetricsRequestSerializer(AppMetricsRequestSerializer):
-    """The workflow metrics request: the shared parameters plus `version`, which only workflows can
-    answer. Kept off the shared serializer so the hog function tools never advertise a parameter
-    their endpoint refuses."""
+class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
+    """The versioned metrics request: the shared parameters plus the version to read."""
 
     version = serializers.IntegerField(
-        required=False,
+        required=True,
         help_text=(
             "Read one workflow version's series: every run of that version, keyed on the workflow. "
             "The unversioned read keys batch and broadcast runs on the run instead, so it is not the "
@@ -4862,9 +4860,9 @@ class HogFlowMetricsRequestSerializer(AppMetricsRequestSerializer):
 
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
-    metrics=extend_schema(parameters=[HogFlowMetricsRequestSerializer], responses=AppMetricResponseSerializer),
+    metrics=extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricResponseSerializer),
     metrics_totals=extend_schema(
-        parameters=[HogFlowMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer
+        parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer
     ),
     list=extend_schema(
         parameters=[
@@ -4961,15 +4959,37 @@ class HogFlowViewSet(
     app_source = "hog_flow"
     function_kind = "hog_flow"
     _workflow_last_runs: dict[uuid_mod.UUID, WorkflowLastRunDTO] | None = None
-    metrics_request_serializer_class = HogFlowMetricsRequestSerializer
 
-    def _metric_series_for(self, obj, params: Mapping[str, Any]) -> MetricSeries:
-        # Every hog flow metric is mirrored under `hog_flow_version` with the version appended to the
-        # id, which is what makes "before and after this change" answerable at all.
-        version = params.get("version")
-        if version is None:
-            return super()._metric_series_for(obj, params)
-        return MetricSeries(app_source=HOG_FLOW_VERSION_APP_SOURCE, app_source_id=f"{obj.id}/{version}")
+    @extend_schema(parameters=[HogFlowVersionMetricsRequestSerializer], responses=AppMetricResponseSerializer)
+    @action(detail=True, methods=["GET"], url_path="metrics/version")
+    def metrics_version(self, request: Request, *args, **kwargs):
+        """One published version's series. Every hog flow metric is mirrored under
+        `hog_flow_version` with the version appended to the id, which is what makes "before and
+        after this change" answerable at all. The unversioned read keys batch and broadcast runs on
+        the run instead, so it is not the sum of the versions."""
+        hog_flow = self.get_object()
+        param_serializer = HogFlowVersionMetricsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params.get("after", "-7d"), self.team.timezone_info)
+        before_date, _, _ = relative_date_parse_with_delta_mapping(params.get("before", "-0d"), self.team.timezone_info)
+
+        data = fetch_app_metrics_trends(
+            team_id=self.team_id,
+            app_source=HOG_FLOW_VERSION_APP_SOURCE,
+            app_source_id=f"{hog_flow.id}/{params['version']}",
+            instance_id=params.get("instance_id"),
+            interval=params.get("interval", "day"),
+            after=after_date,
+            before=before_date,
+            breakdown_by=params.get("breakdown_by"),
+            name=params["name"].split(",") if params.get("name") else None,
+            kind=params["kind"].split(",") if params.get("kind") else None,
+        )
+        return Response(AppMetricResponseSerializer(instance=data).data)
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write

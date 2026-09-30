@@ -532,6 +532,39 @@ const workflowsStats = (): ToolBase<ReturnType<typeof WorkflowsStatsSchema>, Sch
                 interval: params.interval,
                 kind: params.kind,
                 name: params.name,
+            },
+        })
+        return result
+    },
+})
+
+const WorkflowsVersionStatsSchema = () => {
+    const HogFlowsMetricsVersionRetrieveParams = orvalSchemas.HogFlowsMetricsVersionRetrieveParams()
+    const HogFlowsMetricsVersionRetrieveQueryParams = orvalSchemas.HogFlowsMetricsVersionRetrieveQueryParams()
+    return HogFlowsMetricsVersionRetrieveParams.omit({ project_id: true }).extend(
+        HogFlowsMetricsVersionRetrieveQueryParams.shape
+    )
+}
+
+const workflowsVersionStats = (): ToolBase<
+    ReturnType<typeof WorkflowsVersionStatsSchema>,
+    Schemas.AppMetricsResponse
+> => ({
+    name: 'workflows-version-stats',
+    schema: WorkflowsVersionStatsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsVersionStatsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AppMetricsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/metrics/version/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                breakdown_by: params.breakdown_by,
+                instance_id: params.instance_id,
+                interval: params.interval,
+                kind: params.kind,
+                name: params.name,
                 version: params.version,
             },
         })
@@ -715,6 +748,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-publish': workflowsPublish,
     'workflows-restore-revision': workflowsRestoreRevision,
     'workflows-stats': workflowsStats,
+    'workflows-version-stats': workflowsVersionStats,
     'workflows-suggest': workflowsSuggest,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,
