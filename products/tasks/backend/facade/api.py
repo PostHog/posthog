@@ -46,7 +46,7 @@ from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
-from posthog.api.tagged_item import set_tags_on_object
+from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
@@ -3466,6 +3466,7 @@ def set_task_run_summary(
         run.state = TaskRun.update_state_atomic(run.id, updates=updates)
         if tags is not None:
             set_tags_on_object(tags, run.task)
+            cleanup_orphan_tags(run.team_id)
     run.refresh_from_db()
     run.publish_stream_state_event()
     return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
