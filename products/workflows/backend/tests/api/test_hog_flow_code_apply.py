@@ -24,7 +24,7 @@ from products.workflows.backend.tests.api.test_hog_flow_code_check import (
     SAMPLE_DEFINITION,
     _create_keyed_workflow,
     _in_flight,
-    _sync_templates,
+    _set_up_project,
 )
 
 REPORT_USER_ACTION = "products.workflows.backend.presentation.views.hog_flow_code.report_user_action"
@@ -65,7 +65,7 @@ class TestHogFlowCodeApply(APIBaseTest):
     @classmethod
     def setUpTestData(cls) -> None:
         super().setUpTestData()
-        _sync_templates()
+        _set_up_project(cls.team)
 
     def _apply(self, content: str, headers: Optional[dict[str, str]] = None) -> Any:
         return self.client.post(
@@ -235,9 +235,35 @@ class TestHogFlowCodeApply(APIBaseTest):
         [error] = refused["errors"]
         assert (error["status"], error["path"], error["line"]) == ("status_change_not_allowed", "status", 4)
         assert "workflows-enable" in error["fix"]
+        assert "workflows-disable" not in error["fix"] + error["why"]
         assert checked.json() == refused
         assert HogFlow.objects.filter(team=self.team, key="crm-sync").count() == (stored_status is not None)
         assert self._apply(content).status_code == api_status
+
+    @parameterized.expand([("api", None), ("mcp", MCP)])
+    def test_a_file_for_an_archived_workflow_is_refused_and_leaves_it_archived(
+        self, _name: str, headers: Optional[dict[str, str]]
+    ) -> None:
+        self._applied(_webhook_file(), status.HTTP_201_CREATED)
+        HogFlow.objects.filter(team=self.team, key="crm-sync").update(status=HogFlow.State.ARCHIVED)
+        archived = self._workflow("crm-sync")
+
+        refused = self._applied(_webhook_file(duration="2d"), status.HTTP_400_BAD_REQUEST, headers=headers)
+        checked = self.client.post(
+            self._check_url(), {"content": _webhook_file(duration="2d")}, format="json", headers=headers or {}
+        )
+
+        [error] = refused["errors"]
+        assert (error["status"], error["path"], error["line"]) == ("status_change_not_allowed", "key", 2)
+        assert "archived" in error["message"]
+        assert "Restore" in error["fix"]
+        assert checked.json() == refused
+        after = self._workflow("crm-sync")
+        assert (after.status, after.version, after.actions) == (
+            HogFlow.State.ARCHIVED,
+            archived.version,
+            archived.actions,
+        )
 
     def test_a_content_change_to_an_active_workflow_through_mcp_is_staged_for_publish(self) -> None:
         self._applied(_webhook_file(), status.HTTP_201_CREATED)
@@ -360,7 +386,7 @@ class TestHogFlowCodeApplyObjectAccess(APIBaseTest):
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
-        _sync_templates()
+        _set_up_project(self.team)
         self.workflow = _create_keyed_workflow(self.client, self.team, "trial-upgrade-nudge", SAMPLE_DEFINITION)
         self.member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
 

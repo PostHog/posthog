@@ -15,7 +15,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.tests.api.test_hog_flow_code_check import (
     SAMPLE_DEFINITION,
     _create_keyed_workflow,
-    _sync_templates,
+    _set_up_project,
 )
 
 REPORT_USER_ACTION = "products.workflows.backend.presentation.views.hog_flow_code.report_user_action"
@@ -55,7 +55,7 @@ class TestHogFlowCodePull(APIBaseTest):
     @classmethod
     def setUpTestData(cls) -> None:
         super().setUpTestData()
-        _sync_templates()
+        _set_up_project(cls.team)
 
     def _pull(self, workflow: HogFlow, team: Optional[Team] = None, **kwargs: Any) -> Any:
         return self.client.get(f"/api/projects/{(team or self.team).id}/hog_flows/{workflow.id}/code/", **kwargs)
