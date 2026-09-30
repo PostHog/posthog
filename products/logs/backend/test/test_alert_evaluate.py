@@ -12,8 +12,8 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import SourceBatchEvaluation, SourceKind
-from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes
+from products.alerts.backend.facade.contracts import AlertEventKind, GroupTransition, SourceBatchEvaluation, SourceKind
+from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes, slot_of
 from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
@@ -50,8 +50,14 @@ class TestLogsAlertEvaluation(APIBaseTest):
         with team_scope(self.team.id):
             return PlatformAlertConfiguration.objects.create(**defaults)
 
-    def _run(self, *configurations: PlatformAlertConfiguration, query_error: Exception | None = None):
-        breaching = {str(c.id): [BucketedCount(timestamp=self.cutoff, count=500)] for c in configurations}
+    def _run(
+        self,
+        *configurations: PlatformAlertConfiguration,
+        query_error: Exception | None = None,
+        now: datetime | None = None,
+    ):
+        now = now or self.cutoff
+        breaching = {str(c.id): [BucketedCount(timestamp=now, count=500)] for c in configurations}
         with (
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
             patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
@@ -62,11 +68,11 @@ class TestLogsAlertEvaluation(APIBaseTest):
                 query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
                     per_alert=breaching, query_duration_ms=1
                 )
-            slot = (configurations[0].next_check_at or self.cutoff).replace(second=0, microsecond=0).isoformat()
-            return evaluate_logs_batch(self.team.id, slot, self.cutoff), query
+            slot = slot_of(configurations[0].next_check_at, now)
+            return evaluate_logs_batch(self.team.id, slot, now), query
 
     def _slot(self) -> str:
-        return (self.cutoff - timedelta(minutes=1)).isoformat()
+        return slot_of(self.cutoff - timedelta(minutes=1), self.cutoff)
 
     def _record(self, evaluation: SourceBatchEvaluation) -> None:
         """The write the platform's own activity runs after the evaluation returns.
@@ -82,7 +88,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [t.notification for preview in evaluation.previews for t in preview.transitions] == ["fire"]
+        assert [t for preview in evaluation.previews for t in preview.transitions] == [
+            GroupTransition(grouping_key="", kind=AlertEventKind.FIRING, value=500.0)
+        ]
         with team_scope(self.team.id):
             alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
             configuration.refresh_from_db()
@@ -148,7 +156,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
                     per_alert={str(configuration.id): [BucketedCount(timestamp=self.cutoff, count=500)]},
                     query_duration_ms=1,
                 )
-                slot = next_check_at.replace(second=0, microsecond=0).isoformat()
+                slot = slot_of(next_check_at, self.cutoff)
                 evaluation = evaluate_logs_batch(self.team.id, slot, self.cutoff)
             return evaluation.outcomes[0].evaluation_key
 
@@ -173,9 +181,16 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # An incident wholly inside the window must still leave a trace, and must not move the cooldown.
         assert alert.state == PlatformAlert.State.FIRING
         assert alert.last_notified_at is None
+        assert alert.firing_started_at == self.cutoff
         # Parked at the end of the window would leave the alert unevaluated until noon.
         assert configuration.next_check_at is not None
         assert self.cutoff < configuration.next_check_at < datetime(2026, 9, 16, 11, tzinfo=UTC)
+
+        # The first check after the window announces the fire the mute held. Without the held
+        # firing reaching it, a FIRING alert does not fire again on its own and stays silent.
+        unmuted, _ = self._run(configuration, now=datetime(2026, 9, 16, 12, 30, tzinfo=UTC))
+
+        assert [t.kind for preview in unmuted.previews for t in preview.transitions] == [AlertEventKind.FIRING]
 
     def test_a_broken_filter_config_stops_being_discovered(self) -> None:
         configuration = self._configuration(source_config={"filterGroup": {"type": "nonsense"}})
@@ -269,17 +284,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         kwargs = query.call_args.kwargs
         assert kwargs["date_to"] - kwargs["date_from"] == timedelta(minutes=expected_lookback_minutes)
 
-    def test_the_evaluation_key_comes_from_the_tick_occasion_not_the_clock(self) -> None:
+    def test_a_preview_and_its_recorded_outcome_name_the_same_evaluation(self) -> None:
         configuration = self._configuration(next_check_at=None)
 
         evaluation, _ = self._run(configuration)
 
-        # The preview key is the recorded key, so the slot travels with it. It becomes the
-        # delivery workflow id, and a window-only id lets two checks that clamped to the same
-        # window end collide and drops the later announcement.
-        assert [p.evaluation_key for p in evaluation.previews] == [
-            f"{configuration.id}:slot:{self.cutoff.isoformat()}|window:{self.cutoff.isoformat()}"
-        ]
+        # A preview carries the recorded key unchanged, so a delivery can address the row the
+        # check wrote. The slot is in the key because two checks of one alert can clamp to the
+        # same window end, and a key without it makes them one evaluation to any reader.
+        expected = f"slot:{self.cutoff.isoformat()}|window:{self.cutoff.isoformat()}"
+        assert evaluation.outcomes[0].evaluation_key == expected
+        assert [p.evaluation_key for p in evaluation.previews] == [expected]
 
 
 class TestEvaluationTimeoutLadder(SimpleTestCase):

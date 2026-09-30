@@ -163,8 +163,9 @@ class AlertEventKind(StrEnum):
     """What one evaluation announced about an alert.
 
     `CHECK` is an evaluation that announced nothing, which includes one that moved the alert while
-    a cooldown or a mute held the notification back. Read `previous_state` and `state` to find the
-    moves, because counting `RESOLVED` rows misses every recovery that was suppressed.
+    a cooldown or a mute held the notification back. Read the history row's `previous_state` and
+    `state` to find the moves, because counting `RESOLVED` rows misses every recovery that was
+    suppressed.
 
     A source reports the kind rather than the platform deriving it: the machine already decided
     what to announce, and deriving it again from the states would be a second implementation of
@@ -222,16 +223,30 @@ class PlatformAlertOutcome:
 
 @frozen
 class GroupTransition:
-    """One transition a delivery would carry. `grouping_key` is empty until a source groups,
-    so delivery reads a list of one today and a list of N when fan-out ships."""
+    """One transition a delivery carries: `kind` picks the headline, `value` is the number it
+    quotes.
+
+    `grouping_key` is empty until a source groups, so delivery reads a list of one today and a
+    list of N when fan-out ships.
+
+    The condition and the source config a message also needs stay on the history row the
+    delivery addresses, because `source_config` is an unbounded filter tree and one per
+    transition would blow the payload bound `MAX_PREVIEWS_PER_CYCLE` was sized against.
+    """
 
     grouping_key: str
-    notification: str
+    kind: AlertEventKind
+    value: float | None = None
 
 
 @frozen
 class AlertDeliveryPreview:
-    """What delivery would send. The PoC records it instead of contacting a destination."""
+    """What delivery would send. The PoC records it instead of contacting a destination.
+
+    `alert_id` is the configuration's id, which a history row carries as `configuration_id`, not
+    as its own `alert_id` column. A delivery addresses its rows by that column, the transition's
+    `grouping_key` and `evaluation_key` together; joining on the row's `alert_id` finds nothing.
+    """
 
     source: SourceKind
     alert_id: str

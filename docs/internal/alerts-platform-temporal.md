@@ -343,6 +343,16 @@ Three consequences worth stating:
 `AlertCheckOutcome.muted_notification` carries what was held, and
 `alerts_platform_notifications_muted_total{source,reason}` counts it by `snooze` or `quiet_hours`.
 
+A fire a mute swallowed is still owed an announcement.
+`_firing_is_unannounced` in `facade/lifecycle.py` decides that, and its docstring holds the rule.
+Without it an alert reaches the end of its quiet hours already FIRING, and `renotify_while_firing`
+is false, so nobody is ever told.
+A recovery that happened entirely inside a mute is not announced when the mute lifts, which is what
+Datadog does and what a person muting an alert expects.
+Production logs gets the same reset on snooze expiry, by way of the SNOOZED branch in
+`evaluate_alert_check`; under mute semantics the state is never SNOOZED, so the reset needs its own
+signal.
+
 ### Evaluating and writing are separate activities
 
 `evaluate_logs_alerts_activity` reads and decides; it writes nothing.
