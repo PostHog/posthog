@@ -53,6 +53,9 @@
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
 #   The shadow routes cache writes to Depot Cache, so it must not fill the GitHub
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
+# - Superseded-run cancel: Depot's concurrency policy can keep an older event, so each event gets
+#   its own group and `cancel-superseded-runs` cancels older runs. See "Superseded runs" in
+#   .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 # - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
 #   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
 # - calculate-running-time: canonical's PostHog/posthog-github-action reads the run from the
@@ -158,9 +161,9 @@ on:
         # the doubled matrices in place of that leg.
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
-    # PRs: one active run per branch, cancel stale. Push: per-SHA so master
+    # PRs: one group per event; cancel-superseded-runs cancels stale runs. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
@@ -333,6 +336,26 @@ jobs:
                   }
                   post "$WAIT_CHECK" success
                   [ "$HANDED_OFF" = true ] || post "$GATE_CHECK" skipped
+    cancel-superseded-runs:
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        name: Cancel superseded Backend CI runs
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/cancel_superseded_depot_runs.py
+                  sparse-checkout-cone-mode: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - name: Cancel this PR's older runs
+              continue-on-error: true
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: python3 .github/scripts/cancel_superseded_depot_runs.py
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
