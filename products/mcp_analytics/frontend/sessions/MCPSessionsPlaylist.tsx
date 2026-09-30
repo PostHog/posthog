@@ -1,13 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { memo, useRef } from 'react'
 
-import { IconBolt, IconClock, IconSearch, IconSparkles, IconWarning } from '@posthog/icons'
+import { IconBolt, IconClock, IconSparkles, IconWarning } from '@posthog/icons'
 import {
     Button,
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-    InputGroupText,
     Select,
     SelectContent,
     SelectItem,
@@ -163,19 +159,6 @@ function SessionsListPanel(): JSX.Element {
             <div className="shrink-0 flex flex-col gap-2 border-b border-primary p-2">
                 <div className="flex flex-col gap-2" data-quill>
                     <div className="flex flex-wrap items-center gap-2">
-                        <InputGroup className="min-w-40 flex-1">
-                            <InputGroupAddon align="inline-start">
-                                <InputGroupText>
-                                    <IconSearch />
-                                </InputGroupText>
-                            </InputGroupAddon>
-                            <InputGroupInput
-                                type="search"
-                                placeholder="Search by session id, client, or tool"
-                                onChange={(e) => setFilters({ search: e.target.value })}
-                                value={filters.search}
-                            />
-                        </InputGroup>
                         <Select
                             value={String(filters.hasErrors ?? 'all')}
                             onValueChange={(value) => setFilters({ hasErrors: parseUrlBoolean(value) })}
