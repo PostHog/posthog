@@ -19,7 +19,6 @@ import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/ic
 import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
 import { filterSearchItems } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -844,11 +843,6 @@ function SearchSeparator({ className }: SearchSeparatorProps): JSX.Element {
 // Search.Results
 // ============================================================================
 
-/** React bubbles events from portaled content, such as a tooltip link, through the row that renders it. */
-function isFromPortal(event: React.MouseEvent<HTMLElement>): boolean {
-    return !event.currentTarget.contains(event.target as Node)
-}
-
 function SearchResults({
     className,
     listClassName,
@@ -952,12 +946,6 @@ function SearchResults({
                                                                             // new-tab behave identically: the palette
                                                                             // closes, the selection is captured, and
                                                                             // action items stay inert.
-                                                                            if (isFromPortal(e)) {
-                                                                                // Stop here, before the row's Link, so the
-                                                                                // portaled link keeps its own default action.
-                                                                                e.stopPropagation()
-                                                                                return
-                                                                            }
                                                                             if (e.metaKey || e.ctrlKey) {
                                                                                 e.preventDefault()
                                                                                 handleItemClick(item, true)
@@ -1002,12 +990,6 @@ function SearchResults({
                                                                                 <span className="text-xs text-tertiary shrink-0 mt-[2px]">
                                                                                     {item.productCategory}
                                                                                 </span>
-                                                                            )}
-                                                                            {item.releaseStageProduct && (
-                                                                                <ReleaseStageTag
-                                                                                    product={item.releaseStageProduct}
-                                                                                    className="shrink-0"
-                                                                                />
                                                                             )}
                                                                             {item.lastViewedAt && (
                                                                                 <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">

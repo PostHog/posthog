@@ -15,7 +15,6 @@ import {
 
 import api, { isAbortError } from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
-import { ReleaseStageProduct } from 'lib/components/ReleaseStageTag/releaseStage'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -137,7 +136,6 @@ export interface SearchItem {
     lastViewedAt?: string | null
     groupNoun?: string | null
     itemType?: string | null
-    releaseStageProduct?: ReleaseStageProduct
     searchKeywords?: string[]
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
@@ -924,7 +922,6 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: product.category || null,
                     href: product.href || PLACEHOLDER_HREF,
                     itemType: product.iconType || product.type || null,
-                    releaseStageProduct: product,
                     searchKeywords: productSearchKeywords[product.path],
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(product),
@@ -1003,7 +1000,6 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: item.category || null,
                     href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
-                    releaseStageProduct: item,
                     searchKeywords: [
                         ...(item.category ? (categorySearchKeywords[item.category] ?? []) : []),
                         ...(pathSearchKeywords[item.path] ?? []),
@@ -1076,7 +1072,6 @@ export const searchLogic = kea<searchLogicType>([
                         productCategory: item.category || null,
                         href: item.href || PLACEHOLDER_HREF,
                         itemType: item.iconType || item.type || null,
-                        releaseStageProduct: item,
                         record: {
                             type: item.type || item.iconType,
                             iconType: item.iconType,
@@ -1126,7 +1121,6 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: item.category || null,
                     href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
-                    releaseStageProduct: item,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
                     record: {
                         type: item.type || item.iconType,
