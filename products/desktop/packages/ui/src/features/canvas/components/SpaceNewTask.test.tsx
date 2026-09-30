@@ -132,6 +132,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
+import { GUIDED_FIRST_TASK_PROMPT } from "../channelTaskSuggestions";
 import { SpaceNewTask } from "./SpaceNewTask";
 
 function renderNewTask() {
@@ -172,6 +173,23 @@ describe("SpaceNewTask context panel", () => {
         sessionId: "task-input:tab-1",
         initialPrompt: "Check the build",
         initialPromptKey: "req-1",
+      }),
+    );
+  });
+
+  it("prefills a repo-independent task for guided first-run users", () => {
+    useFolderInstructions.mockReturnValue({ data: undefined });
+
+    render(
+      <Theme>
+        <SpaceNewTask channelId="chan-1" guidedFirstTask />
+      </Theme>,
+    );
+
+    expect(taskInputProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        allowNoRepo: true,
+        initialPrompt: GUIDED_FIRST_TASK_PROMPT,
       }),
     );
   });
