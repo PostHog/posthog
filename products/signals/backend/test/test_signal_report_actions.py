@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -9,7 +10,7 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
-from products.signals.backend.models import SignalReport, SignalReportAction
+from products.signals.backend.models import SignalReport, SignalReportAction, SignalScoutConfig, SignalScoutRun
 
 
 class TestSignalReportViewedEndpoint(APIBaseTest):
@@ -113,6 +114,53 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
 
         assert response.status_code == expected_status
         assert not SignalReportAction.objects.for_team(self.team.id).filter(report=report).exists()
+
+    def _author_with_scout(self, report: SignalReport, enrollment_origin: str) -> SignalScoutConfig:
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-general", enrollment_origin=enrollment_origin
+        )
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="scout", description="d")
+        task_run = apps.get_model("tasks", "TaskRun").objects.create(team=self.team, task=task)
+        SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=task_run,
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+            emitted_report_ids=[str(report.id)],
+        )
+        return config
+
+    @parameterized.expand(
+        [
+            (f"{path}_{origin}", path, body, event, origin)
+            for path, body, event in (
+                ("viewed", None, "signals_background_report_viewed"),
+                ("feedback", {"sentiment": "negative"}, "signals_background_report_rated"),
+                ("state", {"state": "suppressed"}, "signals_background_report_dismissed"),
+            )
+            for origin in (SignalScoutConfig.EnrollmentOrigin.BACKGROUND, SignalScoutConfig.EnrollmentOrigin.USER)
+        ]
+    )
+    @patch("products.signals.backend.background_pilot.posthoganalytics.capture")
+    def test_background_pilot_events_fire_only_for_background_reports(
+        self, _name, action_path: str, body: dict | None, event: str, origin: str, mock_capture: MagicMock
+    ) -> None:
+        report = self._create_report()
+        config = self._author_with_scout(report, origin)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/signals/reports/{report.pk}/{action_path}/", body, format="json"
+        )
+
+        assert response.status_code < 300
+        captured = [call.kwargs for call in mock_capture.call_args_list if call.kwargs["event"] == event]
+        if origin == SignalScoutConfig.EnrollmentOrigin.BACKGROUND:
+            assert len(captured) == 1
+            assert captured[0]["properties"]["report_id"] == str(report.id)
+            assert captured[0]["properties"]["scout_config_id"] == str(config.id)
+        else:
+            assert captured == []
 
     def test_a_suppressed_report_still_records_its_view(self) -> None:
         # The Dismissed tab renders the same detail view, so its opens must count too instead of

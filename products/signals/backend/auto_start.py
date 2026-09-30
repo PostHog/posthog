@@ -60,7 +60,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
-from products.signals.backend.scout_authorship import resolve_touching_scout_skills
+from products.signals.backend.scout_authorship import report_is_from_background_scout, resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
@@ -1655,7 +1655,18 @@ async def maybe_autostart_from_report_artefacts(
 
     When the latest reviewers artefact was user-edited, the task runs as that editing user (not a
     named colleague) — see `_latest_reviewers_content` and `triggering_user_id`.
+
+    A report that a background-enrolled scout authored never auto-starts. Nobody on the project
+    asked for that scout, so its findings must not open pull requests on their own.
     """
+    if await database_sync_to_async(report_is_from_background_scout, thread_sensitive=False)(team_id, report_id):
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="report from background scout",
+        )
+        return AutostartOutcome(status="blocked", reason="Reports from background scouts do not auto-start")
     if dispatch is None:
         from products.signals.backend.implementation_dispatch import (
             ImplementationDispatcher,  # noqa: PLC0415 - breaks the dispatcher/autostart cycle

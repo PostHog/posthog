@@ -85,6 +85,12 @@ from products.signals.backend.artefact_schemas import (
     TitleChange,
     parse_artefact_content,
 )
+from products.signals.backend.background_pilot import (
+    BACKGROUND_REPORT_DISMISSED_EVENT,
+    BACKGROUND_REPORT_RATED_EVENT,
+    BACKGROUND_REPORT_VIEWED_EVENT,
+    capture_background_report_events,
+)
 from products.signals.backend.billing import (
     REFUND_INELIGIBLE_BILLING_EXEMPT,
     REFUND_INELIGIBLE_NO_BILLABLE_PR,
@@ -2529,6 +2535,9 @@ class SignalReportViewSet(
             dismissal_reason=data.get("dismissal_reason"),
             dismissal_note=data.get("dismissal_note"),
         )
+        self._capture_background_dismissals(
+            reports=[report], target=data["state"], dismissal_reason=data.get("dismissal_reason")
+        )
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
@@ -2650,6 +2659,14 @@ class SignalReportViewSet(
                 metadata={"sentiment": data["sentiment"]},
                 bump_count=not note,
             )
+            if not note:
+                capture_background_report_events(
+                    team=self.team,
+                    user=request.user,
+                    event=BACKGROUND_REPORT_RATED_EVENT,
+                    report_ids=[str(report.id)],
+                    properties={"sentiment": data["sentiment"]},
+                )
 
         if not note:
             return Response(SignalReportFeedbackResponseSerializer({"forwarded": False}).data)
@@ -2696,6 +2713,9 @@ class SignalReportViewSet(
                 report_id=str(report.id),
                 user_id=request.user.id,
                 action_type=SignalReportAction.ActionType.VIEW,
+            )
+            capture_background_report_events(
+                team=self.team, user=request.user, event=BACKGROUND_REPORT_VIEWED_EVENT, report_ids=[str(report.id)]
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -2792,6 +2812,19 @@ class SignalReportViewSet(
             }
         )
         return Response(serializer.data)
+
+    def _capture_background_dismissals(
+        self, *, reports: Sequence[SignalReport], target: str, dismissal_reason: str | None
+    ) -> None:
+        if target != SignalReport.Status.SUPPRESSED or not reports:
+            return
+        capture_background_report_events(
+            team=self.team,
+            user=self.request.user if isinstance(self.request.user, User) else None,
+            event=BACKGROUND_REPORT_DISMISSED_EVENT,
+            report_ids=[str(report.id) for report in reports],
+            properties={"dismissal_reason": dismissal_reason},
+        )
 
     def _forward_dismissal_note(
         self,
@@ -3176,6 +3209,7 @@ class SignalReportViewSet(
             dismissal_reason=dismissal_reason,
             dismissal_note=dismissal_note,
         )
+        self._capture_background_dismissals(reports=transitioned, target=target, dismissal_reason=dismissal_reason)
 
         return Response(
             {

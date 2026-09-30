@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from django.db.models import Q
 
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
 
 
@@ -100,3 +100,33 @@ def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[s
         else set()
     )
     return {report_id: (skill_name if skill_name in live else "") for report_id, skill_name in resolved.items()}
+
+
+def resolve_background_scout_configs(team_id: int, report_ids: list[str]) -> dict[str, SignalScoutConfig]:
+    """Map each report a background-enrolled scout authored to that scout's config.
+
+    Only authorship counts: a background scout that edited a user scout's report does not make the
+    report a background one. The origin is read from the config now, so a config a person took over
+    (`enrollment_origin=user`) no longer marks its earlier reports.
+    """
+    if not report_ids:
+        return {}
+    authored = Q()
+    for report_id in report_ids:
+        authored |= Q(emitted_report_ids__contains=[report_id])
+    runs = (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(authored, scout_config__enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND)
+        .select_related("scout_config")
+    )
+    wanted = set(report_ids)
+    resolved: dict[str, SignalScoutConfig] = {}
+    for run in runs:
+        assert run.scout_config is not None  # narrowed by the enrollment_origin filter above
+        for report_id in wanted.intersection(run.emitted_report_ids or []):
+            resolved[report_id] = run.scout_config
+    return resolved
+
+
+def report_is_from_background_scout(team_id: int, report_id: str) -> bool:
+    return report_id in resolve_background_scout_configs(team_id, [report_id])
