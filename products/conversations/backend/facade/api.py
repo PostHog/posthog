@@ -56,6 +56,9 @@ from products.conversations.backend.models import (
     Ticket,
 )
 from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE
+from products.conversations.backend.services.feedback import (
+    create_desktop_feedback_ticket as create_desktop_feedback_ticket,
+)
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import get_slack_client
 from products.conversations.backend.support_slack import get_support_slack_bot_token

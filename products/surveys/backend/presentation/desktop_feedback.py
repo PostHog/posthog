@@ -135,7 +135,7 @@ class DesktopFeedbackRequestSerializer(serializers.Serializer):
 
 class DesktopFeedbackResponseSerializer(serializers.Serializer):
     accepted = serializers.BooleanField(help_text="Whether the feedback response was accepted.")
-    response_id = serializers.UUIDField(help_text="Identifier of the survey response event.")
+    response_id = serializers.UUIDField(help_text="Identifier of the feedback ticket or legacy survey response event.")
 
 
 class DesktopFeedbackErrorSerializer(serializers.Serializer):
@@ -219,7 +219,7 @@ class DesktopFeedbackViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         },
         summary="Submit Desktop feedback",
-        description="Stores selected attachments and submits one response to the PostHog Desktop feedback survey.",
+        description="Stores selected attachments and submits Desktop feedback. Ticket routing is controlled by the rollout flag.",
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_data
