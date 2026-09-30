@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -5,12 +6,18 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management.base import CommandError
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
 
-from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
+from products.growth.backend.models import (
+    EnrichmentLabelResult,
+    EnrichmentPromptConfig,
+    OrganizationEnrichment,
+    OrganizationEnrichmentFetch,
+)
 from products.growth.dags import ai_enrichment
 from products.growth.dags.ai_enrichment import ai_enrichment_job, count_pending_candidates, is_ai_enrichment_registered
 
@@ -20,6 +27,12 @@ _OUTPUT_FIELDS = [{"key": "is_ai", "type": "boolean", "description": ""}]
 
 
 class _EnrichmentDagTestCase(BaseTest):
+    def setUp(self):
+        super().setUp()
+        # ensure_migration_defaults seeds an active ai_pilled config during
+        # test DB setup; these tests own the full config table.
+        EnrichmentPromptConfig.objects.all().delete()
+
     def _config(self, **overrides: Any) -> EnrichmentPromptConfig:
         params: dict[str, Any] = {
             "name": "test_label",
@@ -33,10 +46,15 @@ class _EnrichmentDagTestCase(BaseTest):
         params.update(overrides)
         return EnrichmentPromptConfig.objects.create(**params)
 
-    def _fetch(self, organization: Organization | None = None) -> OrganizationEnrichmentFetch:
-        return OrganizationEnrichmentFetch.objects.create(
+    def _fetch(
+        self, organization: Organization | None = None, fetched_at: datetime | None = None
+    ) -> OrganizationEnrichmentFetch:
+        fetch = OrganizationEnrichmentFetch.objects.create(
             organization=organization or self.organization, provider="harmonic", payload={"name": "Acme"}
         )
+        if fetched_at is not None:
+            OrganizationEnrichmentFetch.objects.filter(id=fetch.id).update(fetched_at=fetched_at)
+        return fetch
 
 
 class TestCountPendingCandidates(_EnrichmentDagTestCase):
@@ -44,10 +62,22 @@ class TestCountPendingCandidates(_EnrichmentDagTestCase):
         self._config()
         self._fetch()
 
-        assert count_pending_candidates("test_label", "v1") == 1
+        assert count_pending_candidates("test_label", "v1", lookback_days=None) == 1
 
-    def test_excludes_a_fetch_already_labeled_under_this_exact_version(self):
+    def test_excludes_an_org_whose_latest_fetch_is_older_than_the_lookback(self):
+        self._config()
+        self._fetch()
+        self._fetch(
+            organization=Organization.objects.create(name="stale"), fetched_at=timezone.now() - timedelta(days=15)
+        )
+
+        assert count_pending_candidates("test_label", "v1", lookback_days=14) == 1
+
+    @parameterized.expand([("single_fetch", False), ("re_enriched_org", True)])
+    def test_excludes_a_fetch_already_labeled_under_this_exact_version(self, _name: str, re_enriched: bool) -> None:
         config = self._config()
+        if re_enriched:
+            self._fetch(fetched_at=timezone.now() - timedelta(days=1))
         fetch = self._fetch()
         EnrichmentLabelResult.objects.create(
             organization=self.organization,
@@ -58,7 +88,7 @@ class TestCountPendingCandidates(_EnrichmentDagTestCase):
             model="gpt-5-mini",
         )
 
-        assert count_pending_candidates("test_label", config.version) == 0
+        assert count_pending_candidates("test_label", config.version, lookback_days=None) == 0
 
     def test_a_verdict_under_a_retired_version_does_not_hide_the_candidate(self):
         # A rename or re-version leaves prior verdicts stamped with the old version - see
@@ -74,29 +104,34 @@ class TestCountPendingCandidates(_EnrichmentDagTestCase):
             model="gpt-5-mini",
         )
 
-        assert count_pending_candidates("test_label", "v1") == 1
+        assert count_pending_candidates("test_label", "v1", lookback_days=None) == 1
 
     def test_excludes_an_org_that_declined_ai_processing(self):
         self._config()
         self._fetch()
         Organization.objects.filter(id=self.organization.id).update(is_ai_data_processing_approved=False)
 
-        assert count_pending_candidates("test_label", "v1") == 0
+        assert count_pending_candidates("test_label", "v1", lookback_days=None) == 0
 
     def test_zero_when_there_is_nothing_pending(self):
-        assert count_pending_candidates("test_label", "v1") == 0
+        assert count_pending_candidates("test_label", "v1", lookback_days=None) == 0
 
 
 class TestAiEnrichmentJob(_EnrichmentDagTestCase):
     def test_calls_batch_command_once_per_active_label_with_the_configured_limit_and_workers(self):
         config_a = self._config(name="label_a")
         config_b = self._config(name="label_b")
-        # No pending fetches for either label, so the absence-of-output check can't fire and
-        # mask what this test is actually asserting.
+        self._fetch(fetched_at=timezone.now() - timedelta(days=8))
+        # The only pending fetch is older than the 7-day lookback, so the absence-of-output check
+        # fires only if the pending count ignores the configured window.
 
         with patch(f"{_MODULE}.call_command") as mock_call_command:
             result = ai_enrichment_job.execute_in_process(
-                run_config={"ops": {"classify_pending_organizations_op": {"config": {"limit": 42, "workers": 3}}}}
+                run_config={
+                    "ops": {
+                        "classify_pending_organizations_op": {"config": {"limit": 42, "workers": 3, "lookback_days": 7}}
+                    }
+                }
             )
 
         assert result.success
@@ -106,6 +141,7 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
             assert call.args == ("enrichment_label_batch",)
             assert call.kwargs["limit"] == 42
             assert call.kwargs["workers"] == 3
+            assert call.kwargs["lookback_days"] == 7
         # expected_version is each label's own currently-resolved version, passed through so the
         # command can abort if it disagrees - see test_a_version_bump_between_labels below.
         assert calls_by_label["label_a"].kwargs["expected_version"] == config_a.version
@@ -238,6 +274,47 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
         assert result.success
         assert EnrichmentLabelResult.objects.count() == 1
 
+    @parameterized.expand([("successful_repair", False), ("command_error_after_repair", True)])
+    def test_stored_label_repair_counts_as_progress(self, _name: str, command_error: bool) -> None:
+        config = self._config(name="ai_pilled")
+        self._fetch()
+        repair_org = Organization.objects.create(name="Example repair organization")
+        stored_result = EnrichmentLabelResult.objects.create(
+            organization=repair_org,
+            fetch=self._fetch(organization=repair_org),
+            label_name=config.name,
+            prompt_version=config.version,
+            prompt_hash=config.content_hash,
+            model=config.model,
+        )
+
+        def repair_score(_name: str, **kwargs: Any) -> None:
+            OrganizationEnrichment.objects.create(
+                organization=repair_org,
+                data={
+                    "icp_fit_evaluation_kind": "enrichment",
+                    "icp_fit_evaluated_at": timezone.now().isoformat(),
+                    "icp_fit_input_versions": {
+                        "current_fetch": str(stored_result.fetch_id),
+                        f"enrichment/{config.name}": str(stored_result.id),
+                    },
+                    "icp_fit_input_hash": "example-input-hash",
+                    "icp_fit_projected_input_hash": "example-input-hash",
+                },
+            )
+            if command_error:
+                raise CommandError("Example command failure after score repair")
+
+        with patch(f"{_MODULE}.call_command", side_effect=repair_score):
+            result = ai_enrichment_job.execute_in_process(raise_on_error=False)
+
+        label_runs = result.output_for_node("classify_pending_organizations_op")
+        assert label_runs[0].candidates == 1
+        assert label_runs[0].created == 0
+        assert label_runs[0].projected == 1
+        assert result.success is not command_error
+        assert EnrichmentLabelResult.objects.count() == 1
+
     def test_one_labels_absence_failure_does_not_stop_another_label_from_running(self):
         self._config(name="silent_label")
         self._fetch()
@@ -270,6 +347,81 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
         tags = ai_enrichment_job.tags
         assert tags["owner"] == "team-growth"
         assert "dagster/max_runtime" in tags
+
+
+class TestCountProjectedScores(_EnrichmentDagTestCase):
+    @parameterized.expand(
+        (f"{mode}_{invalidation}", mode, invalidation)
+        for mode in ("included", "fallback")
+        for invalidation in (
+            "older_evaluation",
+            "other_evaluation_kind",
+            "missing_projection",
+            "mismatched_projection",
+            "null_markers",
+            "other_label",
+            "other_version",
+            "inactive_config",
+            "changed_prompt",
+            "other_organization",
+            "other_fetch",
+        )
+    )
+    def test_only_completed_current_label_projections_count(self, _name: str, mode: str, invalidation: str) -> None:
+        config = self._config(name="business_model")
+        result = EnrichmentLabelResult.objects.create(
+            organization=self.organization,
+            fetch=self._fetch(),
+            label_name=config.name,
+            prompt_version=config.version,
+            prompt_hash=config.content_hash,
+            model=config.model,
+        )
+        started_at = timezone.now()
+        input_versions = {"current_fetch": str(result.fetch_id)}
+        if mode == "included":
+            input_versions[f"enrichment/{config.name}"] = str(result.id)
+        record = OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={
+                "icp_fit_evaluation_kind": "enrichment",
+                "icp_fit_evaluated_at": started_at.isoformat(),
+                "icp_fit_input_versions": input_versions,
+                "icp_fit_input_hash": "example-input-hash",
+                "icp_fit_projected_input_hash": "example-input-hash",
+            },
+        )
+
+        assert ai_enrichment.count_projected_scores(config.name, config.version, started_at) == 1
+
+        if invalidation == "older_evaluation":
+            record.data["icp_fit_evaluated_at"] = (started_at - timedelta(microseconds=1)).isoformat()
+        elif invalidation == "other_evaluation_kind":
+            record.data["icp_fit_evaluation_kind"] = "backfill"
+        elif invalidation == "missing_projection":
+            record.data.pop("icp_fit_projected_input_hash")
+        elif invalidation == "mismatched_projection":
+            record.data["icp_fit_projected_input_hash"] = "example-other-input-hash"
+        elif invalidation == "null_markers":
+            record.data["icp_fit_input_hash"] = None
+            record.data["icp_fit_projected_input_hash"] = None
+        elif invalidation == "other_label":
+            result.label_name = "example_other_label"
+        elif invalidation == "other_version":
+            result.prompt_version = "example_retired_version"
+        elif invalidation == "inactive_config":
+            config.is_active = False
+        elif invalidation == "changed_prompt":
+            config.prompt_text = "Example changed prompt"
+        elif invalidation == "other_organization":
+            result.organization = Organization.objects.create(name="Example other organization")
+        elif invalidation == "other_fetch":
+            result.fetch = self._fetch()
+        record.save()
+        result.save()
+        config.save()
+
+        assert ai_enrichment.count_projected_scores(config.name, config.version, started_at) == 0
 
 
 @parameterized.expand(

@@ -156,6 +156,10 @@ export CLICKHOUSE_MIGRATIONS_HOST="${CLICKHOUSE_MIGRATIONS_HOST:-localhost}"
 export CLICKHOUSE_CLUSTER="${CLICKHOUSE_CLUSTER:-posthog}"
 export CLICKHOUSE_MIGRATIONS_CLUSTER="${CLICKHOUSE_MIGRATIONS_CLUSTER:-posthog_migrations}"
 export CLICKHOUSE_SATELLITE_CLUSTERS="${CLICKHOUSE_SATELLITE_CLUSTERS:-ai_events,aux,ops,sessions}"
+# The ingestion-events node reaches the logs cluster as `logs` (see
+# docker/clickhouse/config.d/multinode/ingestion_events_node.xml). Its `posthog_single_shard`,
+# which CLICKHOUSE_LOGS_CLUSTER defaults to, points at the data node instead.
+export CLICKHOUSE_LOGS_WRITE_CLUSTER="${CLICKHOUSE_LOGS_WRITE_CLUSTER:-logs}"
 export CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-posthog}"
 export CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
 export CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-}"

@@ -1,5 +1,6 @@
 import dataclasses
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 from requests import Response
@@ -96,6 +97,22 @@ def _flatten_map(config: CloudbedsEndpointConfig) -> Callable[[dict[str, Any]], 
     return flatten
 
 
+def _keyed_map(config: CloudbedsEndpointConfig) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    """Explode a ``data`` object keyed by property ID (getUsers) into one row per nested item,
+    copying the key into ``keyed_by_field``. This is the map-shaped counterpart of ``_flatten_map``."""
+    key_field = cast("str", config.keyed_by_field)
+
+    def explode(container: dict[str, Any]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for key, items in container.items():
+            if not isinstance(items, list):
+                continue
+            rows.extend({**item, key_field: key} for item in items)
+        return rows
+
+    return explode
+
+
 def cloudbeds_source(
     api_key: str,
     endpoint: str,
@@ -108,11 +125,18 @@ def cloudbeds_source(
 ) -> SourceResponse:
     config = CLOUDBEDS_ENDPOINTS[endpoint]
 
-    # Group (multi-property) credentials require propertyID to scope reads; single-property
+    # Group (multi-property) credentials require the property ID to scope reads; single-property
     # credentials can omit it. Sent on every request (the paginator only touches pageNumber).
     params: dict[str, Any] = {}
     if property_id:
-        params["propertyID"] = property_id
+        params[config.property_param] = property_id
+
+    if config.stay_window_days is not None:
+        # The window is required, and it decides which rate plans the response covers: rates that do
+        # not apply to any night in it are left out.
+        today = datetime.now(UTC).date()
+        params["startDate"] = today.isoformat()
+        params["endDate"] = (today + timedelta(days=config.stay_window_days)).isoformat()
 
     paginator: BasePaginator
     if config.paginated:
@@ -135,6 +159,8 @@ def cloudbeds_source(
     }
     if config.flatten_field:
         endpoint_config["data_map"] = _flatten_map(config)
+    elif config.keyed_by_field:
+        endpoint_config["data_map"] = _keyed_map(config)
 
     rest_config: RESTAPIConfig = {
         "client": {

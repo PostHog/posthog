@@ -42,8 +42,6 @@ The core runtime for PostHog cloud runs. Provides two things: an **Agent SDK** f
   query()                 stdin/stdout
 ```
 
-## Design decisions
-
 ### Why ACP?
 
 ACP is a standard protocol for agent ↔ client communication over ndJson streams. Using it gives us two things:
@@ -58,8 +56,6 @@ The same ACP agent runs in both contexts. The difference is how it's connected:
 **Cloud (AgentServer):** The agent runs inside a sandbox. `AgentServer` is an HTTP server (Hono) that wraps the ACP connection. Clients connect via `GET /events` (SSE) and `POST /command` (JSON-RPC). Authentication uses JWT tokens (RS256) — the sandbox holds a public key, PostHog Django holds the private key. In background mode, the server auto-starts, prompts the agent with the task description, and signals completion via the PostHog API. In interactive mode, it stays open for conversation.
 
 **Local (desktop):** The agent runs in-process. The desktop app calls `createAcpConnection()` directly — no HTTP server, no JWT. The bidirectional ACP streams connect client ↔ agent within the same process.
-
-**HandoffCheckpointTracker** handles the bridge between these contexts: it captures git checkpoint state plus the object pack/index needed to restore the worktree across cloud and local. This enables the "hand off" flow — start locally, continue in cloud, or vice versa.
 
 ### Permission modes
 
@@ -110,7 +106,7 @@ start()
        ├─ Creates synthetic JwtPayload from CLI config
        ├─ configureEnvironment() — sets ANTHROPIC_BASE_URL, OPENAI_BASE_URL, etc.
        │    pointing at the PostHog LLM gateway
-       ├─ Creates HandoffCheckpointTracker, SessionLogWriter, PostHogAPIClient
+       ├─ Creates SessionLogWriter and PostHogAPIClient
        ├─ createAcpConnection() — sets up ACP streams with log tapping
        │
        ├─ Wraps client streams with a SECOND tap layer (NdJsonTap)
@@ -148,10 +144,6 @@ When `POST /command` receives a `user_message`, it doesn't handle it directly �
 
 The `AgentServer` provides the `requestPermission` callback to the `ClientSideConnection`. Background mode selects an allow option automatically. Interactive mode relays approvals that need a person over SSE and parks them until a client responds; other requests follow the selected permission mode.
 
-### Checkpoint capture
-
-After file-mutating tool calls, the server captures a git checkpoint via `HandoffCheckpointTracker` and broadcasts it as a `_posthog/git_checkpoint` SSE event. A final checkpoint is captured during session cleanup. This is how the client restores repo state for cloud↔local handoff.
-
 ### CLI
 
 ```bash
@@ -171,6 +163,12 @@ Required environment variables (validated by zod in `src/server/bin.ts`):
 - `POSTHOG_PERSONAL_API_KEY` — API key for PostHog requests
 - `POSTHOG_PROJECT_ID` — numeric project ID
 
+Optional behavior toggles:
+
+- `AI_GATEWAY_TOKEN_CAP_USD` — the per-run spend cap of the gateway token the cloud worker minted for the sandbox. When set on a cloud run, the Claude adapter arms the run budget guard: it prices every assistant message, snaps to the SDK's cumulative cost at turn end, steers the live turn at 50% (ship what is on disk, skip polish) and 70% (commit and stop) of the cap, and denies new `Agent`, `Task`, `Workflow`, `WebFetch` and `WebSearch` calls once critical. The stages sit well below the cap because the estimate trails the gateway ledger and the finishing work needs budget of its own. Unset or invalid means no guard.
+- `AI_GATEWAY_MODEL_PRICES_JSON` — optional override of the guard's per-million-token price table, a JSON object of `{ "<model id regex>": { input, output, cacheRead, cacheWrite } }` in USD. Defaults cover the Anthropic, GLM, Kimi and DeepSeek families the adapter serves.
+- `POSTHOG_BENJAMIN` — `1` or `true` appends the vendored Benjamin-Plus token-efficiency instruction (`@posthog/harness/extensions/benjamin`, source at `packages/harness/src/extensions/benjamin/instruction.ts`) to the Claude system prompt and the Codex instructions, and stamps the pinned upstream commit into run state as `benjamin_version` at session start. Any other value leaves prompts unchanged.
+
 Optional run telemetry (the logs pair must both be set, otherwise telemetry stays off):
 
 - `POSTHOG_AGENT_OTEL_LOGS_URL` — full OTLP logs URL for run metadata, e.g. `https://us.i.posthog.com/i/v1/logs`
@@ -180,6 +178,11 @@ Optional run telemetry (the logs pair must both be set, otherwise telemetry stay
 When set, `AgentServer` ships an allowlisted metadata subset of the session log (run/turn/tool lifecycle, usage, error provenance — never message content, tool arguments, or raw error text; see `src/otel-telemetry.ts`) to PostHog Logs, tagged with `service.name=posthog-code-agent` and `run_id`/`task_id`/`team_id`/`user_id`/`distinct_id` resource attributes so cloud runs are filterable per user. With the traces URL set, each run also produces an APM trace (`task_run` root span, a `turn` span per prompt, a `tool_call:<kind>` span per tool call; see `src/otel-trace-builder.ts`), and log records carry the matching trace/span ids so Logs and APM cross-link.
 
 The `task_run` root span is ended and exported at the run's in-process terminal point — a background run's prompt settling, a terminal failure, or session cleanup (`close`). It cannot wait for teardown: agent-server is an exec'd process inside the sandbox, so `docker stop` / Modal terminate kill it without SIGTERM ever arriving, and a span still open at that moment is lost. Interactive sessions that end via hard teardown (e.g. inactivity timeout) therefore lose the root span; turn/tool spans and logs still assemble under the same trace id.
+
+When run tracing records spans, cloud Claude and Codex gateway requests include `task_run_trace_id` and `task_run_span_id` on their AI events.
+These fields identify the enclosing `task_run` span, preserve the existing `$ai_*` identity, and are omitted when tracing is disabled or sampled out.
+Both gateways accept these custom names; `$`-prefixed custom properties are reserved by the Go gateway.
+Resolve the hexadecimal IDs within the telemetry project, after the root span exports; export failure or hard teardown can leave the span unavailable.
 
 ## Agent SDK
 
@@ -215,7 +218,7 @@ For Codex adapters, `agent.run()` also fetches available models from the PostHog
 
 ## Log pipeline and session resume
 
-Logs serve two purposes: real-time observability and session resume. Every ACP message that flows through the tapped streams is persisted, creating a complete record of the conversation — user messages, agent responses, tool calls, tool results, git checkpoints, and metadata events. This record is the single source of truth for resuming a session from any point.
+Logs serve two purposes: real-time observability and session resume. Every ACP message that flows through the tapped streams is persisted, creating a complete record of the conversation, including user messages, agent responses, tool calls, tool results, and metadata events. This record is the source of truth for resuming a conversation.
 
 ### Writing logs
 
@@ -225,14 +228,12 @@ Independently of that flush cycle, the writer tees every parsed non-chunk entry 
 
 ### Resuming from logs
 
-When a session needs to continue (e.g. cloud↔local handoff, or recovering from a crash), `resumeFromLog()` in `src/resume.ts` reconstructs the agent's state from the persisted log. This is implemented as a `ResumeSaga` (`src/sagas/resume-saga.ts`) with the following steps:
+When a session needs to recover from a crash, `resumeFromLog()` in `src/resume.ts` reconstructs the agent's state from the persisted log. This is implemented as a `ResumeSaga` (`src/sagas/resume-saga.ts`) with the following steps:
 
 ```text
-1. fetch_task_run   → GET /api/.../runs/{runId}/ to find the log_url
-2. fetch_logs       → Download all StoredNotification entries
-3. find_git_checkpoint → Scan backwards for latest _posthog/git_checkpoint
-4. rebuild_conversation → Walk log entries to reconstruct conversation turns
-5. find_device      → Scan backwards for last device info (local vs cloud)
+1. fetch_task_run      → GET /api/.../runs/{runId}/ to find the log_url
+2. fetch_logs          → Download all StoredNotification entries
+3. rebuild_conversation → Walk log entries to reconstruct conversation turns
 ```
 
 The conversation rebuild (`rebuildConversation`) walks the log entries and reassembles turns from ACP `session/update` notifications:
@@ -242,7 +243,7 @@ The conversation rebuild (`rebuildConversation`) walks the log entries and reass
 - `tool_call` / `tool_call_update` → track tool calls with their inputs
 - `tool_result` → match results back to tool calls by `toolCallId`
 
-The result is a `ResumeState` containing the conversation history as `ConversationTurn[]`, the latest git checkpoint, and metadata. This feeds into the ACP `session/load` or `_posthog/session/resume` methods on the Claude adapter, which initializes a new Claude SDK query with the rebuilt context.
+The result is a `ResumeState` containing the conversation history as `ConversationTurn[]` and session metadata. This feeds into the ACP `session/load` or `_posthog/session/resume` methods on the Claude adapter, which initializes a new Claude SDK query with the rebuilt context.
 
 ## ACP extensions
 
@@ -252,17 +253,18 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 
 - `_posthog/run_started` — `{ sessionId, runId, taskId?, agentVersion }` — session initialized and ready. `agentVersion` is the agent's semver, used by clients to gate UI features against agent capabilities
 - `_posthog/task_complete` — `{ sessionId, taskId }` — agent finished (success or end-turn)
-- `_posthog/error` — `{ sessionId, message, error? }` — unrecoverable error
+- `_posthog/error` — `{ sessionId, message, error?, errorCategory? }` — unrecoverable error. `errorCategory` is the `classifyAgentError()` classification, which the Django log drain reports as the run's cause
 - `_posthog/status` — `{ sessionId, status, message? }` — progress updates
 - `_posthog/sdk_session` — `{ taskRunId, sessionId, adapter }` — maps the ACP session to a task run and adapter type (emitted once per session, used by clients to know which adapter is active)
 
-**State synchronization** — events that keep the client's view of the agent's state in sync. These are essential for the cloud↔local handoff flow and for the client to render accurate UI.
+**State synchronization** — events that keep the client's view of the agent's state in sync.
 
 - `_posthog/branch_created` — `{ branch }` — agent created a git branch (client can update branch display)
-- `_posthog/git_checkpoint` — `{ checkpointId, checkpointRef, branch, head, indexTree, worktreeTree, ... }` — git checkpoint captured for resume and handoff. This is the key event for session resume — the resume saga scans backwards for the latest checkpoint to restore files
 - `_posthog/mode_change` — `{ mode, previous_mode }` — permission mode changed (client updates mode selector)
 - `_posthog/compact_boundary` — `{ sessionId, timestamp }` — marks where context compaction occurred, so the client knows the conversation was summarized at this point
 - `_posthog/task_notification` — `{ sessionId, type, message?, data? }` — generic extensible notification for adapter-specific events
+- `_posthog/usage_update` — `{ sessionId, usage, budget? }` — cumulative token usage after each settled turn. `budget` is present on a capped cloud run: `{ cap_usd, spent_usd, estimated_usd, sdk_total_usd, stage, mode, steers }`, persisted by the agent-server into `TaskRun.state.budget_guard`
+- `_posthog/budget_steer` — `{ sessionId, stage, delivered, spent_usd, threshold_spent_usd, threshold_at, delivered_at?, cap_usd, mode }` — the run budget guard steered the model at the `warn` (50% of the cap) or `critical` (70%) stage. `threshold_spent_usd` and `threshold_at` record when the stage was reached; `spent_usd` and `delivered_at` record the cost and time when the model received the steer. `delivered_at` is absent if delivery failed. Django captures the notification as a `task run budget steer` event through the direct ingest path or an authenticated agent-proxy callback.
 
 **Client→agent commands** — notifications that flow from client to agent (via `POST /command` in cloud, or direct ACP in local). These are the "verbs" the client can send outside of `session/prompt`.
 
@@ -274,3 +276,27 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 **Debug** — operational visibility without polluting the ACP conversation.
 
 - `_posthog/console` — `{ sessionId, level, message }` — structured debug/info/warn/error log from the agent internals
+
+## Releasing
+
+Releases are automatic. There is no manual version bump: `package.json` stays at `0.0.0-dev` and the release workflow sets the version from the tag.
+
+1. A merge to `master` that changes a file in this package or `products/desktop/packages/harness` runs `.github/workflows/desktop-agent-tag.yml`.
+2. It pushes the tag `agent-vX.Y.Z`. `Z` counts commits that change either package since the base tag `agent-vX.Y.0`. A commit that changes both packages counts once.
+3. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then opens a pull request that bumps the agent pin in `Dockerfile.sandbox-base`. Merging that pull request builds and ships the sandbox images.
+
+A merge that changes neither package adds no new version.
+A change to either agent workflow file still runs the tag job, so it releases any package commits that have no tag yet.
+
+The publish job runs in the `npm-posthog-agent` GitHub environment, which only deploys from `agent-v*` tags.
+A tag ruleset protects `agent-v*` tags. The Releaser GitHub App pushes release tags, and only a repository admin can push a base tag.
+
+To start a new minor or major version, a repository admin pushes a base tag from a `master` commit:
+
+```bash
+git tag agent-v2.5.0
+git push origin agent-v2.5.0
+```
+
+Use the three-part form. A base tag also matches `agent-v*`, so the push runs the release workflow and publishes `2.5.0` from the tagged commit.
+The two-part form `agent-v2.5` starts the same run, which fails because `2.5` is not a valid npm version.

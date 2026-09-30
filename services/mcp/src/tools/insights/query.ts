@@ -11,8 +11,22 @@ import { analyzeQuery } from '../shared'
 
 const schema = InsightQueryInputSchema
 
-/** The insight kinds `alert-create` accepts. Anything else cannot carry an alert. */
-const ALERTABLE_QUERY_KINDS = new Set(['TrendsQuery', 'FunnelsQuery', 'HogQLQuery'])
+// Match the threshold extractors and wrapper handling in the alerts evaluation dispatcher.
+const ALERTABLE_QUERY_KINDS = new Set(['TrendsQuery', 'FunnelsQuery', 'HogQLQuery', 'MetricsQuery'])
+const ALERT_QUERY_WRAPPERS = new Set(['InsightVizNode', 'DataVisualizationNode', 'DataTableNode'])
+
+function isAlertableQuery(query: unknown): boolean {
+    if (query === null || typeof query !== 'object') {
+        return false
+    }
+    const node = query as Record<string, unknown>
+    const source = typeof node.kind === 'string' && ALERT_QUERY_WRAPPERS.has(node.kind) ? node.source : node
+    if (source === null || typeof source !== 'object') {
+        return false
+    }
+    const kind = (source as Record<string, unknown>).kind
+    return typeof kind === 'string' && ALERTABLE_QUERY_KINDS.has(kind)
+}
 
 const ALERT_AGENT_NOTE =
     "This response carries the insight's current value, so it is a good moment to offer an alert when the metric " +
@@ -20,11 +34,13 @@ const ALERT_AGENT_NOTE =
     'failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to ' +
     'alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a ' +
     'strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute ' +
-    'number fits, offer a relative-change alert, or preview an anomaly detector with alert-simulate and say how ' +
-    'often it would have fired. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and ' +
+    'number fits, offer a relative-change alert when the insight supports it. For Trends or SQL time series, ' +
+    'you can preview an anomaly detector with alert-simulate and say how often it would have fired. ' +
+    'Skip metrics nobody acts on, such as raw pageview or event-volume counts, and ' +
     'skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the ' +
     'user just asked to see, is not throwaway for that reason. If the user already declined an alert in this ' +
-    'conversation, do not offer again.'
+    'conversation, do not offer again. If alert-create is unavailable, say nothing about alerts. ' +
+    'Wait for the user to accept before creating an alert.'
 
 type Params = z.infer<typeof schema>
 
@@ -141,7 +157,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     // The note offers an alert, so it is noise on an insight that already has one or cannot have one.
     const alerts = insightResult.data.alerts
     const hasAlert = Array.isArray(alerts) && alerts.length > 0
-    if (hasAlert || !ALERTABLE_QUERY_KINDS.has(queryInfo.innerKind)) {
+    if (hasAlert || !isAlertableQuery(insightResult.data.query)) {
         return payload
     }
     return withAgentNote(payload, ALERT_AGENT_NOTE)

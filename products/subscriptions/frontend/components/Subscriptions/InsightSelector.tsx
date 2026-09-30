@@ -54,6 +54,7 @@ export function InsightSelector({
     }
 
     const selectedCount = validSelectedIds.length
+    const selectableCount = Math.min(insightTiles.length, MAX_INSIGHTS)
     const atMaxLimit = selectedCount >= MAX_INSIGHTS
 
     const toggleInsight = (insightId: number): void => {
@@ -70,9 +71,9 @@ export function InsightSelector({
         <div className="border rounded p-2 space-y-2">
             <div className="flex justify-between items-center text-sm">
                 <span className="font-medium">
-                    {selectedCount} of {MAX_INSIGHTS} insights selected
+                    {selectedCount} of {selectableCount} insights selected
                 </span>
-                {selectedCount === 0 && <span className="text-warning">Select at least one insight</span>}
+                {selectedCount === 0 && <span className="text-danger">Select at least one insight</span>}
             </div>
             {showSearch && (
                 <LemonInput

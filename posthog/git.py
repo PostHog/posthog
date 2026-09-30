@@ -54,12 +54,13 @@ def get_git_branch() -> Optional[str]:
 _TOKEN_PUNCTUATION = "`'\"()[]{}<>,.;:!?"
 _GITHUB_HOSTS = frozenset({"github.com", "www.github.com"})
 _REPO_TOKEN = re.compile(r"[\w.-]+/[\w.-]+")
-# Slack formats links as <url|label> and either side can carry the repo, so `|` separates
-# candidates the same way whitespace does.
-_CANDIDATE_SEPARATOR = re.compile(r"[\s|]+")
+# A link's URL is rarely space-delimited: Slack writes <url|label> and Markdown writes
+# [label](url), so the brackets and the pipe separate candidates the same way whitespace does.
+# Stripping them as edge punctuation isn't enough — in `[label](url)` they sit mid-token.
+_CANDIDATE_SEPARATOR = re.compile(r"[\s|()\[\]<>]+")
 
 
-def _repo_from_github_url(token: str) -> str | None:
+def repo_from_github_url(token: str) -> str | None:
     """`owner/repo` from a GitHub URL token, or None if it isn't one."""
     candidate = token.replace("git@github.com:", "https://github.com/", 1)
     if "//" not in candidate:
@@ -119,7 +120,7 @@ def extract_linked_repo(text: str, all_repos: list[str]) -> str | None:
     linked = {
         match
         for candidate in _candidates(text)
-        if (from_url := _repo_from_github_url(candidate)) and (match := normalized_repos.get(from_url.lower()))
+        if (from_url := repo_from_github_url(candidate)) and (match := normalized_repos.get(from_url.lower()))
     }
     return next(iter(linked)) if len(linked) == 1 else None
 

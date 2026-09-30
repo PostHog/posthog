@@ -76,7 +76,7 @@ func TestConvertToResponsePostHogEvent(t *testing.T) {
 		Properties: map[string]interface{}{"url": "https://example.com"},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, nil)
+	result := convertToResponsePostHogEvent(event, 1, nil, nil)
 
 	assert.Equal(t, "123", result.Uuid)
 	assert.Equal(t, "2023-01-01T00:00:00Z", result.Timestamp)
@@ -693,7 +693,7 @@ func TestIncludeProperties_NilIncludesAllProperties(t *testing.T) {
 		Properties: properties,
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, nil)
+	result := convertToResponsePostHogEvent(event, 1, nil, nil)
 
 	assert.Equal(t, properties, result.Properties)
 }
@@ -710,7 +710,7 @@ func TestIncludeProperties_EmptySliceIncludesNoProperties(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{})
+	result := convertToResponsePostHogEvent(event, 1, []string{}, nil)
 
 	assert.Equal(t, map[string]interface{}{}, result.Properties)
 }
@@ -728,7 +728,7 @@ func TestIncludeProperties_SpecificPropertiesFiltersCorrectly(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{"url", "$device_type"})
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "$device_type"}, nil)
 
 	assert.Equal(t, map[string]interface{}{
 		"url":          "https://example.com",
@@ -747,7 +747,7 @@ func TestIncludeProperties_NonExistentPropertiesAreIgnored(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{"url", "nonexistent"})
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "nonexistent"}, nil)
 
 	assert.Equal(t, map[string]interface{}{
 		"url": "https://example.com",

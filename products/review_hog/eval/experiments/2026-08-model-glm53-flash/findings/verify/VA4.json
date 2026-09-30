@@ -1,0 +1,6 @@
+{
+    "id": "VA4",
+    "real": false,
+    "source": "reused-KB5",
+    "reasoning": "Identical claim refuted as KB5 in 2026-08-validator-model-sol/findings/verify/KB5.json; frozen tree confirms. The doc (AGENTS.md:99-103) describes the receiver leg as entered via the queue_inbox_pr_review facade after review_hog checked the toggle - linkage is by construction, not a re-check inside process_inbox_pr_review. Its only caller derives pr_url/signal_report_id/task_run_id from the saved TaskRun's own row (products/review_hog/backend/receivers.py:93,118-137), gated to the non-internal signal-report implementation task (receivers.py:100-111). process_inbox_pr_review still requires a team-scoped synced+enabled StamphogRepoConfig for the PR's repository and fetches the open PR through that installation (products/stamphog/backend/tasks/tasks.py:1140-1168), so unrelated/fork PRs outside team repos cannot be reviewed. Hypothetical new-internal-caller bypass of a single-caller facade is defense-in-depth, not a real defect."
+}

@@ -2,6 +2,7 @@ import {
   CLOUD_USAGE_LIMIT_ERROR_MESSAGE,
   type TaskSessionStorageAccess,
 } from "@posthog/api-client/posthog-client";
+import { cloudAccessFor } from "@posthog/core/sessions/cloudModelAccess";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -153,6 +154,32 @@ export class TaskService {
       }
     }
 
+    if (input.workspaceMode === "cloud" && input.runtime !== "pi") {
+      const adapter = input.adapter ?? "claude";
+      try {
+        const access = await this.sessionService.resolveCloudModelAccess(
+          adapter,
+          adapter === "claude"
+            ? input.claudeCloudModelAccess
+            : input.codexCloudModelAccess,
+        );
+        input = {
+          ...input,
+          claudeCloudModelAccess: cloudAccessFor(access, "claude"),
+          codexCloudModelAccess: cloudAccessFor(access, "codex"),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          failedStep: "validation",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not check subscription billing.",
+        };
+      }
+    }
+
     const creator = new TaskCreationSaga(
       {
         posthogClient,
@@ -259,9 +286,11 @@ export class TaskService {
       try {
         if (runtime === "pi") {
           await this.piRunner.resume({
-            taskId,
-            cwd: existingWorkspace.worktreePath ?? existingWorkspace.folderPath,
-            projectTrustPath: existingWorkspace.folderPath,
+            taskContext: {
+              taskId,
+              cwd:
+                existingWorkspace.worktreePath ?? existingWorkspace.folderPath,
+            },
           });
         }
 
@@ -282,7 +311,7 @@ export class TaskService {
     if (runtime === "pi") {
       try {
         const cwd = await this.host.ensureScratchDir(taskId);
-        await this.piRunner.resume({ taskId, cwd, projectTrustPath: cwd });
+        await this.piRunner.resume({ taskContext: { taskId, cwd } });
         return {
           success: true,
           data: { task, workspace: null },

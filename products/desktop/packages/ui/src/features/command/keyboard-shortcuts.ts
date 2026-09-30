@@ -8,12 +8,20 @@ export function panelTabShortcut(macPlatform: boolean): string {
   ).join(",");
 }
 
+/** App-wide shortcuts that must also fire while focus is in a text field. */
+export const GLOBAL_HOTKEY_OPTIONS = {
+  enableOnFormTags: true,
+  enableOnContentEditable: true,
+  preventDefault: true,
+} as const;
+
 export const SHORTCUTS = {
   COMMAND_MENU: "mod+k",
   NEW_TASK: "mod+n",
   NEW_TAB: "mod+t",
   SETTINGS: "mod+,",
   SHORTCUTS_SHEET: "mod+/",
+  SEND_FEEDBACK: "mod+shift+f",
   GO_BACK: "mod+[",
   GO_FORWARD: "mod+]",
   // Arrow variants must stay outside form fields/editors, where mod+left/right
@@ -38,10 +46,15 @@ export const SHORTCUTS = {
   // wherever it is shown; those two are disabled there so the keys have one
   // owner at a time.
   SWITCH_BROWSER_TAB: "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
-  FOCUS_SPACE_SEARCH: "mod+shift+s",
+  FOCUS_SIDEBAR_SEARCH: "mod+shift+s",
   TOGGLE_FOCUS: "mod+r",
   PASTE_AS_FILE: "mod+shift+v",
   INBOX: "mod+i",
+  COMMAND_CENTER: "mod+shift+c",
+  // Off macOS, mod is ctrl and ctrl+alt+up/down already belongs to the OS
+  // (workspace switching, screen rotation), so shift takes the mod slot.
+  RAIL_PREV: isMac ? "ctrl+alt+mod+up" : "ctrl+alt+shift+up",
+  RAIL_NEXT: isMac ? "ctrl+alt+mod+down" : "ctrl+alt+shift+down",
   SPACE_UP: "mod+up",
   SPACE_DOWN: "mod+down",
   FIND_IN_CONVERSATION: "mod+f",
@@ -112,6 +125,12 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     category: "general",
   },
   {
+    id: "send-feedback",
+    keys: SHORTCUTS.SEND_FEEDBACK,
+    description: "Send feedback",
+    category: "general",
+  },
+  {
     id: "zoom-in",
     keys: SHORTCUTS.ZOOM_IN,
     description: "Zoom in",
@@ -143,6 +162,27 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     category: "navigation",
   },
   {
+    id: "command-center",
+    keys: SHORTCUTS.COMMAND_CENTER,
+    description: "Open Command Center",
+    category: "navigation",
+  },
+  {
+    id: "rail-prev",
+    keys: SHORTCUTS.RAIL_PREV,
+    description: "Previous rail destination",
+    category: "navigation",
+    // The nav rail that owns these only exists in the channels layout.
+    availability: "channels-layout",
+  },
+  {
+    id: "rail-next",
+    keys: SHORTCUTS.RAIL_NEXT,
+    description: "Next rail destination",
+    category: "navigation",
+    availability: "channels-layout",
+  },
+  {
     id: "switch-task",
     keys: "mod+1-9",
     description: "Switch to task 1-9",
@@ -159,11 +199,11 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     availability: "channels-layout",
   },
   {
-    id: "focus-space-search",
-    keys: SHORTCUTS.FOCUS_SPACE_SEARCH,
-    description: "Search spaces",
+    id: "focus-sidebar-search",
+    keys: SHORTCUTS.FOCUS_SIDEBAR_SEARCH,
+    description: "Search sidebar",
     category: "navigation",
-    context: "Spaces",
+    context: "Sidebar",
     availability: "channels-layout",
   },
   {
@@ -335,11 +375,8 @@ export const CATEGORY_LABELS: Record<ShortcutCategory, string> = {
 
 export function getShortcutsByCategory({
   channelsLayout = false,
-  inboxEnabled = true,
 }: {
   channelsLayout?: boolean;
-  /** Off when channel reports replace the inbox and nothing handles its key. */
-  inboxEnabled?: boolean;
 } = {}): Record<ShortcutCategory, KeyboardShortcut[]> {
   const grouped: Record<ShortcutCategory, KeyboardShortcut[]> = {
     general: [],
@@ -352,7 +389,6 @@ export function getShortcutsByCategory({
     : "no-channels-layout";
   for (const shortcut of KEYBOARD_SHORTCUTS) {
     if (shortcut.availability && shortcut.availability !== wanted) continue;
-    if (!inboxEnabled && shortcut.id === "inbox") continue;
     grouped[shortcut.category].push(shortcut);
   }
   return grouped;

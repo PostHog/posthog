@@ -33,7 +33,10 @@ class TestTemplateMigration(BaseTest):
         obj.team = self.team
         obj.save()
         PluginAttachment.objects.create(
-            plugin_config=obj, contents=b'{"cloud": "key"}', key="googleCloudKeyJson", file_size=10
+            plugin_config=obj,
+            contents=b'{"cloud": "key", "token_uri": "https://oauth2.googleapis.com/token"}',
+            key="googleCloudKeyJson",
+            file_size=10,
         )
 
         template = TemplateGoogleCloudStorageMigrator.migrate(obj)
@@ -55,7 +58,10 @@ class TestTemplateMigration(BaseTest):
         integration = Integration.objects.last()
         assert integration is not None
         assert integration.kind == "google-cloud-storage"
-        assert integration.sensitive_config["key_info"] == {"cloud": "key"}
+        assert integration.sensitive_config["key_info"] == {
+            "cloud": "key",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
         assert integration.sensitive_config.get("access_token") == "ACCESS_TOKEN"
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
@@ -77,7 +83,10 @@ class TestTemplateMigration(BaseTest):
         obj.team = self.team
         obj.save()
         PluginAttachment.objects.create(
-            plugin_config=obj, contents=b'{"cloud": "key"}', key="googleCloudKeyJson", file_size=10
+            plugin_config=obj,
+            contents=b'{"cloud": "key", "token_uri": "https://oauth2.googleapis.com/token"}',
+            key="googleCloudKeyJson",
+            file_size=10,
         )
 
         template = TemplateGoogleCloudStorageMigrator.migrate(obj)

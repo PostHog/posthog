@@ -17,6 +17,7 @@ notification_channel_per_team = {
     JobOwners.TEAM_DATA_STACK.value: "#alerts-data-warehouse",
     JobOwners.TEAM_DATA_TOOLS.value: "#alerts-data-tools",
     JobOwners.TEAM_ERROR_TRACKING.value: "#alerts-error-tracking",
+    JobOwners.TEAM_FEATURE_FLAGS.value: "#alerts-feature-flags",
     JobOwners.TEAM_GROWTH.value: "#alerts-growth",
     JobOwners.TEAM_AI_OBSERVABILITY.value: "#alerts-aio",
     JobOwners.TEAM_MANAGED_WAREHOUSE.value: "#alerts-managed-warehouse",
@@ -106,6 +107,7 @@ ASSET_NAME_PREFIX_OWNERS: tuple[tuple[str, JobOwners], ...] = (
     ("web_", JobOwners.TEAM_WEB_ANALYTICS),
     ("inbox_report_", JobOwners.TEAM_SELF_DRIVING),
     ("inbox_signal_", JobOwners.TEAM_SELF_DRIVING),
+    ("inbox_ranking_", JobOwners.TEAM_SELF_DRIVING),
 )
 
 

@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "channel_id": {
+            "description": "ID of the visible destination space.",
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the canvas to move.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "channel_id"],
+    "type": "object"
+}

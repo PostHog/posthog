@@ -231,6 +231,7 @@ export interface InputsItemApi {
     value?: unknown
     templating?: HogFunctionTemplatingEnumApi
     readonly bytecode: readonly unknown[]
+    readonly bytecode_contract: string
     readonly order: number
     readonly transpiled: unknown
 }
@@ -249,6 +250,7 @@ export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
  * * `site_app` - Site App
  * * `transformation` - Transformation
  * * `transformation_log` - Transformation Log
+ * * `legacy_destination` - Legacy Destination
  */
 export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
 
@@ -261,6 +263,7 @@ export const HogFunctionTypeEnumApi = {
     SiteApp: 'site_app',
     Transformation: 'transformation',
     TransformationLog: 'transformation_log',
+    LegacyDestination: 'legacy_destination',
 } as const
 
 /**
@@ -284,6 +287,8 @@ export const HogFunctionTypeEnumApi = {
  * * `task_model` - task_model
  * * `task_repository` - task_repository
  * * `task_mcp_installations` - task_mcp_installations
+ * * `signals_scout` - signals_scout
+ * * `task_skills` - task_skills
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -308,6 +313,8 @@ export const InputsSchemaItemTypeEnumApi = {
     TaskModel: 'task_model',
     TaskRepository: 'task_repository',
     TaskMcpInstallations: 'task_mcp_installations',
+    SignalsScout: 'signals_scout',
+    TaskSkills: 'task_skills',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -333,6 +340,7 @@ export interface InputsSchemaItemApi {
 
 /**
  * * `events` - events
+ * * `internal-events` - internal-events
  * * `person-updates` - person-updates
  * * `data-warehouse-table` - data-warehouse-table
  * * `data-warehouse-view` - data-warehouse-view
@@ -342,6 +350,7 @@ export type HogFunctionFiltersSourceEnumApi =
 
 export const HogFunctionFiltersSourceEnumApi = {
     Events: 'events',
+    InternalEvents: 'internal-events',
     PersonUpdates: 'person-updates',
     DataWarehouseTable: 'data-warehouse-table',
     DataWarehouseView: 'data-warehouse-view',
@@ -365,6 +374,7 @@ export interface HogFunctionFiltersApi {
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
+    bytecode_contract?: string
 }
 
 export interface HogFunctionMaskingApi {
@@ -405,7 +415,8 @@ export interface HogFunctionApi {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
-     * * `transformation_log` - Transformation Log */
+     * * `transformation_log` - Transformation Log
+     * * `legacy_destination` - Legacy Destination */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -494,7 +505,8 @@ export interface PatchedHogFunctionApi {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
-     * * `transformation_log` - Transformation Log */
+     * * `transformation_log` - Transformation Log
+     * * `legacy_destination` - Legacy Destination */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.

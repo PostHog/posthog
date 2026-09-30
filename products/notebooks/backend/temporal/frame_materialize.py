@@ -64,6 +64,7 @@ from posthog.clickhouse.client.connection import (
     ClickHouseUser,
     get_clickhouse_creds,
     get_kwargs_for_client,
+    is_file_backed_user,
     make_ch_pool,
 )
 from posthog.clickhouse.client.execute import kill_switch_overrides
@@ -81,7 +82,6 @@ from posthog.exceptions import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import (
@@ -91,6 +91,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseTooManyRowsOrBytesError,
 )
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend import frame_store
 
 logger = structlog.get_logger(__name__)
@@ -645,13 +646,26 @@ def _bounded_offline_client(team_id: int) -> AbstractContextManager:
     thread. Route through a dedicated pool that shares the offline-host + notebooks-user
     routing but caps the socket timeout just above max_execution_time. `make_ch_pool` is
     cached, so this is one extra pool per (offline, notebooks) combination, not per call.
-    (Note: sync_execute enters the client as its own context manager and disconnects it on
-    exit, so connections aren't kept warm across calls — the pool's value here is the bounded
-    timeout, not connection reuse. Negligible at this path's volume: one reconnect per
-    materialization, dwarfed by the INSERT itself.)
+    sync_execute enters the client as its own context manager and disconnects it on exit,
+    so connections aren't kept warm across calls. The pool's value here is the bounded
+    timeout, not connection reuse. This costs one reconnect per materialization, which is
+    dwarfed by the INSERT itself.
+
+    Mirror the file-backed branch of `get_pool` so a token-authenticated notebooks user
+    stays token-aware. Without `credential_provider` the pool binds with the static
+    password and never picks up a rotated token.
     """
     kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, ch_user=ClickHouseUser.NOTEBOOKS)
-    pool = make_ch_pool(send_receive_timeout=_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS, **kwargs)
+    creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
+    if is_file_backed_user(creds, Workload.OFFLINE, kwargs.get("user")):
+        kwargs.pop("password", None)
+        pool = make_ch_pool(
+            send_receive_timeout=_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS,
+            credential_provider=creds.read_password,
+            **kwargs,
+        )
+    else:
+        pool = make_ch_pool(send_receive_timeout=_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS, **kwargs)
     return pool.get_client()
 
 

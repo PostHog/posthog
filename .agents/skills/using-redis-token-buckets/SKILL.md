@@ -18,7 +18,7 @@ description: 'Use when adding a bucket-like rate limit backed by Redis: a per-ca
 ## When NOT to use it
 
 - **Per-IP or per-user request throttling on ordinary DRF endpoints**: subclass the existing throttles in `posthog/rate_limit.py` (`IPThrottle`, `UserRateThrottle`, `PersonalApiKeyRateThrottle`). They integrate with DRF's lifecycle and the `RATE_LIMIT_ENABLED` instance setting.
-- **Outbound third-party API calls**: use `posthog/egress/` and its `limits`-library sliding-window limiter (`posthog/egress/limiter/`), which carries priorities and degraded fallbacks.
+- **Outbound third-party API calls**: use `posthog/egress/` and its `limits`-library sliding-window limiter (`posthog/egress/limiter/`), which carries priorities and degraded fallbacks. `/routing-outbound-api-calls` covers the route.
 - **Hard quotas that must survive a Redis flush**: a bucket is best-effort (eviction or failover hands the caller a fresh budget). Pair it with a durable Postgres count for the few operations where that matters, and treat the bucket as the fast path.
 - **Concurrency caps** (how many at once, not how often): see the sorted-set gate in `posthog/clickhouse/client/limit.py`.
 
@@ -68,4 +68,4 @@ The agentic provisioning rate limits (`ee/api/agentic_provisioning/ratelimits.py
 
 ## Testing
 
-Under `settings.TEST`, `posthog.redis.get_client()` returns fakeredis, which executes the Lua scripts (via lupa). Control time with `freeze_time` (the script's clock is passed in from Python), reset between tests with `posthog.redis.TEST_clear_clients()` + `posthog.token_bucket.TEST_reset_scripts()`, and see `posthog/test/test_token_bucket.py` for the pattern.
+Under `settings.TEST`, `posthog.redis.get_client()` returns fakeredis, which executes the Lua scripts (via lupa). Control time with `time_machine.travel(..., tick=False)` (the script's clock is passed in from Python), reset between tests with `posthog.redis.TEST_clear_clients()` + `posthog.token_bucket.TEST_reset_scripts()`, and see `posthog/test/test_token_bucket.py` for the pattern.

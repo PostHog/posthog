@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
@@ -16,8 +16,21 @@ from posthog.clickhouse.workload import Workload
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
-# 50GB - limit for user-provided HogQL queries on log tables to prevent expensive full scans
-HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES = 50_000_000_000
+    from posthog.models.organization import Organization
+
+# Limit for user-provided HogQL queries on log tables to prevent expensive full scans.
+# Paid and enterprise orgs get a higher budget; free stays at the original 50GB cap.
+HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
+    "free": 50_000_000_000,
+    "paid": 150_000_000_000,
+    "enterprise": 150_000_000_000,
+}
+
+
+def get_hogql_max_bytes_to_read_for_logs_user_queries(organization: "Organization | None") -> int:
+    """Read-byte budget for user-provided HogQL queries on log tables, scaled by plan tier."""
+    tier = organization.get_plan_tier() if organization is not None else "free"
+    return HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES_BY_TIER[tier]
 
 
 class LogsTable(Table):
@@ -84,6 +97,16 @@ class LogsTable(Table):
         ),
         "service_name": StringDatabaseField(
             name="service_name", nullable=False, description="Name of the service that emitted the log."
+        ),
+        "pattern": StringDatabaseField(
+            name="pattern",
+            nullable=False,
+            description="Masked template of the log message, with variable parts replaced. Logs that share a pattern are the same kind of message. Empty when the log was not stamped.",
+        ),
+        "pattern_version": IntegerDatabaseField(
+            name="pattern_version",
+            nullable=False,
+            description="Version of the masking rules that produced `pattern`. 0 means the log was not stamped, so compare patterns only within one version.",
         ),
         # internal fields for query optimization
         # Physical type-suffixed backing map of `attributes`. A bare arrayElement() on it reads only

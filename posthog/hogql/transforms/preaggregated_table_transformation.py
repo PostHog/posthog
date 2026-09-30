@@ -273,47 +273,42 @@ def _get_supported_field(field: ast.Field) -> tuple[str, ast.Field] | None:
     """
     Check if a field represents a supported property and return (property_name, field) if valid.
     """
-    # Handle properties.x pattern
-    if len(field.chain) == 2 and field.chain[0] == "properties":
-        property_name = field.chain[1]
-        if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
-            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
+    match field.chain:
+        # Handle properties.x pattern
+        case ["properties", property_name]:
+            if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
+                return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 
-    # Handle properties.metadata.x pattern (for nested properties like metadata.loggedIn)
-    elif len(field.chain) == 3 and field.chain[0] == "properties":
-        property_name = f"{field.chain[1]}.{field.chain[2]}"
-        if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
-            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
+        # Handle properties.metadata.x pattern (for nested properties like metadata.loggedIn)
+        case ["properties", parent, child]:
+            property_name = f"{parent}.{child}"
+            if property_name in EVENT_PROPERTY_TO_FIELD:
+                return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 
-    # Handle events.properties.x pattern
-    elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "properties":
-        property_name = field.chain[2]
-        if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
-            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
+        # Handle events.properties.x pattern
+        case ["events", "properties", property_name]:
+            if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
+                return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 
-    # Handle events.properties.metadata.x pattern (for nested properties like metadata.loggedIn)
-    elif len(field.chain) == 4 and field.chain[0] == "events" and field.chain[1] == "properties":
-        property_name = f"{field.chain[2]}.{field.chain[3]}"
-        if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
-            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
+        # Handle events.properties.metadata.x pattern (for nested properties like metadata.loggedIn)
+        case ["events", "properties", parent, child]:
+            property_name = f"{parent}.{child}"
+            if property_name in EVENT_PROPERTY_TO_FIELD:
+                return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 
-    # Handle session.x pattern
-    elif len(field.chain) == 2 and field.chain[0] == "session":
-        property_name = field.chain[1]
-        if isinstance(property_name, str) and property_name in SESSION_PROPERTY_TO_FIELD:
-            return (property_name, ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]]))
+        # Handle session.x pattern
+        case ["session", property_name]:
+            if isinstance(property_name, str) and property_name in SESSION_PROPERTY_TO_FIELD:
+                return (property_name, ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]]))
 
-    # Handle events.session.x pattern
-    elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "session":
-        property_name = field.chain[2]
-        if isinstance(property_name, str) and property_name in SESSION_PROPERTY_TO_FIELD:
-            return (property_name, ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]]))
+        # Handle events.session.x pattern
+        case ["events", "session", property_name]:
+            if isinstance(property_name, str) and property_name in SESSION_PROPERTY_TO_FIELD:
+                return (property_name, ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]]))
 
-    # Handle team_id and events.team_id
-    elif (len(field.chain) == 1 and field.chain[0] == "team_id") or (
-        len(field.chain) == 2 and field.chain[1] == "team_id"
-    ):
-        return ("team_id", ast.Field(chain=["team_id"]))
+        # Handle team_id and events.team_id
+        case ["team_id"] | [_, "team_id"]:
+            return ("team_id", ast.Field(chain=["team_id"]))
 
     return None
 

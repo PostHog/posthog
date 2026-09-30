@@ -53,12 +53,28 @@ export const StreamlitAppsActivateVersionCreateBody = /* @__PURE__ */ zod.object
  */
 export const streamlitAppsCreateVersionFromSourceCreateBodySourceMax = 1048576
 
+export const streamlitAppsCreateVersionFromSourceCreateBodyFilesMaxOne = 1048576
+
+export const streamlitAppsCreateVersionFromSourceCreateBodyAssetsMaxOne = 13981016
+
 export const StreamlitAppsCreateVersionFromSourceCreateBody = /* @__PURE__ */ zod.object({
     source: zod
         .string()
         .max(streamlitAppsCreateVersionFromSourceCreateBodySourceMax)
         .describe(
             "Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version."
+        ),
+    files: zod
+        .record(zod.string(), zod.string().max(streamlitAppsCreateVersionFromSourceCreateBodyFilesMaxOne))
+        .optional()
+        .describe(
+            "Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data\/config.json'), each as plain text (max 1 MB)."
+        ),
+    assets: zod
+        .record(zod.string(), zod.string().max(streamlitAppsCreateVersionFromSourceCreateBodyAssetsMaxOne))
+        .optional()
+        .describe(
+            "Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data\/events.parquet'), each as standard base64 text."
         ),
 })
 

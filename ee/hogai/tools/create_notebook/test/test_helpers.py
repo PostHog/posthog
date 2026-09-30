@@ -6,7 +6,7 @@ from unittest.mock import patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.schema import TrendsQuery, VisualizationMessage
+from posthog.schema import MarkdownBlock, TrendsQuery, VisualizationMessage
 
 from products.notebooks.backend.facade.collab import apply_utf16_text_changes, markdown_crc
 from products.notebooks.backend.models import Notebook
@@ -196,6 +196,23 @@ class TestSaveNotebookToDb(BaseTest):
         self.assertIn("InsightVizNode", markdown)
         self.assertEqual(notebook.text_content, markdown)
 
+    def test_save_notebook_keeps_mdx_cells_and_resolves_visualizations(self) -> None:
+        parent = self._create_notebook_parent("mdxr")
+        self._create_visualization_artifact({"kind": "TrendsQuery", "series": []}, "chrt")
+        mdx = '---\n\n<SQLV2 code="SELECT 1" />\n\n<Widget prompt="Plot the results" />'
+        async_to_sync(save_notebook_to_db)(
+            team=self.team,
+            user=self.user,
+            artifact=parent,
+            blocks=[MarkdownBlock(content=mdx), VisualizationRefBlock(artifact_id="chrt")],
+            title="Chart notes",
+            state_messages=[],
+        )
+        notebook = Notebook.objects.get(team=self.team, short_id=parent.short_id)
+        markdown = _get_notebook_markdown(notebook)
+        self.assertTrue(markdown.startswith(f"# Chart notes\n\n{mdx}\n\n"))
+        self.assertEqual(len(_extract_query_props(markdown)), 1)
+
     def test_save_notebook_keeps_tiptap_format_for_existing_notebook(self):
         parent = self._create_notebook_parent("ntfm")
         notebook = Notebook.objects.create(
@@ -316,7 +333,7 @@ class TestSaveNotebookToDb(BaseTest):
         from posthog.constants import AvailableFeature
         from posthog.models import OrganizationMembership, User
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}

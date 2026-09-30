@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import gzip
+import threading
+from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -164,6 +167,65 @@ def test_find_emits_diagnostics_on_no_compatible_artifact(capsys: pytest.Capture
     assert "After name/expiry/size/branch filters: 0 candidate(s)" in stderr
 
 
+class _ScriptedStatusServer(HTTPServer):
+    statuses: list[int]
+    request_count: int
+
+
+class _ScriptedStatusHandler(BaseHTTPRequestHandler):
+    server: _ScriptedStatusServer
+
+    def do_GET(self) -> None:
+        index = min(self.server.request_count, len(self.server.statuses) - 1)
+        self.server.request_count += 1
+        self.send_response(self.server.statuses[index])
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+
+@pytest.fixture
+def scripted_status_server() -> Iterator[_ScriptedStatusServer]:
+    server = _ScriptedStatusServer(("127.0.0.1", 0), _ScriptedStatusHandler)
+    server.statuses = [200]
+    server.request_count = 0
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.mark.parametrize(
+    "statuses,expected_status,expected_requests",
+    [
+        ([500, 502, 200], 200, 3),
+        ([503], 503, db_schema.GITHUB_RETRY_TOTAL + 1),
+        ([404, 200], 404, 1),
+    ],
+    ids=["transient_5xx_recovers", "persistent_5xx_returns_last_response", "4xx_not_retried"],
+)
+def test_github_session_retries_only_server_errors(
+    scripted_status_server: _ScriptedStatusServer,
+    monkeypatch: pytest.MonkeyPatch,
+    statuses: list[int],
+    expected_status: int,
+    expected_requests: int,
+) -> None:
+    monkeypatch.setattr(db_schema, "GITHUB_RETRY_BACKOFF_FACTOR", 0)
+    scripted_status_server.statuses = statuses
+    session = db_schema._github_session()
+    session.mount("http://", session.get_adapter("https://"))
+
+    response = session.get(f"http://127.0.0.1:{scripted_status_server.server_port}/", timeout=5)
+
+    assert response.status_code == expected_status
+    assert scripted_status_server.request_count == expected_requests
+
+
 def test_download_fails_when_no_compatible_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(db_schema, "github_token", lambda: "token")
     monkeypatch.setattr(db_schema, "find_newest_compatible_artifact", lambda **kwargs: None)
@@ -307,7 +369,8 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
 def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The dump comes from a database that routes product apps elsewhere, so it records their
     # migrations as applied without ever creating their tables. Left in place, the next product
-    # migration is applied for real here and fails on the missing table.
+    # migration is applied for real here and fails on the missing table. Nothing else may go: a
+    # forgotten row outside those apps makes the caller's migrate re-run DDL the dump already holds.
     schema_path = tmp_path / "schema.sql.gz"
     _write_schema(schema_path)
     commands: list[list[str]] = []
@@ -315,15 +378,13 @@ def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monk
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
     monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
     monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: None)
+    monkeypatch.setattr(db_schema, "_product_routed_app_labels", lambda: ["stamphog", "visual_review"])
 
     db_schema.restore_schema_dump(target_db="test_posthog", recreate=False, schema_path=schema_path)
 
     deletes = [command[-1] for command in commands if "DELETE FROM django_migrations" in command[-1]]
-    assert len(deletes) == 1
-    app_labels = db_schema._product_routed_app_labels()
-    assert app_labels, "expected products/db_routing.yaml to route at least one app"
-    for app_label in app_labels:
-        assert f"'{app_label}'" in deletes[0]
+    assert deletes == ["DELETE FROM django_migrations WHERE app IN ('stamphog', 'visual_review');"]
+    assert not [command for command in commands if command[:3] == ["python", "manage.py", "migrate"]]
 
 
 def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

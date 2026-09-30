@@ -1,6 +1,7 @@
 import type { ScoutSurface } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useSkillsSelectionActions } from "@posthog/ui/features/skills/skillsSelectionStore";
+import { settingsSourceHref } from "@posthog/ui/router/reportNavigation";
 import { track } from "@posthog/ui/shell/analytics";
 import { Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
@@ -9,8 +10,8 @@ import { Link } from "@tanstack/react-router";
 // they open in the in-app Skills view rather than linking out to GitHub. `name`
 // is the skill's frontmatter name, used to select it once Skills loads.
 const HELPER_SKILLS = [
-  { label: "authoring scouts", name: "authoring-signals-scouts" },
-  { label: "exploring scouts", name: "exploring-signals-scouts" },
+  { label: "writing agents", name: "authoring-scouts" },
+  { label: "exploring agents", name: "exploring-scouts" },
 ];
 
 /** One-line pointer to the two official scout helper skills, opened in-app. */
@@ -18,13 +19,14 @@ export function ScoutHelperSkillLinks({ surface }: { surface: ScoutSurface }) {
   const { requestSkill } = useSkillsSelectionActions();
   return (
     <Text className="text-[12px] text-gray-10">
-      Helper skills:{" "}
+      Skills:{" "}
       {HELPER_SKILLS.map((skill, index) => (
         <span key={skill.name}>
           {index > 0 ? " · " : null}
           <Link
             to="/settings/$category"
             params={{ category: "skills" }}
+            search={{ from: settingsSourceHref() }}
             onClick={() => {
               track(ANALYTICS_EVENTS.SCOUT_ACTION, {
                 action_type: "open_helper_skill",

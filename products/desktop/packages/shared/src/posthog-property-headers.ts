@@ -3,6 +3,7 @@ export type PosthogPropertyValue = string | number | boolean | null | undefined;
 export type PosthogProperties = Record<string, PosthogPropertyValue>;
 
 export const POSTHOG_PROJECT_ID_HEADER = "X-PostHog-Project-Id";
+export const POSTHOG_TASK_RUN_ID_HEADER = "X-PostHog-Task-Run-Id";
 
 /**
  * Make a value safe to embed in an HTTP header value. Only printable ASCII
@@ -33,6 +34,11 @@ function buildEntries(properties: PosthogProperties): Array<[string, string]> {
   return entries;
 }
 
+function taskRunIdHeader(properties: PosthogProperties): string | null {
+  const taskRunId = properties.task_run_id;
+  return typeof taskRunId === "string" ? sanitizeHeaderValue(taskRunId) : null;
+}
+
 /**
  * Build a `Record<string, string>` of `x-posthog-property-<name>` headers
  * suitable for `fetch()` init.headers. The LLM gateway lifts each header
@@ -44,7 +50,11 @@ function buildEntries(properties: PosthogProperties): Array<[string, string]> {
 export function buildPosthogPropertyHeaderRecord(
   properties: PosthogProperties,
 ): Record<string, string> {
-  return Object.fromEntries(buildEntries(properties));
+  const taskRunId = taskRunIdHeader(properties);
+  return {
+    ...Object.fromEntries(buildEntries(properties)),
+    ...(taskRunId ? { [POSTHOG_TASK_RUN_ID_HEADER]: taskRunId } : {}),
+  };
 }
 
 /**
@@ -56,9 +66,37 @@ export function buildPosthogPropertyHeaderRecord(
 export function buildPosthogPropertyHeaderLines(
   properties: PosthogProperties,
 ): string {
-  return buildEntries(properties)
+  return Object.entries(buildPosthogPropertyHeaderRecord(properties))
     .map(([key, value]) => `${key}: ${value}`)
     .join("\n");
+}
+
+/**
+ * Attribution node header for the person a request is spent on behalf of. The
+ * gateway keys its per-user spend limit on this value, so it must be the same
+ * node the spend-limit endpoint writes the limit against: the user's distinct
+ * id, not their uuid (see products/ai_gateway/backend/logic.py, _spend_node).
+ *
+ * Trust model: for local sessions this header is asserted by the client, so
+ * the limit it keys is a self-imposed guardrail, not a security boundary.
+ * Cloud runs pin the node server-side into the run's scoped token.
+ */
+const POSTHOG_USER_HEADER = "X-PostHog-User";
+
+export function buildPosthogUserHeaderRecord(
+  userNode: string | null | undefined,
+): Record<string, string> {
+  return userNode
+    ? { [POSTHOG_USER_HEADER]: sanitizeHeaderValue(userNode) }
+    : {};
+}
+
+export function buildPosthogUserHeaderLines(
+  userNode: string | null | undefined,
+): string {
+  return userNode
+    ? `${POSTHOG_USER_HEADER}: ${sanitizeHeaderValue(userNode)}`
+    : "";
 }
 
 export function buildPosthogProjectHeaderRecord(
@@ -96,7 +134,7 @@ export function buildPosthogScopedPropertyHeaderLines(
 }
 
 /** Header carrying the whole property set as one JSON object. */
-export const POSTHOG_PROPERTIES_HEADER = "X-PostHog-Properties";
+const POSTHOG_PROPERTIES_HEADER = "X-PostHog-Properties";
 
 /**
  * Byte cap the Go gateway enforces on {@link POSTHOG_PROPERTIES_HEADER}; a
@@ -165,16 +203,21 @@ export function buildPosthogPropertiesHeaderRecord(
   properties: PosthogProperties,
 ): Record<string, string> {
   const blob = buildPosthogPropertiesBlob(properties);
-  return blob ? { [POSTHOG_PROPERTIES_HEADER]: blob } : {};
+  const taskRunId = taskRunIdHeader(properties);
+  return {
+    ...(blob ? { [POSTHOG_PROPERTIES_HEADER]: blob } : {}),
+    ...(taskRunId ? { [POSTHOG_TASK_RUN_ID_HEADER]: taskRunId } : {}),
+  };
 }
 
 /**
- * {@link buildPosthogPropertiesBlob} as a single `key: value` line for
+ * {@link buildPosthogPropertiesHeaderRecord} as `key: value` lines for
  * `ANTHROPIC_CUSTOM_HEADERS`, empty when there is nothing to send.
  */
 export function buildPosthogPropertiesHeaderLines(
   properties: PosthogProperties,
 ): string {
-  const blob = buildPosthogPropertiesBlob(properties);
-  return blob ? `${POSTHOG_PROPERTIES_HEADER}: ${blob}` : "";
+  return Object.entries(buildPosthogPropertiesHeaderRecord(properties))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
 }

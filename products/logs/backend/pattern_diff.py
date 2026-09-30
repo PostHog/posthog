@@ -166,6 +166,8 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
         )
     baseline_query = query.model_copy(update={"dateRange": baseline_date_range})
     baseline_runner = PatternsQueryRunner(team=team, query=baseline_query)
+    current_runner.use_stored_patterns = False
+    baseline_runner.use_stored_patterns = False
     baseline_from = baseline_runner.query_date_range.date_from()
     baseline_to = baseline_runner.query_date_range.date_to()
 
@@ -187,6 +189,9 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
 
 def _window_meta(results: dict, date_from: dt.datetime, date_to: dt.datetime) -> dict:
     return {
+        "source": results.get("source"),
+        "pattern_version": results.get("pattern_version"),
+        "fallback_reason": results.get("fallback_reason"),
         "scanned_count": results["scanned_count"],
         "total_count": results["total_count"],
         "sampled": results["sampled"],

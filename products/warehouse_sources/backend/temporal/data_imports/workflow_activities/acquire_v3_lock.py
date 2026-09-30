@@ -19,13 +19,12 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import scheduled_sync_consumes_buffer
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     acquire_v3_pipeline_lock,
@@ -34,9 +33,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     release_v3_pipeline_lock,
     write_v3_pipeline_lock_meta,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     is_pipeline_v3_enabled,
 )
+from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 LOGGER = get_logger(__name__)
 
@@ -49,10 +50,12 @@ TAKEOVER_MAX_HOLD_SECONDS = 24 * 60 * 60
 NO_JOB_ROW_TAKEOVER_GRACE_SECONDS = 900
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CheckPipelineVersionActivityInputs:
     team_id: int
     source_id: uuid.UUID
+    # Optional so payloads recorded before this field existed still deserialize on replay.
+    schema_id: uuid.UUID | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -80,9 +83,22 @@ class ReleaseV3LockActivityInputs:
 
 
 @activity.defn
+@with_internal_db_retries
 def check_pipeline_version_activity(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
     bind_contextvars(team_id=inputs.team_id)
     close_old_connections()
+
+    # Buffered CDC consumption requires the v3 loader, whose position resolution proves buffer
+    # files consumed, so it overrides the rollout flag: the same V3 the CDC extraction hardcodes
+    # for the jobs it creates.
+    if inputs.schema_id is not None:
+        schema = (
+            ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id)
+            .select_related("source")
+            .first()
+        )
+        if schema is not None and scheduled_sync_consumes_buffer(schema):
+            return CheckPipelineVersionActivityOutputs(is_v3=True)
 
     try:
         source = ExternalDataSource.objects.get(id=inputs.source_id)

@@ -14,19 +14,17 @@ database "posthog" {
     }
   }
 
-  # dev batches metrics ingest harder than the prods do.
-  patch_table "kafka_metrics_avro" {
+  patch_table "kafka_metrics_avro2" {
     engine "kafka" {
-      broker_list          = "warpstream_metrics"
-      topic_list           = "kafka_topic_list = 'clickhouse_metrics'"
-      group_name           = "kafka_group_name = 'clickhouse-metrics-avro-new'"
-      format               = "kafka_format = 'Avro'"
-      num_consumers        = 8
-      max_block_size       = 65536
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro2"
+      format               = "Avro"
+      num_consumers        = 4
       skip_broken_messages = 100
-      poll_timeout_ms      = 3000
-      poll_max_batch_size  = 65536
-      flush_interval_ms    = 7500
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 500
+      flush_interval_ms    = 10000
       thread_per_consumer  = true
     }
   }
@@ -40,6 +38,9 @@ database "posthog" {
   }
 
   patch_table "trace_spans" {
+    settings = {
+      storage_policy = "s3_tiered"
+    }
     projection "projection_aggregate_counts" {
       query = <<SQL
 SELECT
@@ -68,12 +69,4 @@ SQL
     }
   }
 
-  patch_materialized_view "kafka_logs34_avro_mv" {
-    modify_column "_bytes_uncompressed" {
-      type = "Nullable(Float64)"
-    }
-    modify_column "_bytes_compressed" {
-      type = "Nullable(Float64)"
-    }
-  }
 }

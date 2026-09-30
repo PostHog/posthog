@@ -45,14 +45,17 @@ export type LightweightPluginConfig = {
 }
 
 type PluginConfigHogFunction = {
-    pluginConfigId: number
+    /** Null once the plugin config has been migrated and the hog function row is the source of truth */
+    pluginConfigId: number | null
     hogFunction: HogFunctionType
 }
 
 const legacyPluginExecutionResultCounter = new Counter({
     name: 'cdp_legacy_event_consumer_execution_result_total',
     help: 'The number of times we have executed a legacy plugin',
-    labelNames: ['result', 'template_id'],
+    // `source` says which representation the consumer picked, so a migration can be watched as the
+    // share moving from plugin_config to hog_function while result stays where it was
+    labelNames: ['result', 'template_id', 'source'],
 })
 
 export type CdpLegacyEventsConsumerConfig = CdpConsumerBaseConfig &
@@ -92,6 +95,13 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             refreshAgeMs: 600000, // 10 minutes
             refreshBackgroundAgeMs: 300000, // 5 minutes
             bufferMs: 10, // 10ms buffer for batching
+        })
+
+        // This loader caches the combined plugin-config and migrated-function view, so the manager
+        // invalidating its own copy is not enough: enabling or deleting a migrated row has to change
+        // which of the two runs straight away, not at the next refresh.
+        deps.pubSub.on<{ teamId: number }>('reload-hog-functions', ({ teamId }) => {
+            this.pluginConfigsLoader.markForRefresh(teamId.toString())
         })
     }
 
@@ -212,6 +222,46 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             }
         }
 
+        return this.preferMigratedHogFunctions(results, await this.loadMigratedHogFunctions(teamIds))
+    }
+
+    private async loadMigratedHogFunctions(teamIds: string[]): Promise<Record<string, HogFunctionType[]>> {
+        const byTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
+            teamIds.map((id) => parseInt(id)),
+            ['legacy_destination']
+        )
+
+        return Object.fromEntries(Object.entries(byTeam).map(([teamId, fns]) => [teamId, fns]))
+    }
+
+    // Both representations would run the same processor. Production has at most one enabled onEvent
+    // plugin config per team and plugin, so the template id identifies the pair and the migrated row wins.
+    private preferMigratedHogFunctions(
+        fromPluginConfigs: Record<string, PluginConfigHogFunction[]>,
+        fromHogFunctions: Record<string, HogFunctionType[]>
+    ): Record<string, PluginConfigHogFunction[]> {
+        const results: Record<string, PluginConfigHogFunction[]> = {}
+
+        for (const [teamId, pluginConfigFns] of Object.entries(fromPluginConfigs)) {
+            // Nothing in the database stops two migrated rows sharing a template, and running both
+            // would send every event twice. Keep the oldest and ignore the rest.
+            const byTemplate = new Map<string, HogFunctionType>()
+            for (const fn of [...(fromHogFunctions[teamId] ?? [])].sort((a, b) => a.id.localeCompare(b.id))) {
+                const templateId = fn.template_id ?? ''
+                if (!byTemplate.has(templateId)) {
+                    byTemplate.set(templateId, fn)
+                }
+            }
+
+            const migrated = [...byTemplate.values()]
+            const migratedTemplateIds = new Set(migrated.map((fn) => fn.template_id))
+
+            results[teamId] = [
+                ...pluginConfigFns.filter((x) => !migratedTemplateIds.has(x.hogFunction.template_id)),
+                ...migrated.map((hogFunction) => ({ pluginConfigId: null, hogFunction })),
+            ]
+        }
+
         return results
     }
 
@@ -242,11 +292,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                     inputs[key] = { value }
                 }
             }
-        }
-
-        // Add legacy_plugin_config_id for plugins that use legacy storage
-        if (pluginId === 'customerio-plugin') {
-            inputs.legacy_plugin_config_id = { value: pluginConfig.id }
         }
 
         // Create a HogFunctionType
@@ -286,29 +331,31 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         const invocations = await this.getLegacyPluginHogFunctionInvocations(invocation)
 
         const results = await Promise.all(
-            invocations.map(async (invocation) => this.legacyPluginExecutor.execute(invocation))
+            invocations.map(async ({ invocation, pluginConfigId }) =>
+                this.legacyPluginExecutor.execute(invocation).then((result) => ({ result, pluginConfigId }))
+            )
         )
 
-        for (const result of results) {
-            const pluginConfigId = parseInt(result.invocation.hogFunction.id.replace('legacy-', ''))
+        for (const { result, pluginConfigId } of results) {
             const error = result.error
 
             legacyPluginExecutionResultCounter
                 .labels({
                     result: error ? 'error' : 'success',
                     template_id: result.invocation.hogFunction.template_id,
+                    source: pluginConfigId !== null ? 'plugin_config' : 'hog_function',
                 })
                 .inc()
 
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
                     team_id: event.teamId,
-                    app_source_id: String(pluginConfigId),
+                    app_source_id: pluginConfigId !== null ? String(pluginConfigId) : result.invocation.hogFunction.id,
                     metric_kind: error ? 'failure' : 'success',
                     metric_name: error ? 'failed' : 'succeeded',
                     count: 1,
                 },
-                'legacy_plugin'
+                pluginConfigId !== null ? 'legacy_plugin' : 'hog_function'
             )
         }
     }
@@ -363,16 +410,17 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
 
     private async getLegacyPluginHogFunctionInvocations(
         invocation: HogFunctionInvocationGlobals
-    ): Promise<CyclotronJobInvocationHogFunction[]> {
+    ): Promise<{ invocation: CyclotronJobInvocationHogFunction; pluginConfigId: number | null }[]> {
         const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(invocation.project.id.toString())
 
         if (!pluginConfigHogFunctions) {
             return []
         }
 
-        return pluginConfigHogFunctions.map(({ hogFunction }) => {
-            // Plugin configs are always static { value: any } so we can just convert to a record of strings
-            const inputs = Object.entries(hogFunction.inputs || {}).reduce(
+        return pluginConfigHogFunctions.map(({ hogFunction, pluginConfigId }) => {
+            // Plugin configs are always static { value: any } so we can just convert to a record of strings.
+            // A migrated row keeps its secrets in encrypted_inputs, which the manager decrypts separately.
+            const inputs = Object.entries({ ...hogFunction.inputs, ...hogFunction.encrypted_inputs }).reduce(
                 (acc, [key, value]) => {
                     acc[key] = value?.value
                     return acc
@@ -380,13 +428,16 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                 {} as Record<string, string>
             )
 
-            return createInvocation(
-                {
-                    ...invocation,
-                    inputs,
-                },
-                hogFunction
-            )
+            return {
+                pluginConfigId,
+                invocation: createInvocation(
+                    {
+                        ...invocation,
+                        inputs,
+                    },
+                    hogFunction
+                ),
+            }
         })
     }
 

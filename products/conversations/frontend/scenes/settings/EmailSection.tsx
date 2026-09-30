@@ -10,7 +10,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { EmailForwardingAddress } from '../../components/EmailForwardingAddress'
+import { EmailForwardingAddress } from '../../components/EmailForwardingAddress/EmailForwardingAddress'
 import { EmailConfigStatus, supportSettingsLogic } from './supportSettingsLogic'
 
 interface DnsRecord {

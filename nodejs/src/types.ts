@@ -18,7 +18,6 @@ import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
     KafkaWarehouseProducerEnvConfig,
-    KafkaWarpstreamCalculatedEventsProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
 } from './cdp/outputs/producers'
@@ -106,7 +105,6 @@ export interface PluginsServerConfig
         TracesIngestionConsumerConfig,
         // Producer envs needed by the CDP producer registry the legacy big server builds.
         KafkaWarpstreamIngestionProducerEnvConfig,
-        KafkaWarpstreamCalculatedEventsProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
@@ -187,6 +185,13 @@ export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
 
+/** Mirrors FlagEvaluationsMode on OrganizationFeatureFlagsConfig in the Django feature_flags product. */
+export enum FlagEvaluationsMode {
+    Events = 0,
+    ReadFlagEvaluations = 1,
+    FlagEvaluationsOnly = 2,
+}
+
 export enum CookielessServerHashMode {
     Disabled = 0,
     Stateless = 1,
@@ -258,6 +263,7 @@ export interface EventSchemaEnforcement {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    json_parse_logs_attribute_key?: string
     pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
@@ -278,6 +284,7 @@ export interface Team {
     ingested_event: boolean
     person_display_name_properties: string[] | null
     minimal_flag_called_events: boolean
+    flag_evaluations_mode: FlagEvaluationsMode
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
@@ -378,7 +385,12 @@ export interface ProcessedEvent {
     project_id: ProjectId
     distinct_id: string
     elements_chain: string
-    created_at: null
+    /**
+     * Stamped once when create-event assembles the event, so every table this
+     * event is written to agrees on it. Serializing twice would otherwise read
+     * the wall clock twice and stamp two different values.
+     */
+    created_at: DateTime
     captured_at: Date | null
     person_id: string
     person_properties: Record<string, unknown>
@@ -872,6 +884,8 @@ export interface EventHeaders {
     force_disable_person_processing: boolean
     historical_migration: boolean
     skip_heatmap_processing: boolean
+    /** The Kafka partition key a redirect dropped, so the overflow lane can refresh its overflow flag. */
+    redirect_original_key?: string
 }
 
 export interface IncomingEvent {

@@ -2,8 +2,23 @@ import pytest
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
+from paramiko import RSAKey
 
-from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
+
+
+def _password_tunnel(host_key: str | None) -> SSHTunnel:
+    return SSHTunnel(
+        enabled=True,
+        host="host.com",
+        port=5432,
+        auth_type="password",
+        username="user1",
+        password="password",
+        private_key=None,
+        passphrase=None,
+        host_key=host_key,
+    )
 
 
 def _keypair_tunnel(private_key: str | None, passphrase: str | None) -> SSHTunnel:
@@ -113,6 +128,95 @@ def test_is_auth_valid_wrong_passphrase_suggests_passphrase():
     assert "passphrase" in error.lower()
 
 
+def _host_key_line(key_type: str) -> str:
+    if key_type == "ssh-rsa":
+        key = RSAKey.generate(2048)
+        return f"{key.get_name()} {key.get_base64()}"
+
+    public_key = ed25519.Ed25519PrivateKey.generate().public_key()
+    return public_key.public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH).decode()
+
+
+@pytest.mark.parametrize("host_key", [None, "", "   \n  "])
+def test_blank_host_key_leaves_server_unverified(host_key):
+    tunnel = _password_tunnel(host_key=host_key)
+
+    assert tunnel.is_host_key_valid() == (True, "")
+    assert tunnel.parse_host_key() is None
+    assert tunnel.get_tunnel("host.com", 3306, ssh_host="93.184.216.34").ssh_host_key is None
+
+
+@pytest.mark.parametrize(
+    "host_key,expected",
+    [
+        ("not a host key", "no ssh host key found"),
+        ("@cert-authority *.example.com ssh-rsa AAAAB3NzaC1yc2E=", "not a host key"),
+        ("@revoked host.com ssh-rsa AAAAB3NzaC1yc2E=", "not a host key"),
+    ],
+)
+def test_unparseable_host_key_is_rejected(host_key, expected):
+    res, error = _password_tunnel(host_key=host_key).is_host_key_valid()
+
+    assert res is False
+    assert expected in error.lower()
+
+
+@pytest.mark.parametrize("on_one_line", [False, True])
+def test_multiple_host_keys_are_rejected(on_one_line):
+    rsa_key, ed25519_key = _host_key_line("ssh-rsa"), _host_key_line("ssh-ed25519")
+    if on_one_line:
+        paste = f"host.com {rsa_key} {ed25519_key}"
+    else:
+        paste = "\n".join(["# host.com:22 SSH-2.0-OpenSSH_9.6", f"host.com {rsa_key}", f"host.com {ed25519_key}"])
+
+    res, error = _password_tunnel(host_key=paste).is_host_key_valid()
+
+    assert res is False
+    assert "single host key" in error.lower()
+
+
+def test_a_host_key_wrapped_across_lines_is_rejected():
+    key_type, key_base64 = _host_key_line("ssh-rsa").split()
+
+    res, error = _password_tunnel(host_key=f"{key_type} {key_base64[:60]}\n{key_base64[60:]}").is_host_key_valid()
+
+    assert res is False
+    assert "incomplete" in error.lower()
+
+
+def test_a_key_advertised_under_an_sha2_name_is_accepted():
+    _, key_base64 = _host_key_line("ssh-rsa").split()
+
+    parsed = _password_tunnel(host_key=f"rsa-sha2-256 {key_base64}").parse_host_key()
+
+    assert parsed is not None
+    assert parsed.get_base64() == key_base64
+
+
+@pytest.mark.parametrize(
+    "key_type,hostname",
+    [
+        ("ssh-rsa", None),
+        ("ssh-rsa", "host.com"),
+        ("ssh-rsa", "ssh-bastion.example.com"),
+        ("ssh-rsa", "ssh-jump.corp.net,10.0.0.5"),
+        ("ssh-ed25519", None),
+        ("ssh-ed25519", "host.com"),
+    ],
+)
+def test_get_tunnel_pins_host_key(key_type, hostname):
+    line = _host_key_line(key_type)
+    key_name, key_base64 = line.split()
+    tunnel = _password_tunnel(host_key=f"{hostname} {line}" if hostname else line)
+
+    parsed = tunnel.parse_host_key()
+
+    assert parsed is not None
+    assert (parsed.get_name(), parsed.get_base64()) == (key_name, key_base64)
+    forwarder = tunnel.get_tunnel("host.com", 3306, ssh_host="93.184.216.34")
+    assert forwarder.ssh_host_key == parsed
+
+
 def test_get_tunnel_invalid_auth():
     ssh_tunnel = SSHTunnel(
         enabled=True,
@@ -145,3 +249,10 @@ def test_get_tunnel_invalid_port():
     with pytest.raises(Exception) as e:
         ssh_tunnel.get_tunnel("host.com", 1337, ssh_host="93.184.216.34")
         assert "port" in str(e.value)
+
+
+def test_config_from_dict_without_an_auth_section():
+    ssh_tunnel_config = SSHTunnelConfig.from_dict({"host": "host.com", "port": "22", "enabled": "false"})
+
+    assert ssh_tunnel_config.enabled is False
+    assert ssh_tunnel_config.auth.type is None

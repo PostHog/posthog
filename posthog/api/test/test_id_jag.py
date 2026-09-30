@@ -36,6 +36,8 @@ from posthog.api.id_jag import (
 )
 from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import Organization, OrganizationMembership
@@ -50,6 +52,7 @@ _AS_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
 _IDP_ISSUER = "https://idp.example.com"
 _VERIFIED_DOMAIN = "example.com"
 _PROVIDER_NAME = _VERIFIED_DOMAIN
+_IDP_CONFIG_NAME = "Example IdP"
 _SITE_URL = "https://posthog.test"
 _AUTH_SERVER_URL = _SITE_URL
 _RESOURCE_URL = _SITE_URL
@@ -124,7 +127,9 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             domain=_VERIFIED_DOMAIN,
             verified_at=timezone.now(),
         )
-        config = IdentityProviderConfig.objects.create(organization=cls.organization, id_jag_issuer_url=_IDP_ISSUER)
+        config = IdentityProviderConfig.objects.create(
+            organization=cls.organization, name=_IDP_CONFIG_NAME, id_jag_issuer_url=_IDP_ISSUER
+        )
         LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
 
     def setUp(self) -> None:
@@ -663,17 +668,19 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # that the domain isn't bound at all.
         self.assertEqual(resp.json()["error_description"], "ID-JAG could not be verified")
 
-    def test_issuer_match_is_slash_normalized(self) -> None:
-        # Store the issuer without trailing slash; ID-JAG carries one. The
-        # comparison must succeed because we rstrip on both sides — otherwise
-        # legitimate IdPs that always include a trailing slash on `iss` would
-        # be impossible to bind.
+    @parameterized.expand(
+        [
+            (_IDP_ISSUER, f"{_IDP_ISSUER}/"),
+            (f"{_IDP_ISSUER}///", _IDP_ISSUER),
+        ]
+    )
+    def test_issuer_match_is_slash_normalized(self, configured_issuer: str, assertion_issuer: str) -> None:
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
         config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
-        config.id_jag_issuer_url = _IDP_ISSUER
+        config.id_jag_issuer_url = configured_issuer
         config.save()
 
-        assertion = _make_id_jag(issuer=_IDP_ISSUER + "/")
+        assertion = _make_id_jag(issuer=assertion_issuer)
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
@@ -756,14 +763,14 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     def test_issue_access_token_helper(self) -> None:
         assertion = _make_id_jag()
-        token, granted, expires_in = issue_access_token(
+        issued_access_token = issue_access_token(
             assertion, requested_scope="feature_flag:read", request_client_id=_RESOURCE_CLIENT_ID
         )
-        self.assertEqual(granted, ["feature_flag:read"])
-        self.assertEqual(expires_in, 300)
+        self.assertEqual(issued_access_token.granted_scopes, ["feature_flag:read"])
+        self.assertEqual(issued_access_token.expires_in_seconds, 300)
         # Token decodable with the AS public key.
         jwt.decode(
-            token,
+            issued_access_token.access_token,
             _public_key_for(_AS_PRIVATE_KEY_PEM),
             algorithms=["RS256"],
             audience=_RESOURCE_URL,
@@ -832,6 +839,37 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
 
     def _call_authenticated(self, token: str) -> Any:
         return self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    @parameterized.expand(
+        [
+            ("plain client id", _RESOURCE_CLIENT_ID, _RESOURCE_CLIENT_ID),
+            ("client id with a NUL", "mcp\x00erase", "mcperase"),
+            (
+                "client id longer than the column",
+                "c" * (ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH + 1),
+                "c" * ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+            ),
+        ]
+    )
+    def test_write_is_attributed_to_the_resolved_user(
+        self, _name: str, client_id: str, expected_credential_id: str
+    ) -> None:
+        token = self._mint_access_token(scope="experiment:write feature_flag:write", client_id=client_id)
+
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "ID-JAG experiment", "feature_flag_key": "id-jag-attribution-flag"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        log = ActivityLog.objects.get(scope="Experiment", activity="created", item_id=str(resp.json()["id"]))
+        assert (log.user, log.is_system, log.credential_type, log.credential_id) == (
+            self.user,
+            False,
+            "id_jag",
+            expected_credential_id,
+        )
 
     def test_valid_token_authenticates_user(self) -> None:
         token = self._mint_access_token(scope="user:read")

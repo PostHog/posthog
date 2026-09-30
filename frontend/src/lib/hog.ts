@@ -7,9 +7,12 @@ import {
     HogQLPrinter,
     VMState,
     ASTNode,
+    convertHogToJS,
     exec as hogExec,
     execAsync as hogExecAsync,
 } from '@posthog/hogvm'
+
+export { convertHogToJS }
 
 import { performQuery } from '~/queries/query'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'

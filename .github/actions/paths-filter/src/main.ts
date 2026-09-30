@@ -4,9 +4,10 @@ import * as github from '@actions/github'
 import {GetResponseDataTypeFromEndpointMethod} from '@octokit/types'
 import {PullRequest, PushEvent} from '@octokit/webhooks-types'
 
-import {Filter, FilterResults} from './filter'
+import {Filter, FilterResults, firedKeys} from './filter'
 import {File, ChangeStatus} from './file'
 import * as git from './git'
+import * as shadow from './shadow'
 import {backslashEscape, shellEscape} from './list-format/shell-escape'
 import {csvEscape} from './list-format/csv-escape'
 
@@ -33,10 +34,13 @@ async function run(): Promise<void> {
     }
 
     const filter = new Filter(filtersYaml)
-    const files = await getChangedFiles(token, base, ref, initialFetchDepth)
+    const {files, api} = await getChangedFiles(token, base, ref, initialFetchDepth)
     core.info(`Detected ${files.length} changed files`)
     const results = filter.match(files)
     exportResults(results, listFiles)
+    if (api) {
+      await shadow.report({filter, apiFiles: files, apiResults: results, ...api})
+    }
   } catch (error) {
     core.setFailed(getErrorMessage(error))
   }
@@ -58,14 +62,27 @@ function getConfigFileContent(configPath: string): string {
   return fs.readFileSync(configPath, {encoding: 'utf8'})
 }
 
-async function getChangedFiles(token: string, base: string, ref: string, initialFetchDepth: number): Promise<File[]> {
+// `api` is present only when the list came from the pull request files API, and carries
+// what the shadow comparison needs to describe that call. The shadow runs from `run()`,
+// which already holds the filter and its results, so detection stays free of it.
+interface ChangedFiles {
+  files: File[]
+  api?: {apiRows: number; apiTruncated: boolean; pr: PullRequest}
+}
+
+async function getChangedFiles(
+  token: string,
+  base: string,
+  ref: string,
+  initialFetchDepth: number
+): Promise<ChangedFiles> {
   // if base is 'HEAD' only local uncommitted changes will be detected
   // This is the simplest case as we don't need to fetch more commits or evaluate current/before refs
   if (base === git.HEAD) {
     if (ref) {
       core.warning(`'ref' input parameter is ignored when 'base' is set to HEAD`)
     }
-    return await git.getChangesOnHead()
+    return {files: await git.getChangesOnHead()}
   }
 
   switch (github.context.eventName) {
@@ -83,7 +100,8 @@ async function getChangedFiles(token: string, base: string, ref: string, initial
       }
       const pr = github.context.payload.pull_request as PullRequest
       if (token) {
-        return await getChangedFilesFromApi(token, pr)
+        const {files, apiRows, apiTruncated} = await getChangedFilesFromApi(token, pr)
+        return {files, api: {apiRows, apiTruncated, pr}}
       }
       if (github.context.eventName === 'pull_request_target') {
         // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
@@ -95,11 +113,11 @@ async function getChangedFiles(token: string, base: string, ref: string, initial
       const baseSha = github.context.payload.pull_request?.base.sha
       const defaultBranch = github.context.payload.repository?.default_branch
       const currentRef = await git.getCurrentRef()
-      return await git.getChanges(base || baseSha || defaultBranch, currentRef)
+      return {files: await git.getChanges(base || baseSha || defaultBranch, currentRef)}
     }
   }
 
-  return getChangedFilesFromGit(base, ref, initialFetchDepth)
+  return {files: await getChangedFilesFromGit(base, ref, initialFetchDepth)}
 }
 
 async function getChangedFilesFromGit(base: string, head: string, initialFetchDepth: number): Promise<File[]> {
@@ -164,13 +182,21 @@ async function getChangedFilesFromGit(base: string, head: string, initialFetchDe
   return await git.getChangesSinceMergeBase(base, head, initialFetchDepth)
 }
 
+// The API truncates at this many rows and says nothing when it does.
+const API_FILE_CAP = 3000
+
 // Uses github REST api to get list of files changed in PR
-async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): Promise<File[]> {
+// Truncation is judged on API rows, not on `files`, which expands a rename into two.
+async function getChangedFilesFromApi(
+  token: string,
+  pullRequest: PullRequest
+): Promise<{files: File[]; apiRows: number; apiTruncated: boolean}> {
   core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`)
   try {
     const client = github.getOctokit(token)
     const per_page = 100
     const files: File[] = []
+    let apiRows = 0
 
     core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`)
     for await (const response of client.paginate.iterator(
@@ -187,6 +213,7 @@ async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): 
       core.info(`Received ${response.data.length} items`)
 
       for (const row of response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>) {
+        apiRows++
         core.info(`[${row.status}] ${row.filename}`)
         // There's no obvious use-case for detection of renames
         // Therefore we treat it as if rename detection in git diff was turned off.
@@ -212,7 +239,7 @@ async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): 
       }
     }
 
-    return files
+    return {files, apiRows, apiTruncated: apiRows >= API_FILE_CAP}
   } finally {
     core.endGroup()
   }
@@ -220,12 +247,11 @@ async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): 
 
 function exportResults(results: FilterResults, format: ExportFormat): void {
   core.info('Results:')
-  const changes = []
+  const fired = firedKeys(results)
   for (const [key, files] of Object.entries(results)) {
-    const value = files.length > 0
+    const value = fired.has(key)
     core.startGroup(`Filter ${key} = ${value}`)
-    if (files.length > 0) {
-      changes.push(key)
+    if (value) {
       core.info('Matching files:')
       for (const file of files) {
         core.info(`${file.filename} [${file.status}]`)
@@ -244,7 +270,7 @@ function exportResults(results: FilterResults, format: ExportFormat): void {
   }
 
   if (results['changes'] === undefined) {
-    const changesJson = JSON.stringify(changes)
+    const changesJson = JSON.stringify([...fired])
     core.info(`Changes output set to ${changesJson}`)
     core.setOutput('changes', changesJson)
   } else {

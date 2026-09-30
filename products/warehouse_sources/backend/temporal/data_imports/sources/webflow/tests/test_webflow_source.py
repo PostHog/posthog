@@ -48,6 +48,18 @@ class TestWebflowSource:
         matches = [pattern for pattern in errors if pattern in raised_message]
         assert matches == ["409 Client Error: Conflict"]
 
+    def test_406_not_acceptable_message_is_recognised_as_non_retryable(self) -> None:
+        # Webflow returns 406 deterministically for a given site/token when listing CMS
+        # collections; the raised HTTPError message embeds a volatile site id and URL, so we
+        # must match on a stable substring that excludes them.
+        errors = WebflowSource().get_non_retryable_errors()
+        raised_message = (
+            "406 Client Error: Not Acceptable for url: "
+            "https://api.webflow.com/v2/sites/64cd40ea6c8cca864c510895/collections"
+        )
+        matches = [pattern for pattern in errors if pattern in raised_message]
+        assert matches == ["406 Client Error"]
+
     def test_deleted_collection_message_is_recognised_as_non_retryable(self) -> None:
         # _resolve_collection_id raises this when a collection's slug no longer resolves at sync
         # time; the message embeds a volatile schema name and site id, so we must match on a stable
@@ -144,6 +156,34 @@ class TestWebflowWebhookSupport:
         self, _name: str, enabled: list[str], expected: list[str]
     ) -> None:
         assert WebflowSource().get_desired_webhook_events(_config(), enabled) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "every_trigger_secret_captured",
+                {"signing_secrets": {"secret": True}, "signing_secrets_complete": {"value": True}},
+                [],
+            ),
+            # Webflow returns a secret only for the triggers it registered this time. The rest cannot
+            # be verified, so the manual secret is still required even though the list is non-empty.
+            (
+                "only_some_trigger_secrets_captured",
+                {
+                    "signing_secrets": {"secret": True},
+                    "signing_secrets_complete": {"value": False},
+                    "signing_secret": {"value": ""},
+                },
+                ["signing_secret"],
+            ),
+            ("registered_before_completeness_was_recorded", {"signing_secrets": {"secret": True}}, []),
+            ("manual_secret", {"signing_secret": {"secret": True}}, []),
+            ("nothing_set", {"signing_secret": {"value": ""}}, ["signing_secret"]),
+        ]
+    )
+    def test_missing_webhook_inputs_tracks_provider_secret_completeness(
+        self, _name: str, inputs: dict, expected: list[str]
+    ) -> None:
+        assert WebflowSource().missing_webhook_inputs(inputs) == expected
 
     @parameterized.expand(
         [

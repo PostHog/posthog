@@ -36,6 +36,19 @@ function toolEntry(
   return entry(sessionUpdate, { _meta: { claudeCode: meta } });
 }
 
+const REJECTED_TOOL_IDS = [
+  "toolu_01AbCdEfGh[REDACTED]",
+  "toolu_01AbCdEfGh.REDACTED.",
+];
+
+function expectRepairedToolIds(callIds: unknown[], resultIds: unknown[]): void {
+  for (const id of callIds) {
+    expect(id).toMatch(/^[a-zA-Z0-9_-]+$/);
+  }
+  expect(new Set(callIds).size).toBe(callIds.length);
+  expect(resultIds).toEqual(callIds);
+}
+
 describe("getSessionJsonlPath", () => {
   it("constructs path from sessionId and cwd", () => {
     const original = process.env.CLAUDE_CONFIG_DIR;
@@ -433,6 +446,36 @@ describe("rebuildConversation", () => {
     expect(input.preview.length).toBeLessThan(11_000);
     expect(input.originalSize).toBeGreaterThan(50_000);
   });
+
+  it.each(["tool_call_update", "tool_result"])(
+    "excludes MCP metadata from rebuilt model history for %s",
+    (sessionUpdate) => {
+      const rawOutput = {
+        content: [{ type: "text", text: "3 rows" }],
+        _meta: { "com.posthog.mcp/app_data": { rows: "UI_ONLY".repeat(5000) } },
+      };
+      const turns = rebuildConversation([
+        entry("user_message", { content: { type: "text", text: "run query" } }),
+        entry("tool_call", {
+          toolCallId: "toolu_query",
+          _meta: { claudeCode: { toolName: "mcp__posthog__exec" } },
+          rawInput: { command: "call insight-query {}" },
+        }),
+        entry(sessionUpdate, { toolCallId: "toolu_query", rawOutput }),
+      ]);
+
+      expect(turns[1].toolCalls?.[0].result).toEqual({
+        content: rawOutput.content,
+      });
+      const transcript = conversationTurnsToJsonlEntries(turns, {
+        sessionId: "test-session",
+        cwd: "/test",
+      }).join("\n");
+      expect(transcript).toContain("3 rows");
+      expect(transcript).not.toContain("UI_ONLY");
+      expect(rawOutput._meta).toBeDefined();
+    },
+  );
 });
 
 describe("selectRecentTurns", () => {
@@ -592,7 +635,7 @@ describe("conversationTurnsToJsonlEntries", () => {
       { type: "text", text: "running" },
     ]);
     expect(conv[0].message.stop_reason).toBeNull();
-    expect(conv[0].message.model).toBe("claude-opus-4-8");
+    expect(conv[0].message.model).toBe("claude-opus-5-5");
     expect(conv[0].message.id).toMatch(/^msg_01[A-Za-z0-9]{24}$/);
 
     expect(conv[1].type).toBe("assistant");
@@ -711,6 +754,32 @@ describe("conversationTurnsToJsonlEntries", () => {
     const conv = parseConversationEntries(lines);
     expect(conv[2].message.content[0].content).toBe(
       JSON.stringify({ files: ["a.ts"] }),
+    );
+  });
+
+  it("repairs tool ids the API rejects, and keeps each call paired with its result", () => {
+    const lines = conversationTurnsToJsonlEntries(
+      [
+        {
+          role: "assistant",
+          content: [],
+          toolCalls: REJECTED_TOOL_IDS.map((toolCallId) => ({
+            toolCallId,
+            toolName: "Bash",
+            input: {},
+            result: "ok",
+          })),
+        },
+      ],
+      config,
+    );
+
+    const blocks = parseConversationEntries(lines).map(
+      (line) => line.message.content[0],
+    );
+    expectRepairedToolIds(
+      blocks.slice(0, 2).map((block) => block.id),
+      blocks.slice(2).map((block) => block.tool_use_id),
     );
   });
 
@@ -1052,7 +1121,7 @@ describe("end-to-end: S3 log entries -> JSONL output", () => {
     // All assistant blocks in same turn share message.id
     expect(msg1.id).toBe(msg2.id);
     expect(msg2.id).toBe(msg3.id);
-    expect(msg3.model).toBe("claude-opus-4-8");
+    expect(msg3.model).toBe("claude-opus-5-5");
     expect(msg3.id).toMatch(/^msg_01[A-Za-z0-9]{24}$/);
 
     // Verify Bash tool_result entry
@@ -1381,6 +1450,36 @@ describe("sanitizeSessionJsonl", () => {
       { type: "text", text: "running" },
       { type: "tool_use", id: "tc-1", name: "Bash", input: {} },
     ]);
+  });
+
+  it("repairs tool ids the API rejects, and keeps each call paired with its result", async () => {
+    const file = await writeJsonl([
+      ...REJECTED_TOOL_IDS.map((id) => ({
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id, name: "Bash", input: {} }],
+        },
+      })),
+      ...REJECTED_TOOL_IDS.map((id) => ({
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+        },
+      })),
+    ]);
+
+    expect(await sanitizeSessionJsonl(file)).toBe(true);
+
+    const blocks = (await readJsonl(file)).map(
+      (line) =>
+        (line.message as { content: Record<string, unknown>[] }).content[0],
+    );
+    expectRepairedToolIds(
+      blocks.slice(0, 2).map((block) => block.id),
+      blocks.slice(2).map((block) => block.tool_use_id),
+    );
   });
 
   it("sanitizes empty blocks in user lines too", async () => {

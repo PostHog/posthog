@@ -13,8 +13,8 @@ def _notify_limit_reached(scanner: ReplayScanner) -> bool:
     pipeline (flag off, nobody to notify) counts as sent so it is not retried every tick."""
     try:
         from posthog.models import User  # noqa: PLC0415
-        from posthog.rbac.user_access_control import UserAccessControl  # noqa: PLC0415
 
+        from products.access_control.backend.facade.user_access_control import UserAccessControl  # noqa: PLC0415
         from products.notifications.backend.facade.api import (  # noqa: PLC0415 (keeps the heavy dep off the import path)
             NotificationData,
             NotificationType,
@@ -37,7 +37,7 @@ def _notify_limit_reached(scanner: ReplayScanner) -> bool:
                     return user_ids
                 # Per-user checks cost several queries each; without object-level rows on this scanner
                 # the resource-wide filter already applied is the whole answer, so skip them.
-                from ee.models.rbac.access_control import AccessControl  # noqa: PLC0415
+                from products.access_control.backend.models.access_control import AccessControl  # noqa: PLC0415
 
                 has_object_rules = AccessControl.objects.filter(
                     team=scanner.team, resource="replay_scanner", resource_id=str(scanner.id)

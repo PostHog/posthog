@@ -1,18 +1,48 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonTable, LemonTableColumns, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonModal,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { AccountRelationshipApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    AccountRelationshipApi,
+    AccountRelationshipSourceEnumApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 
 const PAGE_SIZE = 10
 
-export function AccountRelationshipsExpansion({ accountId }: { accountId: string }): JSX.Element {
+const SOURCE_LABELS: Record<AccountRelationshipSourceEnumApi, string> = {
+    human: 'Person',
+    workflow: 'Workflow',
+    ai: 'AI',
+    salesforce_claim: 'Salesforce',
+    migration: 'Migration',
+}
+
+interface AccountRelationshipsExpansionProps extends AccountViewTileLogicProps {
+    accountId: string
+    embedded?: boolean
+}
+
+export function AccountRelationshipsExpansion({
+    accountId,
+    embedded = true,
+    ...tileProps
+}: AccountRelationshipsExpansionProps): JSX.Element {
+    const logic = accountRelationshipsLogic({ accountId, ...tileProps })
     const {
         relationships,
         relationshipsLoading,
@@ -22,11 +52,19 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
         relationshipDefinitions,
         assignDefinition,
         assignDefinitionId,
+        canDeleteRelationships,
         relationshipSaving,
-    } = useValues(accountRelationshipsLogic({ accountId }))
-    const { setDefinitionFilter, setAssignDefinitionId, assignRelationship, endRelationship } = useActions(
-        accountRelationshipsLogic({ accountId })
-    )
+        relationshipToDelete,
+    } = useValues(logic)
+    const {
+        setDefinitionFilter,
+        setAssignDefinitionId,
+        assignRelationship,
+        endRelationship,
+        openDeleteConfirmation,
+        closeDeleteConfirmation,
+        deleteRelationship,
+    } = useActions(logic)
 
     const columns: LemonTableColumns<AccountRelationshipApi> = [
         {
@@ -48,6 +86,17 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
                 ),
         },
         {
+            title: 'Assigned by',
+            key: 'source',
+            width: 110,
+            render: (_, relationship) =>
+                relationship.source ? (
+                    SOURCE_LABELS[relationship.source]
+                ) : (
+                    <span className="text-muted">Not recorded</span>
+                ),
+        },
+        {
             title: 'Started',
             key: 'started_at',
             width: 140,
@@ -56,7 +105,7 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
         {
             title: 'Ended',
             key: 'ended_at',
-            width: 140,
+            width: 160,
             render: (_, relationship) =>
                 relationship.ended_at ? (
                     <TZLabel time={relationship.ended_at} />
@@ -68,14 +117,32 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
             key: 'actions',
             width: 0,
             render: (_, relationship) =>
-                relationship.ended_at ? null : (
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconX />}
-                        tooltip={`End this ${relationship.definition.name} assignment`}
-                        disabledReason={relationshipSaving ? 'Saving…' : undefined}
-                        onClick={() => endRelationship(relationship)}
-                    />
+                relationship.ended_at && !canDeleteRelationships ? null : (
+                    <div className="flex justify-end gap-1">
+                        {!relationship.ended_at && (
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                tooltip={`End this ${relationship.definition.name} assignment`}
+                                disabledReason={relationshipSaving ? 'Saving…' : undefined}
+                                data-attr="account-relationships-unassign-button"
+                                onClick={() => endRelationship(relationship)}
+                            >
+                                Unassign
+                            </LemonButton>
+                        )}
+                        {canDeleteRelationships && (
+                            <LemonButton
+                                size="xsmall"
+                                status="danger"
+                                icon={<IconTrash />}
+                                tooltip="Delete assignment"
+                                disabledReason={relationshipSaving ? 'Saving…' : undefined}
+                                data-attr="account-relationships-delete-button"
+                                onClick={() => openDeleteConfirmation(relationship)}
+                            />
+                        )}
+                    </div>
                 ),
         },
     ]
@@ -135,7 +202,7 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
             </div>
             <LemonTable<AccountRelationshipApi>
                 size="small"
-                embedded
+                embedded={embedded}
                 dataSource={displayedRelationships}
                 rowKey="id"
                 loading={relationshipsLoading}
@@ -145,6 +212,42 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
                     relationships === null ? 'Failed to load relationships.' : 'No assignments on this account yet.'
                 }
             />
+            <LemonModal
+                isOpen={relationshipToDelete !== null}
+                onClose={() => !relationshipSaving && closeDeleteConfirmation()}
+                title="Delete assignment?"
+                footer={
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            onClick={closeDeleteConfirmation}
+                            disabledReason={relationshipSaving ? 'Deleting…' : undefined}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            status="danger"
+                            loading={relationshipSaving}
+                            data-attr="account-relationships-delete-confirm-button"
+                            onClick={() => {
+                                if (relationshipToDelete) {
+                                    deleteRelationship(relationshipToDelete)
+                                }
+                            }}
+                        >
+                            Delete assignment
+                        </LemonButton>
+                    </>
+                }
+            >
+                {relationshipToDelete && (
+                    <p className="mb-0">
+                        This permanently deletes the {relationshipToDelete.definition.name} assignment. This can't be
+                        undone.
+                    </p>
+                )}
+            </LemonModal>
         </div>
     )
 }

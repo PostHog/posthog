@@ -4,23 +4,18 @@ import { describe, expect, it } from 'vitest'
 
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
-import type { GroupType } from '@/api/client'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { MCP_INSTRUCTIONS_CHAR_BUDGET, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
-import { buildActiveEnvironmentContextPrompt, buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
+import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
+import { buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 import { getToolCategory, getToolDefinitions } from '@/tools/toolDefinitions'
-import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
 
 // Static, deterministic context shared by all snapshots — mirrors the realistic
 // values used in `instructions-formatter.test.ts` so the rendered prompts cover
-// guidelines, group types, metadata, tool domains, and query tools.
-const STATIC_GROUP_TYPES: GroupType[] = [
-    { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
-    { group_type: 'project', group_type_index: 1, name_singular: null, name_plural: null },
-]
+// guidelines, tool domains, and query tools.
 // Includes query-* (collapsed into the single `query` domain) so the snapshots
 // mirror production, where `tools` is the full set and `queryTools` is the
 // parallel catalog projection.
@@ -30,6 +25,9 @@ const STATIC_TOOLS = [
     { name: 'create-feature-flag', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
+    { name: 'project-get', category: 'Core' },
+    { name: 'business-knowledge-documents-search', category: 'Business knowledge' },
+    { name: 'docs-search', category: 'Docs' },
     { name: 'query-funnel', category: 'Query wrappers' },
     { name: 'query-trends', category: 'Query wrappers' },
 ]
@@ -37,16 +35,8 @@ const STATIC_QUERY_TOOLS: QueryToolInfo[] = [
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
     { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
 ]
-const STATIC_METADATA = [
-    'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).',
-    'Project timezone: America/New_York.',
-    "The user's name is Jane Doe (jane@acme.com).",
-].join('\n')
-
 const STATIC_CTX: InstructionsContext = {
     guidelines: 'some guidelines',
-    groupTypes: STATIC_GROUP_TYPES,
-    metadata: STATIC_METADATA,
     tools: STATIC_TOOLS,
     queryTools: STATIC_QUERY_TOOLS,
     renderUiEnabled: true,
@@ -98,44 +88,48 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
     it('matches the exec command reference (Codex wiring, every placeholder filled)', async () => {
         const formatter = new InstructionsFormatter()
-        const rendered = formatter.buildExecCommandReference(STATIC_CTX, { stripEnvContext: false })
+        const rendered = formatter.buildExecCommandReference(STATIC_CTX)
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full.txt'))
     })
 
-    it('matches the exec command reference for Claude web/desktop', async () => {
-        const state = {
+    function claudeChatState(toolFeatureFlags: Record<string, boolean> = {}): ResolvedState {
+        return {
             allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
-            toolFeatureFlags: {},
+            toolFeatureFlags,
             renderUiEnabled: STATIC_CTX.renderUiEnabled,
-            metadata: STATIC_CTX.metadata,
-            groupTypes: STATIC_CTX.groupTypes,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
         } as unknown as ResolvedState
-        const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
+    }
+
+    // Skills off is what every client sees until the flag is on for them; this snapshot
+    // must not move when skill discovery ships dark.
+    it('matches the exec command reference for Claude web/desktop', async () => {
+        const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(claudeChatState())
 
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-claude-chat.txt'))
     })
 
-    // claude.ai never surfaces server `instructions`, so the exec command reference is the
-    // only always-visible catalog-steering surface. The compact metrics/trust one-liner must
-    // render there when the data-catalog flag is on and stay absent when it's off — otherwise
-    // skill-less claude.ai clients get zero catalog routing. The flag-off case is covered by
-    // the snapshot above; this locks the gating in both directions.
-    it('renders the compact metrics/trust one-liner for claude.ai only when the data-catalog flag is on', () => {
-        const buildClaudeChatReference = (dataCatalogEnabled: boolean): string => {
-            const state = {
-                allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
-                clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
-                toolFeatureFlags: dataCatalogEnabled ? { [PRODUCT_DATA_CATALOG_FLAG]: true } : {},
-                renderUiEnabled: STATIC_CTX.renderUiEnabled,
-                metadata: STATIC_CTX.metadata,
-                groupTypes: STATIC_CTX.groupTypes,
-            } as unknown as ResolvedState
-            return new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
-        }
+    it('matches the exec command reference for Claude web/desktop with skills enabled', async () => {
+        const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(
+            claudeChatState({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true })
+        )
 
-        expect(buildClaudeChatReference(true)).toContain('Metrics & SQL trust')
-        expect(buildClaudeChatReference(false)).not.toContain('Metrics & SQL trust')
+        await expect(rendered).toMatchFileSnapshot(
+            path.join(SNAPSHOT_DIR, 'exec-command-reference-claude-chat-skills.txt')
+        )
+    })
+
+    // claude.ai never surfaces server `instructions`, so the exec command reference is the
+    // only always-visible catalog-steering surface: without the compact metrics/trust
+    // one-liner, skill-less claude.ai clients get zero catalog routing.
+    it('renders the compact metrics/trust one-liner for claude.ai', () => {
+        const state = claudeChatState()
+
+        expect(new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)).toContain(
+            'Metrics & SQL trust'
+        )
     })
 
     // `notebooks-add-cell` is flag-gated, so the Python-in-a-notebook guidance has to
@@ -174,59 +168,16 @@ describe('InstructionsFormatter prompt snapshots', () => {
     // ------------------------------------------------------------------------------------------------
     it('keeps the serialized exec inputSchema under the claude.ai registry cap', () => {
         // Worst case served in production: Claude web/desktop with every optional
-        // learning topic advertised, the full live tool catalog, and long environment
-        // context. The metadata goes through the real
-        // env-context builder with inputs at the backing columns' max lengths
-        // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
-        // the longer person-on-events branch, so a long org/project/user cannot
-        // push the real schema past the cap while this test passes.
-        const worstCaseUser = {
-            first_name: 'F'.repeat(150),
-            last_name: 'L'.repeat(150),
-            email: `${'e'.repeat(242)}@example.com`,
-        } as CachedUser
-        const worstCaseOrg = { name: 'O'.repeat(64), id: '00000000-0000-0000-0000-000000000000' } as CachedOrg
-        const worstCaseProject = {
-            name: 'P'.repeat(200),
-            id: 9_999_999,
-            api_token: `phc_${'x'.repeat(43)}`,
-            timezone: 'America/Argentina/ComodRivadavia',
-            person_on_events_querying_enabled: true,
-        } as CachedProject
-        const worstCaseMetadata = buildActiveEnvironmentContextPrompt(
-            worstCaseUser,
-            worstCaseOrg,
-            worstCaseProject,
-            'https://us.posthog.com'
-        )
-        // The claude.ai reference renders the compact metadata variant: the
-        // product/integration context lines are excluded from this surface by
-        // design because they do not fit under the cap (see
-        // `buildClaudeExecCommandReference` and `ResolvedState.metadataCompact`).
-        const worstCaseMetadataCompact = buildActiveEnvironmentContextPrompt(
-            worstCaseUser,
-            worstCaseOrg,
-            worstCaseProject,
-            'https://us.posthog.com',
-            { includeProductContext: false }
-        )
-        // Five group types (the product cap) with generously long names.
-        const worstCaseGroupTypes = Array.from({ length: 5 }, (_, i) => ({
-            group_type: `${'g'.repeat(28)}-${i}`,
-            group_type_index: i,
-            name_singular: null,
-            name_plural: null,
-        })) as GroupType[]
+        // learning topic advertised and the full live tool catalog.
         const state = {
             allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            // Data catalog on: the analytics learn-topic description is longer with
-            // the flag, and topic descriptions are inlined in the command reference.
-            toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true },
+            // Skills on is the worst case: the compact skills-first section joins the
+            // capped command reference.
+            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
             renderUiEnabled: true,
-            metadata: worstCaseMetadata,
-            metadataCompact: worstCaseMetadataCompact,
-            groupTypes: worstCaseGroupTypes,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
         const posthog = new PostHogMCP('phc_test', { disabled: true })
@@ -237,6 +188,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const inputSchemaSize = JSON.stringify(finalEntry.inputSchema).length
 
         expect(properties).toHaveProperty('context')
+        expect(entry.description).toContain('### PostHog knowledge sources')
         expect(inputSchemaSize).toBeLessThan(16_384)
     })
 
@@ -255,12 +207,8 @@ describe('InstructionsFormatter prompt snapshots', () => {
     // reference, which has no such cap.
     // ------------------------------------------------------------------------------------------------
     it('keeps the compact exec instructions under the Claude Code truncation cap', () => {
-        // The full live tool catalog, plus env context and group types that the payload no
-        // longer carries — if either is ever spliced back into the compact template, the
-        // budget has to account for it here rather than fail silently in production.
         const ctx: InstructionsContext = {
             ...STATIC_CTX,
-            metadata: STATIC_METADATA,
             tools: Object.keys(getToolDefinitions()).map((name) => ({
                 name,
                 category: getToolCategory(name) ?? 'Other',
@@ -270,9 +218,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const domains = domainsIn(rendered)
 
         expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
-        // Domains past the old cutoff point, i.e. the ones a truncated payload lost.
-        for (const domain of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
-            expect(domains).toContain(domain)
+        // Families past the old cutoff point must remain searchable after the index compacts.
+        const toolNames = Object.keys(getToolDefinitions())
+        for (const family of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
+            const familyTools = toolNames.filter((name) => name.startsWith(family))
+            expect(familyTools.length).toBeGreaterThan(0)
+            expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
         }
     })
 

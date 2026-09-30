@@ -103,6 +103,25 @@ describe("planPermissionResponse", () => {
     expect(plan.applyAllowAlwaysUpgrade).toBe(false);
   });
 
+  it.each(["allow_session", "network_1"])(
+    "preserves the session mode for the scoped %s grant",
+    (optionId) => {
+      const permission = makePermission([
+        {
+          optionId,
+          kind: "allow_always",
+          _meta: { preservePermissionMode: true },
+        },
+      ]);
+
+      expect(planPermissionResponse(permission, optionId)).toEqual({
+        applyAllowAlwaysUpgrade: false,
+        respondWithCustomInput: false,
+        resendPromptText: null,
+      });
+    },
+  );
+
   it("keeps auto mode when always allowing a tool", () => {
     const modeOption: SessionConfigOption = {
       id: "mode",

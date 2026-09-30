@@ -7,9 +7,9 @@
 #   "opentelemetry-exporter-otlp-proto-http~=1.27",
 # ]
 # ///
-"""Emit OTLP traces for completed master-push workflow runs.
+"""Emit OTLP traces for completed master workflow runs.
 
-Scans the Actions API for master pushes that finished since the last successful
+Scans the Actions API for master runs that finished since the last successful
 run of this reporter and emits one trace per (run_id, run_attempt), shaped:
 
     <workflow>                       (root, one trace per run attempt)
@@ -75,6 +75,12 @@ INSTRUMENTATION_VERSION = "0.1.0"
 
 # Workflow file whose own run history is the watermark.
 SELF_WORKFLOW_FILE = "ci-master-run-traces.yml"
+# Workflows that cover master from a cron instead of from every push, scanned on their
+# `schedule` runs as well. ci-backend.yml runs only the per-commit checks on a master push
+# and its full test matrices hourly, so a push-only scan drops the heaviest CI workload in
+# the repo. Hand-synced with SCHEDULED_GATING_WORKFLOWS in ci-alerts-devex.yml, which reads
+# the same lanes for alerting.
+SCHEDULED_MASTER_WORKFLOWS = ("ci-backend.yml",)
 DEFAULT_LOOKBACK_HOURS = 6.0
 DEFAULT_MAX_RUNS = 200
 
@@ -278,27 +284,46 @@ def watermark(repo: str, token: str, *, lookback_hours: float, now: datetime, op
 
 
 def scan_runs(repo: str, token: str, since: datetime, *, opener: Any = None) -> list[dict]:
-    """Completed master-push runs whose completion lands at or after `since`.
+    """Completed master runs whose completion lands at or after `since`, newest first.
+
+    One scan per trigger event, because the API filters on a single event at a time. The
+    repo-wide scan covers push, and each workflow in SCHEDULED_MASTER_WORKFLOWS is scanned
+    for its `schedule` runs by workflow file. A repo-wide schedule scan would instead pull in
+    every unrelated cron in the repo, and the frequent ones would crowd real CI runs out of
+    the --max-runs cap.
 
     The API can only filter on `created`, so widen the window by a day and narrow
     on `updated_at` — which for a completed run is when it finished.
     """
     created_floor = (since - timedelta(days=1)).date().isoformat()
-    query = urllib.parse.urlencode(
-        {
-            "branch": "master",
-            "event": "push",
-            "status": "completed",
-            "exclude_pull_requests": "true",
-            "created": f">={created_floor}",
-        }
-    )
-    raw = _paginate(f"repos/{repo}/actions/runs?{query}", token, "workflow_runs", opener=opener)
+
+    def query(event: str) -> str:
+        return urllib.parse.urlencode(
+            {
+                "branch": "master",
+                "event": event,
+                "status": "completed",
+                "exclude_pull_requests": "true",
+                "created": f">={created_floor}",
+            }
+        )
+
+    paths = [f"repos/{repo}/actions/runs?{query('push')}"]
+    paths += [
+        f"repos/{repo}/actions/workflows/{workflow_file}/runs?{query('schedule')}"
+        for workflow_file in SCHEDULED_MASTER_WORKFLOWS
+    ]
     fresh = []
-    for run in raw:
-        updated = parse_iso_utc(run.get("updated_at") or "")
-        if updated is not None and updated >= since:
-            fresh.append(run)
+    for path in paths:
+        for run in _paginate(path, token, "workflow_runs", opener=opener):
+            updated = parse_iso_utc(run.get("updated_at") or "")
+            if updated is not None and updated >= since:
+                fresh.append(run)
+    # Merging two scans breaks the API's newest-first order, which the --max-runs cap relies
+    # on to keep the freshest runs.
+    fresh.sort(
+        key=lambda run: parse_iso_utc(run.get("updated_at") or "") or datetime.min.replace(tzinfo=UTC), reverse=True
+    )
     return fresh
 
 
@@ -727,7 +752,7 @@ def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> Collect
             # would pair one attempt's jobs with another attempt's window.
             logger.warning("--run-attempt only applies with --run-id; ignoring it for the scan")
         since = parse_iso_utc(args.since) or watermark(args.repo, token, lookback_hours=args.lookback_hours, now=now)
-        logger.info("scanning master pushes completed since %s", since.isoformat())
+        logger.info("scanning master runs completed since %s", since.isoformat())
         raw_runs = scan_runs(args.repo, token, since)
         if len(raw_runs) > args.max_runs:
             # Not an incomplete tick: holding the watermark here would re-scan the same
@@ -777,7 +802,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_INCOMPLETE
 
     if not collection.runs:
-        logger.info("no completed master-push runs to trace")
+        logger.info("no completed master runs to trace")
         return EXIT_OK if collection.complete else EXIT_INCOMPLETE
 
     if args.dry_run or os.environ.get("DRY_RUN") == "1":

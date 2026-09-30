@@ -21,7 +21,7 @@ import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type {
-    ExperimentMetricKindEnumApi as ScoreDefinitionKind,
+    ScoreDefinitionKindEnumApi as ScoreDefinitionKind,
     ScoreDefinitionApi as ScoreDefinition,
 } from '../generated/api.schemas'
 import {

@@ -5,7 +5,7 @@ describe('versionChanges', () => {
     const version = (overrides: Partial<VersionConfig> = {}): VersionConfig => ({
         version: 1,
         scannerType: 'classifier',
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         provider: 'google',
         emitsSignals: true,
         samplingRate: 1,

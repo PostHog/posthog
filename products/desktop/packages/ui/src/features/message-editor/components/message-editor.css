@@ -97,10 +97,10 @@
 }
 
 .cli-editor-scroll::-webkit-scrollbar-thumb {
-  background: var(--gray-a5);
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 
 .cli-editor-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-a7);
+  background: var(--scrollbar-thumb-hover);
 }

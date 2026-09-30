@@ -28,7 +28,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def _block_experiment_for_member(team: Team, experiment: Experiment, member: User) -> None:
-    from ee.models.rbac.access_control import AccessControl  # noqa: PLC0415
+    from products.access_control.backend.models.access_control import AccessControl  # noqa: PLC0415
 
     team.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
     team.organization.save()

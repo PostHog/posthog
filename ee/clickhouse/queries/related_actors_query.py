@@ -11,17 +11,17 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.models import Team
-from posthog.models.filters.utils import validate_group_type_index
-from posthog.models.property import GroupTypeIndex
-from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.queries.actor_base_query import (
+from posthog.hogql_queries.serialized_actors import (
     SerializedActor,
     SerializedGroup,
     SerializedPerson,
     get_groups,
     get_serialized_people,
 )
+from posthog.models import Team
+from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.property import GroupTypeIndex
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 
 class RelatedActorsQuery:

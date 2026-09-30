@@ -44,6 +44,7 @@ interface ScorerTemplate extends BaseTemplate {
 
 export type ScannerTemplate = MonitorTemplate | SummarizerTemplate | ClassifierTemplate | ScorerTemplate
 
+// Each prompt is also a key in the backend's `prompt_questions.TEMPLATE_QUESTIONS`, so change both together.
 export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     {
         key: 'dead_end',
@@ -139,7 +140,10 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         created_by: null,
         estimated_monthly_observations: null,
         feedback_themes: null,
+        // The server writes this on the first save.
+        prompt_question: '',
         estimated_monthly_credits: null,
+        estimated_at: null,
         // Seed price for the unsaved scanner; the server-computed value takes over after the first save.
         credits_per_observation: OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL],
         // An unsaved scanner has no object yet, so there's no effective access level for it —
@@ -153,6 +157,7 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         // An unsaved scanner has no spend yet, so it can't have hit a limit it doesn't have.
         credits_used_against_limit: 0,
         limit_reached: false,
+        sweep_throttle_factor: 1,
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)

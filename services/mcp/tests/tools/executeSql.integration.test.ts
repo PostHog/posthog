@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import { buildToolResultPayload } from '@/lib/build-tool-result'
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -43,8 +44,8 @@ describe('execute-sql', { concurrent: false }, () => {
             truncate: true,
         })
 
-        expect(typeof result).toBe('string')
-        expect(result).toContain('test_string')
+        const payload = buildToolResultPayload({ handlerResult: result, toolName: 'execute-sql', params: {} })
+        expect(payload.content[0]?.text).toContain('test_string')
     })
 
     it('should execute a query with a WHERE clause', async () => {
@@ -53,9 +54,9 @@ describe('execute-sql', { concurrent: false }, () => {
             truncate: true,
         })
 
-        expect(typeof result).toBe('string')
-        expect(result).toContain('event')
-        expect(result).toContain('cnt')
+        const payload = buildToolResultPayload({ handlerResult: result, toolName: 'execute-sql', params: {} })
+        expect(payload.content[0]?.text).toContain('event')
+        expect(payload.content[0]?.text).toContain('cnt')
     })
 
     it('should execute a query with date filters', async () => {
@@ -64,7 +65,8 @@ describe('execute-sql', { concurrent: false }, () => {
             truncate: false,
         })
 
-        expect(typeof result).toBe('string')
+        const payload = buildToolResultPayload({ handlerResult: result, toolName: 'execute-sql', params: {} })
+        expect(typeof payload.content[0]?.text).toBe('string')
     })
 
     it('should throw on invalid SQL', async () => {

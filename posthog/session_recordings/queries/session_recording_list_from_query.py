@@ -1,3 +1,4 @@
+import struct
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
@@ -18,12 +19,13 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
@@ -35,10 +37,13 @@ from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
+    is_person_property_check_enabled,
     is_session_property,
     test_account_scoped_query,
 )
 from posthog.types import AnyPropertyFilter
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 if TYPE_CHECKING:
     from products.experiments.backend.facade.replay import ExperimentExposureLinkage
@@ -50,6 +55,8 @@ tracer = trace.get_tracer(__name__)
 # Neutral mid-pack score for sessions the surfacing scorer has not reached; shared with the
 # replay-vision sweep so list eligibility and sweep eligibility agree on unscored sessions.
 UNSCORED_SURFACING_SCORE = 0.36
+# Match the Float32 storage precision so a score equal to the cutoff stays excluded after promotion.
+RECOMMENDED_SURFACING_SCORE_THRESHOLD = struct.unpack("!f", struct.pack("!f", 0.36))[0]
 
 
 class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
@@ -70,7 +77,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sum(s.keypress_count) as keypress_count,
             sum(s.mouse_activity_count) as mouse_activity_count,
             sum(s.active_milliseconds)/1000 as active_seconds,
-            (duration - active_seconds) as inactive_seconds,
+            -- Concurrent tabs give overlapping blocks whose active time sums past the elapsed
+            -- span, and only the per-block totals are stored, so the overlap cannot be removed.
+            greatest(duration - active_seconds, 0) as inactive_seconds,
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
@@ -78,12 +87,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
             date_diff('DAY', {python_now}, expiry_time) as recording_ttl,
             {ongoing_selection},
-            round((
+            -- Clamped to the 0-100 the schema documents. The expression adds seconds to event
+            -- counts on both sides, so it is not a bounded ratio, and a session with no mouse
+            -- activity and no duration divides zero by zero, which reaches here as NaN.
+            round(least(greatest((
             ((sum(s.active_milliseconds) / 1000 + sum(s.click_count) + sum(s.keypress_count) + sum(s.console_error_count))) -- intent
             /
             ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
             * 100
-            ), 2) as activity_score,
+            ), 0), 100), 2) as activity_score,
             coalesce(max(s.surfacing_score), {unscored_surfacing_score}) as surfacing_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}
@@ -226,13 +238,23 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
+        # An explicitly empty id set matches nothing, but ClickHouse only finds that out after it
+        # has built every subquery and GLOBAL JOIN side the filters ask for, and on precomputing
+        # teams the exposure resolution below would first run its synchronous inserts. Neither can
+        # change an empty result, so answer here and run nothing. The access check still runs: a
+        # viewer the experiment denies gets the same refusal whatever the id set, so the empty
+        # answer never tells them the filter was accepted.
+        if isinstance(self._query.session_ids, list) and not self._query.session_ids:
+            self._check_experiment_exposure_access()
+            return SessionRecordingQueryResult(results=[], has_more_recording=False)
+
         # Resolved before query construction: the resolution validates the experiment and can
         # run preaggregation-job bookkeeping and synchronous ClickHouse inserts, which is run
         # work, not AST building.
         self._resolve_experiment_exposure()
         query = self.get_query()
 
-        settings_args: dict[str, int] = {}
+        settings_args: dict[str, int | str] = {}
         if self._max_execution_time is not None:
             settings_args["max_execution_time"] = self._max_execution_time
         linkage = self._experiment_exposure_linkage
@@ -243,17 +265,27 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # with its status, machine code, and narrow-your-filters guidance, is honest for
             # every cause.
             settings_args["max_memory_usage"] = linkage.live_scan_max_memory_bytes
+        in_session_narrowed = linkage is not None and linkage.session_exposure is not None
+        if in_session_narrowed:
+            # Under a "break" timeout profile a timed-out evidence subquery would return a partial
+            # session set, silently listing fewer in-session recordings. A partial result is worse
+            # than an error here, so the execution-time kill must throw.
+            settings_args["timeout_overflow_mode"] = "throw"
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
-            paginated_response = self._paginator.execute_hogql_query(
-                # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
-                query=cast(ast.SelectQuery, query),
-                team=self._team,
-                user=self._user,
-                query_type="SessionRecordingListQuery",
-                modifiers=self._hogql_query_modifiers,
-                settings=HogQLGlobalSettings(**settings_args),
-            )
+            # Tagged around the listing execution only, so the tag marks exactly the queries that
+            # carry the evidence scan and its GLOBAL IN set: the precompute builds that run during
+            # linkage resolution and the blocklist probe below stay untagged.
+            with tags_context(**({"experiment_exposures_in_session": True} if in_session_narrowed else {})):
+                paginated_response = self._paginator.execute_hogql_query(
+                    # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
+                    query=cast(ast.SelectQuery, query),
+                    team=self._team,
+                    user=self._user,
+                    query_type="SessionRecordingListQuery",
+                    modifiers=self._hogql_query_modifiers,
+                    settings=HogQLGlobalSettings(**settings_args),
+                )
 
         # After the results are in, check whether the exclusion blocklist hit its row cap,
         # because past the cap the query silently under-excludes. No-op without negated entities, and
@@ -273,7 +305,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 next_cursor = self._paginator.get_next_cursor()
 
             return SessionRecordingQueryResult(
-                results=(self._data_to_return(self._paginator.results)),
+                results=self._without_person_blocked_sessions(self._data_to_return(self._paginator.results)),
                 has_more_recording=self._paginator.has_more(),
                 timings=paginated_response.timings,
                 next_cursor=next_cursor,
@@ -322,6 +354,23 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         ]
         return parsed_query
 
+    def _check_experiment_exposure_access(self) -> None:
+        """Refuse the experiment-exposure filter for viewers the experiment denies, and for
+        userless callers. Reached by the run() short-circuit too, which answers without ever
+        resolving the linkage."""
+        if self._query.experiment_exposure is None:
+            return
+        # Deferred: the experiments facade package imports posthog.api on init, which
+        # circles back into this module through the replay-deletion temporal activities.
+        from products.experiments.backend.facade.replay import validate_experiment_exposure_access  # noqa: PLC0415
+
+        try:
+            validate_experiment_exposure_access(self._team, self._user, self._query.experiment_exposure.experiment_id)
+        except UserAccessControlError as error:
+            # Only the /query pipeline renders UserAccessControlError; on the recordings API
+            # it would surface as a 500, so translate to what DRF renders as a 403.
+            raise PermissionDenied(str(error))
+
     def _resolve_experiment_exposure(self) -> None:
         """Resolve the experiment-exposure linkage once per query instance.
 
@@ -331,23 +380,16 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         """
         if self._query.experiment_exposure is None or self._experiment_exposure_linkage is not None:
             return
-        # Deferred: the experiments facade package imports posthog.api on init, which
-        # circles back into this module through the replay-deletion temporal activities.
-        from products.experiments.backend.facade.replay import (  # noqa: PLC0415
-            resolve_exposure_linkage,
-            validate_experiment_exposure_access,
-        )
+        self._check_experiment_exposure_access()
+        # Deferred, for the same reason as in _check_experiment_exposure_access.
+        from products.experiments.backend.facade.replay import resolve_exposure_linkage  # noqa: PLC0415
 
-        try:
-            validate_experiment_exposure_access(self._team, self._user, self._query.experiment_exposure.experiment_id)
-        except UserAccessControlError as error:
-            # Only the /query pipeline renders UserAccessControlError; on the recordings API
-            # it would surface as a 500, so translate to what DRF renders as a 403.
-            raise PermissionDenied(str(error))
         self._experiment_exposure_linkage = resolve_exposure_linkage(
             self._team,
             experiment_id=self._query.experiment_exposure.experiment_id,
             variant=self._query.experiment_exposure.variant,
+            variants=self._query.experiment_exposure.variants,
+            in_session=bool(self._query.experiment_exposure.in_session),
         )
         if self._experiment_exposure_linkage.population_filters_test_accounts:
             # The exposure population already applies the team's test-account filters on the
@@ -377,6 +419,24 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         self._resolve_experiment_exposure()
         assert self._experiment_exposure_linkage is not None
+
+        # The linkage's default candidate prefilter reads the team's whole distinct-id mapping to
+        # find the ids of exposed persons, and on large teams that read is most of the listing's
+        # cost. A pinned list can only ever join the distinct ids of the pinned sessions' rows,
+        # so those rows nominate the candidates instead. The candidate select reuses the
+        # listing's own session-scope predicates, so it always covers every row the join can
+        # see, and the linkage still resolves each candidate's latest person over all of its
+        # mapping rows. Unpinned lists keep the default: their sessions' distinct ids can cover
+        # most of the mapping, and the replay scan then costs more than the mapping read it
+        # replaces.
+        candidate_distinct_ids: ast.SelectQuery | None = None
+        if self._query.session_ids:
+            candidate_distinct_ids = ast.SelectQuery(
+                select=[ast.Field(chain=["s", "distinct_id"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"]), alias="s"),
+                where=ast.And(exprs=self._session_scope_predicates()),
+            )
+
         join = parsed_query.select_from
         assert join is not None
         while join.next_join is not None:
@@ -385,7 +445,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # GLOBAL: the subquery scans events over the whole experiment window; without it,
             # every shard of the sharded replay table re-evaluates that scan independently.
             join_type="GLOBAL INNER JOIN",
-            table=exposed_distinct_ids_select(self._experiment_exposure_linkage),
+            table=exposed_distinct_ids_select(
+                self._experiment_exposure_linkage, candidate_distinct_ids=candidate_distinct_ids
+            ),
             alias="exposure",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
@@ -420,6 +482,120 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     def matches_on_events(self) -> bool:
         """Whether any filter narrows sessions by their events, so `events_timestamp_floor` can cost results."""
         return any(b.get_queries_for_session_id_matching() for b in self._events_filter_builders())
+
+    @tracer.start_as_current_span("SessionRecordingListFromQuery._without_person_blocked_sessions")
+    def _without_person_blocked_sessions(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Drop fetched sessions whose person a negative person-property filter excludes.
+
+        In PoE mode those filters are events-based, so a session with no events passes them even
+        when its person matches the excluded value (the "filter out internal and test users" case).
+        The check needs the fetched rows' distinct ids, so it runs after selection: the page can
+        come back short, but the cursor comes from the unfiltered rows, so pagination skips
+        nothing. A session is dropped when any of its replay rows' distinct ids resolves to a
+        blocked person, matching the events blocklist's any-event semantics. Fail-open on error,
+        which returns the page the listing already produced.
+        """
+        # Callers that set skip_negative_blocklists evaluate negative filters against the fetched
+        # rows themselves, so the person check stays out of their way too.
+        if not results or self._skip_negative_blocklists:
+            return results
+
+        page_distinct_ids = list({row["distinct_id"] for row in results if row.get("distinct_id")})
+        if not page_distinct_ids:
+            return results
+
+        subqueries = [PersonsPropertiesSubQuery(self._team, self._query)]
+        if self._test_account_filters:
+            subqueries.append(
+                PersonsPropertiesSubQuery(
+                    self._team, test_account_scoped_query(self._query, self._test_account_filters)
+                )
+            )
+        # Probe with the page's own ids: a None from every subquery means no negative person
+        # filter applies, so neither the flag read nor the queries below are needed.
+        if not any(sq.get_blocked_distinct_ids_query(page_distinct_ids) for sq in subqueries):
+            return results
+        if not is_person_property_check_enabled(self._team):
+            return results
+
+        try:
+            session_distinct_ids = self._session_distinct_ids(results)
+            all_distinct_ids = list({distinct_id for ids in session_distinct_ids.values() for distinct_id in ids})
+
+            blocked_distinct_ids: set[str] = set()
+            for subquery in subqueries:
+                blocked_query = subquery.get_blocked_distinct_ids_query(all_distinct_ids)
+                if blocked_query is None:
+                    continue
+                response = execute_hogql_query(
+                    query=blocked_query,
+                    team=self._team,
+                    # Same user as the listing query, so per-user property restrictions apply here too.
+                    user=self._user,
+                    query_type="SessionRecordingListPersonPropertyCheck",
+                    modifiers=self._hogql_query_modifiers,
+                    settings=self._person_check_query_settings(),
+                )
+                blocked_distinct_ids |= {row[0] for row in response.results or []}
+
+            blocked_sessions = {
+                session_id
+                for session_id, distinct_ids in session_distinct_ids.items()
+                if distinct_ids & blocked_distinct_ids
+            }
+        except Exception as e:
+            capture_exception(e)
+            return results
+
+        if not blocked_sessions:
+            return results
+        return [row for row in results if row["session_id"] not in blocked_sessions]
+
+    def _person_check_query_settings(self) -> HogQLGlobalSettings:
+        """The caller's execution-time limit also bounds the post-fetch person check queries.
+
+        A timeout must throw, not return partial rows: a partial blocked-id set would keep a
+        blocked session without entering the fail-open exception handler.
+        """
+        if self._max_execution_time is not None:
+            return HogQLGlobalSettings(max_execution_time=self._max_execution_time, timeout_overflow_mode="throw")
+        return HogQLGlobalSettings(timeout_overflow_mode="throw")
+
+    def _session_distinct_ids(self, results: list[dict[str, Any]]) -> dict[str, set[str]]:
+        """Every distinct id the fetched sessions' replay rows were written under, per session id.
+
+        The page carries one distinct id per session (`any(s.distinct_id)`), but a session
+        recorded under several distinct ids must be excluded when any of them resolves to a
+        blocked person. Bounded by the fetched rows' own time range, so the lookup stays on
+        the table's date-first sort key.
+        """
+        query = parse_select(
+            """
+            SELECT session_id, distinct_id
+            FROM raw_session_replay_events
+            WHERE session_id IN {session_ids}
+              AND min_first_timestamp >= {date_from}
+              AND min_first_timestamp <= {date_to}
+            GROUP BY session_id, distinct_id
+            """,
+            {
+                "session_ids": ast.Constant(value=[row["session_id"] for row in results]),
+                "date_from": ast.Constant(value=min(row["start_time"] for row in results)),
+                "date_to": ast.Constant(value=max(row["end_time"] for row in results)),
+            },
+        )
+        response = execute_hogql_query(
+            query=query,
+            team=self._team,
+            user=self._user,
+            query_type="SessionRecordingListPersonPropertyCheckDistinctIds",
+            modifiers=self._hogql_query_modifiers,
+            settings=self._person_check_query_settings(),
+        )
+        session_distinct_ids: dict[str, set[str]] = {}
+        for row in response.results or []:
+            session_distinct_ids.setdefault(row[0], set()).add(row[1])
+        return session_distinct_ids
 
     def _events_filter_builders(self) -> list[ReplayFiltersEventsSubQuery]:
         """Every builder that can contribute an events subquery: the query's own, plus test accounts."""
@@ -463,15 +639,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         elif len(person_subexprs) > 1:
             exprs.append(ast.Or(exprs=person_subexprs))
 
-        # we check for session_ids type not for truthiness since we want to allow empty lists
-        if isinstance(self._query.session_ids, list):
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["session_id"]),
-                    right=ast.Constant(value=self._query.session_ids),
-                )
-            )
+        exprs.extend(self._session_scope_predicates())
 
         # Exclude already-viewed recordings (the "hide viewed recordings" filter). Unlike session_ids,
         # an empty list means "exclude nothing", so we only add the predicate when there's something to exclude.
@@ -483,45 +651,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     right=ast.Constant(value=self._session_ids_to_exclude),
                 )
             )
-
-        # the replay-page list opts in so explicitly selected sessions are not hidden by the
-        # default date range. comment-derived session_ids (see session_recording_api) stay windowed,
-        # and event/person subqueries still scan within the date range either way.
-        bypass_date_window = (
-            self._bypass_date_window_for_session_ids
-            and isinstance(self._query.session_ids, list)
-            and len(self._query.session_ids) > 0
-            and not self._query.comment_text
-        )
-        if bypass_date_window:
-            # bound at the longest retention period (5y) to keep partition pruning
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
-                )
-            )
-        else:
-            query_date_from = self.query_date_range.date_from()
-            if query_date_from:
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["s", "min_first_timestamp"]),
-                        right=ast.Constant(value=query_date_from),
-                    )
-                )
-
-            query_date_to = self.query_date_range.date_to()
-            if query_date_to:
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.LtEq,
-                        left=ast.Field(chain=["s", "min_first_timestamp"]),
-                        right=ast.Constant(value=query_date_to),
-                    )
-                )
 
         optional_exprs: list[ast.Expr] = []
 
@@ -703,7 +832,106 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             if test_account_remaining:
                 exprs.append(property_to_expr(test_account_remaining, team=self._team, scope="replay"))
 
+        # The in-session narrowing composes with the exposure join rather than replacing it: the
+        # join still decides who counts as exposed and bounds sessions to first exposure, this
+        # predicate additionally requires the exposure evidence inside the session. GLOBAL for
+        # the same reason as the join: the subquery scans events over the experiment window,
+        # and without it every shard would re-evaluate that scan independently.
+        if self._query.experiment_exposure is not None and self._query.experiment_exposure.in_session:
+            # Deferred: the experiments facade package imports posthog.api on init, which
+            # circles back into this module through the replay-deletion temporal activities.
+            from products.experiments.backend.facade.replay import exposed_session_ids_select  # noqa: PLC0415
+
+            self._resolve_experiment_exposure()
+            assert self._experiment_exposure_linkage is not None
+            # Evidence lives inside the sessions being listed, so scanning outside the query's own
+            # range (with the ±1 day session buffer the console-logs subquery also uses) could only
+            # nominate sessions the date predicates already exclude. Skipped when pinned session_ids
+            # bypass the date window: the listing then admits sessions from outside the range,
+            # so their evidence must stay in scope too.
+            clamp = not self._bypass_date_window()
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GlobalIn,
+                    left=ast.Field(chain=["s", "session_id"]),
+                    right=exposed_session_ids_select(
+                        self._experiment_exposure_linkage,
+                        clamp_date_from=(
+                            self.query_date_range.date_from() - timedelta(days=1)
+                            if clamp and self._query.date_from
+                            else None
+                        ),
+                        clamp_date_to=(
+                            self.query_date_range.date_to() + timedelta(days=1)
+                            if clamp and self._query.date_to
+                            else None
+                        ),
+                    ),
+                )
+            )
+
         return ast.And(exprs=exprs)
+
+    def _bypass_date_window(self) -> bool:
+        # the replay-page list opts in so explicitly selected sessions are not hidden by the
+        # default date range. comment-derived session_ids (see session_recording_api) stay windowed,
+        # and event/person subqueries still scan within the date range either way.
+        return (
+            self._bypass_date_window_for_session_ids
+            and isinstance(self._query.session_ids, list)
+            and len(self._query.session_ids) > 0
+            and not self._query.comment_text
+        )
+
+    def _session_scope_predicates(self) -> list[ast.Expr]:
+        """The predicates that pick which replay rows are in scope: the pinned session ids and the date bound.
+
+        Shared by the listing's WHERE and the experiment exposure join's candidate select, so the
+        candidates can never cover fewer rows than the join sees.
+        """
+        exprs: list[ast.Expr] = []
+
+        # we check for session_ids type not for truthiness since we want to allow empty lists
+        if isinstance(self._query.session_ids, list):
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["session_id"]),
+                    right=ast.Constant(value=self._query.session_ids),
+                )
+            )
+
+        if self._bypass_date_window():
+            # bound at the longest retention period (5y) to keep partition pruning
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
+                    right=ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
+                )
+            )
+        else:
+            query_date_from = self.query_date_range.date_from()
+            if query_date_from:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["s", "min_first_timestamp"]),
+                        right=ast.Constant(value=query_date_from),
+                    )
+                )
+
+            query_date_to = self.query_date_range.date_to()
+            if query_date_to:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["s", "min_first_timestamp"]),
+                        right=ast.Constant(value=query_date_to),
+                    )
+                )
+
+        return exprs
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._having_predicates")
     def _having_predicates(self) -> ast.Expr | None:
@@ -725,6 +953,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # baselines), so they're AND'd regardless of the user's operand.
         if self._query.having_predicates:
             exprs.append(property_to_expr(self._query.having_predicates, team=self._team, scope="replay"))
+
+        if self._query.recommended_only:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Call(name="max", args=[ast.Field(chain=["s", "surfacing_score"])]),
+                    right=ast.Constant(value=RECOMMENDED_SURFACING_SCORE_THRESHOLD),
+                )
+            )
 
         # User filter-group recording filters (e.g. visited_page) follow the match-any/all operand.
         if self._operand_having_predicates:

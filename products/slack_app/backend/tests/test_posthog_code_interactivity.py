@@ -2,10 +2,10 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -23,6 +23,7 @@ from posthog.models.user import User
 from posthog.schema_enums import AlertState
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.api import (
@@ -31,14 +32,6 @@ from products.slack_app.backend.api import (
     _handle_insight_alert_snooze_modal_submit,
 )
 from products.slack_app.backend.tests.helpers import sign_slack_request
-
-if TYPE_CHECKING:
-    from ee.models.rbac.access_control import AccessControl
-else:
-    try:
-        from ee.models.rbac.access_control import AccessControl
-    except ImportError:
-        AccessControl = None
 
 
 class TestPostHogCodeInteractivityHandler(TestCase):
@@ -712,7 +705,7 @@ class TestInsightAlertSnooze(TestCase):
         )
 
     @parameterized.expand(["1h", "6h", "1d", "1w"])
-    @freeze_time("2026-07-21T12:34:56Z")
+    @time_machine.travel("2026-07-21T12:34:56Z", tick=False)
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
@@ -752,7 +745,7 @@ class TestInsightAlertSnooze(TestCase):
         assert all(el.get("action_id") != "insight_alert_snooze" for el in actions_block["elements"])
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
 
-    @freeze_time("2026-07-21T12:34:56Z")
+    @time_machine.travel("2026-07-21T12:34:56Z", tick=False)
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
@@ -771,7 +764,7 @@ class TestInsightAlertSnooze(TestCase):
             "1d", ZoneInfo("UTC"), increase=True, always_truncate=True
         )
 
-    @freeze_time("2026-07-21T12:34:56Z")
+    @time_machine.travel("2026-07-21T12:34:56Z", tick=False)
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
@@ -794,7 +787,7 @@ class TestInsightAlertSnooze(TestCase):
             ("beyond_31_days", 32 * 24 * 3600),
         ]
     )
-    @freeze_time("2026-07-21T12:34:56Z")
+    @time_machine.travel("2026-07-21T12:34:56Z", tick=False)
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
@@ -1132,7 +1125,7 @@ class TestInsightAlertSnoozeModal(TestCase):
         assert self.alert.state == AlertState.FIRING
         assert self.alert.snoozed_until is None
 
-    @freeze_time("2026-07-21T12:00:00Z")
+    @time_machine.travel("2026-07-21T12:00:00Z", tick=False)
     @patch("products.slack_app.backend.api.SlackIntegration")
     @patch("products.slack_app.backend.api._is_org_member")
     def test_modal_submit_snoozes_to_picked_time(self, mock_is_org_member, mock_slack):
@@ -1147,7 +1140,7 @@ class TestInsightAlertSnoozeModal(TestCase):
         mock_slack.return_value.client.chat_postMessage.assert_called_once()
 
     @parameterized.expand([("past", "2020-01-01", "09:00"), ("beyond_31_days", "2026-09-30", "09:00")])
-    @freeze_time("2026-07-21T12:00:00Z")
+    @time_machine.travel("2026-07-21T12:00:00Z", tick=False)
     @patch("products.slack_app.backend.api.SlackIntegration")
     @patch("products.slack_app.backend.api._is_org_member")
     def test_modal_submit_rejects_out_of_bounds(self, _name, sel_date, sel_time, mock_is_org_member, mock_slack):
@@ -1160,7 +1153,7 @@ class TestInsightAlertSnoozeModal(TestCase):
         assert self.alert.state == AlertState.FIRING
         assert self.alert.snoozed_until is None
 
-    @freeze_time("2026-07-21T12:00:00Z")
+    @time_machine.travel("2026-07-21T12:00:00Z", tick=False)
     @patch("products.slack_app.backend.api.SlackIntegration")
     @patch("products.slack_app.backend.api._is_org_member")
     def test_modal_submit_refuses_non_org_member(self, mock_is_org_member, mock_slack):

@@ -1,4 +1,5 @@
 import avro from 'avsc'
+import { randomUUID } from 'crypto'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -38,9 +39,9 @@ const LOG_RECORD_AVRO = avro.Type.forSchema({
 })
 
 const SERVICE = 'smokescreen'
-const TEAM_ID = 4242
+const TEAM_ID = Number.parseInt(randomUUID().replaceAll('-', '').slice(0, 8), 16)
 // LogsSamplingService names its limiter 'logs-sampling-rate'; key prefix uses the test root.
-const SAMPLING_RATE_KEY_PREFIX = '@posthog-test/logs-sampling-rate'
+const SAMPLING_RATE_KEY_PREFIX = `@posthog-test/logs-sampling-rate/tokens/${TEAM_ID}`
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
@@ -88,7 +89,7 @@ function logRow(uuid: string, bytesUncompressed: number): LogRecord {
 }
 
 describe('logs drop-rule rate limit — save-to-impact', () => {
-    jest.retryTimes(3)
+    jest.retryTimes(3, { logErrorsBeforeRetry: true })
 
     let hub: Hub
     let redis: RedisV2

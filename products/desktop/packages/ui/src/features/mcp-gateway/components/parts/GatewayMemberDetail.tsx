@@ -6,15 +6,8 @@ import type { GatewayRoute } from "@posthog/ui/features/mcp-gateway/gatewayRoute
 import { useGatewayMembers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayMembers";
 import { useGatewayServers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayServers";
 import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
-import {
-  Badge,
-  Button,
-  Flex,
-  Separator,
-  Spinner,
-  Switch,
-  Text,
-} from "@radix-ui/themes";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Badge, Button, Flex, Separator, Switch, Text } from "@radix-ui/themes";
 
 /** Admin view of one member: which servers they can reach, per-server revoke. */
 export function GatewayMemberDetail({
@@ -35,15 +28,15 @@ export function GatewayMemberDetail({
     return (
       <Flex direction="column" gap="4">
         <BackButton onNavigate={onNavigate} />
-        <Flex align="center" justify="center" py="6">
-          {membersLoading ? (
-            <Spinner size="2" />
-          ) : (
+        {membersLoading ? (
+          <LoadingState className="py-6" />
+        ) : (
+          <div className="flex items-center justify-center py-6">
             <Text color="gray" className="text-sm">
               Member not found.
             </Text>
-          )}
-        </Flex>
+          </div>
+        )}
       </Flex>
     );
   }

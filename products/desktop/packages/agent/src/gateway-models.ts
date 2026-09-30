@@ -5,9 +5,11 @@ import {
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 
 export {
-  BLOCKED_GATEWAY_MODEL_IDS,
+  adapterForModelId,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   type CloudTaskConfigOption,
+  type CloudTaskConfigSelectGroup,
   type CloudTaskConfigSelectOption,
   compareModelsForPicker,
   DEFAULT_CODEX_MODEL,
@@ -19,12 +21,12 @@ export {
   getProviderName,
   isAnthropicModel,
   isBasetenModel,
-  isBlockedModelId,
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
   isModalModel,
   isModalModelId,
+  isOfferedModel,
   isOpenAIModel,
   pickAllowedModel,
 } from "@posthog/shared";

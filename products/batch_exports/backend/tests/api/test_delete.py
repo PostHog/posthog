@@ -31,28 +31,11 @@ pytestmark = [
 ]
 
 
-def test_delete_batch_export(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
+def test_delete_batch_export(client: HttpClient, temporal, organization, team, user, s3_batch_export_data):
     """Test deleting a BatchExport."""
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
 
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
     batch_export_id = batch_export["id"]
 
     delete_batch_export_ok(client, team.pk, batch_export_id)
@@ -91,29 +74,12 @@ async def wait_for_workflow_in_status(
 
 @pytest.mark.django_db(transaction=True)
 def test_delete_batch_export_cancels_backfills(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
     """Test deleting a BatchExport cancels ongoing BatchExportBackfill."""
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
 
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
     batch_export_id = batch_export["id"]
 
     # ensure there is data to backfill, otherwise validation will fail
@@ -152,31 +118,14 @@ def test_delete_batch_export_cancels_backfills(
 
 
 def test_cannot_delete_export_of_other_organizations(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     another_organization = create_organization("Another Org")
     create_team(another_organization)
     another_user = create_user("another-test@user.com", "Another Test User", another_organization)
 
     client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
     batch_export_id = batch_export["id"]
 
     client.force_login(another_user)
@@ -189,28 +138,13 @@ def test_cannot_delete_export_of_other_organizations(
     assert response.status_code == status.HTTP_200_OK
 
 
-def test_deletes_are_partitioned_by_team_id(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
+def test_deletes_are_partitioned_by_team_id(
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
+):
     another_team = create_team(organization)
 
     client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
     batch_export_id = batch_export["id"]
 
     # Try to delete with the other team
@@ -224,29 +158,12 @@ def test_deletes_are_partitioned_by_team_id(client: HttpClient, temporal, organi
 
 @pytest.mark.django_db(transaction=True)
 def test_delete_batch_export_even_without_underlying_schedule(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
     """Test deleting a BatchExport completes even if underlying Schedule was already deleted."""
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
 
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
     batch_export_id = batch_export["id"]
 
     handle = temporal.get_schedule_handle(batch_export_id)

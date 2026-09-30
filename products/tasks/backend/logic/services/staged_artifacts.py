@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -122,7 +123,20 @@ def get_task_run_artifacts_by_id(task_run: TaskRun, artifact_ids: list[str]) -> 
     return resolved_artifacts, missing_ids
 
 
-def tag_task_artifact(storage_path: str, *, ttl_days: str, team_id: int) -> None:
+def staged_artifacts_expire_by(artifacts: list[dict], scheduled_at: datetime) -> bool:
+    for artifact in artifacts:
+        stored_object = object_storage.head_object_strict(str(artifact["storage_path"]))
+        uploaded_at = stored_object.get("LastModified") if stored_object else None
+        if (
+            not isinstance(uploaded_at, datetime)
+            or timezone.is_naive(uploaded_at)
+            or scheduled_at >= uploaded_at + timedelta(days=int(RUN_ARTIFACT_TTL_DAYS))
+        ):
+            return True
+    return False
+
+
+def tag_task_artifact(storage_path: str, *, ttl_days: str, team_id: int, raise_on_error: bool = False) -> None:
     try:
         object_storage.tag(
             storage_path,
@@ -139,3 +153,5 @@ def tag_task_artifact(storage_path: str, *, ttl_days: str, team_id: int) -> None
             team_id=team_id,
             error=str(exc),
         )
+        if raise_on_error:
+            raise

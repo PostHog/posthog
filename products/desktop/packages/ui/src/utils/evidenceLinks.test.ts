@@ -41,6 +41,7 @@ describe("evidenceLinks", () => {
     ["experiment", "7", "/experiments/7"],
     ["survey", "srv-11", "/surveys/srv-11"],
     ["ticket", "conv_88", "/support/tickets/conv_88"],
+    ["report", "rep_1", "/inbox/rep_1"],
     ["trace", "t_9f2ab4", "/ai-observability/traces/t_9f2ab4"],
     ["eval", "ev_faith", "/ai-evals/evaluations/ev_faith"],
     ["cohort", "31", "/cohorts/31"],

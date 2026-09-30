@@ -64,9 +64,9 @@
 
 .react-grid-item.react-draggable.DashboardTileCard {
     .CardMeta,
-    .TextCard__body,
-    .ButtonTileCard__body,
-    .WidgetCard__header {
+    .DashboardTileCard__body,
+    .WidgetCard__header,
+    .drag-handle {
         // CardMeta: insight + widget (dashboard_tile layout). Bodies: text/button tiles. Header: widget (simple layout).
         cursor: grab;
         user-select: none; // Prevent accidental text selection while dragging

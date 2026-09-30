@@ -1,20 +1,3 @@
-export type OrderByField =
-  | "created_at"
-  | "status"
-  | "title"
-  | "repository"
-  | "working_directory"
-  | "source";
-
-export type OrderDirection = "asc" | "desc";
-
-export type GroupByField =
-  | "none"
-  | "status"
-  | "creator"
-  | "source"
-  | "repository";
-
 export type FilterCategory =
   | "status"
   | "source"
@@ -30,16 +13,6 @@ export interface FilterValue {
 }
 
 export type ActiveFilters = Partial<Record<FilterCategory, FilterValue[]>>;
-
-export type FilterMatchMode = "all" | "any";
-
-export const TASK_STATUS_ORDER: string[] = [
-  "failed",
-  "in_progress",
-  "queued",
-  "completed",
-  "backlog",
-];
 
 export function getDefaultOperator(category: FilterCategory): FilterOperator {
   return category === "created_at" ? "after" : "is";

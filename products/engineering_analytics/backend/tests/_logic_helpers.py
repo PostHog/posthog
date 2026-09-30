@@ -12,7 +12,9 @@ from django.utils import timezone
 
 import pandas as pd
 
+from products.engineering_analytics.backend.logic.sources import DEPOT_JOB_ATTEMPTS_SCHEMA
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -20,12 +22,13 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     _pr_row,
     _run_row,
+    create_depot_source,
     create_github_source,
     link_schema,
     seeding_object_storage,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 # Every query module runs HogQL through this method; patch it to test row mapping without a
 # warehouse. Patching the unbound method means the mock is called without `self`, so a plain
@@ -80,8 +83,8 @@ def _ago(days: int) -> str:
 
 
 def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
-    # Seed dates relative to real time: HogQL now() runs server-side and ignores
-    # freezegun, so window/age assertions must share the clock the query uses.
+    # Seed dates relative to real time: HogQL now() runs server-side and ignores the
+    # frozen clock, so window/age assertions must share the clock the query uses.
     started_at = _seed_now() - timedelta(days=days)
     updated_at = started_at + timedelta(seconds=duration_seconds)
     fmt = "%Y-%m-%d %H:%M:%S"
@@ -104,10 +107,19 @@ def _job_row(
     *,
     run_attempt: int = 1,
     labels: str = '["depot-ubuntu-22.04-4"]',
-    started: str = "2026-01-01 00:00:00",
-    completed: str = "2026-01-01 00:02:00",
+    started: str | None = None,
+    completed: str | None = None,
     head_branch: str = "main",
 ) -> dict[str, Any]:
+    # Default to the same relative anchor the seeded runs use, not a fixed calendar date. GitHub
+    # creates a job when its run attempt starts, so a job's created_at tracks its run's start — and
+    # the cost queries' jobs-scan floor is derived from exactly that relationship (see
+    # _workflow_filters.run_windowed_job_created_floor_constant). Jobs pinned to 2026-01-01 under runs
+    # seeded at _ago(n) modelled a shape the source cannot produce, and the floor rightly dropped them.
+    # Keeps the 2-minute duration the cost assertions are written against.
+    default_started, default_completed = _ago_with_duration(1, 120)
+    started = started if started is not None else default_started
+    completed = completed if completed is not None else default_completed
     return {
         "id": job_id,
         "run_id": run_id,
@@ -172,6 +184,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         *,
         source: ExternalDataSource | None = None,
         prefix: str = GITHUB_SOURCE_PREFIX,
+        schema_name: str | None = None,
     ) -> None:
         # Defaults to the mixin's single shared source; pass source + prefix to seed a second
         # source (e.g. one GitHub source per repository) under a distinct table prefix.
@@ -195,8 +208,23 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
                 source_prefix=prefix,
             )
         self.addCleanup(cleanup)
-        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix.
-        link_schema(self.team, source, name=base_name.removeprefix("github_"), table=table)
+        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix. Non-GitHub
+        # sources (Trunk) pass their endpoint's schema name explicitly.
+        link_schema(self.team, source, name=schema_name or base_name.removeprefix("github_"), table=table)
+
+    def _create_depot_table(self, rows: list[dict[str, Any]]) -> None:
+        # A Depot source joins the GitHub source that syncs the same repository.
+        if self._github_source is None:
+            self._github_source = create_github_source(self.team, repository="PostHog/posthog")
+        depot = create_depot_source(self.team, prefix="ci", repository="PostHog/posthog")
+        self._create_table(
+            "depot_job_attempts",
+            DEPOT_JOB_ATTEMPTS_COLUMNS,
+            rows,
+            source=depot,
+            prefix="ci",
+            schema_name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+        )
 
 
 class _EndpointsWarehouseMixin(_WarehouseMixin):

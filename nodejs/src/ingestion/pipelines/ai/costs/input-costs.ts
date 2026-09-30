@@ -4,7 +4,7 @@ import { logger } from '~/common/utils/logger'
 import { aiCacheExclusiveFallbackCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { numericProperty } from './cost-utils'
+import { numericProperty, stringProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'
 
 const matchProvider = (event: PluginEvent, provider: string): boolean => {
@@ -12,11 +12,11 @@ const matchProvider = (event: PluginEvent, provider: string): boolean => {
         return false
     }
 
-    const { $ai_provider: eventProvider, $ai_model: eventModel } = event.properties
     const normalizedProvider = provider.toLowerCase()
-    const normalizedModel = eventModel?.toLowerCase()
+    const normalizedModel = stringProperty(event, '$ai_model')?.toLowerCase()
+    const eventProvider = stringProperty(event, '$ai_provider')?.toLowerCase()
 
-    if (eventProvider?.toLowerCase() === normalizedProvider || normalizedModel?.includes(normalizedProvider)) {
+    if (eventProvider === normalizedProvider || normalizedModel?.includes(normalizedProvider)) {
         return true
     }
 
@@ -33,8 +33,8 @@ const usesInclusiveAnthropicInputTokens = (event: PluginEvent): boolean => {
         return false
     }
 
-    const provider = event.properties['$ai_provider']?.toLowerCase()
-    const framework = event.properties['$ai_framework']?.toLowerCase()
+    const provider = stringProperty(event, '$ai_provider')?.toLowerCase()
+    const framework = stringProperty(event, '$ai_framework')?.toLowerCase()
 
     // Vercel AI Gateway reports input tokens inclusive of cache read/write tokens.
     return provider === 'gateway' && framework === 'vercel'
@@ -230,7 +230,15 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         return bigDecimal.add(bigDecimal.add(totalCacheCost, uncachedCost), modalityInputCost)
     }
 
-    const baseRegularTokens = exclusive ? inputTokens : bigDecimal.subtract(inputTokens, cachedTextTokens)
+    const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
+    // Gemini's catalog write rate covers storage, not the input charge. Keep writes
+    // in normal input pricing (including audio/image rates); storage needs a known duration.
+    // https://cloud.google.com/vertex-ai/generative-ai/docs/context-cache/context-cache-overview#caching_storage_costs
+    const isGeminiCatalogCost = cost.provider !== 'custom' && /(^|\/)gemini-/.test(cost.model.toLowerCase())
+    const separateCacheWriteTokens = isGeminiCatalogCost ? 0 : cacheWriteTokens
+    const baseRegularTokens = exclusive
+        ? bigDecimal.add(inputTokens, isGeminiCatalogCost ? cacheWriteTokens : 0)
+        : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cachedTextTokens), separateCacheWriteTokens)
     const regularTextTokens = clampTextTokens(
         bigDecimal.subtract(bigDecimal.subtract(baseRegularTokens, audioInputTokens), imageInputTokens),
         hasModalityTokens
@@ -256,7 +264,9 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, multiplier), cachedTextTokens)
     }
 
+    const cacheWriteRate = cost.cost.cache_write_token ?? cost.cost.prompt_token
+    const cacheWriteCost = bigDecimal.multiply(cacheWriteRate, separateCacheWriteTokens)
     const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTextTokens)
 
-    return bigDecimal.add(bigDecimal.add(cacheReadCost, regularCost), modalityInputCost)
+    return bigDecimal.add(bigDecimal.add(bigDecimal.add(cacheReadCost, cacheWriteCost), regularCost), modalityInputCost)
 }

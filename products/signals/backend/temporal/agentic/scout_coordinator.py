@@ -22,7 +22,14 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
+from products.signals.backend.report_check_execution import run_due_report_checks
+from products.signals.backend.scout_harness.config_registry import (
+    canonical_operational_skill_names,
+    live_scout_skill_names,
+    operational_configs_needing_reconcile,
+    reconcile_operational_configs,
+    register_missing_configs,
+)
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
     AUTO_PAUSE_PROBE_INTERVAL_S,
@@ -51,8 +58,15 @@ from products.signals.backend.scout_harness.team_limits import (
     _resolve_withheld_skills,
     _runs_today_by_team,
     _team_configs,
+    resolve_max_enabled_scouts,
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
+from products.signals.backend.temporal.metrics import (
+    COORDINATOR_DISPATCH_DEDUPED,
+    COORDINATOR_DISPATCH_STARTED,
+    increment_coordinator_dispatch,
+    increment_coordinator_tick,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -91,11 +105,14 @@ class FetchEnabledRunsOutput:
 
 @frozen
 class StampDispatchedRunsInput:
-    """The (team, skill) runs whose child workflow was dispatched this tick, and the tick's own
-    start time to anchor their stamps on (`None` falls back to the wall clock)."""
+    """The (team, skill) runs whose child workflow was dispatched this batch, the tick's own
+    start time to anchor their stamps on (`None` falls back to the wall clock), and how that
+    batch split between freshly started children and dedupe-skipped ones."""
 
     dispatched_runs: list[PlannedRun]
     dispatched_at: datetime | None = None
+    started_count: int = 0
+    deduped_count: int = 0
 
 
 @dataclass
@@ -110,6 +127,43 @@ class CoordinatorWorkflowOutput:
     planned_count: int
     started_count: int
     skipped_count: int
+
+
+@frozen
+class RunDueChecksInput:
+    """No fields today; the executor reads its own bounds."""
+
+
+@frozen
+class RunDueChecksOutput:
+    expired: int
+    passed: int
+    failed: int
+    errored: int
+    # Defaulted so a workflow history written before the agent lane existed still decodes.
+    dispatched: int = 0
+    deferred: int = 0
+
+
+@activity.defn
+async def run_due_signal_report_checks_activity(_input: RunDueChecksInput) -> RunDueChecksOutput:
+    """Advance every report check due this tick.
+
+    Rides the coordinator rather than a schedule of its own: soak windows are days, so tick
+    granularity is ample, and a deterministic check costs one cached Trends query with no sandbox
+    and no scout enrolment. An `agent` check is dispatched here as a scout run and answers itself
+    later, so this activity never waits on one.
+    """
+    async with Heartbeater():
+        summary = await database_sync_to_async(run_due_report_checks, thread_sensitive=False)()
+    return RunDueChecksOutput(
+        expired=summary.expired,
+        passed=summary.passed,
+        failed=summary.failed,
+        errored=summary.errored,
+        dispatched=summary.dispatched,
+        deferred=summary.deferred,
+    )
 
 
 @activity.defn
@@ -140,6 +194,7 @@ async def fetch_enabled_signals_scout_runs_activity(
             enrollment, team_configs, default_team_config, global_max_runs_per_tick
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
+    increment_coordinator_tick(len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned, dispatch_smear_seconds=smear_seconds)
 
 
@@ -165,6 +220,10 @@ async def stamp_dispatched_signals_scout_runs_activity(
         await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(
             stamp_input.dispatched_runs, slot_aligned=slot_aligned, dispatched_at=stamp_input.dispatched_at
         )
+    # Counted here rather than in the workflow so a replay cannot double-count it, and after the
+    # stamp so a retried attempt counts the batch once.
+    increment_coordinator_dispatch(COORDINATOR_DISPATCH_STARTED, stamp_input.started_count)
+    increment_coordinator_dispatch(COORDINATOR_DISPATCH_DEDUPED, stamp_input.deduped_count)
 
 
 def _dispatch_slot(config_pk: str, run_interval_minutes: int) -> int:
@@ -289,7 +348,8 @@ def _collect_planned_runs(
     default_team_config = default_team_config or {}
     due: list[_DueRun] = []
     paused_by_team = _breaker_paused_configs_by_team()
-    for team, needs_seed in _participating_teams(enrollment):
+    reconcile_by_team = operational_configs_needing_reconcile() if enrollment.wildcard else {}
+    for team, needs_seed in _participating_teams(enrollment, reconcile_team_ids=set(reconcile_by_team)):
         # Scouts held back from this team via the `withheld_skills` denylist (resolved most-
         # specific-first from this team's `team_configs` entry, then the fleet `default_team_config`):
         # skip seeding the skill, skip seeding/enabling a config, and skip dispatch.
@@ -329,7 +389,17 @@ def _collect_planned_runs(
             # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
             # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
             live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
-        # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
+            # The one part of the reconcile the wildcard path still runs: an operational scout
+            # that stays off stops the checks and validation that run on it. Only teams with a
+            # row that needs it pay for the call, and a withheld scout is never a reason to call.
+            if reconcile_by_team.get(team.id, set()) - withheld_for_team:
+                _reconcile_wildcard_operational_configs(
+                    team.id,
+                    live_skills,
+                    withheld_for_team,
+                    [team_configs.get(team.id) or {}, default_team_config],
+                )
+        # Skip enabled configs whose skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
         for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True, skill_name__in=live_skills):
@@ -464,7 +534,26 @@ def _canonicalize_team_ids(ids: set[int]) -> set[int]:
     }
 
 
-def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
+def _reconcile_wildcard_operational_configs(
+    team_id: int, live_skills: set[str], withheld_skill_names: frozenset[str] | set[str], seed_config_layers: list[dict]
+) -> None:
+    """Run `reconcile_operational_configs` for one wildcard team. A failure does not abort the tick."""
+    try:
+        reconcile_operational_configs(
+            team_id,
+            canonical_operational_skill_names(team_id) & live_skills,
+            withheld_skill_names,
+            # Resolved here, because the reconcile holds row locks and must not read the flag.
+            max_enabled_scouts=resolve_max_enabled_scouts(seed_config_layers),
+        )
+    except Exception:
+        logger.exception(
+            "signals_scout coordinator: operational reconcile failed for team; continuing",
+            team_id=team_id,
+        )
+
+
+def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | None = None) -> list[tuple[Team, bool]]:
     """Resolve enrollment to canonical `Team`s to run scouts on, each tagged `needs_seed`.
 
     Two ways a team participates:
@@ -476,6 +565,8 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
       (`needs_seed=False`): it self-enrolled through the product-autonomy-gated UI, so it already
       has configs and the tick skips the expensive seed/reconcile for it. If a team is in both, the
       explicit tag wins (it gets the seed pass).
+      `reconcile_team_ids` joins the wildcard set too: a team whose only scouts are operational
+      ones the harness left off has no enabled config, and it must still reach the reconcile.
     Child envs canonicalize to their parent project; `skip_team_ids` is removed from both sets.
     Skip is subtracted AFTER canonicalizing both sides, so listing a child env in `guaranteed_team_ids`
     and its parent project in `skip_team_ids` (or the reverse) still hard-excludes the project — the
@@ -501,6 +592,7 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
             .values_list("team_id", flat=True)
             .distinct()
         )
+        wildcard_ids |= reconcile_team_ids or set()
     wildcard_ids -= skip_canonical
     wildcard_ids -= explicit  # explicit wins the tag — it gets the seed pass below
 
@@ -653,6 +745,14 @@ class SignalsScoutCoordinatorWorkflow:
 
     @workflow.run
     async def run(self, _input: CoordinatorWorkflowInput) -> CoordinatorWorkflowOutput:
+        if workflow.patched("signals-report-checks-2026-09"):
+            await workflow.execute_activity(
+                run_due_signal_report_checks_activity,
+                RunDueChecksInput(),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
         fetch_result = await workflow.execute_activity(
             fetch_enabled_signals_scout_runs_activity,
             FetchEnabledRunsInput(),
@@ -681,21 +781,31 @@ class SignalsScoutCoordinatorWorkflow:
         skipped = 0
         for batch_number, batch in enumerate(batches, start=1):
             dispatched: list[PlannedRun] = []
+            batch_started = 0
+            batch_deduped = 0
             for idx, planned in batch:
                 if await _start_child(planned=planned, tick_id=tick_id, idx=idx):
-                    started += 1
+                    batch_started += 1
                 else:
-                    skipped += 1
+                    batch_deduped += 1
                 # Both branches mean a child for this (team, skill, tick) now exists (started, or
                 # dedupe-skipped because a retry already started it) — so its schedule should
                 # advance. A hard `start_child` error raises out of `_start_child` before reaching
                 # here, leaving that config unstamped to re-dispatch next tick.
                 dispatched.append(planned)
 
+            started += batch_started
+            skipped += batch_deduped
+
             # Stamp only after dispatch, so a fan-out failure can't suppress a scout for a day.
             await workflow.execute_activity(
                 stamp_dispatched_signals_scout_runs_activity,
-                StampDispatchedRunsInput(dispatched_runs=dispatched, dispatched_at=tick_started_at),
+                StampDispatchedRunsInput(
+                    dispatched_runs=dispatched,
+                    dispatched_at=tick_started_at,
+                    started_count=batch_started,
+                    deduped_count=batch_deduped,
+                ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=5),
             )
@@ -752,9 +862,7 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
     except WorkflowAlreadyStartedError:
         workflow.logger.info(
             "signals_scout coordinator: child already running, skipping",
-            team_id=planned.team_id,
-            skill_name=planned.skill_name,
-            child_id=child_id,
+            extra={"team_id": planned.team_id, "skill_name": planned.skill_name, "child_id": child_id},
         )
         return False
 

@@ -442,7 +442,7 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/wizard/v1/messages",
+            "/ci/v1/messages",
             json=provider_request_body,
             headers=provider_request_headers,
         )
@@ -452,7 +452,7 @@ class TestAnthropicMessagesEndpoint:
         assert data["id"] == "msg_123"
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
-    def test_wizard_opus_5_high_effort_enables_thinking(
+    def test_opus_5_high_effort_enables_thinking(
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
@@ -464,7 +464,7 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/wizard/v1/messages",
+            "/ci/v1/messages",
             json={
                 "model": "claude-opus-5",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -477,11 +477,34 @@ class TestAnthropicMessagesEndpoint:
         assert response.status_code == 200
         assert mock_anthropic.call_args.kwargs["thinking"] == {"type": "adaptive"}
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_retired_wizard_route_answers_the_upgrade_path(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_request_body: dict,
+        provider_request_headers: dict[str, str],
+    ) -> None:
+        # The body a stale CLI build sees: a code to branch on and the upgrade command.
+        response = authenticated_client.post(
+            "/wizard/v1/messages",
+            json=provider_request_body,
+            headers=provider_request_headers,
+        )
+
+        assert response.status_code == 403
+        error = response.json()["error"]
+        assert error["type"] == "permission_error"
+        assert error["code"] == "product_access_denied"
+        assert error["reason"] == "product_retired"
+        assert "npx @posthog/wizard@latest" in error["message"]
+        mock_anthropic.assert_not_called()
+
     @pytest.mark.parametrize(
         "product",
         [
             pytest.param("llm_gateway", id="llm_gateway_product"),
-            pytest.param("wizard", id="wizard_product"),
+            pytest.param("ci", id="ci_product"),
         ],
     )
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
@@ -1338,7 +1361,7 @@ class TestAnthropicCountTokensEndpoint:
         mock_httpx_client_cls.return_value = mock_client
 
         response = authenticated_client.post(
-            "/wizard/v1/messages/count_tokens",
+            "/ci/v1/messages/count_tokens",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )

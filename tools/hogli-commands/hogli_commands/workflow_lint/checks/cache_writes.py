@@ -26,8 +26,8 @@ A write is FINE when any of these hold:
      shared cache that fragmented.
 
 Scans ``.github/workflows/**`` and ``.github/actions/*/action.yml`` — cache
-writes live in both (the shared ``pnpm-install`` action saves the store, and
-un-gating it would leak from every workflow that uses it). Composite actions have
+writes live in both (the shared ``pnpm-install`` action saves the Node tool cache,
+and un-gating it would leak from every workflow that uses it). Composite actions have
 no triggers, so they run wherever called: condition 1 never applies to them.
 """
 

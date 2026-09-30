@@ -2,18 +2,15 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-from django.db.models import Q
-
-from products.alerts.backend.destination_configs import DestinationType, EventKindSpec
-from products.alerts.backend.facade.api import DESTINATION_TEMPLATE_IDS
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.alerts.backend.facade.contracts import DestinationType, EventKindSpec
+from products.alerts.backend.facade.destinations import destination_template_id, list_owned_alert_destinations
 
 EventKind = Literal["firing", "resolved", "errored", "broken"]
 
 BILLING_DESTINATION_TYPES = (DestinationType.SLACK, DestinationType.WEBHOOK, DestinationType.TEAMS)
 
 DESTINATION_TYPE_BY_TEMPLATE_ID = {
-    DESTINATION_TEMPLATE_IDS[destination_type]: destination_type for destination_type in BILLING_DESTINATION_TYPES
+    destination_template_id(destination_type): destination_type for destination_type in BILLING_DESTINATION_TYPES
 }
 
 _PRODUCT_LABEL = "billing alert"
@@ -123,32 +120,29 @@ def destination_groups_for_alerts(
 ) -> dict[str, dict[str, dict[str, str]]]:
     """Map alert id -> destination type value -> event id -> HogFunction id for enabled,
     billing-owned destinations.
-
-    This is the single implementation of destination-group resolution; callers enforce the
-    complete-group invariant (a group must cover every event kind) on the returned mapping.
     """
     if not team_ids or not alert_ids:
         return {}
 
-    ownership_filter = Q(pk__in=[])
-    for alert_id in alert_ids:
-        ownership_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
-
-    rows = HogFunction.objects.filter(
-        ownership_filter,
-        team_id__in=team_ids,
-        enabled=True,
-        deleted=False,
-        template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-    ).values_list("id", "template_id", "filters")
+    rows = (
+        row
+        for team_id in team_ids
+        for row in list_owned_alert_destinations(
+            team_id=team_id,
+            alert_ids=alert_ids,
+            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
+            template_ids=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
+            enabled=True,
+        )
+    )
 
     groups: dict[str, dict[str, dict[str, str]]] = {}
-    for hog_function_id, template_id, filters in rows:
-        destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(template_id) if template_id else None
-        if destination_type is None or not isinstance(filters, dict):
+    for row in rows:
+        destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(row.template_id) if row.template_id else None
+        if destination_type is None or row.filters is None:
             continue
-        properties = filters.get("properties") or []
-        events = filters.get("events") or []
+        properties = row.filters.get("properties") or []
+        events = row.filters.get("events") or []
         if not isinstance(properties, list) or not isinstance(events, list):
             continue
         event_id = next(
@@ -166,6 +160,8 @@ def destination_groups_for_alerts(
                 continue
             alert_id = str(property_filter.get("value"))
             if alert_id in alert_ids:
-                groups.setdefault(alert_id, {}).setdefault(destination_type.value, {})[event_id] = str(hog_function_id)
+                groups.setdefault(alert_id, {}).setdefault(destination_type.value, {})[event_id] = str(
+                    row.hog_function_id
+                )
             break
     return groups

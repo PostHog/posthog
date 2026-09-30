@@ -25,7 +25,7 @@ export function EnvironmentList({
   onEdit,
 }: EnvironmentListProps) {
   return (
-    <div className="flex flex-col divide-y divide-(--gray-4) overflow-hidden rounded-(--radius-3) border border-(--gray-5)">
+    <div className="flex flex-col divide-y divide-border overflow-hidden rounded-(--radius-3) border border-border">
       {environments.map((environment) => (
         <div
           key={environment.id}

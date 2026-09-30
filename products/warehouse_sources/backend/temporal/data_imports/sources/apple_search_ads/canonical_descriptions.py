@@ -1,9 +1,11 @@
-"""Canonical, documentation-sourced descriptions for Apple Search Ads endpoints and columns.
+"""Canonical, documentation-sourced descriptions for Apple Ads endpoints and columns.
 
-Sourced from Apple's Search Ads Campaign Management API v5 reference
-(https://developer.apple.com/documentation/apple_search_ads). Keyed by the endpoint names in
-`settings.py` `APPLE_SEARCH_ADS_ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced
-table. Columns absent here fall back to LLM enrichment.
+Sourced from Apple's Ads Platform API reference
+(https://developer.apple.com/documentation/apple-ads-platform-api) and the Campaign Management
+API 5 reference it supersedes (https://developer.apple.com/documentation/apple_search_ads).
+Keyed by the endpoint names in `settings.py`, which match the `ExternalDataSchema.name` of a
+synced table. Both versions' column names are described here, because a source pinned to either
+one syncs into the same table; columns absent here fall back to LLM enrichment.
 """
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -26,14 +28,29 @@ _REPORT_METRIC_COLUMNS: dict[str, str] = {
     "avgCPA": "Average cost per acquisition, in the organization's currency.",
     "avgCPT": "Average cost per tap, in the organization's currency.",
     "avgCPM": "Average cost per thousand impressions, in the organization's currency.",
+    # The Platform API renamed these two and split installs by attribution type.
+    "cpt": "Average cost per tap, as an amount plus currency code.",
+    "cpm": "Average cost per thousand impressions, as an amount plus currency code.",
+    "tapInstalls": "Conversions attributed to a tap on the ad.",
+    "viewInstalls": "Conversions attributed to an impression the user did not tap.",
+    "totalInstalls": "Conversions attributed to the ad, combining tap-through and view-through.",
+    "tapNewDownloads": "Tap-through conversions from users who had not downloaded the app before.",
+    "tapRedownloads": "Tap-through conversions from users who had downloaded the app before.",
+    "viewNewDownloads": "View-through conversions from users who had not downloaded the app before.",
+    "viewRedownloads": "View-through conversions from users who had downloaded the app before.",
+    "totalNewDownloads": "Conversions from users who had not downloaded the app before.",
+    "totalRedownloads": "Conversions from users who had downloaded the app before.",
 }
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "acls": {
-        "description": "Organizations the API credentials can read, with the role granted to them.",
-        "docs_url": "https://developer.apple.com/documentation/apple_search_ads/get_user_acl",
+        "description": "Ad accounts the API credentials can read, with the roles granted on each.",
+        "docs_url": "https://developer.apple.com/documentation/apple-ads-platform-api/get-user-acls",
         "columns": {
-            "orgId": "Identifier of the organization, used as the `orgId` in the API context header.",
+            "id": "Identifier of the ad account, used as the `adAccountId` in the API context header.",
+            "name": "Display name of the ad account.",
+            "roles": "Roles the API user holds on the ad account, such as API Account Read Only.",
+            "orgId": "Identifier of the organization the ad account belongs to.",
             "orgName": "Display name of the organization.",
             "currency": "Three-letter ISO currency code the organization is billed in.",
             "timeZone": "Time zone the organization's reporting is expressed in.",

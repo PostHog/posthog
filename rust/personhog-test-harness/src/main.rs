@@ -4,6 +4,7 @@ use tracing_subscriber::EnvFilter;
 
 mod cli;
 mod client;
+mod pool;
 mod report;
 mod scenarios;
 mod seed;

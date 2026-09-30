@@ -1,0 +1,32 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "description": "Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL.",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Override the end of the query window.",
+            "type": "string"
+        },
+        "interval": {
+            "description": "Override the bucket interval. Rejected for HogQLQuery metrics.\n\n* `second` - second\n* `minute` - minute\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `month` - month\n* `quarter` - quarter\n* `year` - year",
+            "enum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
+            "type": "string"
+        },
+        "name": {
+            "type": "string"
+        },
+        "query_id": {
+            "description": "Client-supplied id to correlate or cancel the run.",
+            "type": "string"
+        },
+        "refresh": {
+            "description": "Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.\n\n* `blocking` - blocking\n* `async` - async\n* `lazy_async` - lazy_async\n* `force_blocking` - force_blocking\n* `force_async` - force_async\n* `force_cache` - force_cache",
+            "enum": ["blocking", "async", "lazy_async", "force_blocking", "force_async", "force_cache"],
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

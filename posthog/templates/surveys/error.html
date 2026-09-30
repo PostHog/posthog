@@ -1,15 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    {# Absolute app-origin URLs: reverse-proxy domains don't serve Django staticfiles. #}
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ site_url }}/static/icons/apple-touch-icon.png?v=2023-07-07">
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ site_url }}/static/icons/favicon-32x32.png?v=2023-07-07">
-    <link rel="icon" type="image/png" sizes="16x16" href="{{ site_url }}/static/icons/favicon-16x16.png?v=2023-07-07">
-    <title>{{ error_title }}</title>
-    <style>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        {# Absolute app-origin URLs: reverse-proxy domains don't serve Django staticfiles. #}
+        <link rel="apple-touch-icon"
+              sizes="180x180"
+              href="{{ site_url }}/static/icons/apple-touch-icon.png?v=2023-07-07">
+        <link rel="icon"
+              type="image/png"
+              sizes="32x32"
+              href="{{ site_url }}/static/icons/favicon-32x32.png?v=2023-07-07">
+        <link rel="icon"
+              type="image/png"
+              sizes="16x16"
+              href="{{ site_url }}/static/icons/favicon-16x16.png?v=2023-07-07">
+        <title>{{ error_title }}</title>
+        <style>
         :root {
             --ph-survey-page-background: #ffffff;
             --ph-survey-page-text: #111111;
@@ -109,24 +116,23 @@
                 right: 0.75rem;
             }
         }
-    </style>
-</head>
-
-<body>
-    <div class="main-container">
-        <div class="error-stage">
-            <h1 class="error-title">{{ error_title }}</h1>
-            <p class="error-message">{{ error_message }}</p>
+        </style>
+    </head>
+    <body>
+        <div class="main-container">
+            <div class="error-stage">
+                <h1 class="error-title">{{ error_title }}</h1>
+                <p class="error-message">{{ error_message }}</p>
+            </div>
         </div>
-    </div>
-    <a class="footer-branding" href="https://posthog.com/surveys?utm_source=survey-error" target="_blank" rel="noopener">
-        Survey by PostHog
-    </a>
-
-    {% if appearance %}
-    {{ appearance|json_script:"survey-appearance" }}
-    {% include "surveys/_appearance_helpers.html" %}
-    <script nonce="{{ request.csp_nonce }}">
+        <a class="footer-branding"
+           href="https://posthog.com/surveys?utm_source=survey-error"
+           target="_blank"
+           rel="noopener">Survey by PostHog</a>
+        {% if appearance %}
+            {{ appearance|json_script:"survey-appearance" }}
+            {% include "surveys/_appearance_helpers.html" %}
+            <script nonce="{{ request.csp_nonce }}">
         (function () {
             var appearance = JSON.parse(document.getElementById('survey-appearance').textContent) || {}
             var root = document.documentElement
@@ -153,8 +159,7 @@
                 root.style.setProperty('--ph-survey-page-font', appearance.fontFamily)
             }
         })()
-    </script>
-    {% endif %}
-</body>
-
+            </script>
+        {% endif %}
+    </body>
 </html>

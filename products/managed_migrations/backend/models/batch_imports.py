@@ -43,7 +43,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         PAUSED = "paused", "Paused"
         RUNNING = "running", "Running"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_by_id = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

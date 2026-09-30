@@ -1,7 +1,6 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
-import { router } from 'kea-router'
 import {
     Fragment,
     type MutableRefObject,
@@ -17,9 +16,10 @@ import {
 } from 'react'
 
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
-import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { filterSearchItems } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -30,6 +30,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger }
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -528,7 +529,7 @@ function SearchRoot({
                     return
                 }
                 if (item.href) {
-                    router.actions.push(item.href)
+                    navigateToHref(item.href)
                     return
                 }
             }
@@ -538,7 +539,7 @@ function SearchRoot({
                 if (openInNewTab) {
                     newInternalTab(item.href)
                 } else {
-                    router.actions.push(item.href)
+                    navigateToHref(item.href)
                 }
             }
         },
@@ -573,14 +574,13 @@ function SearchRoot({
             const isLoading = loadingByCategory.get(category) ?? false
 
             // When searching: hide empty groups (unless still loading)
-            // When not searching: always show recents/tools (with skeleton if loading); starred only when items or loading
+            // When not searching: always show tools; recents and starred only when they have items or are loading
             // "ai" and "create" are only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
                 : (category === 'suggested' && items.length > 0) ||
-                  category === 'recents' ||
                   category === 'tools' ||
-                  (category === 'starred' && (items.length > 0 || isLoading))
+                  ((category === 'recents' || category === 'starred') && (items.length > 0 || isLoading))
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })
@@ -697,7 +697,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
             if (e.key === 'Tab' && showAskAiLink && searchValue.trim()) {
                 e.preventDefault()
                 onAskAiClick?.()
-                router.actions.push(urls.ai(undefined, searchValue.trim()))
+                navigateToHref(urls.ai(undefined, searchValue.trim()))
                 return
             }
             // Cmd/Ctrl+Enter opens the highlighted result in a new tab. Base UI's combobox input
@@ -765,7 +765,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                         variant="panel"
                         onClick={() => {
                             onAskAiClick?.()
-                            router.actions.push(urls.ai(undefined, searchValue.trim()))
+                            navigateToHref(urls.ai(undefined, searchValue.trim()))
                         }}
                         tooltip="Click or press Tab to ask AI"
                     >
@@ -813,16 +813,17 @@ function SearchStatus(): JSX.Element {
         }
         if (filteredItems.length > 0) {
             if (!searchValue.trim()) {
-                return 'Recents and tools'
+                return null
             }
             return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
         }
         return 'Type to search...'
     }, [isSearching, searchValue, filteredItems.length])
 
+    // The live region stays mounted so screen readers announce the first search status.
     return (
-        <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center">
-            <span>{statusMessage}</span>
+        <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center empty:p-0">
+            {statusMessage && <span>{statusMessage}</span>}
         </Autocomplete.Status>
     )
 }
@@ -862,7 +863,7 @@ function SearchResults({
             direction="vertical"
             styledScrollbars
             className={cn('flex-1 overflow-y-auto', className)}
-            innerClassName="scroll-pt-12 scroll-pb-8"
+            innerClassName="scroll-pt-12 scroll-pb-8 overscroll-contain"
         >
             {!isAnyLoading && (
                 <Autocomplete.Empty className="px-3 py-8 text-center text-muted empty:p-0">
@@ -992,20 +993,11 @@ function SearchResults({
                                                                                 </span>
                                                                             )}
                                                                             {item.tags?.map((tag) => (
-                                                                                <LemonTag
+                                                                                <ProductTag
                                                                                     key={tag}
-                                                                                    type={
-                                                                                        tag === 'alpha'
-                                                                                            ? 'completion'
-                                                                                            : tag === 'beta'
-                                                                                              ? 'warning'
-                                                                                              : 'success'
-                                                                                    }
-                                                                                    size="small"
+                                                                                    tag={tag}
                                                                                     className="shrink-0"
-                                                                                >
-                                                                                    {tag.toUpperCase()}
-                                                                                </LemonTag>
+                                                                                />
                                                                             ))}
                                                                             {item.lastViewedAt && (
                                                                                 <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">

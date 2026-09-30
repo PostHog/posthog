@@ -1,1 +1,1 @@
-0003_alter_alertconfiguration_calculation_interval
+0008_platformalert_firing_started_at_and_uuid7_pk

@@ -2,6 +2,8 @@ import {
   type BrowserWindow,
   closeTab,
   closeTabs,
+  DEFAULT_TAB_HREF,
+  ensureWindowHasTab,
   openTab,
   resetTabs,
   setTabOrder,
@@ -46,7 +48,18 @@ class WebBrowserTabsStore extends TypedEventEmitter<SnapshotChangeEvents> {
     super();
     this.setMaxListeners(0);
     const loaded = load();
-    const seeded = this.ensurePrimaryWindow(loaded);
+    const withPrimaryWindow = this.ensurePrimaryWindow(loaded);
+    const primaryWindow = withPrimaryWindow.windows.find(
+      (window) => window.isPrimary,
+    );
+    const seeded = primaryWindow
+      ? ensureWindowHasTab(withPrimaryWindow, {
+          windowId: primaryWindow.id,
+          href: DEFAULT_TAB_HREF,
+          makeId,
+          now,
+        })
+      : withPrimaryWindow;
     this.snapshot = seeded;
     if (seeded !== loaded) this.persist();
   }
@@ -75,7 +88,7 @@ class WebBrowserTabsStore extends TypedEventEmitter<SnapshotChangeEvents> {
 
   reset(): TabsSnapshot {
     return this.commit(
-      resetTabs(this.snapshot, { href: "/spaces", makeId, now }),
+      resetTabs(this.snapshot, { href: DEFAULT_TAB_HREF, makeId, now }),
     );
   }
 
@@ -115,13 +128,28 @@ class WebBrowserTabsStore extends TypedEventEmitter<SnapshotChangeEvents> {
     return this.commit(setTabTarget(this.snapshot, { ...input, now }));
   }
 
-  close(tabId: string): TabsSnapshot {
-    const { snapshot } = closeTab(this.snapshot, tabId);
+  close(tabId: string, newTabId: string): TabsSnapshot {
+    const { snapshot } = closeTab(this.snapshot, tabId, {
+      href: DEFAULT_TAB_HREF,
+      makeId: () => newTabId,
+      now,
+    });
     return this.commit(snapshot);
   }
 
-  closeMany(tabIds: string[], focusTabId?: string | null): TabsSnapshot {
-    return this.commit(closeTabs(this.snapshot, tabIds, focusTabId));
+  closeMany(
+    tabIds: string[],
+    newTabId: string,
+    focusTabId?: string | null,
+  ): TabsSnapshot {
+    return this.commit(
+      closeTabs(
+        this.snapshot,
+        tabIds,
+        { href: DEFAULT_TAB_HREF, makeId: () => newTabId, now },
+        focusTabId,
+      ),
+    );
   }
 
   setOrder(input: { windowId: string; tabIds: string[] }): TabsSnapshot {

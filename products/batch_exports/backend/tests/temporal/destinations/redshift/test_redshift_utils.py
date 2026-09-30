@@ -8,15 +8,23 @@ from unittest import mock
 from django.conf import settings
 
 import psycopg
+import pyarrow as pa
 import aioboto3
 import pytest_asyncio
 import botocore.exceptions
 
-from products.batch_exports.backend.service import AWSCredentials
+from posthog.models.integration import AWSRedshiftRoleBasedIntegration, Integration, IntegrationError
+
+from products.batch_exports.backend.service import AWSCredentials, BatchExportModel
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     ClientErrorGroup,
     InsufficientS3PermissionsError,
+    ProvisionedCluster,
     RedshiftS3CopyError,
+    ServerlessWorkgroup,
+    _get_redshift_credentials_policy_statements,
+    _get_table_schemas,
+    _parse_redshift_host,
     check_and_raise_redshift_copy_error,
     is_s3_read_access_denied,
     upload_manifest_file,
@@ -25,6 +33,22 @@ from products.batch_exports.backend.temporal.temporary_file import remove_escape
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
 TEST_ROOT_BUCKET = "test-batch-exports"
+
+
+@pytest.mark.parametrize("has_person_id", [False, True])
+@pytest.mark.parametrize("properties_data_type", ["varchar", "super"])
+def test_events_table_schemas_match_staged_person_id(has_person_id: bool, properties_data_type: str) -> None:
+    columns = ["uuid", "properties"]
+    if has_person_id:
+        columns.append("person_id")
+    schema = pa.schema([(name, pa.string()) for name in columns])
+
+    table_schemas = _get_table_schemas(BatchExportModel(name="events", schema=None), schema, properties_data_type)
+
+    for fields in (table_schemas.table_schema, table_schemas.stage_table_schema):
+        assert {name for name, _ in fields} == set(columns)
+        if has_person_id:
+            assert dict(fields)["person_id"] == "VARCHAR(200)"
 
 
 @pytest.mark.parametrize(
@@ -267,14 +291,21 @@ async def test_check_and_raise_redshift_copy_error_credentials(denied):
 
 
 @pytest.mark.parametrize(
-    "error,should_raise",
+    "error,expected_error",
     [
-        (_FakeInternalError("COPY with MANIFEST parameter requires full path of an S3 object"), True),
-        (_FakeInternalError("copy failed", detail="S3ServiceException: Access Denied"), True),
-        (_FakeInternalError("syntax error at or near 'foo'"), False),
+        (
+            _FakeInternalError("COPY with MANIFEST parameter requires full path of an S3 object"),
+            RedshiftS3CopyError,
+        ),
+        (_FakeInternalError("copy failed", detail="S3ServiceException: Access Denied"), RedshiftS3CopyError),
+        (
+            _FakeInternalError('permission denied to create temporary tables in database "my_data"'),
+            psycopg.errors.InsufficientPrivilege,
+        ),
+        (_FakeInternalError("syntax error at or near 'foo'"), None),
     ],
 )
-async def test_check_and_raise_redshift_copy_error_iam_role(error, should_raise):
+async def test_check_and_raise_redshift_copy_error_iam_role(error, expected_error):
     """IAM role auth can't be probed, so we translate only recognised S3 read/access failures."""
     call = check_and_raise_redshift_copy_error(
         error,
@@ -284,8 +315,104 @@ async def test_check_and_raise_redshift_copy_error_iam_role(error, should_raise)
         manifest_key="prefix/manifest.json",
         files_uploaded=["prefix/file-0.parquet.zst"],
     )
-    if should_raise:
-        with pytest.raises(RedshiftS3CopyError):
+    if expected_error is not None:
+        with pytest.raises(expected_error):
             await call
     else:
         await call  # should not raise
+
+
+@pytest.mark.parametrize(
+    "host,expected",
+    [
+        (
+            "examplecluster.abc123xyz789.us-west-2.redshift.amazonaws.com",
+            ProvisionedCluster(cluster_identifier="examplecluster", region="us-west-2"),
+        ),
+        (
+            "default-wg.123456789012.us-east-1.redshift-serverless.amazonaws.com",
+            ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1"),
+        ),
+    ],
+)
+def test_parse_redshift_host(host, expected):
+    assert _parse_redshift_host(host) == expected
+
+
+@pytest.mark.parametrize("host", ["localhost", "my-redshift.example.com", "8.8.8.8", ""])
+def test_parse_redshift_host_rejects_unrecognized_endpoints(host):
+    with pytest.raises(IntegrationError):
+        _parse_redshift_host(host)
+
+
+def _aws_redshift_role_integration(**extra_config) -> AWSRedshiftRoleBasedIntegration:
+    integration = Integration(
+        kind=Integration.IntegrationKind.AWS_REDSHIFT,
+        config={
+            "aws_role_arn": "arn:aws:iam::123456789012:role/posthog-batch-exports",
+            "user": "awsuser",
+            **extra_config,
+        },
+    )
+    return AWSRedshiftRoleBasedIntegration(integration)
+
+
+def test_provisioned_cluster_credentials_policy_scopes_to_exact_resources():
+    integration = _aws_redshift_role_integration(groups=["exporters"], auto_create=True)
+    server = ProvisionedCluster(cluster_identifier="examplecluster", region="us-west-2")
+
+    statements = _get_redshift_credentials_policy_statements(integration, server, "posthog")
+
+    assert statements[0]["Action"] == ["redshift:GetClusterCredentials", "redshift:CreateClusterUser"]
+    assert statements[0]["Resource"] == [
+        "arn:aws:redshift:us-west-2:123456789012:dbuser:examplecluster/awsuser",
+        "arn:aws:redshift:us-west-2:123456789012:dbname:examplecluster/posthog",
+    ]
+    assert statements[1]["Action"] == ["redshift:JoinGroup"]
+    assert statements[1]["Resource"] == [
+        "arn:aws:redshift:us-west-2:123456789012:dbgroup:examplecluster/exporters",
+    ]
+    assert all("*" not in resource for statement in statements for resource in statement["Resource"])
+
+
+def test_serverless_workgroup_credentials_policy_scopes_to_workgroup_arn():
+    workgroup_arn = "arn:aws:redshift-serverless:us-east-1:123456789012:workgroup/abc-123"
+    integration = _aws_redshift_role_integration(workgroup_arn=workgroup_arn)
+    server = ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
+
+    statements = _get_redshift_credentials_policy_statements(integration, server, "posthog")
+
+    assert statements == [
+        {
+            "Effect": "Allow",
+            "Action": ["redshift-serverless:GetCredentials"],
+            "Resource": [workgroup_arn],
+        }
+    ]
+
+
+def test_serverless_workgroup_credentials_policy_requires_workgroup_arn():
+    # There must never be a wildcard fallback here: without the exact workgroup ARN
+    # the policy cannot be scoped, so credentials must not be requested at all.
+    integration = _aws_redshift_role_integration()
+    server = ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
+
+    with pytest.raises(IntegrationError):
+        _get_redshift_credentials_policy_statements(integration, server, "posthog")
+
+
+@pytest.mark.parametrize(
+    "workgroup_arn",
+    [
+        # Region mismatch.
+        "arn:aws:redshift-serverless:us-west-2:123456789012:workgroup/abc-123",
+        # Account mismatch.
+        "arn:aws:redshift-serverless:us-east-1:999999999999:workgroup/abc-123",
+    ],
+)
+def test_serverless_workgroup_credentials_policy_rejects_mismatched_arn(workgroup_arn):
+    integration = _aws_redshift_role_integration(workgroup_arn=workgroup_arn)
+    server = ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
+
+    with pytest.raises(IntegrationError):
+        _get_redshift_credentials_policy_statements(integration, server, "posthog")

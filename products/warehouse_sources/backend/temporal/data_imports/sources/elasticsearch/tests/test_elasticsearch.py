@@ -6,7 +6,13 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
+    CLUSTER_UNAVAILABLE_ERROR,
+    CREDENTIALS_REJECTED_ERROR,
+    FORBIDDEN_ERROR,
     PAGE_SIZE,
+    TLS_ERROR,
+    UNEXPECTED_RESPONSE_ERROR,
+    UNREACHABLE_ERROR,
     ElasticsearchAuth,
     coerce_float_fields,
     elasticsearch_source,
@@ -80,26 +86,43 @@ class TestAuthWiring:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected",
+        "status_code, expected_valid, expected_error",
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
+            (200, True, None),
+            (401, False, CREDENTIALS_REJECTED_ERROR),
+            (403, False, FORBIDDEN_ERROR),
+            (404, False, UNEXPECTED_RESPONSE_ERROR),
+            (429, False, CLUSTER_UNAVAILABLE_ERROR),
+            (500, False, CLUSTER_UNAVAILABLE_ERROR),
         ],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
+    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected_valid, expected_error):
         mock_session.return_value.headers = {}
         mock_session.return_value.get.return_value = _response({}, status=status_code)
 
-        assert validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k")) is expected
+        is_valid, error = validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k"))
 
+        assert is_valid is expected_valid
+        assert error == expected_error
+
+    @pytest.mark.parametrize(
+        "raised, expected_error",
+        [
+            (Exception("boom"), UNREACHABLE_ERROR),
+            (requests.exceptions.ConnectionError("refused"), UNREACHABLE_ERROR),
+            (requests.exceptions.SSLError("bad cert"), TLS_ERROR),
+        ],
+    )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
+    def test_validate_credentials_transport_failure_mapping(self, mock_session, raised, expected_error):
         mock_session.return_value.headers = {}
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k")) is False
+        mock_session.return_value.get.side_effect = raised
+
+        assert validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k")) == (
+            False,
+            expected_error,
+        )
 
 
 class TestListIndices:

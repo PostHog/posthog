@@ -18,6 +18,16 @@ class DispatchAccountPropertySyncInput:
 
 
 @frozen
+class FinalizeAccountPropertySyncRunsInput:
+    team_id: int
+    saved_query_id: str
+    job_id: str
+    status: str
+    phase: str
+    error: str | None = None
+
+
+@frozen
 class AccountPropertySyncInput:
     team_id: int
     saved_query_id: str

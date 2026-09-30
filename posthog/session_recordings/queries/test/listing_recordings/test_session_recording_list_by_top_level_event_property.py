@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from django.utils.timezone import now
@@ -27,7 +27,7 @@ from products.actions.backend.models.action import Action
 
 
 @parameterized_class([{"allow_event_property_expansion": True}, {"allow_event_property_expansion": False}])
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIBaseTest):
     # set by parameterized_class decorator
     allow_event_property_expansion: bool
@@ -157,7 +157,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
             ),
         ]
     )
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_for_flags(self, _name: str, properties: dict, expected: list[str]) -> None:
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -243,7 +243,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
 
         self._assert_query_matches_session_ids({"properties": properties}, expected)
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_for_two_is_not_event_properties(self) -> None:
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -321,7 +321,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
             ["3", "4"],
         )
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_for_does_not_match_regex_event_properties(self) -> None:
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -398,7 +398,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
             ["1", "4"],
         )
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_for_does_not_contain_event_properties(self) -> None:
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})

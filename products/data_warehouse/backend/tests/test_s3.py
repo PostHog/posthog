@@ -7,7 +7,13 @@ from django.test import SimpleTestCase, override_settings
 from botocore.exceptions import ClientError
 from parameterized import parameterized
 
-from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists, get_size_of_folder
+from products.data_warehouse.backend.s3 import (
+    _LOOP_S3_CLIENTS,
+    _shared_async_s3_client,
+    aget_s3_client,
+    ensure_bucket_exists,
+    get_size_of_folder,
+)
 
 
 def _client_error(code: str) -> ClientError:
@@ -36,6 +42,32 @@ class TestAgetS3Client(SimpleTestCase):
 
         fake_s3._s3creator.__aexit__.assert_awaited_once_with(None, None, None)
         fake_s3._s3.close.assert_not_awaited()
+
+
+class TestSharedAsyncS3ClientLoopEviction(SimpleTestCase):
+    @override_settings(USE_LOCAL_SETUP=False)
+    def test_evicts_a_closed_loops_entry_instead_of_leaking_it_forever(self) -> None:
+        # _LOOP_S3_CLIENTS is a WeakKeyDictionary keyed on the event loop, but each cached client's
+        # aiohttp session keeps a strong reference back to that loop, so the loop is never weakly
+        # reachable and its entry never disappears on its own (the leak both review bots flagged).
+        # A worker whose call path keeps starting new short-lived loops needs those dead entries
+        # swept explicitly, or they and their clients accumulate for the life of the process.
+        dead_loop = asyncio.new_event_loop()
+        dead_loop.run_until_complete(asyncio.sleep(0))
+        _LOOP_S3_CLIENTS[dead_loop] = {None: MagicMock()}
+        dead_loop.close()
+        assert dead_loop in _LOOP_S3_CLIENTS
+
+        fake_s3 = MagicMock()
+        fake_s3.set_session = AsyncMock()
+
+        async def run() -> None:
+            with patch("products.data_warehouse.backend.s3.s3fs.S3FileSystem", return_value=fake_s3):
+                await _shared_async_s3_client(None)
+
+        asyncio.run(run())
+
+        assert dead_loop not in _LOOP_S3_CLIENTS
 
 
 class TestGetSizeOfFolder(SimpleTestCase):
@@ -137,8 +169,9 @@ class TestEnsureBucketExists(SimpleTestCase):
         with self.assertRaises(ValueError):
             ensure_bucket_exists("s3://my-bucket", "key", "secret")
 
+    @patch("products.data_warehouse.backend.s3.time.sleep")
     @patch("products.data_warehouse.backend.s3.boto3.client")
-    def test_reraises_non_404_head_bucket_errors(self, mock_boto3_client) -> None:
+    def test_reraises_non_404_head_bucket_errors(self, mock_boto3_client, mock_sleep) -> None:
         s3_client = MagicMock()
         s3_client.head_bucket.side_effect = _client_error("403")
         mock_boto3_client.return_value = s3_client
@@ -146,4 +179,22 @@ class TestEnsureBucketExists(SimpleTestCase):
         with self.assertRaises(ClientError):
             ensure_bucket_exists("s3://my-bucket", "key", "secret")
 
+        # A persistent 403 retries (it's indistinguishable from a transient one, see
+        # test_retries_head_bucket_403_then_succeeds) but still gives up and raises.
+        assert s3_client.head_bucket.call_count > 1
+        s3_client.create_bucket.assert_not_called()
+
+    @patch("products.data_warehouse.backend.s3.time.sleep")
+    @patch("products.data_warehouse.backend.s3.boto3.client")
+    def test_retries_head_bucket_403_then_succeeds(self, mock_boto3_client, mock_sleep) -> None:
+        # HeadBucket carries no body, so a 403 from it can't be told apart from a still-registering
+        # local object store (e.g. SeaweedFS's credential bootstrap loop) by message alone. That
+        # transient race must self-heal on retry instead of surfacing as a hard failure.
+        s3_client = MagicMock()
+        s3_client.head_bucket.side_effect = [_client_error("403"), _client_error("403"), None]
+        mock_boto3_client.return_value = s3_client
+
+        ensure_bucket_exists("s3://my-bucket", "key", "secret")
+
+        assert s3_client.head_bucket.call_count == 3
         s3_client.create_bucket.assert_not_called()

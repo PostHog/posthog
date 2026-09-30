@@ -4,20 +4,23 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
 
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.signals.backend.facade.api import SignalSourceSliceOutcomes, get_outcomes_for_signal_source_slice
-from products.signals.backend.implementation_pr import ImplementationPr
-from products.signals.backend.models import SignalReport
+from products.signals.backend.facade.api import (
+    SignalSourceSlicePullRequest,
+    get_outcomes_for_signal_source_slice,
+    get_reports_for_signal_source_slice,
+)
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
     SignalSourceReference,
+    fetch_origin_sources_for_report,
     fetch_signal_stats_for_source_slice,
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
@@ -109,7 +112,8 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         self._emit_version(document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d4", report_id="rB", source_product="surveys", inserted_at=self.base)
 
-        result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
+        with self.assertNumQueries(FuzzyInt(0, 1)):
+            result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
 
         assert result == {
             "rA": ReportSignalMeta(source_products=["errors", "replay"], scout_name=None),
@@ -263,6 +267,37 @@ class TestFetchSourceReferencesForReport(_SignalEmbeddingsTestBase):
             SignalSourceReference(
                 source_product="linear", label="Linear issue", url="https://linear.app/a/issue/ENG-1"
             ),
+        ]
+
+
+class TestFetchOriginSourcesForReport(_SignalEmbeddingsTestBase):
+    def test_summarizes_live_sources_of_the_report_earliest_first(self) -> None:
+        self._emit_version(document_id="later", report_id="r1", source_product="error_tracking", inserted_at=self.base)
+        self._emit_version(
+            document_id="scout",
+            report_id="r1",
+            source_product="error_tracking",
+            inserted_at=self.base - timedelta(hours=1),
+            skill_name="signals-scout-error-tracking",
+        )
+        self._emit_version(document_id="gone", report_id="r1", source_product="logs", inserted_at=self.base)
+        self._emit_version(
+            document_id="gone",
+            report_id="r1",
+            source_product="logs",
+            inserted_at=self.base + timedelta(minutes=1),
+            deleted=True,
+        )
+        self._emit_version(document_id="moved", report_id="r1", source_product="logs", inserted_at=self.base)
+        self._emit_version(
+            document_id="moved", report_id="r2", source_product="logs", inserted_at=self.base + timedelta(minutes=1)
+        )
+
+        sources = fetch_origin_sources_for_report(self.team, "r1")
+
+        assert [(s.source_product, s.scout_name, s.entity_ids) for s in sources] == [
+            ("error_tracking", "signals-scout-error-tracking", ("src-scout",)),
+            ("error_tracking", "", ("src-later",)),
         ]
 
 
@@ -477,14 +512,63 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
                 extra={"scanner_id": "sA"},
             )
 
-        shared_pr = ImplementationPr(url="https://github.com/o/r/pull/1", merged=True)
-        with patch(
-            "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
-            return_value={str(existing.id): shared_pr, str(sibling.id): shared_pr},
-        ) as mock_prs:
-            outcomes = get_outcomes_for_signal_source_slice(
-                team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
+        shared_pr = SignalReportPullRequest.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="example/app",
+            number=1,
+            url="https://github.com/example/app/pull/1",
+            state="merged",
+        )
+        second_pr = SignalReportPullRequest.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="example/app",
+            number=2,
+            url="https://github.com/example/app/pull/2",
+            state="open",
+        )
+        for report, pr in [(existing, shared_pr), (sibling, shared_pr), (existing, second_pr)]:
+            SignalReportArtefact.objects.create(
+                team=self.team, report=report, type="pull_request", content=json.dumps({"url": pr.url}), pull_request=pr
+            )
+        outcomes = get_outcomes_for_signal_source_slice(
+            team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
+        )
+
+        assert (outcomes.signal_count, outcomes.report_count, outcomes.pr_count, outcomes.merged_pr_count) == (
+            5,
+            2,
+            2,
+            1,
+        )
+        # The links behind the counts: the same deduped PRs, newest report's first.
+        assert outcomes.pull_requests == [
+            SignalSourceSlicePullRequest(url=shared_pr.url, merged=True),
+            SignalSourceSlicePullRequest(url=second_pr.url, merged=False),
+        ]
+
+    def test_hydrates_the_same_slice_newest_first(self) -> None:
+        # The link surface shares the slice query with the counters, so it must drop the same
+        # malformed and soft-deleted ids, and order newest first rather than by CH's set order.
+        older = SignalReport.objects.create(team=self.team, title="older", summary="s")
+        newer = SignalReport.objects.create(team=self.team, title="newer", summary="s")
+        SignalReport.objects.filter(pk=older.id).update(created_at=self.base - timedelta(hours=1))
+        soft_deleted = SignalReport.objects.create(
+            team=self.team, title="gone", summary="s", status=SignalReport.Status.DELETED
+        )
+        for index, report_id in enumerate([str(older.id), str(newer.id), str(soft_deleted.id), "not-a-uuid"]):
+            self._emit_version(
+                document_id=f"h{index}",
+                report_id=report_id,
+                source_product="errors",
+                inserted_at=self.base,
+                extra={"observation_id": "obs-1"},
             )
 
-        assert outcomes == SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=1, merged_pr_count=1)
-        assert sorted(mock_prs.call_args.args[0]) == sorted([str(existing.id), str(sibling.id)])
+        reports = get_reports_for_signal_source_slice(
+            team=self.team, source_product="errors", source_type="some_type", extra_equals={"observation_id": "obs-1"}
+        )
+
+        assert [(r.id, r.title, r.status) for r in reports] == [
+            (str(newer.id), "newer", "potential"),
+            (str(older.id), "older", "potential"),
+        ]

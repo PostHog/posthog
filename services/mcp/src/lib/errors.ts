@@ -145,8 +145,11 @@ export class ToolInputValidationError extends Error {
 
 export type ExecCommandErrorReason =
     | 'unknown_command'
+    | 'tool_as_command'
+    | 'batched_command'
     | 'unknown_tool'
     | 'deprecated_tool'
+    | 'gated_tool'
     | 'missing_scope'
     | 'invalid_json'
     | 'usage'
@@ -212,8 +215,20 @@ export class PostHogApiError extends Error {
     }
 }
 
+/** The request path without the upstream host. The host is not something an
+ *  agent can act on, and reading one makes a 4xx look like an infrastructure
+ *  fault; `client.ts` already logs the full URL server-side. */
+function requestPath(url: string): string {
+    try {
+        const parsed = new URL(url)
+        return `${parsed.pathname}${parsed.search}`
+    } catch {
+        return url
+    }
+}
+
 function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
-    return `Request failed:\nURL: ${options.method} ${options.url}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
+    return `Request failed:\nPath: ${options.method} ${requestPath(options.url)}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
 }
 
 export interface PostHogRateLimitErrorOptions {
@@ -244,6 +259,48 @@ export class PostHogRateLimitError extends PostHogApiError {
         })
         this.name = 'PostHogRateLimitError'
         this.retryAfterSeconds = options.retryAfterSeconds
+    }
+}
+
+export interface PostHogTransportErrorOptions {
+    url: string
+    method: string
+    attempts: number
+    /**
+     * Whether another attempt is safe. True only for a method that applies
+     * nothing upstream. A failed write can still have reached the handler, so
+     * a repeat of one could apply the same work twice.
+     */
+    retryable: boolean
+    cause: unknown
+}
+
+/**
+ * Thrown when a request to the PostHog API produced no usable response: the
+ * connection failed, dropped, or the body read was cut short. On a retryable
+ * method the client already repeated the call, so this error means the retry
+ * budget is spent.
+ */
+export class PostHogTransportError extends Error {
+    public readonly retryable: boolean
+    public readonly url: string
+    public readonly method: string
+    public readonly attempts: number
+
+    constructor(options: PostHogTransportErrorOptions) {
+        const reason = options.cause instanceof Error ? options.cause.message : String(options.cause)
+        const advice = options.retryable
+            ? 'The request applies nothing upstream, so it is safe to retry.'
+            : 'The request may have been applied upstream, so check the state before you send it again.'
+        super(
+            `Could not reach the PostHog API on ${options.method} ${requestPath(options.url)} after ${options.attempts} attempt${options.attempts === 1 ? '' : 's'}: ${reason}. ${advice}`
+        )
+        this.name = 'PostHogTransportError'
+        this.retryable = options.retryable
+        this.url = options.url
+        this.method = options.method
+        this.attempts = options.attempts
+        ;(this as Error & { cause?: unknown }).cause = options.cause
     }
 }
 

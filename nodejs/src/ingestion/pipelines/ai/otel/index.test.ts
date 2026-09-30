@@ -96,6 +96,17 @@ describe('convertOtelEvent', () => {
             expect(event.properties!['$ai_lib']).toBe('opentelemetry/pydantic-ai')
         })
 
+        // vercel-ai matches the whole ai.* namespace, so it only stays off
+        // traceloop spans because it is last in the registry.
+        it('traceloop markers take priority over an ai.* attribute', () => {
+            const event = createEvent('$ai_span', {
+                'traceloop.span.kind': 'workflow',
+                'ai.usage.outputTokenDetails.reasoningTokens': 5,
+            })
+            convertOtelEvent(event)
+            expect(event.properties!['$ai_lib']).toBe('opentelemetry/traceloop')
+        })
+
         it('does not detect traceloop when no marker keys present', () => {
             const event = createEvent('$ai_generation', { 'gen_ai.system': 'openai' })
             convertOtelEvent(event)

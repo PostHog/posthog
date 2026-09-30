@@ -18,6 +18,8 @@ interface SDKInstructionsModalProps {
     verifyingProperty?: string
     verifyingName?: string
     hideInstallationCheck?: boolean
+    /** Overrides the legacy onboardingLogic advance the footer's NextButton dispatches by default. */
+    onAdvance?: () => void
 }
 
 export function SDKInstructionsModal({
@@ -29,6 +31,7 @@ export function SDKInstructionsModal({
     verifyingProperty = 'ingested_event',
     verifyingName = 'event',
     hideInstallationCheck = false,
+    onAdvance,
 }: SDKInstructionsModalProps): JSX.Element {
     const installationCompleteFromTeam = useInstallationComplete(verifyingProperty)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
@@ -65,7 +68,7 @@ export function SDKInstructionsModal({
                         ) : (
                             <span />
                         )}
-                        <NextButton installationComplete={installationComplete} />
+                        <NextButton installationComplete={installationComplete} onAdvance={onAdvance} />
                     </footer>
                 </div>
             )}

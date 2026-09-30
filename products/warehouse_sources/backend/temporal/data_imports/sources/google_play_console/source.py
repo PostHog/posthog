@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     LOOKBACK_SECONDS,
     MERGE_ONLY,
     PRIMARY_KEYS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -73,6 +72,12 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # The Reporting API answers a malformed or unsupported query with a deterministic 400,
+            # so retrying replays the identical rejection until the activity budget runs out.
+            "400 Client Error": (
+                "Google rejected a Play Console report query as invalid. "
+                "Contact PostHog support if this happens again on the next sync."
+            ),
             "401 Client Error": "Google rejected the service account credentials. Please upload a current JSON key file.",
             "403 Client Error": (
                 "The service account cannot read Play Console reporting data. Enable the Play Developer Reporting "
@@ -91,7 +96,7 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_PLAY_CONSOLE,
+            name=ExternalDataSourceType.GOOGLEPLAYCONSOLE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["android", "play store", "vitals", "crash"],
             label="Google Play Console",
@@ -149,6 +154,7 @@ Leave the package names blank to sync every app the service account can see.""",
             names=names,
             merge_only=MERGE_ONLY,
             descriptions=DESCRIPTIONS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
         )
         for schema in schemas:
             schema.default_incremental_lookback_seconds = LOOKBACK_SECONDS.get(schema.name)

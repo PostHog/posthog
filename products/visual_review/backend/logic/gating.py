@@ -6,20 +6,23 @@ from django.db.models import Q
 from django.utils import timezone
 
 from ..db import WRITER_DB
-from ..facade.enums import ReviewState, RunPurpose, SnapshotResult, ToleratedReason
+from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ReviewState, RunPurpose, SnapshotResult
 from ..models import QuarantinedIdentifier, Run, RunSnapshot
-from . import baselines, ci_status, comment_markdown, comments
+from . import baselines, ci_status, comment_markdown, comments, quarantine
 
 
 def _stamp_quarantine(run: Run) -> None:
-    """Evaluate quarantine policy and freeze it on each snapshot."""
+    """Evaluate quarantine policy and freeze it on each snapshot.
+
+    A quarantine lifted at a commit this run does not contain still applies to this run.
+    """
     now = timezone.now()
     quarantined_ids = set(
         QuarantinedIdentifier.objects.using(WRITER_DB)
         .filter(repo_id=run.repo_id, run_type=run.run_type, team_id=run.team_id)
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
         .values_list("identifier", flat=True)
-    )
+    ) | quarantine.identifiers_lifted_after_commit(run, now=now)
 
     if not quarantined_ids:
         run.snapshots.using(WRITER_DB).filter(is_quarantined=True).update(is_quarantined=False)
@@ -41,20 +44,44 @@ def _is_unresolved(s: RunSnapshot) -> bool:
     return True
 
 
+def count_unresolved(run: Run) -> int:
+    """How many of a run's snapshots `_is_unresolved` flags, counted in SQL.
+
+    The run detail read needs only this number, and loading every snapshot to count a handful
+    costs seconds on a large run. Observe runs are never approvable, so nothing in them is
+    unresolved. The predicate must stay identical to `_is_unresolved`; a test pins the two
+    together.
+    """
+    if run.purpose == RunPurpose.OBSERVE:
+        return 0
+    return (
+        RunSnapshot.objects.filter(run_id=run.id)
+        .exclude(result=SnapshotResult.UNCHANGED)
+        .exclude(is_quarantined=True)
+        .exclude(review_state__in=(ReviewState.TOLERATED, ReviewState.APPROVED))
+        .count()
+    )
+
+
 def _changes_summary(run: Run) -> str:
     """Change summary from the run's denormalized (quarantine-excluded) counts."""
     return comment_markdown._format_change_counts(run.changed_count, run.new_count, run.removed_count)
 
 
-def _update_counts_and_post_status(run: Run) -> int:
-    """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
+# The count fields `_recount` assigns. A caller that publishes them alongside other
+# fields passes these to its own `save(update_fields=...)`.
+COUNT_FIELDS = ("changed_count", "new_count", "removed_count", "tolerated_match_count")
+
+
+def _recount(run: Run) -> list[RunSnapshot]:
+    """Re-stamp quarantine and recount the run's snapshots onto `run`, without saving.
 
     Counts on the run (changed_count, new_count, removed_count) reflect the raw
-    classifier output excluding quarantined snapshots. The unresolved count is
-    computed separately for the commit status and CI gate — it further excludes
-    tolerated and approved snapshots.
+    classifier output excluding quarantined snapshots.
 
-    Returns the unresolved count.
+    The caller owns the write, because `finish_processing` must publish these counts
+    in the same write as the completed status. Returns the loaded snapshots so the
+    caller does not query them again.
     """
     _stamp_quarantine(run)
 
@@ -66,17 +93,19 @@ def _update_counts_and_post_status(run: Run) -> int:
     run.tolerated_match_count = sum(
         1
         for s in snapshots
-        if s.tolerated_hash_match is not None and s.tolerated_hash_match.reason == ToleratedReason.HUMAN
+        if s.tolerated_hash_match is not None and s.tolerated_hash_match.reason in INTENTIONAL_TOLERATE_REASONS
     )
-    run.save(
-        update_fields=[
-            "changed_count",
-            "new_count",
-            "removed_count",
-            "tolerated_match_count",
-        ]
-    )
+    return snapshots
 
+
+def _post_status(run: Run, snapshots: list[RunSnapshot]) -> int:
+    """Compute unresolved and post the commit status that gates CI.
+
+    The unresolved count is separate from the run's counts because it further
+    excludes tolerated and approved snapshots.
+
+    Returns the unresolved count.
+    """
     unresolved = sum(1 for s in snapshots if _is_unresolved(s))
 
     # Approved-but-uncommitted changes still block the gate: the baseline on the PR branch
@@ -108,3 +137,15 @@ def _update_counts_and_post_status(run: Run) -> int:
         ci_status._post_commit_status(run, repo, "success", "No visual changes")
 
     return unresolved
+
+
+def _update_counts_and_post_status(run: Run) -> int:
+    """Recount the run, save the counts on their own, and post the commit status.
+
+    For a run that is already completed, where the status is not part of the write.
+
+    Returns the unresolved count.
+    """
+    snapshots = _recount(run)
+    run.save(update_fields=COUNT_FIELDS)
+    return _post_status(run, snapshots)

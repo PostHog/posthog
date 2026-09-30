@@ -4,8 +4,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
-
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.settings import ENDPOINTS
@@ -50,6 +49,12 @@ class TestSchemas:
             assert schema.supports_incremental is False
             assert schema.supports_append is False
             assert schema.incremental_fields == []
+
+    def test_faxes_is_not_selected_by_default(self) -> None:
+        # Faxing is a separate Dropbox Sign product, so the table stays off unless the user picks it.
+        schemas = {s.name: s for s in DropboxSignSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas["faxes"].should_sync_default is False
+        assert schemas["signature_requests"].should_sync_default is True
 
     def test_names_filter(self) -> None:
         schemas = DropboxSignSource().get_schemas(MagicMock(), team_id=1, names=["templates"])

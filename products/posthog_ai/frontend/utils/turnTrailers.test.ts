@@ -1,16 +1,16 @@
 import type { ThreadItem } from '../types/streamTypes'
-import { computeTurnTrailers } from './turnTrailers'
+import { computeTurnTrailers, mapRowsToTurnSeparator } from './turnTrailers'
 
 function item(type: ThreadItem['type'], id: string, text?: string): ThreadItem {
     return { id, type, text }
 }
 
-describe('computeTurnTrailers', () => {
-    it('assigns stable ordinals and per-turn text across multiple turns', () => {
+describe('turnTrailers', () => {
+    it('assigns stable ordinals, per-turn text, trace ids, and timestamps across multiple turns', () => {
         const trailers = computeTurnTrailers([
             item('human_message', 'h0', 'q1'),
             item('assistant_message', 'a0', 'first answer'),
-            item('turn_separator', 'turn-0'),
+            { ...item('turn_separator', 'turn-0'), traceId: 'trace-a', startedAt: 1700000000000 },
             item('human_message', 'h1', 'q2'),
             item('assistant_thought', 't0', 'thinking'),
             item('assistant_message', 'a1', 'second answer'),
@@ -18,11 +18,18 @@ describe('computeTurnTrailers', () => {
             item('turn_separator', 'turn-1'),
         ])
 
-        expect(trailers.get('turn-0')).toEqual({ turnIndex: 0, isLastTurn: false, turnText: 'first answer' })
+        expect(trailers.get('turn-0')).toEqual({
+            turnIndex: 0,
+            isLastTurn: false,
+            turnText: 'first answer',
+            traceId: 'trace-a',
+            timestamp: 1700000000000,
+        })
         expect(trailers.get('turn-1')).toEqual({
             turnIndex: 1,
             isLastTurn: true,
             turnText: 'second answer\n\ncontinued',
+            traceId: undefined,
         })
     })
 
@@ -40,11 +47,38 @@ describe('computeTurnTrailers', () => {
         expect(trailers.get('turn-0')).toEqual({ turnIndex: 0, isLastTurn: true, turnText: 'clean answer' })
     })
 
+    it('ignores a duplicate turn-end marker with no answer behind it', () => {
+        const trailers = computeTurnTrailers([
+            item('human_message', 'h0', 'q1'),
+            item('assistant_message', 'a0', 'answer'),
+            item('turn_separator', 'turn-0'),
+            item('turn_separator', 'turn-1'),
+        ])
+        expect([...trailers.keys()]).toEqual(['turn-0'])
+        expect(trailers.get('turn-0')?.isLastTurn).toBe(true)
+    })
+
     it('returns an empty map for a thread with no completed turns', () => {
         const trailers = computeTurnTrailers([
             item('human_message', 'h0', 'q1'),
             item('assistant_message', 'a0', 'still streaming'),
         ])
         expect(trailers.size).toBe(0)
+    })
+
+    it('maps answer rows to the separator of their own turn, and skips human and unfinished rows', () => {
+        const membership = mapRowsToTurnSeparator([
+            item('human_message', 'h0'),
+            item('assistant_message', 'a0'),
+            item('turn_separator', 'turn-0'),
+            item('human_message', 'h1'),
+            item('assistant_thought', 't1'),
+            item('assistant_message', 'a1'),
+            item('turn_separator', 'turn-1'),
+            item('human_message', 'h2'),
+            item('assistant_message', 'a2'),
+        ])
+
+        expect(Object.fromEntries(membership)).toEqual({ a0: 'turn-0', t1: 'turn-1', a1: 'turn-1' })
     })
 })

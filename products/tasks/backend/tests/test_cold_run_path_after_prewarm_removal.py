@@ -46,7 +46,10 @@ class TestPrewarmArtifactsRemoved(SimpleTestCase):
 class TestColdProvisionPathIntact(SimpleTestCase):
     def test_create_activity_cold_creates_via_sandbox_create(self):
         source = inspect.getsource(provision_sandbox._create_sandbox_for_repository)
-        assert "Sandbox.create(config)" in source
+        # The cold path resolves the provider per run and calls create() on it
+        # (get_sandbox_class_for_backend(...).create(config)); the guard is that
+        # it still creates a sandbox rather than taking a prewarm shortcut.
+        assert ".create(config)" in source
         for token in PREWARM_TOKENS:
             assert token not in source, f"create_sandbox_for_repository still references {token}"
 

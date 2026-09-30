@@ -52,13 +52,14 @@ from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN, AvailableFeature
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 from posthog.security.url_validation import has_ambiguous_authority
+from posthog.stable_chunks import persist_stable_chunks_choice, stable_chunks_for_request
 
 from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 
@@ -82,7 +83,7 @@ if TYPE_CHECKING:
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
     from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
-    from products.product_analytics.backend.facade.models import InsightVariable
+    from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -539,26 +540,29 @@ def _build_template_context(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_host"] = "https://internal-cf.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
         # posthog-js uses this token to evaluate PostHog's own gating flags, so it must point at the
-        # team those flags are synced to — the dogfood-flags team (first team by PK), the same team
-        # the server-side bootstrap evaluates against via _build_flag_provider(). Do NOT use the
-        # self-capture team here (posthoganalytics.api_key = most-recently-active user's current_team):
-        # it drifts onto demo teams that hold no internal flags, so flags load from the bootstrap and
-        # then vanish the moment posthog-js reloads them against that team.
-        dogfood_team = resolve_dogfood_flags_team()
-        if dogfood_team is not None:
-            context["js_posthog_api_key"] = dogfood_team.api_token
+        # team the server-side bootstrap evaluates against via _build_flag_provider(). Both resolve
+        # through resolve_self_flags_team() for that reason: the POSTHOG_SELF_TEAM_ID override when
+        # it is set, else the dogfood-flags team that `sync_feature_flags_from_api` writes to. Do NOT
+        # use the self-capture team here (posthoganalytics.api_key = most-recently-active user's
+        # current_team): it drifts onto demo teams that hold no internal flags, so flags load from
+        # the bootstrap and then vanish the moment posthog-js reloads them against that team.
+        self_flags_team = resolve_self_flags_team()
+        if self_flags_team is not None:
+            context["js_posthog_api_key"] = self_flags_team.api_token
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
-        elif posthoganalytics.api_key:
+        elif get_explicit_self_team_id() is None and posthoganalytics.api_key:
+            # Only reachable without an override. A pinned team that does not exist leaves the token
+            # unset, because sending any other team's token is the mismatch described above.
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
-        context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_api_key"] = POSTHOG_JS_CLOUD_TOKEN
+        context["js_posthog_host"] = POSTHOG_JS_CLOUD_HOST
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
@@ -575,6 +579,7 @@ def _build_template_context(
     posthog_distinct_id: Optional[str] = None
 
     # Set the frontend app context
+    # nosemgrep: api-query-param-underscore -- shipped public API param, a rename breaks clients
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
@@ -583,9 +588,13 @@ def _build_template_context(
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
-        from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
+
+        from products.access_control.backend.facade.user_access_control import (
+            ACCESS_CONTROL_RESOURCES,
+            UserAccessControl,
+        )
 
         with tracer.start_as_current_span("template.preflight"):
             preflight_payload = json.loads(preflight_check(request).getvalue())
@@ -599,6 +608,7 @@ def _build_template_context(
             "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
+            "project_access_denied": getattr(request, "project_access_denied", None),
             "commit_sha": context["git_rev"],
             "livestream_host": settings.LIVESTREAM_HOST,
             **posthog_app_context,
@@ -681,15 +691,19 @@ def _build_template_context(
                     home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
                     posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
 
-    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
-    if "oauth_application" in context:
-        posthog_app_context["oauth_application"] = context.pop("oauth_application")
-    if "oauth_mcp_consent" in context:
-        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
+    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view).
+    # A key absent from this list never reaches `window.POSTHOG_APP_CONTEXT`, so the scene that reads it
+    # silently falls back.
+    for caller_key in (
+        "oauth_application",
+        "oauth_mcp_consent",
+        "oauth_consent_access_controls_apply",
+        "oauth_scope_resolution",
+    ):
+        if caller_key in context:
+            posthog_app_context[caller_key] = context.pop(caller_key)
 
-    # JSON dumps here since there may be objects like Queries
-    # that are not serializable by Django's JSON serializer
-    context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+    context["posthog_app_context"] = posthog_app_context
 
     if posthog_distinct_id:
         groups = {}
@@ -720,15 +734,25 @@ def _build_template_context(
     # This allows immediate flag availability on the frontend, atleast for flags
     # that don't depend on any person properties. To get these flags, add person properties to the
     # `get_all_flags` call above.
-    context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
+    context["posthog_bootstrap"] = posthog_bootstrap
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
     # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
     if template_name == "index.html":
+        is_authenticated = bool(request.user and request.user.is_authenticated)
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
-            bool(request.user and request.user.is_authenticated)
+            is_authenticated
         )
+        stable_chunks = stable_chunks_for_request(request, posthog_bootstrap.get("featureFlags"))
+        if stable_chunks:
+            context["stable_chunks"] = True
+            context["stable_chunks_importmap"] = stable_chunks.import_map_json(context["js_url"])
+            context["preload_js_urls"] = stable_chunks.preload_urls(is_authenticated)
+            if stable_chunks.eager_css_urls:
+                # The stable page links its split stylesheets and loads the full one only as a fallback.
+                context["preload_css_url"] = ""
+                context["stable_preload_css_urls"] = stable_chunks.eager_css_urls
         # Theme for the pre-React shell (critical CSS in index.html), mirroring the app's
         # themeLogic.isDarkModeOn: anonymous pages are always light, a missing theme_mode
         # means light, and only "system" defers to prefers-color-scheme.
@@ -742,13 +766,43 @@ def _build_template_context(
 
         support_secret = get_instance_setting("CONVERSATIONS_HMAC_SIGNING_SECRET")
         if support_secret:
-            from products.conversations.backend.services.identity import compute_identity_hash
+            from products.conversations.backend.services.identity import (
+                IDENTITY_CLAIM_MAX_AGE_SECONDS,
+                canonicalize_claim_value,
+                compute_identity_claim_hash,
+                compute_identity_hash,
+            )
 
             context["js_posthog_identity_distinct_id"] = posthog_distinct_id
             context["js_posthog_identity_hash"] = compute_identity_hash(
                 posthog_distinct_id,
                 support_secret,
             )
+
+            # Sign the logged-in user's verified email as a claim bound to their distinct_id.
+            # The widget backend trusts this attested email to bridge tickets keyed on an email
+            # string (Slack, email, Zendesk), instead of the mutable person.properties.email.
+            user_email = None
+            if request.user and request.user.is_authenticated:
+                identity_user = cast("User", request.user)
+                if identity_user.is_email_verified is True:
+                    user_email = identity_user.email
+            if user_email:
+                canonical_email = canonicalize_claim_value("email", user_email)
+                expires_at = int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS
+                context["js_posthog_identity_claims"] = {
+                    "email": {
+                        "value": canonical_email,
+                        "expires_at": expires_at,
+                        "hash": compute_identity_claim_hash(
+                            posthog_distinct_id,
+                            "email",
+                            canonical_email,
+                            support_secret,
+                            expires_at=expires_at,
+                        ),
+                    }
+                }
 
     return context
 
@@ -775,6 +829,7 @@ def render_template(
         response.status_code = status_code
     if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
+    persist_stable_chunks_choice(request, response)
 
     return response
 
@@ -834,6 +889,39 @@ def get_dogfood_flags_team_id() -> Optional[int]:
     return team.id if team is not None else None
 
 
+def get_explicit_self_team_id() -> Optional[int]:
+    """The `POSTHOG_SELF_TEAM_ID` operator override, or None when it is unset.
+
+    Truthiness, not `is not None`: an empty env var means "unset" and must fall through to the
+    defaults, not crash on int("").
+    """
+    raw_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
+    return int(raw_team_id) if raw_team_id else None
+
+
+def resolve_self_flags_team() -> Optional["Team"]:
+    """Resolve the team whose flag definitions represent this instance, honoring the override.
+
+    This must stay in lockstep with `_build_flag_provider()`, which pins the same team for the
+    server-side bootstrap. posthog-js evaluates PostHog's own gating flags with this team's token,
+    so when the two resolve to different teams the browser reloads flags against a team that holds
+    no definitions for them.
+
+    When the override names a team that does not exist, return None rather than another team: the
+    provider still pins definitions to that id, so substituting a different team here reintroduces
+    the mismatch above.
+    """
+    Team = apps.get_model("posthog", "Team")
+    explicit_team_id = get_explicit_self_team_id()
+    if explicit_team_id is None:
+        return resolve_dogfood_flags_team()
+    try:
+        return Team.objects.filter(pk=explicit_team_id).first()
+    except ProgrammingError:
+        # Table absent before migrations have run.
+        return None
+
+
 def _build_flag_provider() -> "HyperCacheFlagProvider":
     """Construct the HyperCache flag-definition provider for this deploy.
 
@@ -848,12 +936,11 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
         HyperCacheFlagProvider,
     )
 
-    explicit_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
-    if explicit_team_id:
-        # Operator override: pin the flag-definitions team explicitly.
-        # Truthiness, not `is not None`: an empty env var means "unset" and must
-        # fall through to the defaults below, not crash on int("").
-        return HyperCacheFlagProvider.for_static_team(int(explicit_team_id))
+    explicit_team_id = get_explicit_self_team_id()
+    if explicit_team_id is not None:
+        # Operator override: pin the flag-definitions team explicitly. The browser token resolves
+        # through the same override in resolve_self_flags_team(), so both stay on this team.
+        return HyperCacheFlagProvider.for_static_team(explicit_team_id)
     if settings.SELF_CAPTURE and not settings.E2E_TESTING:
         # Local/self-hosted: read flag definitions from the dogfood team
         # (project.teams.first()), resolved lazily once teams/migrations exist.
@@ -1052,11 +1139,6 @@ def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
         }
 
     return frontend_apps
-
-
-def json_uuid_convert(o):
-    if isinstance(o, uuid.UUID):
-        return str(o)
 
 
 def friendly_time(seconds: float):
@@ -1628,7 +1710,7 @@ def get_daterange(
     return time_range
 
 
-def get_safe_cache(cache_key: str):
+def get_safe_cache(cache_key: str) -> Any:
     try:
         cached_result = cache.get(cache_key)  # cache.get is safe in most cases
         return cached_result
@@ -1804,7 +1886,7 @@ def filters_override_requested_by_client(
 def variables_override_requested_by_client(
     request: Optional[Request],
     dashboard: Optional["Dashboard"],
-    variables: list["InsightVariable"],
+    variables: list["InsightVariableDefinition"],
     is_shared: bool = False,
 ) -> Optional[dict[str, dict]]:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication

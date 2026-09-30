@@ -2,22 +2,22 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    HogFunctionTemplatesListQueryParams,
-    HogFunctionTemplatesRetrieveParams,
-} from '@/generated/cdp_function_templates/api'
+import * as orvalSchemas from '@/generated/cdp_function_templates/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CdpFunctionTemplatesListSchema = HogFunctionTemplatesListQueryParams
+const CdpFunctionTemplatesListSchema = () => {
+    const HogFunctionTemplatesListQueryParams = orvalSchemas.HogFunctionTemplatesListQueryParams()
+    return HogFunctionTemplatesListQueryParams
+}
 
 const cdpFunctionTemplatesList = (): ToolBase<
-    typeof CdpFunctionTemplatesListSchema,
+    ReturnType<typeof CdpFunctionTemplatesListSchema>,
     WithPostHogUrl<Schemas.PaginatedHogFunctionTemplateList>
 > => ({
     name: 'cdp-function-templates-list',
-    schema: CdpFunctionTemplatesListSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionTemplatesListSchema>) => {
+    schema: CdpFunctionTemplatesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionTemplatesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionTemplateList>({
             method: 'GET',
@@ -50,15 +50,18 @@ const cdpFunctionTemplatesList = (): ToolBase<
     },
 })
 
-const CdpFunctionTemplatesRetrieveSchema = HogFunctionTemplatesRetrieveParams.omit({ project_id: true })
+const CdpFunctionTemplatesRetrieveSchema = () => {
+    const HogFunctionTemplatesRetrieveParams = orvalSchemas.HogFunctionTemplatesRetrieveParams()
+    return HogFunctionTemplatesRetrieveParams.omit({ project_id: true })
+}
 
 const cdpFunctionTemplatesRetrieve = (): ToolBase<
-    typeof CdpFunctionTemplatesRetrieveSchema,
+    ReturnType<typeof CdpFunctionTemplatesRetrieveSchema>,
     Schemas.HogFunctionTemplate
 > => ({
     name: 'cdp-function-templates-retrieve',
-    schema: CdpFunctionTemplatesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionTemplatesRetrieveSchema>) => {
+    schema: CdpFunctionTemplatesRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionTemplatesRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunctionTemplate>({
             method: 'GET',

@@ -10,8 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
+
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 
 from ee.hogai.tool import MaxTool
 
@@ -59,7 +60,7 @@ class AnalyzeUserInterviewsTool(MaxTool):
         # Use GPT to analyze the summaries
         analysis_response = OpenAI(
             posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL
-        ).responses.create(  # type: ignore[call-overload]
+        ).responses.create(
             model="gpt-4.1-mini",
             posthog_privacy_mode=True,
             posthog_distinct_id=self._user.distinct_id,

@@ -17,6 +17,7 @@ from botocore.exceptions import ClientError
 
 from posthog import settings
 from posthog.dags.common import JobOwners
+from posthog.storage.object_storage import ObjectStorage
 
 DATASET_VERSION = "v1"
 
@@ -30,6 +31,11 @@ PARQUET_PART_NAME = "part-00000.parquet"
 # the querying team's timezone (US/Pacific for the dogfood project), which would shift every
 # label bound 7-8 hours off the UTC partition boundary. An embedded offset overrides that.
 LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
+
+# Dismissal reasons that mean the report itself was wrong (the precision failure the dismiss_wrong
+# head predicts). already_fixed and wontfix_irrelevant are deliberately not here. Shared by the
+# labels SQL (cumulative count) and the head definition.
+WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
 
 partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 
@@ -98,6 +104,11 @@ def s3_client():  # noqa: ANN201
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         region_name=settings.OBJECT_STORAGE_REGION,
     )
+
+
+def serving_mirror_storage() -> ObjectStorage:
+    # The mirror is another deployment's store, so ambient AWS config must grant the write there.
+    return ObjectStorage(boto3.client("s3", region_name=settings.INBOX_RANKING_SERVING_MIRROR_REGION or None))
 
 
 SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"
@@ -174,15 +185,15 @@ def merge_emission_rows(existing: pa.Table, fresh: pa.Table, key_columns: tuple[
     return pa.concat_tables([existing, fresh.filter(mask)])
 
 
-def read_parquet(client, bucket: str, key: str) -> pa.Table:
+def read_parquet(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table:
     body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
-    return pq.read_table(pa.BufferReader(body))
+    return pq.read_table(pa.BufferReader(body), columns=columns)
 
 
-def read_parquet_if_exists(client, bucket: str, key: str) -> pa.Table | None:
+def read_parquet_if_exists(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table | None:
     """The object's rows, or None when it was never written."""
     try:
-        return read_parquet(client, bucket, key)
+        return read_parquet(client, bucket, key, columns)
     except ClientError as error:
         if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
             return None

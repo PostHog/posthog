@@ -1,14 +1,19 @@
+import {
+  type ChannelItemFilters,
+  type ChannelItemGrouping,
+  type ChannelItemSort,
+  DEFAULT_CHANNEL_ITEM_FILTERS,
+  DEFAULT_CHANNEL_ITEM_GROUPING,
+  DEFAULT_CHANNEL_ITEM_SORT,
+  DESKTOP_SOURCE,
+  migrateSourceFilter,
+} from "@posthog/core/canvas/channelItems";
 import { ALL_WORKSPACE_MODES } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
+import type { PreferredWorkSectionHeights } from "@posthog/ui/features/canvas/workSectionLayout";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import {
-  type CustomizableNavItemId,
-  type NavItemOverrides,
-  SIDEBAR_MIN_WIDTH,
-  sanitizeNavItemOrder,
-  sanitizeNavItemOverrides,
-} from "./constants";
+import { SIDEBAR_MIN_WIDTH } from "./constants";
 import {
   type ListItemMetadataField,
   sanitizeListItemMetadataFields,
@@ -28,17 +33,16 @@ interface SidebarStoreState {
   showAllUsers: boolean;
   showInternal: boolean;
   taskTypeFilter: WorkspaceMode[];
+  // The space session list's narrowing. Held here rather than in the list so a
+  // space switch, which remounts the list, keeps what the user chose.
+  channelItemFilters: ChannelItemFilters;
+  channelItemSort: ChannelItemSort;
+  channelItemGrouping: ChannelItemGrouping;
+  workSectionHeights: PreferredWorkSectionHeights;
   // Reveals the Channels feature in the unified sidebar (channel tree replaces
   // the task list, Canvas nav item appears). Off by default — Code merged into
   // the Bluebird chrome ships with channels hidden until the user opts in.
   channelsEnabled: boolean;
-  // Per-item visibility overrides from the Customize sidebar dialog. Items
-  // absent from the map follow their CUSTOMIZABLE_NAV_ITEMS defaultVisible, so newly
-  // shipped moreable items keep their intended default for existing users.
-  navItemOverrides: NavItemOverrides;
-  // Drag order from the Customize sidebar dialog. Empty means default order;
-  // ids absent from it (newly shipped items) render after the ordered ones.
-  navItemOrder: readonly CustomizableNavItemId[];
 }
 
 interface SidebarStoreActions {
@@ -59,12 +63,19 @@ interface SidebarStoreActions {
   setShowAllUsers: (showAllUsers: boolean) => void;
   setShowInternal: (showInternal: boolean) => void;
   toggleTaskType: (mode: WorkspaceMode) => void;
+  setChannelItemFilters: (filters: ChannelItemFilters) => void;
+  setChannelItemSort: (sort: ChannelItemSort) => void;
+  setChannelItemGrouping: (grouping: ChannelItemGrouping) => void;
+  setWorkSectionHeights: (heights: PreferredWorkSectionHeights) => void;
   setChannelsEnabled: (channelsEnabled: boolean) => void;
-  setNavItemVisible: (item: CustomizableNavItemId, visible: boolean) => void;
-  setNavItemOrder: (order: readonly CustomizableNavItemId[]) => void;
 }
 
 type SidebarStore = SidebarStoreState & SidebarStoreActions;
+
+export const DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
+  ...DEFAULT_CHANNEL_ITEM_FILTERS,
+  sources: [DESKTOP_SOURCE],
+};
 
 export const useSidebarStore = create<SidebarStore>()(
   persist(
@@ -82,9 +93,11 @@ export const useSidebarStore = create<SidebarStore>()(
       showAllUsers: false,
       showInternal: false,
       taskTypeFilter: [...ALL_WORKSPACE_MODES],
+      channelItemFilters: DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+      channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
+      channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
+      workSectionHeights: {},
       channelsEnabled: false,
-      navItemOverrides: {},
-      navItemOrder: [],
       setOpen: (open) => set({ open, hasUserSetOpen: true }),
       setOpenAuto: (open) =>
         set((state) => (state.hasUserSetOpen ? state : { open })),
@@ -144,14 +157,34 @@ export const useSidebarStore = create<SidebarStore>()(
             : [...state.taskTypeFilter, mode],
         })),
       setChannelsEnabled: (channelsEnabled) => set({ channelsEnabled }),
-      setNavItemVisible: (item, visible) =>
-        set((state) => ({
-          navItemOverrides: { ...state.navItemOverrides, [item]: visible },
-        })),
-      setNavItemOrder: (navItemOrder) => set({ navItemOrder }),
+      setChannelItemFilters: (channelItemFilters) =>
+        set({ channelItemFilters }),
+      setChannelItemSort: (channelItemSort) => set({ channelItemSort }),
+      setChannelItemGrouping: (channelItemGrouping) =>
+        set({ channelItemGrouping }),
+      setWorkSectionHeights: (workSectionHeights) =>
+        set({ workSectionHeights }),
     }),
     {
       name: "sidebar-storage",
+      version: 2,
+      migrate: (persisted, version) => {
+        const state = persisted as {
+          channelItemFilters?: Partial<ChannelItemFilters> & {
+            source?: unknown;
+          };
+        };
+        const saved = state.channelItemFilters;
+        if (version >= 2 || !saved) return state;
+        const filters = migrateSourceFilter(saved);
+        return {
+          ...state,
+          channelItemFilters:
+            version === 0 && !filters.sources?.length
+              ? { ...filters, sources: [DESKTOP_SOURCE] }
+              : filters,
+        };
+      },
       partialize: (state) => ({
         open: state.open,
         hasUserSetOpen: state.hasUserSetOpen,
@@ -165,9 +198,11 @@ export const useSidebarStore = create<SidebarStore>()(
         showAllUsers: state.showAllUsers,
         showInternal: state.showInternal,
         taskTypeFilter: state.taskTypeFilter,
+        channelItemFilters: state.channelItemFilters,
+        channelItemSort: state.channelItemSort,
+        channelItemGrouping: state.channelItemGrouping,
+        workSectionHeights: state.workSectionHeights,
         channelsEnabled: state.channelsEnabled,
-        navItemOverrides: state.navItemOverrides,
-        navItemOrder: state.navItemOrder,
       }),
       merge: (persisted, current) => {
         const persistedState = persisted as {
@@ -183,9 +218,11 @@ export const useSidebarStore = create<SidebarStore>()(
           showAllUsers?: boolean;
           showInternal?: boolean;
           taskTypeFilter?: WorkspaceMode[];
+          channelItemFilters?: Partial<ChannelItemFilters>;
+          channelItemSort?: ChannelItemSort;
+          channelItemGrouping?: ChannelItemGrouping;
+          workSectionHeights?: PreferredWorkSectionHeights;
           channelsEnabled?: boolean;
-          navItemOverrides?: unknown;
-          navItemOrder?: unknown;
         };
         return {
           ...current,
@@ -209,12 +246,20 @@ export const useSidebarStore = create<SidebarStore>()(
           showInternal: persistedState.showInternal ?? current.showInternal,
           taskTypeFilter:
             persistedState.taskTypeFilter ?? current.taskTypeFilter,
+          // Spread over the defaults so a filter added later starts at its
+          // default instead of undefined for users with older persisted state.
+          channelItemFilters: {
+            ...current.channelItemFilters,
+            ...persistedState.channelItemFilters,
+          },
+          channelItemSort:
+            persistedState.channelItemSort ?? current.channelItemSort,
+          channelItemGrouping:
+            persistedState.channelItemGrouping ?? current.channelItemGrouping,
+          workSectionHeights:
+            persistedState.workSectionHeights ?? current.workSectionHeights,
           channelsEnabled:
             persistedState.channelsEnabled ?? current.channelsEnabled,
-          navItemOverrides: sanitizeNavItemOverrides(
-            persistedState.navItemOverrides,
-          ),
-          navItemOrder: sanitizeNavItemOrder(persistedState.navItemOrder),
         };
       },
     },

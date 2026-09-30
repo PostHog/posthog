@@ -2,19 +2,26 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { parseURLFilters, parseURLVariables } from 'scenes/dashboard/dashboardUtils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightUsageLogic } from 'scenes/insights/insightUsageLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
 import { examples } from '~/queries/examples'
-import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { ActivityScope, InsightShortId, InsightType, ItemMode } from '~/types'
+import { ActivityScope, CohortType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
@@ -42,6 +49,32 @@ describe('insightSceneLogic', () => {
         sceneLogic.mount()
     })
 
+    it('captures an insight start after the logic unmounts during the debounce', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.useFakeTimers()
+        try {
+            router.actions.push(urls.insightNew())
+            logic = insightSceneLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(capture.mock.calls.filter(([event]) => event === 'insight started')).toHaveLength(0)
+            logic.unmount()
+            expect(logic.isMounted()).toBe(false)
+            await jest.advanceTimersByTimeAsync(499)
+            expect(capture.mock.calls.filter(([event]) => event === 'insight started')).toHaveLength(0)
+            await jest.advanceTimersByTimeAsync(1)
+
+            const insightStarts = capture.mock.calls.filter(([event]) => event === 'insight started')
+            expect(insightStarts).toEqual([
+                ['insight started', expect.objectContaining({ source: 'web', uses_data_warehouse_source: false })],
+            ])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
+    })
+
     it('keeps url /insight/new', async () => {
         router.actions.push(urls.insightNew())
         logic = insightSceneLogic()
@@ -52,6 +85,48 @@ describe('insightSceneLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID) }),
             })
+    })
+
+    it('updates the generated breadcrumb when cohort names arrive after the query', async () => {
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.values.insightDataLogicRef!.logic.actions.setQuery({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: 'total' }],
+                breakdownFilter: { breakdown_type: 'cohort', breakdown: [987] },
+            },
+        } as InsightVizNode)
+        expect(logic.values.breadcrumbs.at(-1)?.name).toContain('ID 987')
+
+        cohortsModel.actions.cacheCohort({ id: 987, name: 'Returning users' } as CohortType)
+
+        expect(logic.values.breadcrumbs.at(-1)?.name).toContain('Returning users')
+        expect(logic.values.breadcrumbs.at(-1)?.name).not.toContain('ID 987')
+    })
+
+    it('reports a view only for the scene insight when another unsaved insight mounts', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
+        }
+        const previewProps = { dashboardItemId: 'new-AdHoc.preview' as InsightShortId, query, doNotLoad: true }
+        dataNodeLogic({ key: insightVizDataNodeKey(previewProps), query: query.source, doNotLoad: true }).mount()
+        insightDataLogic(previewProps).mount()
+        await expectLogic(insightUsageLogic(previewProps)).toFinishAllListeners()
+        await expectLogic(insightUsageLogic(logic.values.insightLogicRef!.logic.props)).toFinishAllListeners()
+
+        expect(capture.mock.calls.filter(([event]) => event === 'insight viewed')).toHaveLength(1)
     })
 
     it('disables discussions for an unsaved insight so comments do not leak across the team', async () => {
@@ -360,6 +435,46 @@ describe('insightSceneLogic', () => {
         expect(logic.values.insightLogicRef?.logic.values.insight.dashboards).toEqual([6])
     })
 
+    const VARIABLE_ID = '00000000-0000-0000-0000-00000000beef'
+    const CARD_NAME_OVERRIDE: Record<string, HogQLVariable> = {
+        [VARIABLE_ID]: {
+            variableId: VARIABLE_ID,
+            code_name: 'card_name',
+            value: 'Polukranos, Unchained',
+            isNull: false,
+        },
+    }
+
+    it.each<
+        [
+            string,
+            Record<string, HogQLVariable> | undefined,
+            DashboardFilter | undefined,
+            Record<string, any>,
+            DashboardFilter,
+        ]
+    >([
+        ['a variable value', CARD_NAME_OVERRIDE, undefined, { card_name: 'Polukranos, Unchained' }, {}],
+        ['a filter that clears a saved one', undefined, { properties: [] }, {}, { properties: [] }],
+    ])(
+        'points the dashboard breadcrumb back at the dashboard with %s',
+        async (_name, variablesOverride, filtersOverride, expectedVariables, expectedFilters) => {
+            router.actions.push(urls.insightView(Insight42, 6, variablesOverride, filtersOverride))
+            logic = insightSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const dashboardBreadcrumb = logic.values.breadcrumbs.find(
+                (breadcrumb) => breadcrumb.key === Scene.Dashboard
+            )
+            const { pathname, searchParams } = combineUrl(dashboardBreadcrumb?.path ?? '')
+
+            expect(pathname).toEqual(urls.dashboard(6))
+            expect(parseURLVariables(searchParams)).toEqual(expectedVariables)
+            expect(parseURLFilters(searchParams)).toEqual(expectedFilters)
+        }
+    )
+
     it('remounts when URL insight id disagrees with dashboard tile id on the mounted editor (save-as regression)', async () => {
         useMocks({
             get: {
@@ -475,7 +590,7 @@ describe('insightSceneLogic', () => {
     })
 
     it.each([
-        ['new subscription', 'new', 'new'],
+        ['new subscription', 'new', null],
         ['a specific subscription', '5', 5],
     ])(
         'updates itemId when navigating from subscriptions list to %s',

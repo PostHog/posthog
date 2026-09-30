@@ -7,11 +7,10 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _setup_team():
@@ -37,6 +36,20 @@ def _setup_team():
 
 
 class TestEvaluationConfigViewSet(APIBaseTest):
+    def test_system_one_cannot_become_the_shared_active_key(self) -> None:
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="system_one",
+            name="System One",
+            state="ok",
+            encrypted_config={"api_key": "example-token"},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/set_active_key/", {"key_id": str(key.id)}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(EvaluationConfig.objects.filter(team=self.team, active_provider_key=key).exists())
+
     def test_unauthenticated_user_cannot_access_config(self):
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")

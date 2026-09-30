@@ -1,11 +1,9 @@
-import logging
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.rbac.decorators import field_access_control
 from posthog.schema_enums import AttributionMode, NodeKind
 
@@ -17,8 +15,6 @@ if TYPE_CHECKING:
 # ruff: noqa: DJ012  # Properties act as field accessors for mangled DB fields, so they need to come before save()
 
 # Based on team_revenue_analytics_config.py
-
-logger = logging.getLogger(__name__)
 
 
 def validate_sources_map(sources_map: dict) -> None:
@@ -299,6 +295,19 @@ class TeamMarketingAnalyticsConfig(models.Model):
         "admin",
     )
 
+    # Server-side because the Dagster warmer reads it: the test-account filter is baked into the
+    # precompute's insert query, so a job warmed for the wrong variant is never read.
+    filter_test_accounts = field_access_control(
+        models.BooleanField(
+            default=False,
+            db_default=False,
+            null=False,
+            help_text="Whether marketing analytics queries drop traffic matching the project's test-account filters",
+        ),
+        "project",
+        "admin",
+    )
+
     # Mangled fields incoming:
     # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
     # that are then wrapped by schema-validation getters/setters
@@ -476,12 +485,10 @@ class TeamMarketingAnalyticsConfig(models.Model):
             "sources_map": self.sources_map,
             "attribution_window_days": self.attribution_window_days,
             "attribution_mode": self.attribution_mode,
+            "filter_test_accounts": self.filter_test_accounts,
             "campaign_name_mappings": self.campaign_name_mappings,
             "custom_source_mappings": self.custom_source_mappings,
             "campaign_field_preferences": self.campaign_field_preferences,
             # Without this the flag isn't a kill switch: flipping it leaves the old numbers cached.
             "costs_dedup_v2": costs_dedup_v2_enabled(self.team),
         }
-
-
-register_team_extension_signal(TeamMarketingAnalyticsConfig, logger=logger)

@@ -53,6 +53,7 @@ import { urlForSubscriptions } from 'products/subscriptions/frontend/components/
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateModalLogic } from './dashboards/templates/dashboardTemplateModalLogic'
+import { dashboardTemplateForExport } from './dashboardUtils'
 
 const RESOURCE_TYPE = 'dashboard'
 
@@ -68,13 +69,14 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const {
         dashboard,
         dashboardMode,
+        layoutEditMode,
         canEditDashboard,
         isSavingTags,
         isPinned,
         asDashboardTemplate,
         canSaveProjectDashboardTemplate,
         effectiveEditBarFilters,
-        effectiveDashboardVariableOverrides,
+        currentDashboardVariables,
         tiles,
         apiUrl,
     } = useValues(dashboardLogic)
@@ -122,12 +124,11 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
           ? 'Template data is not ready yet. Try again in a moment.'
           : undefined
 
-    const openInsightsInNewTabsDisabled =
-        dashboardMode === DashboardMode.Edit
-            ? 'Cannot open insights when editing dashboard'
-            : tiles.length === 0
-              ? 'Dashboard has no insights'
-              : undefined
+    const openInsightsInNewTabsDisabled = layoutEditMode
+        ? 'Cannot open insights when editing dashboard'
+        : tiles.length === 0
+          ? 'Dashboard has no insights'
+          : undefined
 
     const showCreateMenu = canEditDashboard // notebook + subscribe both gated on canEdit
     const showEditMenu = true // duplicate always
@@ -148,13 +149,15 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                     <IconNotebook />
                                     Notebook from dashboard
                                 </SceneMenuBarItem>
-                                <SceneMenuBarItem
-                                    onClick={() => push(urlForSubscriptions({ dashboardId: dashboard.id }))}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-subscribe`}
-                                >
-                                    <IconBell />
-                                    Subscription
-                                </SceneMenuBarItem>
+                                {tiles.length > 0 && (
+                                    <SceneMenuBarItem
+                                        onClick={() => push(urlForSubscriptions({ dashboardId: dashboard.id }))}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-subscribe`}
+                                    >
+                                        <IconBell />
+                                        Subscription
+                                    </SceneMenuBarItem>
+                                )}
                             </SceneMenuBarSubMenu>
                             <SceneMenuBarSeparator />
                         </>
@@ -186,7 +189,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                 const url = urls.insightView(
                                     tile.insight.short_id,
                                     dashboard.id,
-                                    effectiveDashboardVariableOverrides,
+                                    currentDashboardVariables,
                                     effectiveEditBarFilters,
                                     tile?.filters_overrides
                                 )
@@ -211,7 +214,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                         dashboard: dashboard.id,
                                         export_context: {
                                             path: apiUrl(),
-                                            variables_override: effectiveDashboardVariableOverrides,
+                                            variables_override: currentDashboardVariables,
                                         },
                                     })
                                 }
@@ -226,7 +229,9 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                         startExport({
                                             export_format: ExporterFormat.JSON,
                                             export_context: {
-                                                localData: JSON.stringify(asDashboardTemplate),
+                                                localData: JSON.stringify(
+                                                    dashboardTemplateForExport(asDashboardTemplate)
+                                                ),
                                                 filename: `dashboard-${slugify(
                                                     dashboard?.name || 'nameless dashboard'
                                                 )}.json`,
@@ -276,7 +281,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         <IconCopy />
                         Duplicate
                     </SceneMenuBarItem>
-                    {canEditDashboard && hasDashboardColors && (
+                    {canEditDashboard && hasDashboardColors && tiles.length > 0 && (
                         <SceneMenuBarItem
                             opensFloatingUi
                             onClick={() => showInsightColorsModal(dashboard.id)}

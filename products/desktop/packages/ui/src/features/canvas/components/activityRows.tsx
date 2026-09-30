@@ -21,7 +21,6 @@ import {
   UserSwitchIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import type { CommentScope } from "@posthog/api-client/posthog-client";
 import {
   type ActivityEvent,
   type ArtifactPayload,
@@ -31,6 +30,7 @@ import {
   prLabel,
 } from "@posthog/core/canvas/activityEvents";
 import type { GroupableActivityEvent } from "@posthog/core/canvas/activityGrouping";
+import { commentScopeFromWire } from "@posthog/core/comments/anchors";
 import type { ChangedFile } from "@posthog/core/git/router-schemas";
 import { xmlToContent } from "@posthog/core/message-editor/content";
 import {
@@ -192,7 +192,7 @@ const BADGE_TONES = {
 type BeadTone = keyof typeof BEAD_TONES;
 
 /** Opaque and above the connector, so the line reads as running into it. */
-export function EventBead({
+function EventBead({
   children,
   tone = "neutral",
 }: {
@@ -239,7 +239,7 @@ export function PersonBead({
 }
 
 export const MESSAGE_BADGE = <PaperPlaneTiltIcon size={8} weight="fill" />;
-export const COMMENT_BADGE = <ChatCircleIcon size={8} weight="fill" />;
+const COMMENT_BADGE = <ChatCircleIcon size={8} weight="fill" />;
 export const CREATED_BADGE = <PlusIcon size={8} weight="bold" />;
 
 const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
@@ -434,7 +434,7 @@ function eventDetail(event: ActivityEvent): ReactNode {
   }
 }
 
-export function DetailAction({
+function DetailAction({
   children,
   onClick,
 }: {
@@ -453,7 +453,7 @@ export function DetailAction({
  * them (`@[Name](email)` becomes a mailto link), so a message carrying either goes through
  * `MentionText` instead.
  */
-export function MessageBody({ content }: { content: string }) {
+function MessageBody({ content }: { content: string }) {
   const hasOwnMarkup = useMemo(() => {
     const { segments } = xmlToContent(content);
     return (
@@ -1086,12 +1086,6 @@ export function CommentEventRow({
   );
 }
 
-const COMMENT_EVENT_SCOPES: readonly string[] = [
-  "task",
-  "task_artifact",
-  "desktop_canvas",
-];
-
 function CommentEventDetail({
   taskId,
   payload,
@@ -1101,10 +1095,9 @@ function CommentEventDetail({
   payload: CommentEventPayload;
   onOpenThread?: () => void;
 }) {
+  const scope = commentScopeFromWire(payload.scope);
   const target =
-    COMMENT_EVENT_SCOPES.includes(payload.scope) && payload.itemId
-      ? { scope: payload.scope as CommentScope, itemId: payload.itemId }
-      : null;
+    scope && payload.itemId ? { scope, itemId: payload.itemId } : null;
   const { data, isLoading } = useCommentsQuery(target, taskId, {
     live: false,
   });

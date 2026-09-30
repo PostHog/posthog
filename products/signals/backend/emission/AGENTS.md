@@ -28,6 +28,18 @@ The core signal pipeline (`products/signals/backend/emission/pipeline.py`) is so
    A steered gate gets all of `extra` in that block instead; a source declaring nothing keeps a byte-identical prompt.
 5. **Emission** — emits surviving outputs as Signals via `products/signals/backend/api/emit_signal`
 
+### Direct sources
+
+Error tracking and health checks never enter the shared pipeline: they build a description themselves and call `emit_signal` directly.
+They still honor steering, through the gate in `direct_gate.py` that `emit_signal` applies to the `(source_product, source_type)` pairs in `contracts.DIRECT_STEERABLE_SOURCES`.
+Two rules keep that gate predictable.
+A team that wrote no steering gets no LLM call and no change in behavior.
+A team that wrote steering is filtered by that text alone, because the prompt there carries no actionability criteria of its own, unlike the record-shaped prompts in `_prompts.py`.
+The gate fails open, and reports a dropped signal as `signal_data_source_filtered` with `steering_applied`, the same stage event the pipeline fires.
+
+A pair listed in `DIRECT_STEERABLE_SOURCES` that the registry also serves would have every record judged twice, so the two sets must stay disjoint (`tests/test_direct_gate.py` holds that).
+The roster's `steerable` flags in `products/signals/frontend/inbox/components/config/agentRosterMeta.ts` mirror the same set: a source that offers the steering form without a gate behind it stores text nothing reads.
+
 ### Registry
 
 `products/signals/backend/emission/registry.py` maps `(source_type, schema_name)` pairs to their config.
@@ -39,7 +51,10 @@ The registry key is a plain string pair — external sources use `ExternalDataSo
 Each source defines how to fetch records via its `record_fetcher` on the config:
 
 - **Data warehouse fetcher** (`fetchers/data_warehouse.py`) — queries HogQL on warehouse tables.
-  Receives `table_name` and `last_synced_at` via the runtime context dict.
+  Receives `table_name`, `last_synced_at` and the team's `source_config` blob via the runtime context dict.
+  A source that declares `scope_field` (a HogQL expression yielding a record's scope id) and `scope_config_key` (a list of allowed ids on `SignalSourceConfig.config`) gets an `IN` clause added to its query, so a team narrows a workspace-wide warehouse sync without changing what the warehouse imports.
+  An absent, empty, or malformed list means no narrowing.
+  Declare the key per source in `contracts.SCOPE_CONFIG_KEYS` and read it from there, as `linear_issues.py` does for Linear team ids: the table stays out of `emission/` so the API serializer validates the same key without importing the emitters.
 - **Conversations fetcher** (`fetchers/conversations.py`) — queries Django ORM for Postgres tickets + comments.
   Records emission in `SignalEmissionRecord` optimistically at fetch time.
 

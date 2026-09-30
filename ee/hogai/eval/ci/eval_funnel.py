@@ -13,8 +13,6 @@ from posthog.schema import (
     NodeKind,
 )
 
-from ee.hogai.chat_agent.funnels.toolkit import FUNNEL_SCHEMA
-
 from ..base import MaxPublicEval
 from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
@@ -40,7 +38,7 @@ async def eval_funnel(call_root_for_insight_generation, pytestconfig):
             ),
             QueryAndPlanAlignment(
                 query_kind=NodeKind.FUNNELS_QUERY,
-                json_schema=FUNNEL_SCHEMA,
+                query_model=AssistantFunnelsQuery,
                 evaluation_criteria="""
 1. Series sequence: Verify that the funnel steps in the query's `series` array match the sequence order and events specified in the plan. The order must be preserved if funnel steps are set to be sequential (ordered).
 2. Event names: Ensure each funnel step uses the exact event name specified in the plan for that step position.
@@ -68,7 +66,7 @@ async def eval_funnel(call_root_for_insight_generation, pytestconfig):
 9. Aggregation: Check if group aggregation is correctly set when plan specifies group-based funnels (`aggregation_group_type_index`).
 10. Missing implementation: Heavily penalize when key plan elements are missing (e.g., missing exclusions, wrong sequence order, incorrect breakdown).
 11. Unnecessary fields: Penalize inclusion of fields not mentioned in the plan or that don't align with the funnel intent.
-12. Schema compliance: Ensure all query fields conform to the FUNNEL_SCHEMA structure and constraints.
+12. Schema compliance: Ensure all query fields conform to the JSON schema structure and constraints above.
 """,
             ),
             TimeRangeRelevancy(query_kind=NodeKind.FUNNELS_QUERY),

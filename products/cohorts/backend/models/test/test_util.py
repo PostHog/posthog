@@ -28,6 +28,7 @@ from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
+    ERROR_CODE_MESSAGES,
     CohortErrorCode,
     _recalculate_cohortpeople_for_team,
     _sanitize_query_for_cohort,
@@ -403,30 +404,13 @@ class TestCohortUtils(BaseTest):
 
     def test_print_cohort_hogql_query_includes_settings(self):
         """Test that cohort queries include HogQL global settings"""
-        # Create a cohort with a HogQL query (simulating a funnel-to-cohort conversion)
+        # The settings come from the printer, so any actors-shaped cohort query reaches them.
         cohort = Cohort.objects.create(
             team=self.team,
-            name="Test Funnel Cohort",
+            name="Test Actors Cohort",
             query={
                 "kind": "ActorsQuery",
-                "source": {
-                    "kind": "FunnelsActorsQuery",
-                    "source": {
-                        "kind": "FunnelsQuery",
-                        "series": [
-                            {"kind": "EventsNode", "event": "$pageview"},
-                            {"kind": "EventsNode", "event": "$identify"},
-                        ],
-                        "interval": "day",
-                        "dateRange": {"date_from": "-30d"},
-                        "funnelsFilter": {
-                            "funnelVizType": "steps",
-                            "funnelWindowInterval": 1,
-                            "funnelWindowIntervalUnit": "day",
-                        },
-                    },
-                    "funnelStep": 2,
-                },
+                "source": {"kind": "HogQLQuery", "query": "SELECT id AS actor_id FROM persons"},
             },
         )
 
@@ -1243,6 +1227,7 @@ class TestParseErrorCode(BaseTest):
             ("value_error", "ValueError", CohortErrorCode.UNKNOWN),
             ("clickhouse_regex", "ClickHouseRegexError", CohortErrorCode.INVALID_REGEX),
             ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
+            ("clickhouse_too_many_bytes", "ClickHouseTooManyBytesError", CohortErrorCode.DATA_LIMIT),
             ("clickhouse_timeout", "ClickHouseTimeoutError", CohortErrorCode.TIMEOUT),
             ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
             ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
@@ -1285,6 +1270,7 @@ class TestParseErrorCode(BaseTest):
         clickhouse_code_names = {
             "ClickHouseRegexError": "CANNOT_COMPILE_REGEXP",
             "ClickHouseMemoryError": "MEMORY_LIMIT_EXCEEDED",
+            "ClickHouseTooManyBytesError": "TOO_MANY_BYTES",
             "ClickHouseTimeoutError": "TIMEOUT_EXCEEDED",
             "ClickHouseTypeError": "NO_COMMON_TYPE",
         }
@@ -1304,6 +1290,7 @@ class TestGetFriendlyErrorMessage(BaseTest):
             (CohortErrorCode.INTERRUPTED, "interrupted"),
             (CohortErrorCode.TIMEOUT, "terminated for taking too long"),
             (CohortErrorCode.MEMORY_LIMIT, "terminated for using too much memory"),
+            (CohortErrorCode.DATA_LIMIT, "reading too much data"),
             (CohortErrorCode.QUERY_SIZE, "query that was too large"),
             (CohortErrorCode.VALIDATION_ERROR, "an error occurred"),
             (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),
@@ -1316,6 +1303,23 @@ class TestGetFriendlyErrorMessage(BaseTest):
         message = get_friendly_error_message(error_code)
         assert message is not None
         self.assertIn(expected_substring, message.lower())
+
+    @parameterized.expand(
+        [
+            (CohortErrorCode.CAPACITY, "system was busy"),
+            (CohortErrorCode.INTERRUPTED, "interrupted"),
+        ]
+    )
+    def test_get_friendly_error_message_drops_the_retry_promise_when_nothing_will_retry(
+        self, error_code: str, expected_substring: str
+    ):
+        message = get_friendly_error_message(error_code, will_retry=False)
+        assert message is not None
+        self.assertIn(expected_substring, message.lower())
+        # Only the dynamic recalculation scheduler retries, so a cohort it never picks up must not
+        # be told to wait for one.
+        self.assertNotIn("automatically retry", message.lower())
+        self.assertIn("automatically retry", ERROR_CODE_MESSAGES[error_code].lower())
 
     def test_get_friendly_error_message_none(self):
         self.assertIsNone(get_friendly_error_message(None))

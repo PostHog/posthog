@@ -15,11 +15,13 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models import Organization, Team
 
-from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.tasks.tasks import (
-    ensure_managed_warehouse_direct_source_v2_task,
+from products.data_warehouse.backend.facade.api import (
+    DIRECT_POSTGRES_URL_PATTERN,
     schedule_managed_warehouse_direct_source_ensure,
     schedule_soft_delete_managed_warehouse_sources,
+)
+from products.data_warehouse.backend.facade.tasks import (
+    ensure_managed_warehouse_direct_source_v2_task,
     soft_delete_managed_warehouse_sources_task,
     soft_delete_managed_warehouse_sources_v2_task,
 )

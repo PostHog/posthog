@@ -24,6 +24,7 @@ import type {
     VisionScannersObservationsListParams,
 } from '../generated/api.schemas'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { calibrationActivationLogic } from './calibrationActivationLogic'
 import { buildAppliedConfig, parseConfigChanges } from './components/configChanges'
 import { ObservationsSorting, replayScannerLogic, resolveOrderByKey } from './replayScannerLogic'
 
@@ -576,6 +577,13 @@ export const scannerCalibrationLogic = kea<scannerCalibrationLogicType>([
             await breakpoint(500)
             actions.loadLabelStats()
             actions.loadCurrentSuggestion()
+            // The nudge counts ratings itself and only fetches at mount, so the first rating would
+            // otherwise leave "Not rated" on the tab for the rest of the visit. A scanner whose count
+            // never loaded, which is every scanner on the control arm, has nothing to refresh.
+            const activation = calibrationActivationLogic.findMounted({ scannerId: props.scannerId })
+            if (activation?.values.stats) {
+                activation.actions.loadStats()
+            }
         },
 
         loadLabelStats: async (_, breakpoint) => {

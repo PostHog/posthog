@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { router } from 'kea-router'
+import type { ComponentType, ReactNode } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -10,6 +11,12 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import {
+    EMPTY_STATE_PARAM,
+    activeProductEmptyStateGateRender,
+    forcedModeFromParam,
+    productEmptyStateGateActivation,
+} from './gateRender'
 import { ProductEmptyState } from './ProductEmptyState'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
 import { SetupReminderContext } from './setupReminderContext'
@@ -17,6 +24,8 @@ import type { ProductEmptyStateConfig, SceneProductEmptyState } from './types'
 
 export interface ProductEmptyStateGateProps {
     emptyState: SceneProductEmptyState
+    /** The scene's route params, as passed to the scene component. Read by `scenes`. */
+    params?: Record<string, string | undefined>
     children: ReactNode
 }
 
@@ -29,14 +38,35 @@ export interface ProductEmptyStateGateProps {
  * Mounts the product's detection logic, which pushes its normalized status into
  * `productSetupStatusLogic`. Wired automatically by the app shell for scenes that
  * declare `emptyState` on their `SceneExport`.
+ *
+ * `?empty_state=1` on any gated scene forces the setup screen regardless of status,
+ * so the screen can be reviewed on a project that already has data.
  */
-export function ProductEmptyStateGate({ emptyState, children }: ProductEmptyStateGateProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+export function ProductEmptyStateGate({ emptyState, params, children }: ProductEmptyStateGateProps): JSX.Element {
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
+    const forcedMode = forcedModeFromParam(searchParams[EMPTY_STATE_PARAM])
+    const { activeSceneId } = useValues(sceneLogic)
 
-    // When the empty state is flag-gated, stay a strict no-op while the flag is off —
-    // don't even mount detection (the inner component is what mounts it).
-    if (emptyState.featureFlag && !featureFlags[emptyState.featureFlag]) {
+    // When the empty state is flag-gated or scoped to specific scenes or tabs, stay a strict
+    // no-op otherwise — don't even mount detection (the inner component mounts it).
+    const activation = productEmptyStateGateActivation({
+        emptyState,
+        activeSceneId,
+        params: params ?? {},
+        featureFlags,
+        receivedFeatureFlags,
+        forcedMode,
+    })
+    if (activation === 'off') {
         return <>{children}</>
+    }
+    if (activation === 'awaiting-flags') {
+        return (
+            <ProductSceneFrame config={emptyState.config} SceneNav={emptyState.SceneNav}>
+                <SpinnerOverlay sceneLevel />
+            </ProductSceneFrame>
+        )
     }
     return <ProductEmptyStateGateInner emptyState={emptyState}>{children}</ProductEmptyStateGateInner>
 }
@@ -48,14 +78,33 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     const { status, skipped, mode } = useValues(setupLogic)
     const { unskipEmptyState } = useActions(setupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
+    const forcedMode = forcedModeFromParam(searchParams[EMPTY_STATE_PARAM])
 
-    // A lingering local skip is ignored for non-skippable products (the button may have been
-    // shown before the product opted out of skipping). Derived once, because the empty-state
-    // branch below has to reach the same verdict: honoring the skip there but not here would
-    // render the bare scene with neither the setup screen nor the reminder banner, and a
-    // non-skippable product has no button left to clear the stored flag with.
+    // Has to reach the same verdict as the helper: a skip honored here but not there renders the
+    // bare scene with neither the setup screen nor the reminder banner.
     const skipHonored = skipped && config.skippable !== false
+    const gateRender = activeProductEmptyStateGateRender({ config, forcedMode, status, skipped })
 
+    if (gateRender === 'setup') {
+        return (
+            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
+                <ProductEmptyState config={config} mode={forcedMode ?? mode} preview={!!forcedMode} />
+            </ProductSceneFrame>
+        )
+    }
+    if (gateRender === 'loading') {
+        // One consistent loading treatment app-wide, the same scene-level spinner shown while
+        // scene chunks load. `productSetupPreloadLogic` answers this ahead of time only for
+        // products that declare a `setupProbe` in their manifest, which is an event-based
+        // signal. Entity-count products have none, so the spinner shows until their detection
+        // answers, unless `cacheHasData` remembered a has-data answer from an earlier visit.
+        return (
+            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
+                <SpinnerOverlay sceneLevel />
+            </ProductSceneFrame>
+        )
+    }
     if (skipHonored) {
         // Skip bypasses the screen, not detection: render the scene, plus a "Set up" reminder
         // until data lands, so there's always a way back to setup.
@@ -85,25 +134,6 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
             </>
         )
     }
-    if (status === 'loading') {
-        // One consistent loading treatment app-wide, the same scene-level spinner shown while
-        // scene chunks load. `productSetupPreloadLogic` answers this ahead of time only for
-        // products that declare a `setupProbe` in their manifest, which is an event-based
-        // signal. Entity-count products have none, so for them the spinner is the normal path
-        // on every entry, including every trip back from a detail page.
-        return (
-            <ProductSceneFrame config={config}>
-                <SpinnerOverlay sceneLevel />
-            </ProductSceneFrame>
-        )
-    }
-    if (!skipHonored && (status === 'needs-setup' || status === 'waiting-for-data')) {
-        return (
-            <ProductSceneFrame config={config}>
-                <ProductEmptyState config={config} mode={mode} />
-            </ProductSceneFrame>
-        )
-    }
     return <>{children}</>
 }
 
@@ -113,9 +143,11 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
  */
 function ProductSceneFrame({
     config,
+    SceneNav,
     children,
 }: {
     config: ProductEmptyStateConfig
+    SceneNav?: ComponentType
     children: ReactNode
 }): JSX.Element {
     const { sceneConfig } = useValues(sceneLogic)
@@ -130,6 +162,7 @@ function ProductSceneFrame({
                         : { type: String(config.productKey), forceIcon: config.icon }
                 }
             />
+            {SceneNav ? <SceneNav /> : null}
             {children}
         </SceneContent>
     )

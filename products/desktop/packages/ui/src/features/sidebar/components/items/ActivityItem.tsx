@@ -9,6 +9,7 @@ import { SidebarCountBadge } from "./SidebarCountBadge";
 interface ActivityItemProps {
   isActive: boolean;
   onClick: MouseEventHandler<Element>;
+  mentionsEnabled: boolean;
   depth?: number;
 }
 
@@ -18,9 +19,13 @@ interface ActivityItemProps {
 export function ActivityItem({
   isActive,
   onClick,
+  mentionsEnabled,
   depth = 0,
 }: ActivityItemProps) {
-  const { unreadCount } = useTaskActivity();
+  const { unreadCount: taskUnreadCount } = useTaskActivity({
+    enabled: mentionsEnabled,
+  });
+  const unreadCount = mentionsEnabled ? taskUnreadCount : 0;
   const [open, setOpen] = useState(false);
   const suppressClickOpenRef = useRef(false);
   const item = (

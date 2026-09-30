@@ -12,7 +12,7 @@ class TestOnboardingSources(BaseTest):
             "name": "my-scanner",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "test"},
-            "model": ScannerModel.GEMINI_3_7_FLASH,
+            "model": ScannerModel.GEMINI_3_8_FLASH,
             "enabled": True,
             "emits_signals": True,
         }

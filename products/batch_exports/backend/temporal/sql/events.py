@@ -498,3 +498,53 @@ SETTINGS
     max_replica_delay_for_distributed_queries=1,
     optimize_aggregation_in_order=1
 """
+
+
+# The `{{}}` literals below are not a typo. `ClickHouseClient.prepare_query` runs `str.format` over
+# the whole query, which turns `{{}}` back into `{}`. A bare `{}` would parse as a positional field
+# and reach ClickHouse as `{0}`, so the `nullIf` would never match an empty object.
+SERIALIZED_EVENTS_JSON_SOURCE = """(
+    SELECT * REPLACE (
+        toString(uuid) AS uuid,
+        toString(person_id) AS person_id,
+        JSONStripEmptyStringsAndNulls(toJSONString(properties)) AS properties,
+        JSONStripEmptyStringsAndNulls(toJSONString(person_properties)) AS person_properties
+    ),
+        nullIf(toJSONString(temporary_properties.^`$set`), '{{}}') AS set,
+        nullIf(toJSONString(temporary_properties.^`$set_once`), '{{}}') AS set_once,
+        nullIf(toJSONString(temporary_properties.^`$unset`), '[]') AS unset,
+        nullIf(toJSONString(temporary_properties.^`$group_set`), '{{}}') AS group_set
+    FROM events_json
+)"""
+
+
+def native_events_export_query(
+    fields: str,
+    filters: str = "",
+    *,
+    order: str = "",
+    s3_function: str | None = None,
+) -> str:
+    return f"""
+{"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
+SELECT {fields}
+FROM (
+    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
+        *, timestamp AS _inserted_at
+    FROM {SERIALIZED_EVENTS_JSON_SOURCE} AS events
+    WHERE team_id = {{{{team_id:Int64}}}}
+        AND ({{interval_start}}::Nullable(DateTime64) IS NULL OR timestamp >= {{interval_start}}::Nullable(DateTime64))
+        AND timestamp < {{{{interval_end:DateTime64}}}}
+        AND (length({{{{include_events:Array(String)}}}}) = 0 OR event IN {{{{include_events:Array(String)}}}})
+        AND (length({{{{exclude_events:Array(String)}}}}) = 0 OR event NOT IN {{{{exclude_events:Array(String)}}}})
+        {"AND " + filters if filters else ""}
+    {order}
+) AS events
+{"" if s3_function else "FORMAT ArrowStream"}
+SETTINGS
+    max_bytes_before_external_sort=50000000000,
+    max_replica_delay_for_distributed_queries=60,
+    fallback_to_stale_replicas_for_distributed_queries=0,
+    optimize_aggregation_in_order=1
+{", log_comment={log_comment}" if s3_function else ""}
+"""

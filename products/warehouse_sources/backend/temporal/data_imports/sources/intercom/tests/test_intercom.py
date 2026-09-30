@@ -362,90 +362,19 @@ class TestGetResource:
         assert resource["table_format"] == "delta"
 
 
-class TestCoerceStringFields:
-    def test_contacts_data_map_coerces_owner_id(self):
-        # REST-path wiring: contacts declares owner_id in coerce_string_fields, so
-        # get_resource must attach a data_map that stringifies it before rows hit Arrow.
-        resource = get_resource(
-            "contacts", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
-        )
-        data_map = resource.get("data_map")
-        assert data_map is not None
-        assert data_map({"owner_id": 7, "id": "c1"}) == {"owner_id": "7", "id": "c1"}
+class TestNoSourceLevelTypeCoercion:
+    # Type flips (Intercom returning a field as an int on some rows and a string on others)
+    # are stabilized generically when batches are built, not by naming fields per endpoint.
+    # These guard against a per-field allowlist creeping back in.
 
-    @pytest.mark.parametrize(
-        "field",
-        [
-            "last_seen_at",
-            "last_replied_at",
-            "last_contacted_at",
-            "last_email_opened_at",
-            "last_email_clicked_at",
-            "ios_last_seen_at",
-            "android_last_seen_at",
-            "signed_up_at",
-        ],
-    )
-    def test_contacts_data_map_coerces_epoch_attributes(self, field: str):
-        # Intercom returns each nullable epoch attribute as an int on some rows and a
-        # string on others, so every one must be pinned to string before rows hit Arrow.
-        resource = get_resource(
-            "contacts", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
-        )
-        data_map = resource.get("data_map")
-        assert data_map is not None
-        assert data_map({"id": "c1", field: 1700000000}) == {"id": "c1", field: "1700000000"}
-        assert data_map({"id": "c2", field: None}) == {"id": "c2", field: None}
-
-    @pytest.mark.parametrize("name", ["conversations", "tickets"])
-    def test_assignee_ids_data_map_coerces_to_str(self, name: str):
-        # REST-path wiring for both streams carrying flat assignee ids: Intercom returns
-        # team_assignee_id as an int on some rows and a string on others, which produced
-        # int64-vs-string parquet batches that pa.unify_schemas refused to merge. An
-        # unassigned id stays None so the column remains nullable.
+    @pytest.mark.parametrize("name", NON_SUBSTREAM_ENDPOINTS)
+    def test_no_endpoint_declares_a_data_map(self, name: str):
         resource = get_resource(
             name, should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
         )
-        data_map = resource.get("data_map")
-        assert data_map is not None
-        assert data_map({"id": "1", "admin_assignee_id": 12345, "team_assignee_id": 678}) == {
-            "id": "1",
-            "admin_assignee_id": "12345",
-            "team_assignee_id": "678",
-        }
-        assert data_map({"id": "2", "admin_assignee_id": None, "team_assignee_id": "678"}) == {
-            "id": "2",
-            "admin_assignee_id": None,
-            "team_assignee_id": "678",
-        }
-
-    @pytest.mark.parametrize("field", ["waiting_since", "snoozed_until"])
-    def test_conversations_data_map_coerces_epoch_attributes(self, field: str):
-        # The parent conversations stream carries its own top-level epoch attributes with
-        # the same int-or-string flip as the conversation_parts substream. Coercing only
-        # the substream left conversations syncs failing on int64-vs-string merges.
-        resource = get_resource(
-            "conversations",
-            should_use_incremental_field=False,
-            incremental_field=None,
-            db_incremental_field_last_value=None,
-        )
-        data_map = resource.get("data_map")
-        assert data_map is not None
-        assert data_map({"id": "1", field: 1700000000}) == {"id": "1", field: "1700000000"}
-        assert data_map({"id": "2", field: None}) == {"id": "2", field: None}
-
-    def test_endpoint_without_coerce_fields_has_no_data_map(self):
-        # Only endpoints declaring coerce_string_fields get a data_map — others stay untouched.
-        resource = get_resource(
-            "admins", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
-        )
         assert "data_map" not in resource
 
-    def test_conversation_parts_substream_coerces_waiting_since(self):
-        # Substream-path wiring: conversation_parts bypasses the framework's data_map,
-        # so _substream_items must coerce waiting_since itself. Mixed int/str/None across
-        # parts previously produced int64-vs-string Arrow batches that failed to merge.
+    def test_substream_rows_pass_through_untouched(self):
         mock_session = mock.MagicMock()
         mock_session.post.side_effect = [
             _make_response({"conversations": [{"id": "c1"}], "pages": {}}),
@@ -466,22 +395,7 @@ class TestCoerceStringFields:
 
         parts = list(_substream_items(mock_session, "conversation_parts", "updated_at", None))
 
-        assert [p["waiting_since"] for p in parts] == ["1700000000", "1700000001", None]
-
-    def test_substream_without_coerce_fields_passes_rows_through_untouched(self):
-        # company_segments declares no coerce_string_fields, so _substream_items must
-        # return its rows unchanged — a numeric field stays an int, not stringified.
-        # Guards the refactor against coercing endpoints that opted out.
-        mock_session = mock.MagicMock()
-        mock_session.get.side_effect = [
-            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
-            _make_response({"data": []}),
-            _make_response({"data": [{"id": "seg1", "count": 5}]}),
-        ]
-
-        segments = list(_substream_items(mock_session, "company_segments", None, None))
-
-        assert segments == [{"id": "seg1", "count": 5, "company_id": "co1"}]
+        assert [p["waiting_since"] for p in parts] == [1700000000, "1700000001", None]
 
     def test_unknown_substream_endpoint_raises(self):
         # Adding a substream endpoint config without wiring it into _substream_items

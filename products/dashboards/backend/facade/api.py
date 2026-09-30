@@ -22,9 +22,9 @@ from rest_framework import serializers
 
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -244,11 +244,15 @@ def update_insight_dashboard_membership(
     *,
     insight: "Insight",
     dashboard_ids: Sequence[int],
+    query: Any,
     user: User,
     user_permissions: UserPermissions,
     user_access_control: UserAccessControl | None,
 ) -> MembershipChange | None:
     """Move an insight on and off dashboards until it sits on exactly `dashboard_ids`.
+
+    `query` is the query the insight will run once the caller's write lands, not the stored one:
+    a PATCH that changes the query and the dashboards together must gate on the incoming query.
 
     Returns None when it already does. Adding restores the insight's previously removed tile
     rather than creating a second one; removing soft-deletes the tile so the same restore works
@@ -282,7 +286,7 @@ def update_insight_dashboard_membership(
             raise DashboardNotFound
 
         # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_shared_dashboard(user, dashboard, insight.query, user_access_control)
+        check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
 
         tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=insight, dashboard=dashboard)
         if tile.deleted:

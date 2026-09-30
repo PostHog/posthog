@@ -5,9 +5,11 @@ import type {
 import {
   isNotification,
   POSTHOG_NOTIFICATIONS,
+  type ProcessKilledParams,
 } from "@posthog/agent/acp-extensions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import { isSteerPromptParams } from "@posthog/core/sessions/sessionEvents";
+import { isSessionStartupPhase } from "@posthog/core/sessions/sessionStartup";
 import {
   type AcpMessage,
   type AgentConversationEvent,
@@ -40,6 +42,10 @@ export interface TurnContext {
   childItems: Map<string, ConversationItem[]>;
   turnCancelled: boolean;
   turnComplete: boolean;
+  /** From the prompt response; null when the agent reported no gateway trace. */
+  traceId?: string | null;
+  /** True for a turn with no user prompt behind it (e.g. background setup activity). */
+  isImplicit?: boolean;
 }
 
 export type ConversationItem =
@@ -133,6 +139,7 @@ export interface ItemBuilder {
    *  frozen and only re-derive the active turn. */
   currentTurnStartIndex: number;
   pendingPrompts: Map<number | string, TurnState>;
+  promptDeliveryIds: Set<string>;
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
   isClearing: boolean;
@@ -164,6 +171,7 @@ export interface ItemBuilder {
    *  permission request — and the resolving tool_call_update replays the raw
    *  plan-less input, so the plan is re-applied after every merge. */
   recoveredPlans: Map<string, string>;
+  pendingAgentStart: number | null;
 }
 
 export function createItemBuilder(): ItemBuilder {
@@ -172,6 +180,7 @@ export function createItemBuilder(): ItemBuilder {
     currentTurn: null,
     currentTurnStartIndex: 0,
     pendingPrompts: new Map(),
+    promptDeliveryIds: new Set(),
     shellExecutes: new Map(),
     isCompacting: false,
     isClearing: false,
@@ -182,6 +191,7 @@ export function createItemBuilder(): ItemBuilder {
     isBackgroundTurnActive: false,
     runStartedRunIds: new Set(),
     recoveredPlans: new Map(),
+    pendingAgentStart: null,
   };
 }
 
@@ -272,9 +282,17 @@ function markThoughtCompletionInItems(
   }
 }
 
+function flushAgentStart(b: ItemBuilder) {
+  const ts = b.pendingAgentStart;
+  if (ts === null) return;
+  b.pendingAgentStart = null;
+  pushItem(b, { sessionUpdate: "status", status: "agent_started" }, ts);
+}
+
 function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
   const turn = b.currentTurn;
   if (!turn) return;
+  flushAgentStart(b);
   turn.itemCount++;
   b.items.push({
     type: "session_update",
@@ -288,6 +306,22 @@ function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
 export interface BuildConversationOptions {
   /** Render `debug`-level console logs inline; without this only info/warn/error show up. */
   showDebugLogs?: boolean;
+}
+
+export function hasSetupProgressForRun(
+  events: AcpMessage[],
+  runId?: string,
+): boolean {
+  if (!runId) return false;
+  const group = `setup:${runId}`;
+
+  return events.some(({ message }) => {
+    return (
+      isJsonRpcNotification(message) &&
+      isNotification(message.method, POSTHOG_NOTIFICATIONS.PROGRESS) &&
+      (message.params as { group?: unknown } | undefined)?.group === group
+    );
+  });
 }
 
 /**
@@ -465,7 +499,10 @@ export function processAgentConversationEvent(
   }
 
   if (event.type === "progress") {
-    handleProgress(b, event, event.timestamp, false);
+    handleProgress(b, event, event.timestamp, {
+      waitForRunStarted: false,
+      appendOnSetupRestart: true,
+    });
     return;
   }
 
@@ -581,6 +618,13 @@ function handlePromptRequest(
 
   const userPrompt = extractUserPrompt(msg.params);
   const userContent = userPrompt.content;
+  const messageId = (msg.params as { _meta?: { messageId?: unknown } } | null)
+    ?._meta?.messageId;
+  const isRedelivery =
+    typeof messageId === "string" && b.promptDeliveryIds.has(messageId);
+  if (typeof messageId === "string") {
+    b.promptDeliveryIds.add(messageId);
+  }
 
   if (userContent.trim().length === 0 && userPrompt.attachments.length === 0) {
     return;
@@ -653,7 +697,7 @@ function handlePromptRequest(
       id: `${turnId}-skill-action`,
       buttonId: skillButtonId,
     });
-  } else {
+  } else if (!isRedelivery) {
     b.items.splice(insertIndex, 0, {
       type: "user_message",
       id: `${turnId}-user`,
@@ -673,11 +717,12 @@ function handlePromptResponse(
   if (!turn) return;
   const result = msg.result as {
     stopReason?: string;
-    _meta?: { interruptReason?: string };
+    _meta?: { interruptReason?: string; traceId?: string | null };
   };
   completePromptTurn(b, turn, ts, {
     stopReason: result?.stopReason,
     interruptReason: result?._meta?.interruptReason,
+    traceId: result?._meta?.traceId ?? null,
   });
 }
 
@@ -685,8 +730,15 @@ function completePromptTurn(
   b: ItemBuilder,
   turn: TurnState,
   ts: number,
-  result: { stopReason?: string; interruptReason?: string } = {},
+  result: {
+    stopReason?: string;
+    interruptReason?: string;
+    traceId?: string | null;
+  } = {},
 ) {
+  // The prompt response and `_posthog/turn_complete` race in cloud logs, so
+  // the trace id is taken from whichever carries it, even after completion.
+  if (result.traceId !== undefined) turn.context.traceId = result.traceId;
   if (turn.isComplete) return;
 
   turn.isComplete = true;
@@ -719,6 +771,29 @@ function completePromptTurn(
   if (turn.promptId !== -1) {
     b.pendingPrompts.delete(turn.promptId);
   }
+}
+
+const BYTES_PER_GIB = 1024 ** 3;
+
+function formatGib(bytes: number): string {
+  return `${(bytes / BYTES_PER_GIB).toFixed(1)} GiB`;
+}
+
+export function formatProcessKilledNotice(params: unknown): string | null {
+  const { comm, treeRssBytes, memoryLimitBytes } = (params ?? {}) as Partial<
+    Record<keyof ProcessKilledParams, unknown>
+  >;
+  if (
+    typeof comm !== "string" ||
+    !comm ||
+    typeof treeRssBytes !== "number" ||
+    !Number.isFinite(treeRssBytes) ||
+    typeof memoryLimitBytes !== "number" ||
+    !Number.isFinite(memoryLimitBytes)
+  ) {
+    return null;
+  }
+  return `The sandbox stopped ${comm} because it was using ${formatGib(treeRssBytes)} of the ${formatGib(memoryLimitBytes)} available. The agent is still running.`;
 }
 
 function handleNotification(
@@ -790,11 +865,22 @@ function handleNotification(
     isNotification(msg.method, POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE)
   ) {
     b.isBackgroundTurnActive = false;
-    const params = msg.params as { stopReason?: string } | undefined;
+    const params = msg.params as
+      | { stopReason?: string; traceId?: string | null }
+      | undefined;
     if (!b.currentTurn) return;
     completePromptTurn(b, b.currentTurn, ts, {
       stopReason: params?.stopReason,
+      traceId: params?.traceId,
     });
+    return;
+  }
+
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.PROCESS_KILLED)) {
+    const message = formatProcessKilledNotice(msg.params);
+    if (!message) return;
+    ensureImplicitTurn(b, ts);
+    pushItem(b, { sessionUpdate: "status", status: "process_killed", message });
     return;
   }
 
@@ -885,6 +971,11 @@ function handleRuntimeStatus(
   timestamp: number,
 ): void {
   ensureImplicitTurn(b, timestamp);
+
+  if (isSessionStartupPhase(status.status)) {
+    b.pendingAgentStart ??= timestamp;
+    return;
+  }
 
   if (status.status === "refusal" || status.status === "refusal_fallback") {
     pushItem(b, {
@@ -1010,7 +1101,10 @@ function handleProgress(
   b: ItemBuilder,
   rawParams: unknown,
   ts: number,
-  waitForRunStarted = true,
+  options?: {
+    waitForRunStarted?: boolean;
+    appendOnSetupRestart?: boolean;
+  },
 ) {
   const params = rawParams as
     | {
@@ -1024,6 +1118,18 @@ function handleProgress(
   if (!params?.step || !params.label || !params.group) return;
 
   const status = normalizeStepStatus(params.status);
+  const existingCard = b.progressCards.get(params.group);
+  const previousAgentStatus = existingCard?.steps.get("agent")?.status;
+  const startsNewSetup =
+    options?.appendOnSetupRestart === true &&
+    params.step === "sandbox" &&
+    status === "in_progress" &&
+    previousAgentStatus !== undefined &&
+    previousAgentStatus !== "in_progress";
+  if (startsNewSetup) {
+    b.progressCards.delete(params.group);
+  }
+
   const card = ensureProgressCardForGroup(b, params.group, ts);
   if (!card) return;
   if (card.itemIndex < b.lowestTouchedProgressIndex) {
@@ -1035,7 +1141,7 @@ function handleProgress(
     label: params.label,
     detail: params.detail,
   });
-  syncProgressCard(card, b, waitForRunStarted);
+  syncProgressCard(card, b, options?.waitForRunStarted);
 }
 
 function normalizeStepStatus(raw: string | undefined): StepStatus {
@@ -1089,6 +1195,7 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
     childItems,
     turnCancelled: false,
     turnComplete: false,
+    isImplicit: true,
   };
 
   b.currentTurn = {
@@ -1302,6 +1409,7 @@ function appendTextChunk(
   ts: number,
 ) {
   if (update.content.type !== "text") return;
+  flushAgentStart(b);
 
   const lastItem = b.items[b.items.length - 1];
   if (

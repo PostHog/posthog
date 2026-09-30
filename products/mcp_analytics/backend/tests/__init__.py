@@ -4,11 +4,13 @@ from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
 
+from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 
-def _only_mcp_analytics_flag(flag_key: str, *args: object, **kwargs: object) -> bool:
-    # Enable just the mcp-analytics alpha flag; leave every other flag at its default (off)
-    # so tests don't silently mask unrelated flag-gated behavior.
-    return flag_key == "mcp-analytics"
+
+def _only_intent_routing_flag(flag_key: str, *args: object, **kwargs: object) -> bool:
+    # Enable just the intent-routing flag; leave every other flag off so tests don't silently
+    # mask unrelated flag-gated behavior.
+    return flag_key == MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 
 
 class _MCPAnalyticsTeamScopedTestMixin:
@@ -16,8 +18,8 @@ class _MCPAnalyticsTeamScopedTestMixin:
 
     - wraps the test in ``team_scope`` so direct queries against the fail-closed
       MCPSession / MCPIntentClusterSnapshot managers find a scope, and
-    - enables the ``mcp-analytics`` feature flag (and only that flag) for the test,
-      since the endpoints are gated behind it.
+    - enables the MCP analytics intent-routing feature flag (and only that flag),
+      since the intent-clustering endpoints are gated behind it.
 
     Place this BEFORE the TestCase base in the MRO so its setUp creates self.team first.
     """
@@ -29,7 +31,7 @@ class _MCPAnalyticsTeamScopedTestMixin:
         cm = team_scope(self.team.id)  # type: ignore[attr-defined]
         cm.__enter__()
         self._team_scope_cm = cm
-        flag_patcher = patch("posthoganalytics.feature_enabled", side_effect=_only_mcp_analytics_flag)
+        flag_patcher = patch("posthoganalytics.feature_enabled", side_effect=_only_intent_routing_flag)
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)  # type: ignore[attr-defined]
 

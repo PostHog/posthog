@@ -17,6 +17,9 @@ import {
     getFingerprintRecords,
     getRecordingStatus,
     getSessionId,
+    getSpanId,
+    getTraceId,
+    isReleaseIdMissingFromSDK,
 } from 'lib/components/Errors/utils'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -51,7 +54,10 @@ export interface errorPropertiesLogicValues {
     properties: Record<string, any>
     recordingStatus: string | undefined
     release: ErrorTrackingRelease | null | undefined
+    releaseIdMissingFromSDK: boolean
     sessionId: string | undefined
+    spanId: string | undefined
+    traceId: string | undefined
     uuid: string
 }
 
@@ -77,6 +83,8 @@ export interface errorPropertiesLogicMeta {
         fingerprintRecords: (properties: Record<string, any>) => FingerprintRecordPart[]
         hasStacktrace: (exceptionList: ErrorTrackingException[]) => boolean
         sessionId: (properties: Record<string, any>) => string | undefined
+        traceId: (properties: Record<string, any>) => string | undefined
+        spanId: (properties: Record<string, any>) => string | undefined
         recordingStatus: (properties: Record<string, any>) => string | undefined
         getExceptionFingerprint: (
             fingerprintRecords: FingerprintRecordPart[]
@@ -92,6 +100,12 @@ export interface errorPropertiesLogicMeta {
             frames: ErrorTrackingStackFrame[],
             stackFrameRecords: KeyedStackFrameRecords
         ) => ErrorTrackingRelease | null | undefined
+        releaseIdMissingFromSDK: (
+            properties: Record<string, any>,
+            frames: ErrorTrackingStackFrame[],
+            stackFrameRecords: KeyedStackFrameRecords,
+            stackFrameRecordsLoading: boolean
+        ) => boolean
     }
 }
 
@@ -146,6 +160,14 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         sessionId: [
             (s) => [s.properties],
             (properties: ErrorEventProperties) => (properties ? getSessionId(properties) : undefined),
+        ],
+        traceId: [
+            (s) => [s.properties],
+            (properties: ErrorEventProperties) => (properties ? getTraceId(properties) : undefined),
+        ],
+        spanId: [
+            (s) => [s.properties],
+            (properties: ErrorEventProperties) => (properties ? getSpanId(properties) : undefined),
         ],
         recordingStatus: [
             (s) => [s.properties],
@@ -211,6 +233,20 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
                     (a, b) => dayjs(b.created_at).unix() - dayjs(a.created_at).unix()
                 )
                 return sortedReleases[0]
+            },
+        ],
+        releaseIdMissingFromSDK: [
+            (s) => [s.properties, s.frames, s.stackFrameRecords, s.stackFrameRecordsLoading],
+            (
+                properties: ErrorEventProperties,
+                frames: ErrorTrackingStackFrame[],
+                stackFrameRecords: KeyedStackFrameRecords,
+                stackFrameRecordsLoading: boolean
+            ) => {
+                if (stackFrameRecordsLoading) {
+                    return false
+                }
+                return isReleaseIdMissingFromSDK(properties, frames, stackFrameRecords)
             },
         ],
     }),

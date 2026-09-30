@@ -12,7 +12,7 @@ import * as zod from 'zod'
  * Read the configured conversion goals for the current project — each with its kind, target, last-30d count, integrated vs non-integrated split, and a misconfiguration flag. Read-only.
  * @summary List conversion goals
  */
-export const MarketingAnalyticsConversionGoalsRetrieveParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsConversionGoalsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -24,7 +24,7 @@ export const MarketingAnalyticsConversionGoalsRetrieveParams = /* @__PURE__ */ z
  * Remove one conversion goal from the project, leaving the others in place.
  * @summary Delete conversion goal
  */
-export const MarketingAnalyticsConversionGoalsDeleteDestroyParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsConversionGoalsDeleteDestroyParams = () => zod.object({
     conversion_goal_id: zod.string(),
     project_id: zod
         .string()
@@ -37,7 +37,7 @@ export const MarketingAnalyticsConversionGoalsDeleteDestroyParams = /* @__PURE__
  * Change one conversion goal in place. Fields you send are merged into the stored goal, the rest are kept, and the goal keeps its position in the list. Sending a different `kind` replaces the goal instead, since the shapes don't share their fields.
  * @summary Update conversion goal
  */
-export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateParams = () => zod.object({
     conversion_goal_id: zod.string(),
     project_id: zod
         .string()
@@ -242,7 +242,7 @@ export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThre
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemTwofourTypeDefault = `behavioral`
 
-export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PURE__ */ zod
+export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = () => zod
     .object({
         goal: zod
             .union([
@@ -10756,7 +10756,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
  * Add one conversion goal to the project. The server assigns conversion_goal_id and appends the goal to the end of the list, leaving existing goals untouched.
  * @summary Create conversion goal
  */
-export const MarketingAnalyticsConversionGoalsCreateCreateParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsConversionGoalsCreateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -10960,7 +10960,7 @@ export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeProper
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemTwofourTypeDefault = `behavioral`
 
-export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.object({
     goal: zod
         .union([
             zod.object({
@@ -21442,7 +21442,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
  * Check the platform → data-warehouse side of every native marketing integration: connection state, sync recency, row counts, required-table status, and schema-mapping coverage. Read-only.
  * @summary List marketing data sources
  */
-export const MarketingAnalyticsDataSourcesRetrieveParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsDataSourcesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -21450,7 +21450,7 @@ export const MarketingAnalyticsDataSourcesRetrieveParams = /* @__PURE__ */ zod.o
         ),
 })
 
-export const MarketingAnalyticsDataSourcesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsDataSourcesRetrieveQueryParams = () => zod.object({
     source_type: zod.string().nullish().describe("Optional. Restrict to one integration (e.g. 'GoogleAds')."),
 })
 
@@ -21458,7 +21458,7 @@ export const MarketingAnalyticsDataSourcesRetrieveQueryParams = /* @__PURE__ */ 
  * Aggregate data-source sync health, UTM attribution health, and conversion-goal config into a single per-integration diagnostic with recommended actions. Read-only.
  * @summary Diagnose marketing analytics
  */
-export const MarketingAnalyticsDiagnoseRetrieveParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsDiagnoseRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -21471,7 +21471,7 @@ export const marketingAnalyticsDiagnoseRetrieveQueryAttributionLookbackDaysMax =
 
 export const marketingAnalyticsDiagnoseRetrieveQueryIncludeConversionGoalsDefault = true
 
-export const MarketingAnalyticsDiagnoseRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsDiagnoseRetrieveQueryParams = () => zod.object({
     attribution_lookback_days: zod
         .number()
         .min(1)
@@ -21489,7 +21489,7 @@ export const MarketingAnalyticsDiagnoseRetrieveQueryParams = /* @__PURE__ */ zod
  * Break down a single conversion goal's events over a period by event name, utm_source, and matched integration, with a small sample of events. Read-only.
  * @summary Explain a conversion goal
  */
-export const MarketingAnalyticsExplainConversionGoalRetrieveParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsExplainConversionGoalRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -21497,7 +21497,7 @@ export const MarketingAnalyticsExplainConversionGoalRetrieveParams = /* @__PURE_
         ),
 })
 
-export const MarketingAnalyticsExplainConversionGoalRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsExplainConversionGoalRetrieveQueryParams = () => zod.object({
     conversion_goal_id: zod
         .string()
         .min(1)
@@ -21510,7 +21510,7 @@ export const MarketingAnalyticsExplainConversionGoalRetrieveQueryParams = /* @__
  * Rank existing custom events as conversion-goal candidates by volume, UTM-tag coverage, and unique users, excluding system/autocaptured events. Read-only.
  * @summary Suggest conversion goals
  */
-export const MarketingAnalyticsSuggestConversionGoalsRetrieveParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsSuggestConversionGoalsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -21521,7 +21521,7 @@ export const MarketingAnalyticsSuggestConversionGoalsRetrieveParams = /* @__PURE
 export const marketingAnalyticsSuggestConversionGoalsRetrieveQueryMinCountDefault = 50
 export const marketingAnalyticsSuggestConversionGoalsRetrieveQueryTopNDefault = 10
 
-export const MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams = () => zod.object({
     min_count: zod
         .number()
         .default(marketingAnalyticsSuggestConversionGoalsRetrieveQueryMinCountDefault)
@@ -21536,7 +21536,7 @@ export const MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams = /* @_
  * Detect unmatched utm_source values from recent events and propose custom_source_mappings entries, alongside the full utm_source catalogue and current mappings. Read-only.
  * @summary Suggest UTM source mappings
  */
-export const MarketingAnalyticsSuggestUtmMappingsRetrieveParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsSuggestUtmMappingsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -21549,7 +21549,7 @@ export const marketingAnalyticsSuggestUtmMappingsRetrieveQueryLookbackDaysMax = 
 
 export const marketingAnalyticsSuggestUtmMappingsRetrieveQueryMinEventCountDefault = 10
 
-export const MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams = () => zod.object({
     lookback_days: zod
         .number()
         .min(1)
@@ -21566,7 +21566,7 @@ export const MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams = /* @__PUR
  * Cross-reference campaigns with spend from ad platforms against pageview events with UTM parameters to identify tracking issues.
  * @summary Run UTM audit
  */
-export const MarketingAnalyticsUtmAuditRetrieveParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsUtmAuditRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -21576,7 +21576,7 @@ export const MarketingAnalyticsUtmAuditRetrieveParams = /* @__PURE__ */ zod.obje
 
 export const marketingAnalyticsUtmAuditRetrieveQueryDateFromDefault = `-30d`
 
-export const MarketingAnalyticsUtmAuditRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const MarketingAnalyticsUtmAuditRetrieveQueryParams = () => zod.object({
     date_from: zod
         .string()
         .min(1)

@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import { UndecodableImageError } from './blur.ts'
 import { ImageOptOutError } from './image-input.ts'
 import { ScrubAbandonedError, type ScrubPool, type ScrubResult, startPool } from './pool.ts'
 
@@ -106,7 +105,9 @@ describe('startPool', () => {
         // consumer then attempts four times.
         pool = await startPool(1, FAKE_WORKER)
 
-        await expect(pool.scrub(Buffer.from('undecodable'))).rejects.toBeInstanceOf(UndecodableImageError)
+        await expect(pool.scrub(Buffer.from('undecodable'))).rejects.toMatchObject({
+            reason: 'decode_failed',
+        })
     })
 
     it('rebuilds an ImageOptOutError from the wire', async () => {

@@ -2,14 +2,13 @@ import {
   ArrowSquareOutIcon,
   CheckCircleIcon,
   ChecksIcon,
-  CircleNotchIcon,
   MinusCircleIcon,
   ProhibitIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
 import type { PrCheck, PrCheckBucket } from "@posthog/core/git/router-schemas";
-import { Spinner } from "@posthog/quill";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMemo } from "react";
 import { openExternalUrl } from "../../shell/openExternal";
 import { usePrChecks } from "./usePrChecks";
@@ -74,7 +73,7 @@ export function PrChecksSection({ prUrl }: PrChecksSectionProps) {
     return (
       <DetailSection Icon={ChecksIcon} title="Checks">
         <div className="flex items-center gap-2 py-1 text-[12px] text-gray-10">
-          <Spinner />
+          <Spinner size="sm" />
           Loading checks…
         </div>
       </DetailSection>
@@ -177,12 +176,7 @@ function CheckBucketIcon({ bucket }: { bucket: PrCheckBucket }) {
     case "cancel":
       return <ProhibitIcon size={14} className="shrink-0 text-(--gray-9)" />;
     case "pending":
-      return (
-        <CircleNotchIcon
-          size={14}
-          className="shrink-0 animate-spin text-(--amber-9)"
-        />
-      );
+      return <Spinner size="md" className="shrink-0 text-(--amber-9)" />;
     case "pass":
       return (
         <CheckCircleIcon

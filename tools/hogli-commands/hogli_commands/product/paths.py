@@ -9,6 +9,11 @@ import yaml
 # product/ -> hogli_commands/ -> hogli-commands/ -> tools/ -> repo root
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 STRUCTURE_FILE = Path(__file__).parent.parent / "product_structure.yaml"
+# The repo roots that hold first-party Python. crossings.py scans them; reverse_accessors.py
+# prefix-matches modules against them; the capture scripts in
+# posthog/test/repo_invariants/test_startup_import_budget.py carry their own copies.
+FIRST_PARTY_ROOTS: tuple[str, ...] = ("posthog", "ee", "products", "common")
+
 PRODUCTS_DIR = REPO_ROOT / "products"
 TACH_TOML = REPO_ROOT / "tach.toml"
 FRONTEND_PACKAGE_JSON = REPO_ROOT / "frontend" / "package.json"

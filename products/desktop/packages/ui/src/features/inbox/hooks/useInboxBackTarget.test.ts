@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { asInboxBackTarget } from "./useInboxBackTarget";
+import { asInboxBackTarget, asInboxTriageOrigin } from "./useInboxBackTarget";
 
-describe("asInboxBackTarget", () => {
+describe("inbox history state validation", () => {
   it.each([
     ["reports origin", { to: "/inbox/reports", label: "Back to reports" }],
     ["pulls origin", { to: "/inbox/pulls", label: "Back to pull requests" }],
@@ -24,4 +24,17 @@ describe("asInboxBackTarget", () => {
   ])("rejects %s and falls back", (_label, value) => {
     expect(asInboxBackTarget(value)).toBeNull();
   });
+
+  it("accepts a triage report origin", () => {
+    expect(asInboxTriageOrigin({ reportId: "report-1" })).toEqual({
+      reportId: "report-1",
+    });
+  });
+
+  it.each([undefined, null, "report-1", {}, { reportId: "" }, { reportId: 1 }])(
+    "rejects an invalid triage report origin: %s",
+    (value) => {
+      expect(asInboxTriageOrigin(value)).toBeNull();
+    },
+  );
 });

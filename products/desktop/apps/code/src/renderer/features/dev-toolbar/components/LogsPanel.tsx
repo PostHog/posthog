@@ -150,7 +150,7 @@ export function LogsPanel({ enabled }: LogsPanelProps) {
 
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto rounded-md border border-(--gray-5) bg-(--gray-1)"
+        className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-background"
       >
         <div className="grid grid-cols-[60px_55px_90px_1fr] gap-x-2 font-mono text-[11px]">
           {filtered.map((entry) => (
@@ -173,16 +173,19 @@ function LogRow({ entry }: { entry: LogEntry }) {
       : entry.level === "warn"
         ? "text-(--amber-11)"
         : entry.level === "debug" || entry.level === "verbose"
-          ? "text-(--gray-10)"
-          : "text-(--gray-12)";
+          ? "text-muted-foreground"
+          : "text-foreground";
   return (
     <>
-      <span className="px-2 py-0.5 text-(--gray-10)">{time}</span>
+      <span className="px-2 py-0.5 text-muted-foreground">{time}</span>
       <span className={`py-0.5 ${levelColor}`}>{entry.level}</span>
-      <span className="truncate py-0.5 text-(--gray-11)" title={entry.scope}>
+      <span
+        className="truncate py-0.5 text-muted-foreground"
+        title={entry.scope}
+      >
         {entry.scope ?? "—"}
       </span>
-      <span className="break-words py-0.5 pr-2 text-(--gray-12)">
+      <span className="break-words py-0.5 pr-2 text-foreground">
         {entry.message}
       </span>
     </>

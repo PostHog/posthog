@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 export interface ComposerModeShortcutProps {
     /** Fired on Shift+Tab — cycle to the next permission mode. */
     onCycle: () => void
+    disabled?: boolean
 }
 
 /**
@@ -12,12 +13,12 @@ export interface ComposerModeShortcutProps {
  * anything that already handled the key (`defaultPrevented`) and to open menus/dialogs, which own Tab for
  * their internal focus order.
  */
-export function ComposerModeShortcut({ onCycle }: ComposerModeShortcutProps): null {
+export function ComposerModeShortcut({ onCycle, disabled = false }: ComposerModeShortcutProps): null {
     // No dep array on purpose: re-attaching keeps the listener's `onCycle` closure current (callers pass
     // inline arrows over the selected mode) — same pattern as the plan-approval selector's shortcuts.
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent): void => {
-            if (e.key !== 'Tab' || !e.shiftKey || e.defaultPrevented) {
+            if (disabled || e.key !== 'Tab' || !e.shiftKey || e.defaultPrevented) {
                 return
             }
             if (e.target instanceof HTMLElement && e.target.closest('[role="menu"],[role="dialog"]')) {

@@ -212,21 +212,22 @@ describe('isToolsModeClient', () => {
         }
     )
 
-    it.each([
-        // ChatGPT never self-reports a client name; the surface is UA-only.
-        ['openai-mcp/1.0.0 (ChatGPT)'],
-        // Older Cursor builds omit clientInfo.name and identify only via UA.
-        ['Cursor/3.1.15 (darwin arm64)'],
-    ])('returns true for the name-less user-agent %s', (userAgent) => {
-        expect(isToolsModeClient(undefined, userAgent)).toBe(true)
+    // Older Cursor builds omit clientInfo.name and identify only via UA.
+    it('returns true for the name-less Cursor user-agent', () => {
+        expect(isToolsModeClient(undefined, 'Cursor/3.1.15 (darwin arm64)')).toBe(true)
     })
 
-    it.each([['openai-mcp/1.0.0'], ['openai-mcp/1.0.0 (Codex)'], ['openai-mcp/1.0.0 (Agent Builder)']])(
-        'returns false for the non-ChatGPT openai-mcp surface %s',
-        (userAgent) => {
-            expect(isToolsModeClient(undefined, userAgent)).toBe(false)
-        }
-    )
+    // OpenAI's proxy caches the roster it captures for a published plugin, so a
+    // labeled ChatGPT request landing in tools mode would freeze the full roster
+    // for every plugin user. Every openai-mcp surface stays on the cli default.
+    it.each([
+        ['openai-mcp/1.0.0'],
+        ['openai-mcp/1.0.0 (ChatGPT)'],
+        ['openai-mcp/1.0.0 (Codex)'],
+        ['openai-mcp/1.0.0 (Agent Builder)'],
+    ])('returns false for the openai-mcp surface %s', (userAgent) => {
+        expect(isToolsModeClient(undefined, userAgent)).toBe(false)
+    })
 
     it.each([['claude-code'], ['mcp-inspector'], ['some-random-tool'], [''], [undefined]])(
         'returns false for client name %s',
@@ -484,6 +485,20 @@ describe('MCPClientProfile', () => {
             [{}, false],
         ])('resolves %j to %s', (input, expected) => {
             expect(new MCPClientProfile(input).isClaudeChatHost()).toBe(expected)
+        })
+    })
+
+    describe('isAnthropicConnector()', () => {
+        it.each([
+            [{ clientName: 'Anthropic/ClaudeAI', userAgent: 'Claude-User' }, true],
+            [{ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }, true],
+            [{ clientName: 'Anthropic/ClaudeAI', vendorClient: 'Cowork', userAgent: 'Claude-User' }, true],
+            [{ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }, true],
+            [{ clientName: 'claude-code', vendorClient: 'ClaudeCode' }, false],
+            [{ vendorClient: 'ClaudeCode' }, false],
+            [{}, false],
+        ])('resolves %j to %s', (input, expected) => {
+            expect(new MCPClientProfile(input).isAnthropicConnector()).toBe(expected)
         })
     })
 

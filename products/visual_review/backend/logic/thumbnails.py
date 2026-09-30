@@ -8,22 +8,24 @@ from ..models import RunSnapshot
 from ..storage import ArtifactStorage
 
 
-def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | None:
+def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str, run_type: str | None = None) -> str | None:
     """Look up the thumbnail content hash for a snapshot identifier.
 
-    Finds the most recent artifact with a thumbnail for this identifier
-    across all runs. Returns the thumbnail's content_hash or None.
+    Finds the most recent artifact with a thumbnail for this identifier.
+    Returns the thumbnail's content_hash or None.
+
+    Pass `run_type` when the caller shows more than one of them, because the
+    same identifier under two run types is two different images and this would
+    otherwise return whichever ran last.
     """
-    snapshot = (
-        RunSnapshot.objects.filter(
-            run__repo_id=repo_id,
-            identifier=identifier,
-            current_artifact__thumbnail__isnull=False,
-        )
-        .select_related("current_artifact__thumbnail")
-        .order_by("-run__created_at")
-        .first()
+    snapshots = RunSnapshot.objects.filter(
+        run__repo_id=repo_id,
+        identifier=identifier,
+        current_artifact__thumbnail__isnull=False,
     )
+    if run_type:
+        snapshots = snapshots.filter(run__run_type=run_type)
+    snapshot = snapshots.select_related("current_artifact__thumbnail").order_by("-run__created_at").first()
 
     if snapshot is None:
         return None

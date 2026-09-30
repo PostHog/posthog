@@ -8,9 +8,10 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 from ee.api.agentic_provisioning.tokens import compute_partner_scoped_teams
-from ee.models.rbac.access_control import AccessControl
 
 TOKEN_URL = "/api/agentic/oauth/token"
 

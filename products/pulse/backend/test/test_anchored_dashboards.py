@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 from posthog.models.scoping import team_scope
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight

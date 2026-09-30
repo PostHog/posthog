@@ -67,6 +67,7 @@ const meta: Meta = {
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_TRACK_RULES,
         ],
         pageUrl: `${urls.customerAnalyticsConfiguration()}?tab=customer-analytics-track-rules`,
+        mockDate: '2026-08-29T12:00:00Z',
         testOptions: {
             waitForSelector: '[data-attr="account-track-rules"]',
         },
@@ -110,6 +111,7 @@ const meta: Meta = {
                             description: 'Monthly recurring revenue',
                             display_type: 'currency',
                             is_canonical: false,
+                            has_workflow_reference: false,
                             is_big_number: false,
                             options: null,
                         },

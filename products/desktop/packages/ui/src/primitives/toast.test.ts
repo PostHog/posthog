@@ -96,12 +96,16 @@ describe("toast wrapper", () => {
     );
   });
 
-  it.each(["success", "info", "warning", "loading"] as const)(
-    "suppresses %s when toast notifications are disabled",
-    (level) => {
+  it.each(
+    (["success", "info", "warning", "loading"] as const).flatMap((level) =>
+      [false, true].map((alwaysShow) => ({ level, alwaysShow })),
+    ),
+  )(
+    "$level respects alwaysShow=$alwaysShow when toast notifications are disabled",
+    ({ level, alwaysShow }) => {
       settings.toastNotifications = false;
-      toast[level]("Title");
-      expect(quill[level]).not.toHaveBeenCalled();
+      toast[level]("Title", { alwaysShow });
+      expect(quill[level]).toHaveBeenCalledTimes(alwaysShow ? 1 : 0);
     },
   );
 

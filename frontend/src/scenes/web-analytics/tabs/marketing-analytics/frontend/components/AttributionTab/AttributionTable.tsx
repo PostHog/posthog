@@ -22,11 +22,11 @@ import {
 
 import {
     ATTRIBUTION_ROW_LIMIT,
-    BREAKDOWN_LABELS,
     MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID,
     MODEL_LABELS,
     marketingAttributionLogic,
 } from '../../logic/marketingAttributionLogic'
+import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
 import { AttributionChart } from './AttributionChart'
 
 const modelTooltip = (model: AttributionMode, windowDays: number): string => {
@@ -52,14 +52,16 @@ let uniqueNode = 0
 export function AttributionTable({
     query,
     attachTo,
+    metric = 'conversions',
 }: {
     query: MarketingAnalyticsAttributionQuery
     attachTo?: LogicWrapper | BuiltLogic
+    metric?: 'conversions' | 'revenue'
 }): JSX.Element {
     const [key] = useState(() => `MarketingAttribution.${uniqueNode++}`)
     // Registered under the tab's shared collection so the filter bar's ReloadAll reaches this query.
     const logic = dataNodeLogic({ query, key, dataNodeCollectionId: MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID })
-    const { response, responseLoading, responseError } = useValues(logic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { loadData } = useActions(logic)
     const { breakdownBy, effectiveLookbackDays } = useValues(marketingAttributionLogic)
     const { baseCurrency } = useValues(teamLogic)
@@ -222,11 +224,20 @@ export function AttributionTable({
         ]
     }
 
-    const columns = buildColumns()
+    const columns = buildColumns().map((group) => ({
+        ...group,
+        children:
+            metric === 'revenue'
+                ? group.children.filter(
+                      (column) => column.key === 'breakdown_value' || String(column.key).endsWith('_value')
+                  )
+                : group.children,
+    }))
 
     if (responseError) {
         return (
             <InsightErrorState
+                queryId={responseErrorObject?.queryId ?? queryId}
                 query={query}
                 excludeDetail
                 title={responseError}
@@ -256,7 +267,13 @@ export function AttributionTable({
                     later in the journey, like signing up or paying, show how the models differ.
                 </LemonBanner>
             )}
-            <AttributionChart rows={rows} models={models} dimensionLabel={dimensionLabel} loading={responseLoading} />
+            <AttributionChart
+                metric={metric}
+                rows={rows}
+                models={models}
+                dimensionLabel={dimensionLabel}
+                loading={responseLoading}
+            />
             <LemonTable
                 className="AttributionTable"
                 columns={columns}

@@ -1,0 +1,46 @@
+{
+    "S1": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "S2": {
+        "is_real": true,
+        "severity": "must_fix"
+    },
+    "S3": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "S4": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "S5": {
+        "is_real": false,
+        "severity": "consider"
+    },
+    "S6": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "S7": {
+        "is_real": true,
+        "severity": "consider"
+    },
+    "S8": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "S9": {
+        "is_real": true,
+        "severity": "consider"
+    },
+    "S10": {
+        "is_real": true,
+        "severity": "consider"
+    },
+    "S11": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    }
+}

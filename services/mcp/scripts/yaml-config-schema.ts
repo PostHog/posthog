@@ -30,6 +30,11 @@ export const ToolConfigSchema = z
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
         /**
+         * Override the file-level `category` for this tool. Use it when a tool belongs to another
+         * product than the file, so `$mcp_tool_category` groups it under that product.
+         */
+        category: z.string().trim().min(1).optional(),
+        /**
          * One-line selection hint injected into the system prompt catalog.
          * Describes *when to pick this tool*, not what it does. Currently only
          * surfaced for `query-*` tools in the query tool catalog.
@@ -93,11 +98,13 @@ export const ToolConfigSchema = z
                          * - `'string-int'` — casts strings that look like a base-10 integer
                          *   (e.g. `"123"`, `"-7"`) to a number. Anything else passes through
                          *   unchanged so zod still rejects with its honest error.
+                         * - `'boolean-string'` — casts a boolean to `"true"` / `"false"` for a
+                         *   string param that reads as a boolean to an agent (e.g. `enabled`).
                          *
                          * Mutually exclusive with `input_schema` and `schema_ref` (those
                          * fully replace the schema; cast composes with the existing one).
                          */
-                        cast: z.enum(['string-int']).optional(),
+                        cast: z.enum(['string-int', 'boolean-string']).optional(),
                         /**
                          * Alternate key names accepted for this param and normalized to it
                          * before validation — for identifier params agents guess different
@@ -176,6 +183,16 @@ export const ToolConfigSchema = z
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
         /**
+         * Tool names that took over this tool's job. Set it on any tool a gate
+         * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
+         * name reports the successor instead of reading as an unknown tool.
+         */
+        /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
+        hidden_when_flag_on: z.string().optional(),
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
+        /**
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
          */
@@ -196,6 +213,21 @@ export const ToolConfigSchema = z
                  * returns the full `include` set. Requires `include`; incompatible with `exclude`.
                  */
                 selectable: z.boolean().optional(),
+                /**
+                 * Remove keys whose value is `null` from the response, after `include`/`exclude`.
+                 * Use it on tools that echo a nested serializer schema, where the unset optional
+                 * fields dominate the payload.
+                 */
+                strip_nulls: z.boolean().optional(),
+                /**
+                 * Dot-path allowlist for the compact text projection the model reads, applied to each item in
+                 * `results`. The structured payload stays whole, so a UI app still renders every field. Use it
+                 * on a list tool whose rows are far larger than what a reader needs to choose between them —
+                 * without it such a tool either floods the context or, on a host that reads the text channel
+                 * only, reaches the model as a pointer with no rows in it. Callers that need every field ask
+                 * for JSON output.
+                 */
+                text_include: z.array(z.string()).optional(),
                 /** Wrap user-authored response data in an explicit informational-only tag boundary. */
                 informational_wrapper: z
                     .object({
@@ -211,6 +243,10 @@ export const ToolConfigSchema = z
             })
             .refine((data) => !(data.selectable && !data.include?.length), {
                 message: 'response.selectable requires response.include (the allowlist to select from)',
+            })
+            .refine((data) => !(data.text_include?.length && data.informational_wrapper), {
+                message:
+                    'response.text_include and response.informational_wrapper both own the text channel — pick one',
             })
             .optional(),
         /**
@@ -272,6 +308,14 @@ export const ToolConfigSchema = z
     .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
         message: '`feature_flag_variant` requires `feature_flag` to be set',
         path: ['feature_flag_variant'],
+    })
+    // A list response encodes as a TOON table: one header of shared keys, then one row per
+    // item. Dropping a `null` that only some rows carry breaks that uniformity and forces the
+    // expanded per-key form, so the response grows instead of shrinking.
+    .refine((data) => !(data.response?.strip_nulls && data.list), {
+        message:
+            '`response.strip_nulls` cannot be combined with `list: true` — rows encode as a TOON table, and per-item null removal makes a ragged table larger. Use `response.exclude` to drop the fields instead.',
+        path: ['response', 'strip_nulls'],
     })
     // confirmed_action emits two factories (`-prepare`, `-execute`) via a
     // codegen path that doesn't currently wrap either with `withUiApp`.
@@ -386,6 +430,8 @@ const CustomUiAppSchema = z
         app_name: z.string(),
         /** Short description for the MCP resource. Required for custom apps. */
         description: z.string(),
+        /** Additional CSP resource sources required by this app. */
+        resource_domains: z.array(z.string()).optional(),
         /** Reusable view component that lets the render-ui umbrella app mount this custom app. */
         render_ui: z
             .object({
@@ -440,6 +486,7 @@ export interface ResolvedCustomUiApp {
     type: 'custom'
     app_name: string
     description: string
+    resource_domains?: string[]
     render_ui?: {
         component_import: string
         view_component: string
@@ -535,6 +582,16 @@ export const QueryWrapperToolConfigSchema = z
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
+        /**
+         * Tool names that took over this tool's job. Set it on any tool a gate
+         * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
+         * name reports the successor instead of reading as an unknown tool.
+         */
+        /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
+        hidden_when_flag_on: z.string().optional(),
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {

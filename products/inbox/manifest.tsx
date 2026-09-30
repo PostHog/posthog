@@ -14,6 +14,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Inbox',
+            displayLabel: 'Self-driving inbox',
             intents: [],
             category: ProductItemCategory.TOOLS,
             iconType: 'inbox' as FileSystemIconType,

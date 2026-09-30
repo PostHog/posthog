@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
+import posthog from 'posthog-js'
 
 import { processAllSnapshots, SnapshotSourceType, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
@@ -67,6 +68,54 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
         })
     })
 
+    describe('oversized recording gate', () => {
+        const oversizedMeta = {
+            ...recordingMetaJson,
+            snapshot_source: 'web',
+            total_size: 40 * 1024 * 1024,
+            event_count: 100,
+        }
+
+        const mountWithMeta = (
+            sessionRecordingId: string,
+            meta: Record<string, any>
+        ): ReturnType<typeof sessionRecordingDataCoordinatorLogic.build> => {
+            overrideSessionRecordingMocks({
+                getMocks: { '/api/environments/:team_id/session_recordings/:id': meta },
+            })
+            const gatedLogic = sessionRecordingDataCoordinatorLogic({ sessionRecordingId, blobV2PollingDisabled: true })
+            gatedLogic.mount()
+            gatedLogic.actions.loadRecordingMeta()
+            return gatedLogic
+        }
+
+        it('never loads snapshots for an unplayably large recording', async () => {
+            const gatedLogic = mountWithMeta('oversized-gated', oversizedMeta)
+
+            await expectLogic(gatedLogic)
+                .toDispatchActions(['loadRecordingMetaSuccess'])
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadSnapshotSources'])
+                .toMatchValues({ recordingTooLargeToPlay: true })
+        })
+
+        it.each([
+            ['the recording is mobile', 'oversized-mobile', { ...oversizedMeta, snapshot_source: 'mobile' }],
+            [
+                'the recording is large but made of ordinary small events',
+                'oversized-small-events',
+                { ...oversizedMeta, event_count: 1_000_000 },
+            ],
+            ['the recording is small', 'oversized-small', { ...oversizedMeta, total_size: 1024, event_count: 10 }],
+        ])('auto-loads snapshots when %s', async (_name, sessionRecordingId, meta) => {
+            const gatedLogic = mountWithMeta(sessionRecordingId, meta)
+
+            await expectLogic(gatedLogic)
+                .toDispatchActions(['loadRecordingMetaSuccess', 'loadSnapshotSources'])
+                .toMatchValues({ recordingTooLargeToPlay: false })
+        })
+    })
+
     describe('loading session core', () => {
         it('loads all data', async () => {
             await expectLogic(logic, () => {
@@ -93,6 +142,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
         it('fetch metadata error with 500 sets loadMetaError but not isNotFound', async () => {
             silenceKeaLoadersErrors()
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -126,11 +176,14 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
             expect(metaLogic.values.isNotFound).toBe(false)
             expect(metaLogic.values.loadMetaError).toBe(true)
+            expect(captureExceptionSpy).toHaveBeenCalled()
+            captureExceptionSpy.mockRestore()
             resumeKeaLoadersErrors()
         })
 
         it('fetch metadata error with 404 sets isNotFound but not loadMetaError', async () => {
             silenceKeaLoadersErrors()
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -148,6 +201,8 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
             expect(metaLogic.values.isNotFound).toBe(true)
             expect(metaLogic.values.loadMetaError).toBe(false)
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            captureExceptionSpy.mockRestore()
             resumeKeaLoadersErrors()
         })
 

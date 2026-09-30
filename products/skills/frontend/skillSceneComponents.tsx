@@ -12,6 +12,7 @@ import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { isSkill, llmSkillLogic } from './llmSkillLogic'
+import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 
 export { LLMSkillsScene } from './LLMSkillsScene'
 export { LLMSkillScene } from './LLMSkillScene'
@@ -25,6 +26,60 @@ export function openArchiveSkillDialog(onConfirm: () => void): void {
         primaryButton: { children: 'Archive', status: 'danger', onClick: onConfirm },
         secondaryButton: { children: 'Cancel' },
     })
+}
+
+/** Collect the new name, then hand it to `onRename`. */
+export function openRenameSkillDialog(skillName: string, onRename: (newName: string) => void): void {
+    LemonDialog.openForm({
+        title: 'Rename skill',
+        description:
+            "Agents call the skill by its name, and the name is also its URL and its folder in the zip export. Renaming keeps the skill's version history and owners.",
+        initialValues: { newName: skillName },
+        content: (
+            <LemonField name="newName" label="New skill name">
+                <LemonInput
+                    data-attr="llma-skill-rename-name"
+                    placeholder="my-skill-name"
+                    maxLength={SKILL_NAME_MAX_LENGTH}
+                    autoFocus
+                />
+            </LemonField>
+        ),
+        errors: {
+            newName: (name: string) => validateSkillName(name),
+        },
+        onSubmit: ({ newName }) => onRename(newName),
+    })
+}
+
+/** Owner-only on the backend, so mirror that here instead of letting a click come back a 403.
+ * Shared so the list view and the single-skill view guard the trigger identically. */
+export function publishToCommunityDisabledReason({
+    ownerUuids,
+    currentUserUuid,
+    publishing,
+    isHistoricalVersion,
+}: {
+    ownerUuids: string[]
+    currentUserUuid: string | undefined
+    publishing: boolean
+    isHistoricalVersion?: boolean
+}): string | undefined {
+    if (publishing) {
+        return 'Publishing…'
+    }
+    if (ownerUuids.length === 0) {
+        return 'Add an owner before you publish this skill'
+    }
+    if (!currentUserUuid || !ownerUuids.includes(currentUserUuid)) {
+        return "Only the skill's owners can publish it"
+    }
+    // The backend shares the latest version by name, so block sharing from a historical version to
+    // avoid pushing content the user is not looking at.
+    if (isHistoricalVersion) {
+        return 'Switch to the latest version to publish'
+    }
+    return undefined
 }
 
 interface FileChanges {

@@ -1,17 +1,27 @@
+import { randomUUID } from 'crypto'
+
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import {
+    createOrganization,
     createTeam,
-    getFirstTeam,
+    createTestTeamFixture,
+    getTeam,
     insertRow,
-    resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '~/tests/helpers/sql'
-import { Hub, Team } from '~/types'
+import { FlagEvaluationsMode, Hub, Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
 import { closeHub, createHub } from './db/hub'
-import { PostgresRouter } from './db/postgres'
+import { PostgresRouter, PostgresUse } from './db/postgres'
+import { captureTeamEvent } from './posthog'
 import { TeamManager } from './team-manager'
+
+jest.mock('~/common/utils/posthog', () => ({
+    captureTeamEvent: jest.fn(),
+}))
+
+const mockCaptureTeamEvent = captureTeamEvent as jest.Mock
 
 describe('TeamManager()', () => {
     let hub: Hub
@@ -27,11 +37,15 @@ describe('TeamManager()', () => {
         jest.spyOn(Date, 'now').mockImplementation(() => now)
 
         hub = await createHub()
-        await resetTestDatabase()
 
         postgres = new PostgresRouter(defaultConfig)
         teamManager = new TeamManager(postgres)
-        const team = await getFirstTeam(hub.postgres)
+        const fixture = await createTestTeamFixture(hub.postgres, { cookieless_server_hash_mode: 2 })
+        const fixtureOrganizationId = fixture.organizationId
+        await updateOrganizationAvailableFeatures(hub.postgres, fixtureOrganizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
+        const team = (await getTeam(hub.postgres, fixture.team.id))!
         teamId = team.id
         teamToken = team.api_token
         organizationId = team.organization_id
@@ -46,18 +60,23 @@ describe('TeamManager()', () => {
         it('returns the team', async () => {
             const result = await teamManager.getTeam(teamId)
             // This one test is a snapshot to ensure the team object is stable
-            expect(forSnapshot(result)).toMatchInlineSnapshot(`
+            expect(
+                forSnapshot(result, {
+                    overrides: { api_token: '<TEAM_API_TOKEN>', id: '<TEAM_ID>', project_id: '<PROJECT_ID>' },
+                })
+            ).toMatchInlineSnapshot(`
                 {
                   "anonymize_ips": false,
-                  "api_token": "THIS IS NOT A TOKEN FOR TEAM 2",
+                  "api_token": "<TEAM_API_TOKEN>",
                   "available_features": [
                     "data_pipelines",
                   ],
                   "cookieless_server_hash_mode": 2,
                   "drop_events_older_than_seconds": null,
                   "extra_settings": null,
+                  "flag_evaluations_mode": 0,
                   "heatmaps_opt_in": null,
-                  "id": 2,
+                  "id": "<TEAM_ID>",
                   "ingested_event": true,
                   "logs_settings": null,
                   "minimal_flag_called_events": false,
@@ -65,13 +84,13 @@ describe('TeamManager()', () => {
                   "organization_id": "<REPLACED-UUID-1>",
                   "person_display_name_properties": [],
                   "person_processing_opt_out": null,
-                  "project_id": 2,
+                  "project_id": "<PROJECT_ID>",
                   "secret_api_token": null,
                   "session_recording_opt_in": true,
                   "timezone": "UTC",
                   "uuid": "<REPLACED-UUID-0>",
                 }
-            `)
+                `)
         })
 
         it('returns null if the team does not exist', async () => {
@@ -226,6 +245,21 @@ describe('TeamManager()', () => {
             expect(newTeam!.minimal_flag_called_events).toBe(true)
         })
 
+        it("reads flag_evaluations_mode from the team's organization", async () => {
+            const newTeamId = await createTeam(postgres, organizationId)
+            const otherOrganizationId = await createOrganization(postgres)
+            const otherTeamId = await createTeam(postgres, otherOrganizationId)
+            await insertRow(postgres, 'feature_flags_organizationfeatureflagsconfig', {
+                organization_id: organizationId,
+                flag_evaluations_mode: FlagEvaluationsMode.ReadFlagEvaluations,
+            })
+
+            expect((await teamManager.getTeam(newTeamId))!.flag_evaluations_mode).toBe(
+                FlagEvaluationsMode.ReadFlagEvaluations
+            )
+            expect((await teamManager.getTeam(otherTeamId))!.flag_evaluations_mode).toBe(FlagEvaluationsMode.Events)
+        })
+
         it('does not leak minimal_flag_called_events across teams', async () => {
             const teamA = await createTeam(postgres, organizationId)
             const teamB = await createTeam(postgres, organizationId)
@@ -260,6 +294,84 @@ describe('TeamManager()', () => {
             ])
             const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
             expect(result).toBe(true)
+        })
+    })
+
+    describe('setTeamIngestedEvent()', () => {
+        let newTeamToken: string
+        let newTeam: Team
+
+        const readIngestedEvent = async (id: Team['id']): Promise<boolean> => {
+            const result = await postgres.query<{ ingested_event: boolean }>(
+                PostgresUse.COMMON_READ,
+                'SELECT ingested_event FROM posthog_team WHERE id = $1',
+                [id],
+                'test-read-ingested-event'
+            )
+            return result.rows[0].ingested_event
+        }
+
+        beforeEach(async () => {
+            newTeamToken = randomUUID()
+            await createTeam(postgres, organizationId, newTeamToken, { ingested_event: false })
+            const loaded = await teamManager.getTeamByToken(newTeamToken)
+            expect(loaded?.ingested_event).toBe(false)
+            newTeam = loaded as Team
+        })
+
+        it('flips the flag and captures the first event for each org member', async () => {
+            await teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' })
+
+            expect(await readIngestedEvent(newTeam.id)).toBe(true)
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(1)
+            expect(mockCaptureTeamEvent).toHaveBeenCalledWith(
+                newTeam,
+                'first team event ingested',
+                expect.objectContaining({ sdk: 'web' }),
+                expect.any(String)
+            )
+        })
+
+        it('does nothing on a repeat call through a stale team object', async () => {
+            await teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' })
+            mockCaptureTeamEvent.mockClear()
+
+            // `newTeam` still reads ingested_event=false, which is the stale-cache case exactly.
+            await teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' })
+
+            expect(mockCaptureTeamEvent).not.toHaveBeenCalled()
+            expect(await readIngestedEvent(newTeam.id)).toBe(true)
+        })
+
+        it('captures exactly once when two workers race on the same new team', async () => {
+            await Promise.all([
+                teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' }),
+                teamManager.setTeamIngestedEvent({ ...newTeam }, { $lib: 'web' }),
+            ])
+
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(1)
+            expect(await readIngestedEvent(newTeam.id)).toBe(true)
+        })
+
+        it('refreshes the token cache entry so the next lookup sees the flag', async () => {
+            await teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' })
+            fetchTeamsSpy.mockClear()
+
+            // Ingestion only ever looks teams up by token, so the token entry is the one that has
+            // to be invalidated. `Date.now` is frozen here, so nothing else can expire it.
+            const reloaded = await teamManager.getTeamByToken(newTeamToken)
+
+            expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+            expect(reloaded?.ingested_event).toBe(true)
+        })
+
+        it('issues no query at all for a team already flagged as ingested', async () => {
+            const querySpy = jest.spyOn(postgres, 'query')
+
+            await teamManager.setTeamIngestedEvent({ ...newTeam, ingested_event: true }, { $lib: 'web' })
+
+            expect(querySpy).not.toHaveBeenCalled()
+            expect(mockCaptureTeamEvent).not.toHaveBeenCalled()
         })
     })
 })

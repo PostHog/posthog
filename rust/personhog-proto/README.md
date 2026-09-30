@@ -11,7 +11,9 @@ Proto definitions live in the top-level [`/proto/personhog`](/proto/personhog) d
 ├── types/v1/               # Shared message types
 ├── service/v1/             # Public API (router)
 ├── replica/v1/             # Internal read API
-└── leader/v1/              # Internal write API [future]
+├── leader/v1/              # Internal write API
+├── identity/v1/            # Identity service API
+└── lifecycle/v1/           # Lifecycle saga records
 ```
 
 Each component is versioned independently, allowing breaking changes to internal APIs without affecting the public API.

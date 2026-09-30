@@ -269,22 +269,39 @@ describe('queryHandler — alert note gate', () => {
     }
 
     it.each([
-        // Legacy SQL insights wrap a HogQLQuery in a DataTableNode. The backend accepts an alert on
-        // that shape (it unwraps the wrapper before the kind check), so the offer must reach the agent.
-        [
-            'offers an alert for a DataTableNode wrapping HogQLQuery',
-            { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 1' } },
-            true,
-        ],
-        // A DataTableNode over EventsQuery/ActorsQuery cannot carry an alert, so the offer stays withheld.
-        [
-            'stays quiet for a DataTableNode wrapping EventsQuery',
-            { kind: 'DataTableNode', source: { kind: 'EventsQuery' } },
-            false,
-        ],
-    ] as const)('%s', async (_label, query, expectsNote) => {
+        ...['TrendsQuery', 'FunnelsQuery', 'HogQLQuery', 'MetricsQuery'].flatMap((kind) => [
+            { name: `bare ${kind}`, query: { kind }, alerts: [], expectsNote: true },
+            {
+                name: `wrapped ${kind}`,
+                query: { kind: 'InsightVizNode', source: { kind } },
+                alerts: [],
+                expectsNote: true,
+            },
+            {
+                name: `${kind} with an existing alert`,
+                query: { kind },
+                alerts: [{ id: 'existing' }],
+                expectsNote: false,
+            },
+        ]),
+        {
+            name: 'legacy SQL table',
+            query: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 1' } },
+            alerts: [],
+            expectsNote: true,
+        },
+        ...['DataTableNode', 'DataVisualizationNode'].map((kind) => ({
+            name: `${kind} with an unsupported source`,
+            query: { kind, source: { kind: 'EventsQuery' } },
+            alerts: [],
+            expectsNote: false,
+        })),
+        { name: 'retention', query: { kind: 'RetentionQuery' }, alerts: [], expectsNote: false },
+        { name: 'missing query', query: null, alerts: [], expectsNote: false },
+        { name: 'missing wrapper source', query: { kind: 'InsightVizNode' }, alerts: [], expectsNote: false },
+    ])('$name', async ({ query, alerts, expectsNote }) => {
         const { context } = createContext({
-            getData: { id: 42, short_id: 'abc12345', query },
+            getData: { id: 42, short_id: 'abc12345', query, alerts },
         })
 
         const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as NotedResult

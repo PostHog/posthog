@@ -7,6 +7,7 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -713,6 +714,46 @@ describe('onboardingLogic — flow composition', () => {
         it('falls back to legacy for an unregistered variant', () => {
             setVariant('some_future_variant')
             expect(logic.values.onboardingFlowVariant).toBe('legacy')
+        })
+    })
+
+    describe('completion redirect gate', () => {
+        const setVariant = (value: string | undefined): void => {
+            featureFlagLogic
+                .findMounted()
+                ?.actions.setFeatureFlags(
+                    value === undefined ? [] : [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT],
+                    value === undefined ? {} : { [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: value }
+                )
+        }
+
+        // The completion PATCH that the self-driving flow sends also reaches this scene logic, which
+        // stays mounted under both variants. Only the legacy variant may redirect on it, so the two
+        // flows never push competing destinations for the same completion.
+        const completeProduct = (): void => {
+            const completed = { has_completed_onboarding_for: { product_analytics: true } }
+            logic.actions.updateCurrentTeamSuccess(completed as any, completed as any)
+        }
+
+        it('redirects on completion under the legacy variant', async () => {
+            router.actions.push(urls.default())
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            await expectLogic(logic, () => {
+                completeProduct()
+            }).toFinishAllListeners()
+            expect(router.values.location.pathname).toMatch(/quickstart|insight/i)
+        })
+
+        it('does not redirect on completion under the self-driving variant', async () => {
+            setVariant('self-driving')
+            router.actions.push(urls.default())
+            const before = router.values.location.pathname
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            await expectLogic(logic, () => {
+                completeProduct()
+            }).toFinishAllListeners()
+            expect(router.values.location.pathname).not.toMatch(/quickstart|insight/i)
+            expect(router.values.location.pathname).toBe(before)
         })
     })
 

@@ -15,7 +15,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 
@@ -387,9 +387,10 @@ export function HogFunctionFilters({
                                     {selectedFullRefreshView ? (
                                         <LemonBanner type="warning" className="w-full">
                                             <p className="mb-0">
-                                                This view rebuilds its whole table on every run, so every row runs this
-                                                destination again each time. Set the view to update incrementally to run
-                                                only on the rows that changed.{' '}
+                                                This view rebuilds its whole table on every run. A row runs this
+                                                destination again only if its values changed since the last run. In a
+                                                view with more than 200,000 rows, the rows past that limit run it again
+                                                each time. Set the view to update incrementally to avoid this.{' '}
                                                 <Link
                                                     to={urls.sqlEditor({ view_id: selectedFullRefreshView.id })}
                                                     target="_blank"

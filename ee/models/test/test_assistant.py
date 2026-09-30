@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -42,22 +42,22 @@ class TestCoreMemory(BaseTest):
         await self.core_memory.asave()
         self.assertTrue(self.core_memory.is_scraping_finished)
 
-    @freeze_time("2023-01-01 12:00:00")
+    @time_machine.travel("2023-01-01 12:00:00", tick=False)
     async def test_is_scraping_pending_timing(self):
         # Set initial pending status
         await self.core_memory.achange_status_to_pending()
         initial_time = timezone.now()
 
         # Test 3 minutes after (should be true)
-        with freeze_time(initial_time + timedelta(minutes=3)):
+        with time_machine.travel(initial_time + timedelta(minutes=3), tick=False):
             self.assertTrue(self.core_memory.is_scraping_pending)
 
         # Test exactly 5 minutes after (should be false)
-        with freeze_time(initial_time + timedelta(minutes=10)):
+        with time_machine.travel(initial_time + timedelta(minutes=10), tick=False):
             self.assertFalse(self.core_memory.is_scraping_pending)
 
         # Test 6 minutes after (should be false)
-        with freeze_time(initial_time + timedelta(minutes=11)):
+        with time_machine.travel(initial_time + timedelta(minutes=11), tick=False):
             self.assertFalse(self.core_memory.is_scraping_pending)
 
     async def test_core_memory_operations(self):
@@ -83,6 +83,12 @@ class TestCoreMemory(BaseTest):
         # Test replacing non-existent content
         with self.assertRaises(ValueError):
             await self.core_memory.areplace_core_memory("nonexistent", "new")
+
+    async def test_set_truncates_at_limit(self):
+        await self.core_memory.aset_core_memory("x" * (CORE_MEMORY_MAX_CHARACTERS + 5546))
+        self.assertEqual(len(self.core_memory.text), CORE_MEMORY_MAX_CHARACTERS)
+        await self.core_memory.arefresh_from_db()
+        self.assertEqual(len(self.core_memory.text), CORE_MEMORY_MAX_CHARACTERS)
 
     async def test_append_exceeds_limit(self):
         await self.core_memory.aset_core_memory("x" * (CORE_MEMORY_MAX_CHARACTERS - 5))

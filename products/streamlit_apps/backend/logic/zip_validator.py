@@ -2,29 +2,59 @@ from __future__ import annotations
 
 import os
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from io import BytesIO
 
 MAX_ZIP_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_UNCOMPRESSED_SIZE = 100 * 1024 * 1024  # 100 MB
 MAX_FILE_COUNT = 500
+# The sandbox unpacks every entry onto a real filesystem, which allows 255 bytes per name.
+# The whole-path bound keeps an entry clear of PATH_MAX once the sandbox prefix is added, and
+# inside the two-byte name length a zip header can hold.
+MAX_PATH_SEGMENT_BYTES = 255
+MAX_PATH_BYTES = 1024
 
 
 def _format_mb(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
-def build_single_file_zip(source: str) -> bytes:
-    """Pack a single-file Streamlit app (free-text ``app.py``) into a zip.
+ROOT_APP_FILE = "app.py"
 
-    Lets agents create an app from one block of source instead of uploading a
-    zip. The result still flows through ``validate_zip`` and the same storage
-    path, so size/structure guarantees are identical to an uploaded zip.
+
+def build_app_zip(source: str, files: Mapping[str, str], assets: Mapping[str, bytes]) -> bytes:
+    """Pack a Streamlit app given as free text into a zip.
+
+    ``source`` becomes the root ``app.py``; ``files`` are extra text entries and
+    ``assets`` extra binary entries, both keyed by project-relative path. Lets
+    agents create an app from a tool call instead of uploading a zip. The result
+    still flows through ``validate_zip`` and the same storage path, so
+    size/structure guarantees are identical to an uploaded zip.
     """
     buf = BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("app.py", source)
+        zf.writestr(ROOT_APP_FILE, source)
+        for path, text in files.items():
+            zf.writestr(path, text)
+        for path, content in assets.items():
+            zf.writestr(path, content)
     return buf.getvalue()
+
+
+def attachment_path_error(path: str) -> str | None:
+    """Return why ``path`` cannot be an extra entry next to ``app.py``, or None if it can."""
+    if "\\" in path or any(segment in ("", ".", "..") for segment in path.split("/")):
+        return "Path must be a relative file path using '/' with no '.' or '..' segments."
+    if any(ord(char) < 32 for char in path):
+        return "Path cannot contain control characters."
+    if len(path.encode()) > MAX_PATH_BYTES:
+        return f"Path is too long (max {MAX_PATH_BYTES} bytes)."
+    if any(len(segment.encode()) > MAX_PATH_SEGMENT_BYTES for segment in path.split("/")):
+        return f"Each name in the path must be {MAX_PATH_SEGMENT_BYTES} bytes or fewer."
+    if path == ROOT_APP_FILE:
+        return f"{ROOT_APP_FILE} comes from the source field; pick another path."
+    return None
 
 
 def is_safe_zip_path(filename: str) -> bool:

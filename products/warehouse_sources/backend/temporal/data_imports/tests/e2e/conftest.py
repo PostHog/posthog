@@ -29,20 +29,21 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.temporal.tests.conftest import activity_environment, setup_postgres_test_db  # noqa: F401
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
+from products.managed_warehouse.backend.facade.temporal import (
+    DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsWorkflow,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, get_latest_run_if_exists
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BATCH_TABLE,
-    STATUS_TABLE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
-    _ensure_tables,
-    _get_test_database_url,
-)
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import PostImportWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, STATUS_TABLE
+from products.warehouse_sources_queue.backend.testing import (
+    ensure_queue_tables as _ensure_tables,
+    get_test_database_url as _get_test_database_url,
+)
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -176,7 +177,7 @@ async def run_external_data_job_workflow(
             DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        mock.patch.object(DeltaMaintenance, "compact_table") as mock_compact_table,
+        mock.patch.object(DeltaMaintenance, "run_scheduled") as mock_run_scheduled,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -187,7 +188,16 @@ async def run_external_data_job_workflow(
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow, PostImportWorkflow],
+                # DuckLake's registration/copy children are fire-and-forget (ABANDON policy) and
+                # normally run on their own task queue. Test settings collapse every queue to one
+                # name, so this worker receives them and would otherwise fail the parent on a
+                # workflow it does not know, turning an unrelated feature into an import failure.
+                workflows=[
+                    ExternalDataJobWorkflow,
+                    PostImportWorkflow,
+                    DuckLakeRegisterDataImportsWorkflow,
+                    DuckLakeCopyDataImportsWorkflow,
+                ],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -209,7 +219,7 @@ async def run_external_data_job_workflow(
     if expected_rows_synced is not None:
         assert run.rows_synced == expected_rows_synced
 
-    mock_compact_table.assert_called()
+    mock_run_scheduled.assert_called()
     mock_get_data_import_finished_metric.assert_called_with(
         source_type=external_data_source.source_type, status=ExternalDataJob.Status.COMPLETED.lower()
     )

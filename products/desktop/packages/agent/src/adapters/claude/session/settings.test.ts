@@ -26,6 +26,7 @@ describe("SettingsManager per-repo persistence", () => {
     runGit(mainRepo, ["init", "-b", "main"]);
     runGit(mainRepo, ["config", "user.email", "test@example.com"]);
     runGit(mainRepo, ["config", "user.name", "test"]);
+    runGit(mainRepo, ["config", "commit.gpgsign", "false"]);
     runGit(mainRepo, ["commit", "--allow-empty", "-m", "init"]);
     runGit(mainRepo, ["worktree", "add", "-b", "feat", worktree]);
   });
@@ -225,6 +226,7 @@ describe("availableModels merge", () => {
     runGit(cwd, ["init", "-b", "main"]);
     runGit(cwd, ["config", "user.email", "test@example.com"]);
     runGit(cwd, ["config", "user.name", "test"]);
+    runGit(cwd, ["config", "commit.gpgsign", "false"]);
     runGit(cwd, ["commit", "--allow-empty", "-m", "init"]);
 
     originalConfigDir = process.env.CLAUDE_CONFIG_DIR;

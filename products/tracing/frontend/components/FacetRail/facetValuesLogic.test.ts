@@ -5,10 +5,11 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalF
 
 import { tracingSpansAttributeBreakdownCreate } from 'products/tracing/frontend/generated/api'
 import type { _TracingAttributeBreakdownRowApi } from 'products/tracing/frontend/generated/api.schemas'
+import { SpanPropertyTypeEnumApi } from 'products/tracing/frontend/generated/api.schemas'
 import { tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLogic'
 
 import { facetRailLogic } from './facetRailLogic'
-import { FACETS, FacetConfig } from './facets'
+import { FACETS, FacetConfig, buildCustomFacet } from './facets'
 import { facetValuesLogic } from './facetValuesLogic'
 
 jest.mock('products/tracing/frontend/generated/api', () => ({
@@ -108,6 +109,34 @@ describe('facetValuesLogic', () => {
             expect.any(String),
             expect.objectContaining({
                 query: expect.objectContaining({ breakdownKey: 'service_name', facetSearch: 'kaf' }),
+            })
+        )
+    })
+
+    // Each source type must route to its own breakdownType — a binary-to-ternary slip (e.g. a
+    // plain attribute silently querying as a resource attribute) would misreport values with no
+    // type error, since both shapes only differ in this one field.
+    it.each<[string, FacetConfig, string, SpanPropertyTypeEnumApi]>([
+        ['a column facet', SERVICE, 'service_name', SpanPropertyTypeEnumApi.Span],
+        [
+            'a resource-attribute facet',
+            facetConfig('namespace'),
+            'k8s.namespace.name',
+            SpanPropertyTypeEnumApi.SpanResourceAttribute,
+        ],
+        [
+            'a custom plain-attribute facet',
+            buildCustomFacet('http.status_code', 'attribute'),
+            'http.status_code',
+            SpanPropertyTypeEnumApi.SpanAttribute,
+        ],
+    ])('%s requests the matching breakdownType', async (_, facet, expectedKey, expectedType) => {
+        const logic = mountFacet(facet)
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
+        expect(mockBreakdown).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                query: expect.objectContaining({ breakdownKey: expectedKey, breakdownType: expectedType }),
             })
         )
     })

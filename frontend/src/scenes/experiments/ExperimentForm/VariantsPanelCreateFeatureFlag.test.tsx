@@ -9,9 +9,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 import type { ExperimentFlagVariantApi } from 'products/experiments/frontend/generated/api.schemas'
 
-import { NEW_EXPERIMENT } from '../constants'
 import { VariantsPanelCreateFeatureFlag } from './VariantsPanelCreateFeatureFlag'
 
 // Draft flag config in the flag's own input shape, the source the panel reads and writes.

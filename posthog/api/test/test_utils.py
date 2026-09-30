@@ -19,6 +19,7 @@ from posthog.api.utils import (
     hostname_in_allowed_url_list,
     is_async_query,
     is_insight_query,
+    parse_actor_property_filters,
     raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
     validate_authorized_url_wildcards,
@@ -287,18 +288,6 @@ class TestUtils(BaseTest):
             ("TracesQuery gets extended timeout only", {"kind": "TracesQuery"}, False, True),
             ("ExperimentQuery gets extended timeout only", {"kind": "ExperimentQuery"}, False, True),
             (
-                "ExperimentTrendsQuery gets extended timeout only",
-                {"kind": "ExperimentTrendsQuery"},
-                False,
-                True,
-            ),
-            (
-                "ExperimentFunnelsQuery gets extended timeout only",
-                {"kind": "ExperimentFunnelsQuery"},
-                False,
-                True,
-            ),
-            (
                 "ExperimentExposureQuery gets extended timeout only",
                 {"kind": "ExperimentExposureQuery"},
                 False,
@@ -347,6 +336,25 @@ class TestUtils(BaseTest):
     def test_is_async_query(self, _name: str, query: dict, expected_insight: bool, expected_async: bool) -> None:
         assert is_insight_query(query) == expected_insight
         assert is_async_query(query) == expected_async
+
+    @parameterized.expand(
+        [
+            ("empty placeholder keeps no operator", [{}], [{}]),
+            (
+                "person_metadata gets the default",
+                [{"type": "person_metadata", "key": "created_at"}],
+                [{"type": "person_metadata", "key": "created_at", "operator": "exact"}],
+            ),
+            (
+                "a stray operator on a hogql filter is dropped",
+                [{"type": "hogql", "key": "properties.$browser = 'Safari'", "operator": "exact"}],
+                [{"type": "hogql", "key": "properties.$browser = 'Safari'"}],
+            ),
+            ("explicit empty type keeps no operator", [{"type": "empty"}], [{"type": "empty"}]),
+        ]
+    )
+    def test_parse_actor_property_filters(self, _name: str, properties: list[dict], expected: list[dict]) -> None:
+        assert parse_actor_property_filters(json.dumps(properties)) == expected
 
     @parameterized.expand(
         [

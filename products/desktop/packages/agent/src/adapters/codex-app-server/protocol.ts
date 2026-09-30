@@ -4,8 +4,18 @@
  * newline-delimited JSON that omits the `"jsonrpc": "2.0"` header.
  */
 
+export const CODEX_CLIENT_INFO = {
+  name: "posthog-code",
+  title: "PostHog",
+  version: "0.1.0",
+} as const;
+
 export const APP_SERVER_METHODS = {
   INITIALIZE: "initialize",
+  ACCOUNT_READ: "account/read",
+  ACCOUNT_LOGIN_START: "account/login/start",
+  ACCOUNT_LOGIN_CANCEL: "account/login/cancel",
+  ACCOUNT_LOGOUT: "account/logout",
   THREAD_START: "thread/start",
   THREAD_RESUME: "thread/resume",
   THREAD_FORK: "thread/fork",
@@ -23,6 +33,7 @@ export const APP_SERVER_METHODS = {
 
 export const APP_SERVER_NOTIFICATIONS = {
   INITIALIZED: "initialized",
+  ACCOUNT_LOGIN_COMPLETED: "account/login/completed",
   THREAD_STARTED: "thread/started",
   // Carries the active turn id — precondition for turn/steer + turn/interrupt.
   TURN_STARTED: "turn/started",
@@ -62,7 +73,11 @@ export const APP_SERVER_REQUESTS = {
   TOOL_USER_INPUT: "item/tool/requestUserInput",
   PERMISSIONS_APPROVAL: "item/permissions/requestApproval",
   MCP_ELICITATION: "mcpServer/elicitation/request",
+  CHATGPT_AUTH_TOKENS_REFRESH: "account/chatgptAuthTokens/refresh",
 } as const;
+
+/** Codex fails the turn if the host does not answer a refresh in this time. */
+export const CHATGPT_AUTH_TOKENS_REFRESH_TIMEOUT_MS = 10_000;
 
 /** JSON-RPC ids are `string | number` per the codex schema (`RequestId.ts`). */
 export type RequestId = string | number;

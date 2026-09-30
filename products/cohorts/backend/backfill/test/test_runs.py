@@ -15,6 +15,7 @@ from products.cohorts.backend.backfill.runs import (
     BackfillRunAttempt,
     attempt_backfill_run_for_cohort,
     attempt_person_backfill_run_for_cohort,
+    cancel_runs,
     create_backfill_run_for_cohort,
     create_person_backfill_run_for_cohort,
     create_person_team_backfill_run,
@@ -31,6 +32,11 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillScope,
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+
+# The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
+# `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
+# bytecode. A fixture missing either is a cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
 
 
 @override_settings(
@@ -49,11 +55,12 @@ class TestBackfillRuns(BaseTest):
                         "key": event,
                         "event_type": "events",
                         "value": "performed_event_multiple",
-                        "conditionHash": f"hash-{event}",
+                        "conditionHash": f"hash-{event}"[:16].ljust(16, "0"),
                         "time_value": window_days,
                         "time_interval": "day",
                         "operator": "gte",
                         "operator_value": 2,
+                        "bytecode": _BYTECODE,
                     }
                 ],
             }
@@ -200,6 +207,100 @@ class TestBackfillRuns(BaseTest):
         with self.assertRaisesMessage(ValueError, "Cohorts already have active backfill runs"):
             create_team_backfill_run(self.team.id, "team_enablement")
 
+    def _unseedable_cohort(self, *leaves: dict) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name="unseedable",
+            cohort_type=CohortType.REALTIME,
+            filters={"properties": {"type": "AND", "values": list(leaves)}},
+        )
+
+    # The UI never writes a behavioral leaf without a time window, but the API accepts one.
+    _WINDOWLESS_LEAF = {
+        "type": "behavioral",
+        "key": "navbar starred item added",
+        "event_type": "events",
+        "value": "performed_event",
+        "conditionHash": "c8236865303eb463",
+        "event_filters": [{"key": "item_type", "type": "event", "value": "insight", "operator": "exact"}],
+        "bytecode": _BYTECODE,
+    }
+    _WINDOWED_LEAF = {
+        "type": "behavioral",
+        "key": "$pageview",
+        "event_type": "events",
+        "value": "performed_event",
+        "conditionHash": "hash-$pageview00",
+        "time_value": 7,
+        "time_interval": "day",
+        "bytecode": _BYTECODE,
+    }
+
+    @parameterized.expand(
+        [
+            ("windowless_performed_event", [_WINDOWLESS_LEAF]),
+            ("action_keyed", [{**_WINDOWED_LEAF, "event_type": "actions", "key": 42}]),
+            (
+                "sub_day_multiple",
+                [
+                    {
+                        **_WINDOWED_LEAF,
+                        "value": "performed_event_multiple",
+                        "time_interval": "hour",
+                        "operator": "gte",
+                        "operator_value": 2,
+                    }
+                ],
+            ),
+            ("hashless", [{k: v for k, v in _WINDOWED_LEAF.items() if k != "conditionHash"}]),
+            ("short_hash", [{**_WINDOWED_LEAF, "conditionHash": "tooshort"}]),
+            ("bytecodeless", [{k: v for k, v in _WINDOWED_LEAF.items() if k != "bytecode"}]),
+            ("one_seedable_sibling", [_WINDOWED_LEAF, _WINDOWLESS_LEAF]),
+            # The dropped leaf is not behavioral, so a gate reading behavioral leaves alone admits
+            # this cohort while the catalog classifies it `excluded_has_dropped_leaf` whole.
+            (
+                "person_metadata_sibling",
+                [_WINDOWED_LEAF, {"type": "person_metadata", "key": "created_at", "value": "2026-01-01"}],
+            ),
+            (
+                "bytecodeless_person_sibling",
+                [_WINDOWED_LEAF, {"type": "person", "key": "email", "conditionHash": "person0000000001"}],
+            ),
+            # Every leaf is kept, so only the tree tells these cohorts apart from a seedable one.
+            ("negated_root", [{**_WINDOWED_LEAF, "negation": True}]),
+            ("empty_group", [_WINDOWED_LEAF, {"type": "OR", "values": []}]),
+        ]
+    )
+    def test_unseedable_behavioral_cohort_is_refused(self, _name: str, leaves: list[dict]) -> None:
+        # The processor excludes a cohort with any dropped leaf, so a partly seedable one is
+        # refused whole.
+        cohort = self._unseedable_cohort(*leaves)
+
+        with self.assertLogs("products.cohorts.backend.backfill.runs", level="INFO") as logs:
+            attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertEqual(attempt.reason, BackfillRefusalReason.COHORT_INELIGIBLE)
+        self.assertIn("the realtime catalog", "\n".join(logs.output))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    def test_team_run_excludes_an_unseedable_cohort_and_refuses_it_by_id(self) -> None:
+        seedable = self._cohort()
+        unseedable = self._unseedable_cohort(self._WINDOWLESS_LEAF)
+
+        with self.assertRaisesMessage(ValueError, "not eligible realtime behavioral cohorts"):
+            create_team_backfill_run(self.team.id, "team_enablement", [unseedable.id])
+
+        run = create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertEqual(
+            set(
+                CohortBackfillRunCohort.objects.for_team(self.team.id)
+                .filter(run=run)
+                .values_list("cohort_id", flat=True)
+            ),
+            {seedable.id},
+        )
+
     def test_editing_the_cohort_supersedes_its_active_run(self) -> None:
         # rust/cohort-seeder claims run rows and replays history from the filters the run pinned, so
         # if the post_save receiver stops superseding, an edit leaves the seeder on a stale definition.
@@ -230,6 +331,7 @@ class TestPersonBackfillRuns(BaseTest):
         *,
         person_hashes: tuple[str | None, ...] = ("person0000000001",),
         behavioral: bool = True,
+        windowless: bool = False,
         person_metadata: bool = False,
     ) -> dict:
         values: list[dict] = [
@@ -239,21 +341,25 @@ class TestPersonBackfillRuns(BaseTest):
                 "value": ["person@example.com"],
                 "operator": "exact",
                 "conditionHash": condition_hash,
+                "bytecode": _BYTECODE,
             }
             for condition_hash in person_hashes
         ]
         if behavioral:
-            values.append(
-                {
-                    "type": "behavioral",
-                    "key": "$pageview",
-                    "event_type": "events",
-                    "value": "performed_event",
-                    "conditionHash": "behavior00000001",
-                    "time_value": 7,
-                    "time_interval": "day",
-                }
-            )
+            leaf = {
+                "type": "behavioral",
+                "key": "$pageview",
+                "event_type": "events",
+                "value": "performed_event",
+                "conditionHash": "behavior00000001",
+                "time_value": 7,
+                "time_interval": "day",
+                "bytecode": _BYTECODE,
+            }
+            if windowless:
+                # The API accepts a behavioral leaf with no time window; the catalog drops it.
+                del leaf["time_value"], leaf["time_interval"]
+            values.append(leaf)
         if person_metadata:
             values.append(
                 {
@@ -580,6 +686,10 @@ class TestPersonBackfillRuns(BaseTest):
             ("non_realtime", {"cohort_type": CohortType.BEHAVIORAL}),
             ("hashless", {"filters": "hashless"}),
             ("person_metadata", {"filters": "person_metadata"}),
+            # The seeder fails a person run for this cohort on its first tick, so a person gate
+            # admitting it would create one failed run per save.
+            ("windowless_behavioral_sibling", {"filters": "windowless"}),
+            ("negated_root", {"filters": "negated_root"}),
         ]
     )
     def test_ineligible_cohort_is_refused(self, _name: str, overrides: dict[str, object]) -> None:
@@ -590,6 +700,11 @@ class TestPersonBackfillRuns(BaseTest):
             filters = self._filters(person_hashes=(None,), behavioral=False)
         elif _name == "person_metadata":
             filters = self._filters(person_metadata=True)
+        elif _name == "windowless_behavioral_sibling":
+            filters = self._filters(windowless=True)
+        elif _name == "negated_root":
+            filters = self._filters(behavioral=False)
+            filters["properties"]["values"][0]["negation"] = True
         cohort_type = overrides.pop("cohort_type", CohortType.REALTIME)
         cohort = Cohort.objects.create(
             team=self.team,
@@ -708,3 +823,138 @@ class TestPersonBackfillRuns(BaseTest):
 
         with self.settings(**{setting_name: False}), self.assertRaisesMessage(ValueError, expected_error):
             create_person_team_backfill_run(self.team.id, "team_enablement", 30)
+
+
+@override_settings(
+    REALTIME_COHORT_TEAM_ALLOWLIST="all",
+    BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+)
+class TestCancelRuns(BaseTest):
+    def _cohort(self, event: str = "$pageview") -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name=event,
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": event,
+                            "event_type": "events",
+                            "value": "performed_event_multiple",
+                            "conditionHash": f"hash-{event}"[:16].ljust(16, "0"),
+                            "time_value": 7,
+                            "time_interval": "day",
+                            "operator": "gte",
+                            "operator_value": 2,
+                            "bytecode": _BYTECODE,
+                        }
+                    ],
+                }
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("cohort_scoped", CohortBackfillScope.COHORT),
+            ("team_scoped", CohortBackfillScope.TEAM),
+        ]
+    )
+    def test_cancel_frees_the_active_uniqueness_slot(self, _name: str, scope: str) -> None:
+        cohort = self._cohort()
+        if scope == CohortBackfillScope.COHORT:
+            run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        else:
+            run = create_team_backfill_run(self.team.id, "team_enablement")
+        assert run is not None
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.SEEDING
+        )
+        self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="wedged in seeding")
+
+        run.refresh_from_db()
+        self.assertEqual(outcome.cancelled_run_ids, (run.id,))
+        self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)
+        self.assertIsNotNone(run.finished_at)
+        self.assertEqual(run.error, "wedged in seeding")
+        # Releasing the partial unique constraint is the whole point: a run nobody can finish
+        # otherwise blocks its cohort or team from ever backfilling again.
+        self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+    def test_cancel_refuses_a_run_whose_readiness_was_already_stamped(self) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(run_id=run.id).update(
+            stamped_at=datetime.now(UTC)
+        )
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="sweep")
+
+        run.refresh_from_db()
+        # A stamp is one way and the flags service already reads it, so a cancel behind one would
+        # leave the cohort marked ready by a run claiming it was abandoned.
+        self.assertEqual(outcome.refused, ((run.id, "stamped"),))
+        self.assertEqual(run.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
+
+    @parameterized.expand([("refused", False), ("allowed", True)])
+    def test_cancel_only_touches_a_finalizable_run_on_request(self, _name: str, allow: bool) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.RECONCILING, reconcile_observed_at=datetime.now(UTC)
+        )
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="sweep", allow_finalizable=allow)
+
+        run.refresh_from_db()
+        # The seeder may have observed the run since the operator listed it, and this one is a
+        # finished backfill the finalizer would legitimately complete.
+        if allow:
+            self.assertEqual(outcome.cancelled_run_ids, (run.id,))
+            self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)
+        else:
+            self.assertEqual(outcome.refused, ((run.id, "finalizable"),))
+            self.assertEqual(run.status, CohortBackfillRunStatus.RECONCILING)
+
+    def test_cancel_keeps_an_earlier_supersession_message(self) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        supersede_active_runs(self.team.id, [cohort.id], kind=CohortBackfillKind.BEHAVIORAL)
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.SEEDING
+        )
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run_id=run.id)
+
+        cancel_runs([(run.id, self.team.id)], reason="operator sweep")
+
+        participation.refresh_from_db()
+        # The edit-time supersession is why this backfill stopped mattering; operator text must not
+        # overwrite that provenance.
+        self.assertEqual(participation.error, "Cohort definition changed during backfill")
+
+    def test_cancel_drains_an_observed_run_whose_participations_are_all_resolved(self) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(run_id=run.id).update(
+            superseded_at=datetime.now(UTC)
+        )
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.RECONCILING, reconcile_observed_at=datetime.now(UTC)
+        )
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="orphaned sweep")
+
+        run.refresh_from_db()
+        # The inventory classifies this `orphaned`, not `finalizable`, because the finalizer would
+        # only terminalize it. Refusing it here would leave nothing able to release its slot.
+        self.assertEqual(outcome.cancelled_run_ids, (run.id,))
+        self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)

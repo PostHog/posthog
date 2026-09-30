@@ -1,4 +1,6 @@
 import type {
+  InboxReportActionFailureCode,
+  InboxReportActionOutcome,
   InboxReportActionProperties,
   InboxReportActionSurface,
   InboxReportActionType,
@@ -12,7 +14,6 @@ type Extras = Partial<
   Omit<
     InboxReportActionProperties,
     | "report_id"
-    | "report_title"
     | "report_age_hours"
     | "priority"
     | "actionability"
@@ -38,12 +39,12 @@ function reportAgeHours(report: SignalReport): number {
 export function useReportActionTracker(
   report: SignalReport,
   surface: InboxReportActionSurface = "detail_pane",
+  triageId?: string,
 ) {
   return useCallback(
     (action: InboxReportActionType, extras: Extras = {}) => {
       track(ANALYTICS_EVENTS.INBOX_REPORT_ACTION, {
         report_id: report.id,
-        report_title: report.title ?? null,
         report_age_hours: reportAgeHours(report),
         priority: report.priority ?? null,
         actionability: report.actionability ?? null,
@@ -53,9 +54,38 @@ export function useReportActionTracker(
         bulk_size: 1,
         rank: 0,
         list_size: 0,
+        ...(triageId ? { triage_id: triageId } : {}),
         ...extras,
       });
     },
-    [report, surface],
+    [report, surface, triageId],
+  );
+}
+
+export function useReportActionResultTracker(
+  report: SignalReport,
+  surface: InboxReportActionSurface = "detail_pane",
+  triageId?: string,
+) {
+  return useCallback(
+    (
+      action: InboxReportActionType,
+      outcome: InboxReportActionOutcome,
+      startedAt: number,
+      failureCode?: InboxReportActionFailureCode,
+    ) => {
+      track(ANALYTICS_EVENTS.INBOX_REPORT_ACTION_RESULT, {
+        report_id: report.id,
+        action_type: action,
+        surface,
+        outcome,
+        duration_ms: Date.now() - startedAt,
+        is_bulk: false,
+        bulk_size: 1,
+        ...(triageId ? { triage_id: triageId } : {}),
+        ...(failureCode ? { failure_code: failureCode } : {}),
+      });
+    },
+    [report.id, surface, triageId],
   );
 }

@@ -8,15 +8,13 @@ import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 
-import {
-    getExperimentStatus,
-    getShippedVariantKey,
-    isSingleVariantShipped,
-} from '~/scenes/experiments/experimentsLogic'
-import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
 import { isLegacyExperiment } from '~/scenes/experiments/utils'
 import type { Experiment } from '~/types'
 import { ExperimentStatus } from '~/types'
+
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+import { getShippedVariantKey, isSingleVariantShipped } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 type RelatedExperimentsTableProps = {
     relatedExperiments: Experiment[]

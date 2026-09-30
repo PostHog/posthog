@@ -3,7 +3,6 @@ import typing
 import datetime as dt
 import collections.abc
 
-from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import grpc
@@ -37,8 +36,10 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Column, Table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
@@ -206,11 +207,14 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
         if config.is_mcc_account and config.is_mcc_account.enabled:
             login_customer_id = clean_customer_id(config.is_mcc_account.mcc_client_id)
 
+        resolved = integration_secrets.get_secrets(
+            ["GOOGLE_ADS_DEVELOPER_TOKEN", "GOOGLE_ADS_APP_CLIENT_ID", "GOOGLE_ADS_APP_CLIENT_SECRET"]
+        )
         config_dict: dict[str, object] = {
-            "developer_token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+            "developer_token": resolved["GOOGLE_ADS_DEVELOPER_TOKEN"],
             "refresh_token": integration.refresh_token,
-            "client_id": settings.GOOGLE_ADS_APP_CLIENT_ID,
-            "client_secret": settings.GOOGLE_ADS_APP_CLIENT_SECRET,
+            "client_id": resolved["GOOGLE_ADS_APP_CLIENT_ID"],
+            "client_secret": resolved["GOOGLE_ADS_APP_CLIENT_SECRET"],
             "use_proto_plus": False,
         }
         if login_customer_id is not None:
@@ -601,14 +605,19 @@ def google_ads_source(
     """
 
     name = NamingConvention.normalize_identifier(resource_name)
-    table = get_schemas(config, team_id, api_version)[resource_name]
+    table = schema_for_resource(get_schemas(config, team_id, api_version), resource_name)
 
     # Report tables always need a date filter, so a full-refresh schema is forced onto the
     # incremental query path here. Record whether the pipeline itself is incremental first: only an
     # incremental pipeline persists a cursor between runs, and the bounded windowed drain below is
     # only sound when it does.
     pipeline_is_incremental = should_use_incremental_field
-    if table.requires_filter and not should_use_incremental_field:
+    # Report tables can only ever be windowed by segments.date, so force it here — both when a
+    # full-refresh schema reaches the incremental path, and when a schema flagged incremental
+    # arrives without an incremental field (a config that would otherwise crash the drain below).
+    if table.requires_filter and (
+        not should_use_incremental_field or incremental_field is None or incremental_field_type is None
+    ):
         should_use_incremental_field = True
         incremental_field = "segments.date"
         incremental_field_type = IncrementalFieldType.Date

@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto'
+
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -39,7 +41,7 @@ describe('HogWatcher', () => {
     let watcherConfig: HogWatcherConfig
     let onStateChangeSpy: jest.SpyInstance
     let redis: RedisV2
-    const hogFunctionId: string = 'hog-function-id'
+    const hogFunctionId = randomUUID()
     let hogFunction: HogFunctionType
 
     let team: Team
@@ -68,7 +70,11 @@ describe('HogWatcher', () => {
     beforeEach(async () => {
         now = 1720000000000
         mockNow.mockReturnValue(now)
-        await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+        await Promise.all([
+            deleteKeysWithPrefix(redis, `${BASE_REDIS_KEY}/tokens/${hogFunctionId}`),
+            deleteKeysWithPrefix(redis, `${BASE_REDIS_KEY}/state/${hogFunctionId}`),
+            deleteKeysWithPrefix(redis, `${BASE_REDIS_KEY}/state-lock/${hogFunctionId}`),
+        ])
         watcherConfig = { ...DEFAULT_WATCHER_CONFIG }
 
         watcher = new HogWatcherService(hub.teamManager, watcherConfig, redis)
@@ -669,7 +675,7 @@ describe('HogWatcher', () => {
         })
 
         it('charges each function independently', async () => {
-            const other = createHogFunction({ id: 'other-fn', team_id: 2 })
+            const other = createHogFunction({ id: `${hogFunctionId}-other`, team_id: 2 })
             await watcher.observeAggregatedResults([
                 { hogFunction, totalDurationMs: 550 },
                 { hogFunction: other, totalDurationMs: 50 },

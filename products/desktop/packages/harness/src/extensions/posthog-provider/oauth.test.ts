@@ -120,7 +120,7 @@ describe("buildAuthorizeUrl", () => {
   });
 
   it("routes each region to its own cloud host", () => {
-    for (const region of ["us", "eu", "dev"] as const) {
+    for (const region of ["us", "eu", "dev", "dev-cloud"] as const) {
       const url = buildAuthorizeUrl(region, "c", getRedirectUri());
       expect(url.origin).toBe(new URL(getCloudUrlFromRegion(region)).origin);
       expect(url.searchParams.get("client_id")).toBe(

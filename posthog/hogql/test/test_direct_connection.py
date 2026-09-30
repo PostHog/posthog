@@ -14,6 +14,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
@@ -23,8 +24,6 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 from products.warehouse_sources.backend.models.external_data_source import (
     get_direct_external_data_source_for_connection,
 )
-
-from ee.models import AccessControl
 
 
 class TestGetDirectConnectionSource(APIBaseTest):

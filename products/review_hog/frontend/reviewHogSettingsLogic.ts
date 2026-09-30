@@ -173,42 +173,42 @@ export function validateAdoptSlug(slug: string, kind: ReviewSkillKind, takenName
 // team like the perspectives. Keep knowledge there, not here.
 const SKILL_AUTHOR_TASKS: Record<ReviewSkillKind, { title: string; prompt: string }> = {
     perspective: {
-        title: 'Create a ReviewHog perspective',
-        prompt: `I'd like to create a custom ReviewHog review perspective for this PostHog project.
+        title: 'Create a PostHog Review perspective',
+        prompt: `I'd like to create a custom review perspective for PostHog Review in this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its review-perspective path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its review-perspective path.
 
 Ground yourself per that skill first, then ask me what my perspective should focus on and offer a few concrete directions the current set doesn't already cover. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: list the team's review-hog-perspective-* skills and read a canonical one to learn the shape before authoring.`,
     },
     blind_spots: {
-        title: 'Create a ReviewHog blind-spot check',
-        prompt: `I'd like to create a custom ReviewHog blind-spot check for this PostHog project.
+        title: 'Create a PostHog Review blind-spot check',
+        prompt: `I'd like to create a custom PostHog Review blind-spot check for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its blind-spot-check path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its blind-spot-check path.
 
 Ground yourself per that skill first, then ask me what my sweep should emphasize and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-blind-spots-general skill to learn the shape before authoring.`,
     },
     validator: {
-        title: 'Create ReviewHog validation criteria',
-        prompt: `I'd like to create custom ReviewHog validation criteria for this PostHog project.
+        title: 'Create PostHog Review validation criteria',
+        prompt: `I'd like to create custom PostHog Review validation criteria for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its validation-criteria path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its validation-criteria path.
 
-Ground yourself per that skill first, then ask me how my bar should differ — stricter, more lenient, or weighted toward specific concerns — and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
+Ground yourself per that skill first, then ask me how my bar should differ (stricter, more lenient, or weighted toward specific concerns) and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-validation-criteria skill to learn the shape before authoring.`,
     },
     resolution: {
-        title: 'Create ReviewHog resolution criteria',
-        prompt: `I'd like to create custom ReviewHog resolution criteria for this PostHog project.
+        title: 'Create PostHog Review resolution criteria',
+        prompt: `I'd like to create custom PostHog Review resolution criteria for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its resolution-criteria path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its resolution-criteria path.
 
-Ground yourself per that skill first, then ask me how my bar for implementing review-thread asks should differ — more conservative, more eager, or weighted toward specific kinds of fixes — and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
+Ground yourself per that skill first, then ask me how my bar for implementing review-thread asks should differ (more conservative, more eager, or weighted toward specific kinds of fixes) and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-resolution-criteria skill to learn the shape before authoring.`,
     },
@@ -653,7 +653,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         submitAdoptSkillFinished: true,
         setTriggerPrUrl: (prUrl: string) => ({ prUrl }),
         // Starts a run on the pasted PR URL: a review (which resolves comments per the user's
-        // setting), a review without resolving, or a resolve-only run — the split button's variants.
+        // setting), a review without resolving, a resolve-only run, or a flash review — the split
+        // button's variants.
         // The listener self-guards on `triggeringReview`, so a repeat dispatch mid-flight (Enter
         // spam, double click) is a no-op regardless of the source.
         submitTriggerReview: (
@@ -1448,6 +1449,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     lemonToast.info(
                         'This pull request was already reviewed at its current commit. Find it under recent reviews.'
                     )
+                } else if (response.status === 'joined_running_review') {
+                    lemonToast.info('Your request joined the review queue. Find it under recent reviews.')
                 } else if (runMode === ReviewTriggerRequestRunModeEnumApi.ResolveOnly) {
                     // Resolve-only runs don't create the report activity the review watch polls for,
                     // so a toast is the feedback: progress shows up on the pull request itself.

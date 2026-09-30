@@ -20,7 +20,7 @@ from posthog.models import Team
 from posthog.models.organization import Organization
 from posthog.models.user import User
 
-from products.error_tracking.backend import weekly_digest
+from products.error_tracking.backend import weekly_digest, weekly_digest_delivery
 
 
 class Command(BaseCommand):
@@ -63,14 +63,14 @@ class Command(BaseCommand):
         digest = {
             "recipient_email": email,
             "org_name": org.name,
-            "project_sections": [weekly_digest.build_team_section_payload(d) for d in sections],
+            "project_sections": [weekly_digest_delivery.build_team_section_payload(d) for d in sections],
             "disabled_project_names": [],
             "excluded_project_count": len(teams) - len(sections),
             "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
             "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={distinct_id}",
         }
 
-        weekly_digest.send_digest_to_workflow(digest, distinct_id)
+        weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)
         self.stdout.write(
             self.style.SUCCESS(
                 f"Sent weekly digest for org '{org.name}' ({org.id}) to {email} ({len(sections)} project sections)"

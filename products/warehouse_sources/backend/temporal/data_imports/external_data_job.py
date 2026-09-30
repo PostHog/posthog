@@ -1,6 +1,8 @@
 import re
 import json
+import uuid
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 
@@ -12,8 +14,8 @@ from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity, exceptions, workflow
 from temporalio.client import Client
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.common import RetryPolicy, SearchAttributes, WorkflowIDReusePolicy
+from temporalio.exceptions import TimeoutType, WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
@@ -23,7 +25,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
+from posthog.temporal.common.utils import APP_DB_ERROR_PREFIX, READ_ONLY_TRANSACTION_PHRASE
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
+from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import (
@@ -38,9 +42,12 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeRegisterDataImportsWorkflow,
     build_register_data_imports_workflow_id,
 )
+from products.warehouse_sources.backend.billing import billed_usage_for_job
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
+    DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
+    MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     ExternalDataSchema,
     update_should_sync,
 )
@@ -51,12 +58,24 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
+    get_fast_returned_run_metric,
     get_v3_lock_skipped_metric,
+    get_version_check_skipped_metric,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DUPLICATE_PRIMARY_KEYS_ERROR,
+    MISSING_PRIMARY_KEYS_ERROR,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    release_v3_pipeline_lock,
 )
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
     PostImportWorkflowInputs,
     build_post_import_workflow_id,
+)
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
+    MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
@@ -64,6 +83,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import TRANSIENT_EGRESS_PROXY_ERRORS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
+    TEMPORARY_HOST_RESOLUTION_PREFIX,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
+from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -93,6 +121,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     EnrichTableSemanticsWorkflow,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE,
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
@@ -107,11 +136,28 @@ LOGGER = get_logger(__name__)
 # Cap retries at 3 in local dev so failing syncs don't loop for tens of minutes while developers
 # iterate; prod cadence is unchanged. Defined at module level so tests can patch them to keep the
 # expensive retry-exhaustion paths fast.
-MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
+MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
+
+MISSING_INTEGRATION_MESSAGE = (
+    "The connected account for this source is no longer available — it may have been disconnected. "
+    "Please reconnect the source's account."
+)
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
+    # Raised by `_check_direct_host` when a direct (untunneled) database connection's host doesn't
+    # resolve, or resolves to a private/internal address. Mirrors the `SSH tunnel host not allowed`
+    # entry: a config problem only the customer can fix, so retrying just re-hits the same
+    # rejection. Match the stable prefix and exclude the volatile host details that follow it.
+    DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    # Raised by `_pinned_ssh_host` for the bastion, the same class of config problem as the entry
+    # above: the tunnel host doesn't resolve, or resolves to a private/internal address.
+    SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR: (
+        "PostHog rejected this source's SSH tunnel host because it either couldn't be resolved, or "
+        "resolves to a private/internal address. Check the tunnel host is spelled correctly and "
+        "reachable from the public internet, then re-enable the sync."
+    ),
     # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
     # can't be parsed, or password auth is missing a username/password. Shared by every
     # SSH-capable source (Postgres, Redshift, MySQL, MSSQL, ClickHouse). The auth config is fixed,
@@ -121,16 +167,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "(private key, passphrase, or username and password) on the source's SSH tunnel "
         "configuration, then re-enable the sync."
     ),
-    "Primary key required for incremental syncs": (
-        "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
-        "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
-    ),
-    "The primary keys for this table are not unique": (
-        "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
-        "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
-        "table replication, then re-enable the sync."
-    ),
-    "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
+    MISSING_PRIMARY_KEYS_ERROR: MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    DUPLICATE_PRIMARY_KEYS_ERROR: DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
+    "Integration matching query does not exist": MISSING_INTEGRATION_MESSAGE,
+    # `OAuthMixin.get_oauth_integration` catches `Integration.DoesNotExist` and re-raises these
+    # two, so the ORM wording above never reaches here for the sources that go through it. Left
+    # unclassified they were retried to exhaustion and then shown raw, echoing an internal
+    # integration id back at the customer.
+    "Integration not found:": MISSING_INTEGRATION_MESSAGE,
+    "Missing integration ID": MISSING_INTEGRATION_MESSAGE,
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
     # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
@@ -170,6 +215,112 @@ Any_Source_Errors: dict[str, str | None] = {
         "clients reject, such as an underscore. Fix the endpoint URL in your object storage settings, "
         "then re-enable the sync."
     ),
+    # Raised in shared pipeline code (`table_from_py_list` → `_process_batch`) when a batch carries
+    # rows that aren't objects, such as a REST resource whose selected response field holds arrays or
+    # scalars. Keyless rows carry no column names to build a table from, and the same shape comes back
+    # on every retry. Keep in step with `NON_MAPPING_ROW_ERROR` in arrow_utils.
+    "Rows from this table are not JSON objects": (
+        "This table's rows aren't objects with named fields, so PostHog has no columns to import. "
+        "If the source lets you choose which part of the response to read, point it at a list of "
+        "objects, then re-enable the sync."
+    ),
+}
+
+
+# Customer-facing copy for a failure that stayed retryable and still exhausted its retry budget.
+# Nothing is disabled and the schema syncs again on its next schedule, so the copy explains that
+# rather than asking for a re-enable.
+TRANSIENT_SOURCE_CONNECTION_MESSAGE = (
+    "PostHog lost its connection to your source and couldn't reconnect. Check that it stays "
+    "reachable and doesn't drop idle connections; the next sync runs on schedule."
+)
+
+TRANSIENT_POOLER_MESSAGE = (
+    "Your database's connection pooler couldn't reach your database and refused the connection. "
+    "Check that the database is running; the next sync runs on schedule."
+)
+
+TRANSIENT_EGRESS_MESSAGE = (
+    "PostHog couldn't reach your source over the network. This is on PostHog's side and usually "
+    "clears on its own; the next sync runs on schedule."
+)
+
+# Copy for a table the running worker has no schema for. The web pods and the workers deploy
+# separately, so a newly shipped table is selectable before every worker can sync it.
+NEW_TABLE_NOT_READY_MESSAGE = (
+    "This table was added to PostHog too recently for this sync to pick it up. Nothing is wrong "
+    "with your source; the next sync runs on schedule."
+)
+
+TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
+    "Your source's API was temporarily unavailable, so this sync couldn't finish. The next sync runs on schedule."
+)
+
+# An activity that ran past its start-to-close (or schedule-to-close) budget. Those budgets are a
+# day for a full refresh and a week for an incremental run, so reaching one means the extraction
+# itself cannot finish in the window rather than that something stalled.
+SYNC_RUN_TOO_LONG_MESSAGE = (
+    "This sync ran longer than PostHog allows and stopped before it finished. Switch this table to "
+    "incremental sync, or sync less data, so the next run finishes in time."
+)
+
+# An activity that stopped heartbeating, or that no worker picked up in time. Both are PostHog-side
+# and clear on their own, so the copy asks nothing of the customer.
+SYNC_RUN_STALLED_MESSAGE = (
+    "This sync stopped making progress on PostHog's side and did not finish. The next sync runs on schedule."
+)
+
+# A retryable failure that outlives its retries keeps whatever the driver said, so `latest_error`
+# ends up holding raw connection text — a psycopg "connection to server at <host>, port <port>
+# failed: ..." line, a pymysql `(2013, ...)` tuple, a urllib3 connection-pool dump. None of it
+# names something the customer can act on, and all of it echoes their host and port back at them.
+# Unlike `Any_Source_Errors` above, matching here only rewrites the stored message: the error stays
+# retryable and the schema stays enabled. Keys are the same stable, host-free fragments the sources
+# already classify these conditions by, so they can't collide with a customer value.
+Transient_Error_Messages: dict[str, str] = {
+    # libpq/psycopg losing an established connection, at connect or mid-stream, in every wording
+    # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` (postgres.py) retries in-process first.
+    "server closed the connection unexpectedly": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    "SSL connection has been closed unexpectedly": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    "SSL SYSCALL error": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    "connection to server was lost": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    # pymysql error 2013, retried in-process by `_connect_with_transient_retry` (mysql.py). The
+    # deterministic filesort variant carries its own marker and is classified non-retryable first.
+    "Lost connection to MySQL server": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    # A TLS session cut at the socket, which clickhouse-connect surfaces through urllib3 rather
+    # than as a driver error (see the ClickHouse source's `get_retryable_errors`).
+    "UNEXPECTED_EOF_WHILE_READING": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    # Supavisor refusing a connect because its own lookup of the tenant's database failed — the
+    # pooler's bookkeeping, not the customer's credentials, which postgres.py retries in-process.
+    "(ECIRCUITBREAKER) failed to retrieve database credentials": TRANSIENT_POOLER_MESSAGE,
+    "(EAUTHQUERY)": TRANSIENT_POOLER_MESSAGE,
+    # PostHog's own egress proxy refusing the CONNECT. Nothing on the customer's side is wrong, so
+    # this message asks nothing of them.
+    "Cannot connect to proxy": TRANSIENT_EGRESS_MESSAGE,
+    **dict.fromkeys(TRANSIENT_EGRESS_PROXY_ERRORS, TRANSIENT_EGRESS_MESSAGE),
+    # A vendor API that was down or overloaded, in the wording `requests.raise_for_status()` builds:
+    # "<status> Server Error: <reason> for url: <url>". REST sources retry these in their transport
+    # and again through Temporal, so reaching here means the outage outlasted both and the stored
+    # text is a bare status plus the vendor URL. Only the gateway statuses are mapped: a 500 can be
+    # one request the vendor mishandles every time, which is not an outage that clears on its own.
+    # The host policy's own lookup never answered. Every SQL source reaches it through the shared
+    # tunnel layer, so it is mapped here rather than per source.
+    TEMPORARY_HOST_RESOLUTION_PREFIX: (
+        "PostHog couldn't resolve your source's host: the lookup kept failing without an answer. "
+        "Check that the host name is correct and that its DNS records are answering; the next sync "
+        "runs on schedule."
+    ),
+    UNKNOWN_RESOURCE_PREFIX: NEW_TABLE_NOT_READY_MESSAGE,
+    "502 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    "503 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    "504 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    # Mixpanel signals a server-side abort inside an already-committed 200 body, so the export
+    # stops part-way through a day (mixpanel.py `EXPORT_TRUNCATED_ERROR`). The day is re-fetched
+    # in-process first; this copy is what the customer reads once those retries run out.
+    "Mixpanel export: stream ended early": (
+        "Mixpanel stopped sending a day of events before the export finished. This is on "
+        "Mixpanel's side and usually clears on its own; the next sync runs on schedule."
+    ),
 }
 
 
@@ -178,6 +329,17 @@ UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
 CANCELLED_RUN_MESSAGE = (
     "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
     "it or the source is paused. It will run again on its next schedule."
+)
+
+WORKER_RESTART_ERROR_MESSAGE = (
+    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
+    "It will run again automatically. No action is needed."
+)
+
+TRANSIENT_SOURCE_ERROR_MESSAGE = (
+    "The source's API kept returning temporary errors, such as rate limits or server errors, so this "
+    "sync run did not finish. This is usually a short problem on the source's side. The sync will run "
+    "again on its next schedule."
 )
 
 
@@ -201,8 +363,56 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # this one, the source was paused, or a worker was rolled). Give them something readable.
     if isinstance(cause, exceptions.CancelledError):
         return CANCELLED_RUN_MESSAGE
+    # A REST source exhausted every retry on a transient upstream failure (an HTTP 429/5xx, a dropped
+    # connection, or a timeout). Temporal records it as an ApplicationError typed
+    # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
+    # code means nothing to a customer, so replace it with a message that names the cause and says the
+    # sync retries on its next schedule.
+    if getattr(cause, "type", None) == "RESTClientRetryableError":
+        return TRANSIENT_SOURCE_ERROR_MESSAGE
+    # A timed-out activity carries Temporal's own wording for its message ("activity StartToClose
+    # timeout"), which names our orchestration rather than anything the customer can act on. Which
+    # budget ran out decides the guidance: an exhausted run budget needs less data per run, while a
+    # stalled or unclaimed activity is ours and recovers by itself.
+    if isinstance(cause, exceptions.TimeoutError):
+        if cause.type in (TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE):
+            return SYNC_RUN_TOO_LONG_MESSAGE
+        return SYNC_RUN_STALLED_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
+
+
+def _is_app_db_failure(internal_error: str) -> bool:
+    """Whether a run failed against PostHog's own app DB rather than the customer's source.
+
+    Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
+    ``ApplicationError.__str__``), so the class the activity failed with survives into
+    ``internal_error``. ``django.db.InternalError`` is our own ORM: a source reaches a customer
+    database over a raw driver connection, whose read-only error is psycopg's
+    ``ReadOnlySqlTransaction`` and renders under that name instead. The two carry the same message,
+    which is why the class name has to do the telling.
+
+    The phrase narrows the class, mirroring ``is_stale_connection_read_only_error``: Django reports
+    corrupted data and failed-transaction states under the same class, and those are defects rather
+    than an outage that clears on its own.
+    """
+    normalized = internal_error.lower()
+    return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
+
+
+def _transient_error_message(internal_error: str) -> str | None:
+    """Customer-facing copy for a transient failure that outlived its retries, if we have any.
+
+    First match wins, mirroring how the non-retryable path picks its friendly message.
+    """
+    return next(
+        (
+            message
+            for pattern, message in Transient_Error_Messages.items()
+            if error_message_matches(internal_error, [pattern])
+        ),
+        None,
+    )
 
 
 def _fail_stale_running_schema(
@@ -222,7 +432,9 @@ def _fail_stale_running_schema(
     logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
 
 
-@dataclasses.dataclass
+# The workflow fills this in as a run unwinds — status, then the error fields on the failure
+# paths — so it is mutated after construction by design.
+@dataclasses.dataclass(frozen=False)
 class UpdateExternalDataJobStatusInputs:
     team_id: int
     job_id: str | None
@@ -234,6 +446,7 @@ class UpdateExternalDataJobStatusInputs:
     # Run id stamped on the job row by the create-job activity, so finalization can resolve this
     # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
+    release_lock_token: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -252,6 +465,19 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
+    await _update_job_status(inputs, logger)
+
+    # After the status write, as the separate release activity ran, and only when it returned:
+    # a status write that raises leaves the lock to its holder, as before. The release itself
+    # never raises (see release_v3_pipeline_lock), matching the swallowed failure of that activity.
+    if inputs.release_lock_token:
+        released = await asyncio.to_thread(
+            release_v3_pipeline_lock, inputs.team_id, inputs.schema_id, inputs.release_lock_token
+        )
+        logger.info("Released V3 pipeline lock after finalization", released=released)
+
+
+async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: FilteringBoundLogger) -> None:
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
         # `rows_tracked` is decremented by rows actually written, but incremented by
@@ -304,6 +530,8 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     else:
         job_id = inputs.job_id
 
+    source: ExternalDataSource | None = None
+    has_non_retryable_error = False
     if inputs.internal_error:
         logger.exception(
             f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
@@ -311,9 +539,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
-        source: ExternalDataSource = await database_sync_to_async_pool(ExternalDataSource.objects.get)(
-            pk=inputs.source_id
-        )
+        source = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
         source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         non_retryable_errors = source_cls.get_non_retryable_errors()
 
@@ -322,20 +548,19 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         else:
             non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
 
-        has_non_retryable_error = error_message_matches(internal_error_normalized, non_retryable_errors.keys())
+        # A failure against our own app DB carries the same text as several source-side conditions
+        # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
+        # matching it here would disable a sync whose source never failed, and hand the customer a
+        # message telling them to go fix a database that is working.
+        platform_failure = _is_app_db_failure(internal_error_normalized)
+        if platform_failure:
+            inputs.latest_error = POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
+
+        has_non_retryable_error = not platform_failure and error_message_matches(
+            internal_error_normalized, non_retryable_errors.keys()
+        )
+
         if has_non_retryable_error:
-            posthoganalytics.capture(
-                distinct_id=get_machine_id(),
-                event="schema non-retryable error",
-                properties={
-                    "schemaId": inputs.schema_id,
-                    "sourceId": inputs.source_id,
-                    "sourceType": source.source_type,
-                    "jobId": inputs.job_id,
-                    "teamId": inputs.team_id,
-                    "error": inputs.internal_error,
-                },
-            )
             friendly_errors = [
                 friendly_error
                 for error, friendly_error in non_retryable_errors.items()
@@ -356,6 +581,22 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
                 disable_exclude_workflow_id=activity.info().workflow_id,
             )
+        elif not platform_failure:
+            # A retryable failure that outlasted the whole retry budget lands here with
+            # `latest_error` still set to the raw driver text. The generic transient copy is
+            # consulted first; the source's own exhaustion messages cover the classes it does not
+            # name. Retryability is untouched: the schema is not disabled and the next scheduled
+            # run still tries.
+            transient_message = _transient_error_message(internal_error_normalized) or next(
+                (
+                    message
+                    for error, message in source_cls.get_retry_exhausted_errors().items()
+                    if error_message_matches(internal_error_normalized, [error])
+                ),
+                None,
+            )
+            if transient_message is not None:
+                inputs.latest_error = transient_message
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
@@ -364,6 +605,58 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         logger=logger,
         team_id=inputs.team_id,
     )
+
+    if inputs.internal_error and source is not None:
+        # This activity runs once the workflow has given up, so every error reaching here has
+        # already exhausted its retries — including the ones no source classified. Those used to
+        # leave a schema in error state with no event behind it, which is why whole classes of
+        # failure only ever surfaced through support tickets. Emit for both outcomes and
+        # distinguish them with a property. The capture comes after the DB writes because this
+        # activity retries without limit: emitting first would duplicate the event on every
+        # attempt a transient DB failure causes. The error text is uncurated exception output,
+        # so cap what flows into analytics.
+        posthoganalytics.capture(
+            distinct_id=get_machine_id(),
+            event="schema non-retryable error" if has_non_retryable_error else "schema unclassified error",
+            properties={
+                "schemaId": inputs.schema_id,
+                "sourceId": inputs.source_id,
+                "sourceType": source.source_type,
+                "jobId": inputs.job_id,
+                "teamId": inputs.team_id,
+                "error": inputs.internal_error[:1000],
+                "classified": has_non_retryable_error,
+            },
+        )
+
+    if inputs.status == ExternalDataJob.Status.COMPLETED:
+        # The status write above already committed, so nothing here may fail the finalization —
+        # not the read back, not the classification. A job we cannot bill for is worth less than
+        # a sync that has to run again.
+        try:
+            # Read the job back rather than trusting `inputs`: the status write is absorbing, so
+            # it can leave a job that stayed FAILED, and the row counter is written elsewhere.
+            completed_job = await database_sync_to_async_pool(
+                ExternalDataJob.objects.select_related("pipeline").filter(team_id=inputs.team_id, id=job_id).first
+            )()
+            billed = billed_usage_for_job(completed_job) if completed_job else None
+            if completed_job and billed:
+                usage_key, rows = billed
+                await areport_usage(
+                    [
+                        UsageRecord(
+                            record_id=str(completed_job.id),
+                            producer_id="warehouse-sources",
+                            team_id=completed_job.team_id,
+                            usage_key=usage_key,
+                            unit="rows",
+                            quantity=rows,
+                        )
+                    ],
+                    site="warehouse_rows",
+                )
+        except Exception:
+            logger.exception(f"Could not collect usage for external data job {job_id}")
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",
@@ -413,6 +706,7 @@ class CreateSourceTemplateInputs:
 
 
 @activity.defn
+@with_internal_db_retries
 def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
@@ -467,6 +761,13 @@ def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     trigger_schedule_buffer_one(temporal, schedule_id)
 
 
+def _started_by_own_schedule(search_attributes: SearchAttributes, schema_id: uuid.UUID | None) -> bool:
+    # Temporal sets this on every run a schedule starts, manual triggers included. It comes from the start
+    # event, so replay reads the same value.
+    scheduled_by = search_attributes.get("TemporalScheduledById") or []
+    return any(str(value) == str(schema_id) for value in scheduled_by)
+
+
 # TODO: update retry policies
 #
 # DETERMINISM: adding, removing, or reordering activities / child-workflow starts in `run` breaks
@@ -510,12 +811,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 CheckPipelineVersionActivityInputs(
                     team_id=inputs.team_id,
                     source_id=inputs.external_data_source_id,
+                    schema_id=inputs.external_data_schema_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             is_v3 = version_result.is_v3
         except Exception:
+            # Guessing the version is not safe: a buffered CDC schema consumed on v2 records no
+            # load position, so the buffer re-merges in full and nothing is ever deleted. Skip
+            # the run and let the schedule fire again, matching the lock-not-acquired path.
+            # patched() keeps in-flight pre-patch executions replaying their recorded fall-through.
+            if workflow.patched("data-imports-skip-run-on-version-check-failure-v1"):
+                workflow.logger.error(
+                    "Failed to check pipeline version, skipping run",
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
+                )
+                get_version_check_skipped_metric().add(1)
+                return
             workflow.logger.warning(
                 "Failed to check pipeline version, defaulting to V2",
                 extra={"schema_id": str(inputs.external_data_schema_id)},
@@ -558,6 +871,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
                 billable=inputs.billable,
                 is_v3=is_v3,
+                started_by_schedule=_started_by_own_schedule(
+                    workflow.info().search_attributes, inputs.external_data_schema_id
+                ),
             )
 
             create_job_result = await workflow.execute_activity(
@@ -576,6 +892,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 enrichment_needed = False
                 statistics_needed = False
                 person_property_sync_enabled = False
+                fast_return_eligible = False
+                keyset_full_load_enabled = False
+                scheduled_full_refresh = False
+                repartition_needed = True
+                billing_limit_checked = False
+                hit_billing_limit = False
+                source_templates_needed = True
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -586,19 +909,29 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 enrichment_needed = create_job_result.enrichment_needed
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
+                fast_return_eligible = create_job_result.fast_return_eligible
+                keyset_full_load_enabled = create_job_result.keyset_full_load_enabled
+                scheduled_full_refresh = create_job_result.scheduled_full_refresh
+                repartition_needed = create_job_result.repartition_needed
+                billing_limit_checked = create_job_result.billing_limit_checked
+                hit_billing_limit = create_job_result.hit_billing_limit
+                source_templates_needed = create_job_result.source_templates_needed
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
-            # Check billing limits
-            hit_billing_limit = await workflow.execute_activity(
-                check_billing_limits_activity,
-                CheckBillingLimitsActivityInputs(job_id=job_id, team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=3,
-                ),
-            )
+            # The job-creation activity answers the billing question in the same round trip. The
+            # separate check stays for a payload that predates that answer: a history that recorded
+            # it must replay it.
+            if not billing_limit_checked:
+                hit_billing_limit = await workflow.execute_activity(
+                    check_billing_limits_activity,
+                    CheckBillingLimitsActivityInputs(job_id=job_id, team_id=inputs.team_id),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_interval=dt.timedelta(seconds=60),
+                        maximum_attempts=3,
+                    ),
+                )
 
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
@@ -606,8 +939,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
             # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
-            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed).
-            if job_id is not None:
+            # Never fails the sync (errors are swallowed). Skipped when the job-creation activity saw nothing
+            # queued and no on-disk measurement due, so the common sync pays no activity round trip. A
+            # scheduled full refresh deletes the table before extraction, so rewriting it first is wasted work.
+            if job_id is not None and not scheduled_full_refresh and repartition_needed:
                 try:
                     await workflow.execute_activity(
                         maybe_repartition_table_activity,
@@ -626,6 +961,17 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         "Repartition activity failed; continuing with sync on existing layout",
                         extra={"schema_id": str(inputs.external_data_schema_id)},
                     )
+            elif job_id is not None:
+                # Logged so the Syncs UI/log stream still shows the repartition check ran for the
+                # common no-op case — the activity's own start/finish logs only fire when it's called.
+                workflow.logger.info(
+                    "Repartition scheduling skipped",
+                    extra={
+                        "schema_id": str(inputs.external_data_schema_id),
+                        "repartition_needed": repartition_needed,
+                        "scheduled_full_refresh": scheduled_full_refresh,
+                    },
+                )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
@@ -633,12 +979,22 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
                 reset_pipeline=inputs.reset_pipeline,
+                fast_return_eligible=fast_return_eligible,
+                scheduled_full_refresh=scheduled_full_refresh,
+                keyset_full_load_enabled=keyset_full_load_enabled,
             )
 
             is_resumable_source = False
             if source_type is not None:
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
-                is_resumable_source = isinstance(source, ResumableSource)
+                # The class can resume, and its mechanism covers a run of this shape. Both halves
+                # matter: a class whose resume is narrower than itself would otherwise hand the
+                # resumable allowance to every one of its runs, including the ones that restart from
+                # row 0 on each of those extra attempts.
+                is_resumable_source = isinstance(source, ResumableSource) and source.resume_covers_run(
+                    incremental_or_append=incremental_or_append,
+                    keyset_full_load_enabled=keyset_full_load_enabled,
+                )
 
             max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES
             max_incremental_attempts = MAX_INCREMENTAL_SOURCE_RETRIES
@@ -681,6 +1037,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # is never reached and the workflow finalizes in `finally`.
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
             skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
+
+            # A fast-returned run completed on a negative source probe, before any extraction.
+            # Its skip_post_import_activities=True does the actual skipping below; the job row,
+            # COMPLETED status and last_synced_at are all written as usual.
+            if pipeline_result.get("fast_returned", False):
+                get_fast_returned_run_metric(source_type=source_type).add(1)
 
             # The load-dependent post-import steps have one home: `data-import-post-import`
             # (post_import_job.py). V3 with batches: the load consumer starts it after the final
@@ -786,7 +1148,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 )
 
             # Generate semantic descriptions for the synced table. Gated up front on actual need
-            # (feature flag + AI consent AND unannotated columns / missing table description, resolved in
+            # (AI consent AND unannotated columns / missing table description, resolved in
             # create_external_data_job_model_activity) so a steady-state sync — which re-fires every few
             # minutes — doesn't spawn a child that immediately no-ops; the activity re-checks as a safety
             # net and is idempotent. Keyed per schema so only one runs per schema at a time: a concurrent
@@ -838,13 +1200,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         extra={"schema_id": str(inputs.external_data_schema_id)},
                     )
 
-            # Create source templates
-            await workflow.execute_activity(
-                create_source_templates,
-                CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+            if source_templates_needed:
+                await workflow.execute_activity(
+                    create_source_templates,
+                    CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
 
             if not post_import_in_workflow:
                 await workflow.execute_activity(
@@ -901,6 +1263,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
+                if is_v3:
+                    # No final batch reached the queue, so the loader can never complete this job.
+                    # A COMPLETED write would release the pipeline lock and let the buffered run
+                    # extract the same table again on top of this run's still-queued batches.
+                    # Set before the buffer-one activity so a failure there cannot skip it.
+                    update_inputs.status = ExternalDataJob.Status.FAILED
+                    update_inputs.internal_error = str(e.cause)
+                    update_inputs.latest_error = WORKER_RESTART_ERROR_MESSAGE
                 # Check if this is a WorkerShuttingDownError - implement Buffer One retry
                 schedule_id = str(inputs.external_data_schema_id)
                 await workflow.execute_activity(
@@ -945,6 +1315,18 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
 
+            # This run still owns the v3 lock when no batch reached the loader (extraction failed
+            # before producing batches, or a zero-batch run); the loader releases it otherwise.
+            # The finalizer below always runs in that case, so it can release the lock after the
+            # status write instead of a separate activity. patched() keeps in-flight pre-patch
+            # executions replaying the separate release they recorded.
+            workflow_releases_lock = is_v3 and bool(lock_token) and not consumer_manages_job_status
+            finalizer_releases_lock = workflow_releases_lock and workflow.patched(
+                "data-imports-finalizer-releases-v3-lock-2026-09"
+            )
+            if finalizer_releases_lock:
+                update_inputs.release_lock_token = lock_token
+
             if not skip_status_update:
                 await workflow.execute_activity(
                     update_external_data_job_model,
@@ -958,12 +1340,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Release the V3 pipeline lock when the consumer is NOT managing job
-            # status (extraction failed before producing batches, or non-V3).
-            # When consumer_manages_job_status is True, the consumer releases.
-            # Runs before the post-import start so a raise there (cancellation)
-            # can't leave the lock held.
-            if is_v3 and lock_token and not consumer_manages_job_status:
+            # Pre-patch replay path of the release above. Runs before the post-import start so a
+            # raise there (cancellation) can't leave the lock held.
+            if workflow_releases_lock and not finalizer_releases_lock and lock_token is not None:
                 try:
                     await workflow.execute_activity(
                         release_v3_pipeline_lock_activity,

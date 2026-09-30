@@ -4,7 +4,7 @@ use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_matching_utils::match_flag_value_to_flag_filter;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FlagFilters, Holdout};
-use crate::properties::property_matching::match_property;
+use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::OperatorType;
 use chrono_tz::Tz;
 use serde::{de, Deserialize, Deserializer, Serialize};
@@ -432,7 +432,7 @@ pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
     pub variant: Option<String>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub failed: bool,
     pub reason: FlagEvaluationReason,
     pub metadata: FlagDetailsMetadata,
@@ -488,7 +488,7 @@ pub trait FromFeatureAndMatch {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
-        team_timezone: Tz,
+        matching_context: PropertyMatchingContext,
     ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
@@ -497,7 +497,15 @@ pub trait FromFeatureAndMatch {
 impl FromFeatureAndMatch for FlagDetails {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self {
         // Timezone is only consulted for detailed analysis, which is off here.
-        Self::create_with_analysis(flag, flag_match, false, None, None, None, Tz::UTC)
+        Self::create_with_analysis(
+            flag,
+            flag_match,
+            false,
+            None,
+            None,
+            None,
+            PropertyMatchingContext::new(Tz::UTC, false),
+        )
     }
 
     fn create_with_analysis(
@@ -507,7 +515,7 @@ impl FromFeatureAndMatch for FlagDetails {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
-        team_timezone: Tz,
+        matching_context: PropertyMatchingContext,
     ) -> Self {
         FlagDetails {
             key: flag.key.clone(),
@@ -526,18 +534,23 @@ impl FromFeatureAndMatch for FlagDetails {
                 payload: flag_match.payload.clone(),
                 has_experiment: flag.has_experiment,
             },
-            conditions: if detailed_analysis {
-                Some(Self::build_condition_analysis(
-                    flag,
-                    flag_match,
-                    property_values,
-                    group_property_values,
-                    flag_evaluation_results,
-                    team_timezone,
-                ))
-            } else {
-                None
-            },
+            // The analysis describes v1 release conditions, so a v2 flag reports none. The
+            // field stays present: Django's `test_evaluation` reads its absence as a
+            // rejected internal request.
+            conditions: detailed_analysis.then(|| {
+                if flag.filters.is_v1() {
+                    Self::build_condition_analysis(
+                        flag,
+                        flag_match,
+                        property_values,
+                        group_property_values,
+                        flag_evaluation_results,
+                        matching_context,
+                    )
+                } else {
+                    Vec::new()
+                }
+            }),
         }
     }
 
@@ -575,6 +588,9 @@ impl FromFeatureAndMatch for FlagDetails {
             FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated => {
                 Some("No matching condition set (group conditions were not evaluated because no group type was provided)".to_string())
             }
+            FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated => {
+                Some("This condition targets a behavioral or realtime cohort. Its membership is not fully evaluated here, so this result can differ from the cohort's member list.".to_string())
+            }
             FeatureFlagMatchReason::OutOfRolloutBound => Some("Out of rollout bound".to_string()),
             FeatureFlagMatchReason::NoGroupType => Some("No group type".to_string()),
             FeatureFlagMatchReason::SuperConditionValue => {
@@ -598,7 +614,7 @@ impl FlagDetails {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
-        team_timezone: Tz,
+        matching_context: PropertyMatchingContext,
     ) -> Vec<ConditionAnalysis> {
         let mut analyses = Vec::new();
 
@@ -721,8 +737,8 @@ impl FlagDetails {
 
                     let (property_matched, actual_value) = if let Some(props) = resolved_props {
                         let actual = props.get(&property.key).cloned();
-                        let matched =
-                            match_property(property, props, false, team_timezone).unwrap_or(false);
+                        let matched = match_property(property, props, false, matching_context)
+                            .unwrap_or(false);
                         (matched, actual)
                     } else {
                         // No properties available, fall back to condition-level match
@@ -1453,7 +1469,7 @@ mod tests {
             Some(&property_values),
             None,
             None,
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         // Verify we have analysis for both conditions
@@ -1556,7 +1572,7 @@ mod tests {
             Some(&person_props),
             Some(&group_props),
             None,
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1637,7 +1653,7 @@ mod tests {
             None,
             Some(&group_props),
             None,
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1700,7 +1716,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             Some(&flag_results),
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1733,7 +1749,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             Some(&flag_results),
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1767,7 +1783,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             None, // empty — dependency flag 42 absent
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1836,7 +1852,7 @@ mod tests {
             Some(&property_values),
             None,
             None,
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         // Enrollment is surfaced as the first entry (omitted entirely before the fix).
@@ -1911,7 +1927,7 @@ mod tests {
             Some(&property_values),
             None,
             None,
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         // Holdout is surfaced as the first entry (omitted entirely before the fix).
@@ -1954,7 +1970,7 @@ mod tests {
             Some(&property_values),
             None,
             None,
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         assert_eq!(analysis.len(), 1);
@@ -2000,7 +2016,7 @@ mod tests {
             Some(&property_values),
             None,
             None,
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         assert_eq!(analysis.len(), 3);
@@ -2057,7 +2073,7 @@ mod tests {
             Some(&property_values),
             None,
             None,
-            chrono_tz::Tz::UTC,
+            PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
         // Enrollment entry, then both release conditions in order, with only group 1 as the winner.

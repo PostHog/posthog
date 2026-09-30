@@ -1,0 +1,120 @@
+import type { Meta, StoryObj } from '@storybook/react'
+
+import {
+    PredicateFixAction,
+    PredicateIndexUsage,
+    PredicateIndexVerdict,
+    PredicateScope,
+} from '~/queries/schema/schema-general'
+
+import { QueryIndexUsageBar } from './QueryIndexUsageBar'
+
+const meta: Meta<typeof QueryIndexUsageBar> = {
+    title: 'Scenes-App/Data Warehouse/Query index usage',
+    component: QueryIndexUsageBar,
+}
+export default meta
+
+type Story = StoryObj<typeof QueryIndexUsageBar>
+
+const PREDICATES: PredicateIndexUsage[] = [
+    {
+        property_name: '$browser',
+        scope: PredicateScope.Event,
+        operator: '==',
+        source_label: 'materialized column',
+        column_name: 'mat_$browser',
+        semantic_type: 'String',
+        physical_type: 'String',
+        usable_indexes: ['bloom_filter'],
+        verdict: PredicateIndexVerdict.Indexed,
+        message:
+            "Event property '$browser' has a bloom filter index that covers this comparison. How much data it skips depends on how the values are spread across the table.",
+    },
+    {
+        property_name: 'duration',
+        scope: PredicateScope.Event,
+        operator: '>',
+        source_label: 'materialized column',
+        column_name: 'mat_duration',
+        semantic_type: 'Float',
+        physical_type: 'String',
+        usable_indexes: [],
+        verdict: PredicateIndexVerdict.Blocked,
+        message:
+            "Event property 'duration' is stored as String but compared as Float, so every row is converted before the filter runs and the index on 'duration' cannot skip any data.",
+        fix: "If 'duration' does not really hold a number, correct its type in data management.",
+        fix_action: PredicateFixAction.EditPropertyType,
+    },
+    {
+        property_name: '$browser_version',
+        scope: PredicateScope.Event,
+        operator: '==',
+        source_label: 'materialized column',
+        column_name: 'mat_$browser_version',
+        semantic_type: 'String',
+        physical_type: 'String',
+        usable_indexes: [],
+        verdict: PredicateIndexVerdict.Blocked,
+        message:
+            "Event property '$browser_version' is compared against a value of another type, so every row has to be converted and the index on '$browser_version' goes unused.",
+        fix: "Write the value as text: '120'.",
+        fix_action: PredicateFixAction.EditQuery,
+        ai_fix_prompt: "Rewrite this filter so '$browser_version' is compared against a String value.",
+        quickfix: { start: 58, end: 61, text: "'120'" },
+        start: 33,
+        end: 61,
+    },
+    {
+        property_name: 'plan_tier',
+        scope: PredicateScope.Person,
+        operator: '==',
+        source_label: 'JSON blob',
+        column_name: 'person_properties',
+        semantic_type: 'String',
+        physical_type: 'String',
+        usable_indexes: [],
+        verdict: PredicateIndexVerdict.UnindexedJson,
+        message:
+            "Person property 'plan_tier' is read out of the properties JSON on every row, with no index to skip data.",
+        fix: "Materialize 'plan_tier' so this filter reads a dedicated column instead of parsing the JSON.",
+        fix_action: PredicateFixAction.Materialize,
+    },
+    {
+        property_name: '$current_url',
+        scope: PredicateScope.Event,
+        operator: '!=',
+        source_label: 'materialized column',
+        column_name: 'mat_$current_url',
+        semantic_type: 'String',
+        physical_type: 'String',
+        usable_indexes: [],
+        verdict: PredicateIndexVerdict.OperatorNotIndexable,
+        message:
+            "Event property '$current_url' is filtered with '!=', which reads every row because no index can rule one out.",
+    },
+]
+
+export const SomeFiltersScan: Story = {
+    render: () => (
+        <div className="max-w-3xl">
+            <QueryIndexUsageBar predicates={PREDICATES} onApplyQuickfix={() => {}} onFixWithAI={() => {}} />
+        </div>
+    ),
+}
+
+export const EveryFilterIndexed: Story = {
+    render: () => (
+        <div className="max-w-3xl">
+            <QueryIndexUsageBar predicates={[PREDICATES[0]]} />
+        </div>
+    ),
+}
+
+export const RefreshingAfterAnEdit: Story = {
+    render: () => (
+        <div className="max-w-3xl">
+            <QueryIndexUsageBar predicates={PREDICATES} refreshing />
+        </div>
+    ),
+}

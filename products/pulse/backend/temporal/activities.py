@@ -6,9 +6,9 @@ import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.pulse.backend.config import MAX_ITEMS
 from products.pulse.backend.generation.persist import persist_brief_output
 from products.pulse.backend.generation.synthesize import synthesize_brief

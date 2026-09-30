@@ -28,7 +28,7 @@ MAX_COMPONENT_HEIGHT = 40
 # other character is rejected because urlsplit keeps CSP delimiters such as ";"
 # and spaces inside the netloc, so an origin like "example.com; img-src evil.net"
 # would otherwise reach the hostname unchanged and inject an extra directive when
-# spliced into the artifact's connect-src.
+# spliced into the artifact's resource directives.
 _DNS_NAME_LABEL = r"(?!-)[a-z0-9-]{1,63}(?<!-)"
 _DNS_NAME_RE = re.compile(rf"{_DNS_NAME_LABEL}(?:\.{_DNS_NAME_LABEL})*\.?")
 
@@ -50,7 +50,7 @@ def allowed_import_specifiers() -> frozenset[str]:
 def _is_public_network_host(hostname: str) -> bool:
     """Reject hosts that point at the viewer's machine or private network.
 
-    Declared origins go straight into the viewer's connect-src, so a loopback or
+    Declared origins go straight into the viewer's CSP, so a loopback or
     private origin would let a published canvas probe services on the viewer's
     machine or LAN. Literal IPs must be globally routable; names must be dotted
     public DNS names outside the reserved local suffixes. Rebinding a public
@@ -107,8 +107,20 @@ def canonical_network_origin(origin: Any) -> str | None:
 def artifact_csp(network_origins: list[str] | None = None) -> str:
     csp = platform_contract()["csp"]
     safe_origins = [canonical for origin in network_origins or [] if (canonical := canonical_network_origin(origin))]
-    connect_sources = " ".join(safe_origins) or "'none'"
-    return csp.replace("connect-src 'none'", f"connect-src {connect_sources}")
+    if not safe_origins:
+        return csp
+    sources = " ".join(safe_origins)
+    replacements = {
+        "connect-src 'none'": f"connect-src {sources}",
+        "style-src 'self' 'unsafe-inline'": f"style-src 'self' 'unsafe-inline' {sources}",
+        "img-src 'self' data: blob:": f"img-src 'self' data: blob: {sources}",
+        "font-src 'self' data:": f"font-src 'self' data: {sources}",
+        "media-src 'self' data: blob:": f"media-src 'self' data: blob: {sources}",
+        "frame-src 'none'": f"frame-src {sources}",
+    }
+    for directive, replacement in replacements.items():
+        csp = csp.replace(directive, replacement)
+    return csp
 
 
 def contract_limits() -> dict[str, int]:

@@ -126,6 +126,53 @@ describe("resolveCodexMode", () => {
 });
 
 describe("SessionConfigState", () => {
+  it("carries the pinned reasoning effort in the per-turn collaboration mode", () => {
+    const pinned = new SessionConfigState("gpt-5.6-sol", "xhigh");
+    expect(pinned.collaborationModeForTurn()).toEqual({
+      mode: "default",
+      settings: { model: "gpt-5.6-sol", reasoning_effort: "xhigh" },
+    });
+
+    pinned.setOption("effort", "max");
+    expect(pinned.collaborationModeForTurn()).toEqual({
+      mode: "default",
+      settings: { model: "gpt-5.6-sol", reasoning_effort: "max" },
+    });
+
+    // No pin: leave the effort to codex's model default rather than sending null.
+    expect(
+      new SessionConfigState("gpt-5.5").collaborationModeForTurn(),
+    ).toEqual({
+      mode: "default",
+      settings: { model: "gpt-5.5" },
+    });
+  });
+
+  it("drops a pinned effort the newly selected model does not support", () => {
+    const config = new SessionConfigState("gpt-5.6-sol", "max");
+
+    // gpt-5.5 supports xhigh but not max, so the stale max pin must not ride the turn.
+    config.setOption("model", "gpt-5.5");
+    expect(config.collaborationModeForTurn()).toEqual({
+      mode: "default",
+      settings: { model: "gpt-5.5" },
+    });
+    const efforts = config.options.find((o) => o.category === "thought_level");
+    expect(
+      efforts?.type === "select"
+        ? efforts.options.map((o) => (o as { value: string }).value)
+        : [],
+    ).not.toContain("max");
+
+    // A pin the new model still supports survives the switch.
+    config.setOption("effort", "xhigh");
+    config.setOption("model", "gpt-5.6-sol");
+    expect(config.collaborationModeForTurn()).toEqual({
+      mode: "default",
+      settings: { model: "gpt-5.6-sol", reasoning_effort: "xhigh" },
+    });
+  });
+
   it("canonicalizes bypassPermissions during a live mode update", () => {
     const config = new SessionConfigState("gpt-5.5");
 

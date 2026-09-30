@@ -7,8 +7,7 @@ from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, Property
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.rbac.user_access_control import UserAccessControlError
-
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.logs.backend.logs_query_runner import LogsQueryRunner
 
 

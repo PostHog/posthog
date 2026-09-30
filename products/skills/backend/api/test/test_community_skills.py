@@ -11,7 +11,10 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from ...models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
+from products.access_control.backend.models.access_control import AccessControl
+
+from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
+from ...models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillKind, CommunitySkillVote
 from ...models.skills import LLMSkill
 from ..skill_template_services import (
     MAX_RENDERED_SKILL_BYTES,
@@ -26,11 +29,6 @@ from ..skill_template_services import (
     parse_template_variables,
     render_template_skill,
 )
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 def _create_community_skill(
@@ -53,6 +51,10 @@ def _create_community_skill(
     )
 
 
+def _captured_events(mock_capture, event: str) -> list[dict]:
+    return [call.kwargs["properties"] for call in mock_capture.call_args_list if call.kwargs.get("event") == event]
+
+
 def _create_template_skill(*, slug: str = "feed-scout") -> CommunitySkill:
     return CommunitySkill.objects.create(
         slug=slug,
@@ -67,6 +69,18 @@ def _create_template_skill(*, slug: str = "feed-scout") -> CommunitySkill:
                 {"name": "default_branch", "prompt": "Branch", "default": "main"},
             ]
         },
+    )
+
+
+def _create_scout_skill(*, slug: str = "signals-scout-feed", scout_config: dict | None = None) -> CommunitySkill:
+    return CommunitySkill.objects.create(
+        slug=slug,
+        name="Feed scout",
+        description="Watch a feed for problems.",
+        body="# Scout\nWatch the feed.",
+        trust_tier="official",
+        kind=CommunitySkillKind.SCOUT,
+        scout_config=scout_config if scout_config is not None else {"run_interval_minutes": 720, "emit": False},
     )
 
 
@@ -208,6 +222,29 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
 
+    def test_install_accepts_description_at_spec_limit(self, _mock_flag) -> None:
+        skill = _create_community_skill(slug="web-analytics-triage")
+        CommunitySkill.objects.filter(pk=skill.pk).update(description="x" * SPEC_DESCRIPTION_MAX_LENGTH)
+
+        response = self.client.post(self._url("web-analytics-triage/install/"), {})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertTrue(LLMSkill.objects.filter(team=self.team).exists())
+
+    def test_install_rejects_description_over_spec_limit(self, _mock_flag) -> None:
+        skill = _create_community_skill(slug="web-analytics-triage")
+        CommunitySkill.objects.filter(pk=skill.pk).update(description="x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1))
+
+        response = self.client.post(self._url("web-analytics-triage/install/"), {})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["detail"],
+            f"This community skill has a description longer than {SPEC_DESCRIPTION_MAX_LENGTH} characters. "
+            "Ask its publisher to shorten it before installing.",
+        )
+        self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
+
     def test_install_unknown_slug_returns_404(self, _mock_flag) -> None:
         response = self.client.post(self._url("does-not-exist/install/"), {})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -301,6 +338,121 @@ class TestCommunitySkillAPI(APIBaseTest):
         second = self.client.post(self._url("web-analytics-triage/vote/"))
         self.assertEqual(second.json(), {"vote_count": 0, "has_voted": False})
         self.assertFalse(CommunitySkillVote.objects.exists())
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_vote_reports_event_with_state_and_count(self, mock_capture, _mock_flag) -> None:
+        _create_community_skill(slug="web-analytics-triage")
+
+        self.client.post(self._url("web-analytics-triage/vote/"))
+        self.client.post(self._url("web-analytics-triage/vote/"))
+
+        vote_events = _captured_events(mock_capture, "community skill voted")
+        self.assertEqual(
+            [(p["community_skill_slug"], p["voted"], p["vote_count"]) for p in vote_events],
+            [("web-analytics-triage", True, 1), ("web-analytics-triage", False, 0)],
+        )
+
+    def test_filter_by_kind(self, _mock_flag) -> None:
+        _create_community_skill(slug="a-skill")
+        _create_scout_skill(slug="signals-scout-feed")
+
+        scouts = self.client.get(self._url(), {"kind": "scout"}).json()["results"]
+        self.assertEqual([s["slug"] for s in scouts], ["signals-scout-feed"])
+        # The store card reads these to say how often the scout runs, and the nested serializer
+        # drops an absent field rather than emitting a null the card would render as a cadence.
+        self.assertEqual(scouts[0]["scout_config"], {"run_interval_minutes": 720, "emit": False})
+        skills = self.client.get(self._url(), {"kind": "skill"}).json()["results"]
+        self.assertEqual([s["slug"] for s in skills], ["a-skill"])
+
+    def test_install_refuses_a_scout(self, _mock_flag) -> None:
+        # The whole point of the scout route: a scout must never land as an inert plain skill.
+        _create_scout_skill(slug="signals-scout-feed")
+
+        response = self.client.post(self._url("signals-scout-feed/install/"), {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scout", response.json()["detail"])
+        self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
+
+    def test_install_rechecks_the_kind_after_locking(self, _mock_flag) -> None:
+        skill = _create_community_skill(slug="changes-to-scout")
+        skill.kind = CommunitySkillKind.SCOUT
+
+        with patch(
+            "products.skills.backend.api.community_skill_services.CommunitySkill.objects.select_for_update"
+        ) as lock:
+            lock.return_value.get.return_value = skill
+            response = self.client.post(self._url("changes-to-scout/install/"), {})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scout", response.json()["detail"])
+        self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
+
+    def test_render_returns_a_scouts_body_and_settings(self, _mock_flag) -> None:
+        _create_scout_skill(slug="signals-scout-feed")
+
+        response = self.client.post(self._url("signals-scout-feed/render/"), {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["kind"], "scout")
+        self.assertEqual(payload["body"], "# Scout\nWatch the feed.")
+        self.assertEqual(payload["scout_config"], {"run_interval_minutes": 720, "emit": False})
+
+    def test_render_binds_template_variables_without_persisting(self, _mock_flag) -> None:
+        _create_template_skill(slug="feed-scout")
+
+        response = self.client.post(
+            self._url("feed-scout/render/"), {"variables": {"feed_table": "events"}}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["body"], "# Scout\nWatch table events on main.")
+        self.assertEqual(payload["variable_bindings"], {"feed_table": "events", "default_branch": "main"})
+        self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
+
+    def test_render_missing_required_variable_returns_400(self, _mock_flag) -> None:
+        _create_template_skill(slug="feed-scout")
+
+        response = self.client.post(self._url("feed-scout/render/"), {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "variables")
+
+    def test_render_unknown_slug_returns_404(self, _mock_flag) -> None:
+        response = self.client.post(self._url("missing/render/"), {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("not_found",),
+            ("missing_variable",),
+            ("name_conflict",),
+            ("undeclared_placeholder",),
+            ("wrong_kind",),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_install_failure_reports_event(self, reason, mock_capture, _mock_flag) -> None:
+        # Each branch shape (return, raised ValidationError, hand-built 500) must still emit the
+        # failure event, so cover one representative path per shape plus the not-found path.
+        if reason == "not_found":
+            self.client.post(self._url("missing/install/"), {})
+        elif reason == "missing_variable":
+            _create_template_skill(slug="feed-scout")
+            self.client.post(self._url("feed-scout/install/"), {}, format="json")
+        elif reason == "name_conflict":
+            _create_community_skill(slug="web-analytics-triage")
+            self.client.post(self._url("web-analytics-triage/install/"), {})
+            self.client.post(self._url("web-analytics-triage/install/"), {})
+        elif reason == "undeclared_placeholder":
+            skill = _create_template_skill(slug="feed-scout")
+            skill.body = "Watch {{ feed_table }} and {{ undeclared }}."
+            skill.save(update_fields=["body"])
+            self.client.post(self._url("feed-scout/install/"), {"variables": {"feed_table": "x"}}, format="json")
+        elif reason == "wrong_kind":
+            _create_scout_skill(slug="signals-scout-feed")
+            self.client.post(self._url("signals-scout-feed/install/"), {})
+
+        failures = _captured_events(mock_capture, "community skill install failed")
+        self.assertEqual([p["reason"] for p in failures], [reason])
 
 
 @pytest.mark.ee

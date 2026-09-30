@@ -209,12 +209,6 @@ describe('CookielessManager', () => {
             jest.clearAllTimers()
         })
 
-        const clearRedis = async () => {
-            const client = await infra.redisPool.acquire()
-            await client.flushall()
-            await infra.redisPool.release(client)
-        }
-
         const setModeForTeam = async (mode: CookielessServerHashMode) => {
             await infra.postgres.query(
                 PostgresUse.COMMON_WRITE,
@@ -226,7 +220,6 @@ describe('CookielessManager', () => {
         }
 
         beforeEach(async () => {
-            await clearRedis()
             infra.cookielessManager.deleteAllLocalSalts()
             teamId = await createTeam(infra.postgres, organizationId)
             await setModeForTeam(CookielessServerHashMode.Stateful)
@@ -808,6 +801,32 @@ describe('CookielessManager', () => {
             it('should pass through non-cookieless events', async () => {
                 const actual1 = await processEvent(nonCookielessEvent)
                 expect(actual1).toBe(nonCookielessEvent)
+            })
+            it('should emit an ingestion warning for each dropped cookieless event', async () => {
+                const response = await infra.cookielessManager.doBatch([
+                    { event, team, message, headers: createTestEventHeaders() },
+                    { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
+                ])
+                expect(response.length).toBe(2)
+
+                const droppedResult = response[0]
+                expect(droppedResult.type).toBe(PipelineResultType.DROP)
+                if (droppedResult.type === PipelineResultType.DROP) {
+                    expect(droppedResult.reason).toBe('cookieless_team_disabled')
+                }
+                expect(droppedResult.warnings).toHaveLength(1)
+                expect(droppedResult.warnings[0]).toMatchObject({
+                    type: 'cookieless_team_disabled',
+                    details: {
+                        eventUuid: event.uuid,
+                        event: event.event,
+                        distinctId: event.distinct_id,
+                    },
+                })
+
+                const passThroughResult = response[1]
+                expect(passThroughResult.type).toBe(PipelineResultType.OK)
+                expect(passThroughResult.warnings).toHaveLength(0)
             })
             it('should not return dropped cookieless events but should not throw', async () => {
                 const testHeaders = createTestEventHeaders({

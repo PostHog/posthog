@@ -83,7 +83,7 @@ class PRLifecycleSerializer(DataclassSerializer):
         dataclass = PRLifecycle
         extra_kwargs = {
             "metric_quality": {
-                "help_text": "Always 'partial' — CI events only; reviews and comments are not yet available.",
+                "help_text": "Always 'partial': CI events only; reviews and comments are not yet available.",
             },
         }
 
@@ -102,7 +102,7 @@ class CIFailureLogsSerializer(DataclassSerializer):
                 "help_text": "Workflow runs attributed to the PR (across all its pushes) that were searched for logs.",
             },
             "logs_available": {
-                "help_text": "False when no failure logs were found — CI hasn't failed, the logs aged out of the "
+                "help_text": "False when no failure logs were found: CI hasn't failed, the logs aged out of the "
                 "short Logs retention, or a fork PR carries no run association to resolve.",
             },
             "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
@@ -164,7 +164,7 @@ class PRCostSummarySerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text="Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when "
-        "no generation matched — independent of the CI cost figures, so it can be present even when "
+        "no generation matched: independent of the CI cost figures, so it can be present even when "
         "jobs_available is false. The UI hides the row when null.",
     )
 
@@ -172,7 +172,7 @@ class PRCostSummarySerializer(DataclassSerializer):
         dataclass = PRCostSummary
         extra_kwargs = {
             "jobs_available": {
-                "help_text": "False when the job-level source (github_workflow_jobs) isn't synced — every "
+                "help_text": "False when the job-level source (github_workflow_jobs) isn't synced: every "
                 "figure is then zero/null and the cost cards should be hidden.",
             },
             "billable_minutes": {
@@ -186,10 +186,10 @@ class PRCostSummarySerializer(DataclassSerializer):
             },
             "costed_jobs": {"help_text": "Jobs counted in the estimate (billable Linux runner, finished)."},
             "unsettled_jobs": {
-                "help_text": "Billable Linux jobs still queued/running (no elapsed) — excluded from the estimate.",
+                "help_text": "Billable Linux jobs still queued/running (no elapsed): excluded from the estimate.",
             },
             "excluded_jobs": {
-                "help_text": "Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners — outside the estimate.",
+                "help_text": "Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners: outside the estimate.",
             },
         }
 
@@ -200,8 +200,13 @@ class CIStatusRollupSerializer(DataclassSerializer):
         extra_kwargs = {
             "runs": {"help_text": "Distinct workflows run on the PR's head SHA."},
             "passing": {"help_text": "Latest runs that completed with conclusion 'success'."},
-            "failing": {"help_text": "Latest runs that completed with conclusion 'failure' or 'timed_out'."},
+            "failing": {"help_text": "Latest runs that ended in failure, timeout, startup failure, or staleness."},
             "pending": {"help_text": "Latest runs not yet completed (queued or in progress)."},
+            "inconclusive": {
+                "help_text": "Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, "
+                "neutral, or action required. Together with the three counts above this covers every run, so "
+                "a PR whose CI was entirely cancelled is not readable as passing."
+            },
             "failing_workflows": {
                 "help_text": "The workflow names behind `failing`, sorted - names what is failing instead of "
                 "leaving a bare count."
@@ -221,7 +226,7 @@ class PushCISampleSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "failed": {
-                "help_text": "True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.",
+                "help_text": "True when any latest-per-workflow run on this push ended in a decisive failure.",
             },
             "pending": {"help_text": "True when any latest-per-workflow run on this push hasn't completed yet."},
         }
@@ -298,7 +303,7 @@ class BranchPRMatchSerializer(DataclassSerializer):
         dataclass = BranchPRMatch
         extra_kwargs = {
             "repo": {"help_text": "Repository the pull request belongs to, as 'owner/name'."},
-            "number": {"help_text": "Pull request number within the repository — pair with `repo` to link to it."},
+            "number": {"help_text": "Pull request number within the repository: pair with `repo` to link to it."},
             "title": {
                 "help_text": "Pull request title, or null when the snapshot carries no title.",
                 "allow_null": True,

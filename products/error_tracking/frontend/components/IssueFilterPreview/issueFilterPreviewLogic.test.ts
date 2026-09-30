@@ -2,7 +2,7 @@ import { quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PropertyOperator, UniversalFiltersGroup } from '~/types'
+import { EventPropertyFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import {
     DEFAULT_DATE_RANGE,
@@ -72,6 +72,61 @@ describe('issueFilterPreviewLogic', () => {
         })
         preview.actions.undoActivePreview()
         expect(filters.values.filterGroup).toEqual(DEFAULT_FILTER_GROUP)
+
+        preview.unmount()
+        filters.unmount()
+    })
+
+    it('applies grouped filters as one undo step without opening their chips', () => {
+        initKeaTests()
+        const filters = issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY })
+        const preview = issueFilterPreviewLogic()
+        filters.mount()
+        preview.mount()
+        const chips = (): Partial<EventPropertyFilter>[] =>
+            (filters.values.filterGroup.values[0] as UniversalFiltersGroup).values.map((filter) => {
+                const { key, value, operator } = filter as EventPropertyFilter
+                return { key, value, operator }
+            })
+
+        preview.actions.setActivePreview('releases')
+        preview.actions.applyPropertyFilter('$browser', 'Chrome')
+        const beforeRelease = filters.values.filterGroup
+        preview.actions.applyPropertyFilters([
+            { key: '$app_version', value: '3.2.0', operator: PropertyOperator.Exact },
+            { key: '$app_build', value: null, operator: PropertyOperator.IsNotSet },
+        ])
+        const afterFirstRelease = filters.values.filterGroup
+        expect(chips()).toEqual([
+            { key: '$browser', value: ['Chrome'], operator: PropertyOperator.Exact },
+            { key: '$app_version', value: ['3.2.0'], operator: PropertyOperator.Exact },
+            { key: '$app_build', value: undefined, operator: PropertyOperator.IsNotSet },
+        ])
+        // FilterGroup opens the popover of every chip it does not count as preview-added.
+        expect(filters.values.filterAddedFromPreview).toBe(2)
+
+        // A second release replaces both keys and leaves other chips alone.
+        preview.actions.applyPropertyFilters([
+            { key: '$app_version', value: '3.3.0', operator: PropertyOperator.Exact },
+            { key: '$app_build', value: '20901', operator: PropertyOperator.Exact },
+        ])
+        expect(chips().map((chip) => chip.key)).toEqual(['$browser', '$app_version', '$app_build'])
+        expect(chips()[2]).toEqual({ key: '$app_build', value: ['20901'], operator: PropertyOperator.Exact })
+        expect(filters.values.filterAddedFromPreview).toBe(2)
+        const afterSecondRelease = filters.values.filterGroup
+
+        // Clearing one key from the preview removes only that chip and stays undoable.
+        preview.actions.clearPropertyFilter('$app_build')
+        expect(chips().map((chip) => chip.key)).toEqual(['$browser', '$app_version'])
+        preview.actions.clearPropertyFilter('$app_build')
+        expect(preview.values.filterGroupHistory).toHaveLength(4)
+
+        preview.actions.undoActivePreview()
+        expect(filters.values.filterGroup).toEqual(afterSecondRelease)
+        preview.actions.undoActivePreview()
+        expect(filters.values.filterGroup).toEqual(afterFirstRelease)
+        preview.actions.undoActivePreview()
+        expect(filters.values.filterGroup).toEqual(beforeRelease)
 
         preview.unmount()
         filters.unmount()

@@ -1,6 +1,13 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -136,6 +143,7 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
         assert results[0].count is None
 
+    @snapshot_clickhouse_queries
     def test_person_property_values_basic(self):
         _create_person(distinct_ids=["u1"], team=self.team, properties={"country": "US"})
         _create_person(distinct_ids=["u2"], team=self.team, properties={"country": "UK"})
@@ -184,6 +192,7 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert {r.name for r in results} == expected_names
 
+    @snapshot_clickhouse_queries
     def test_person_property_values_distinct_id_suggestions(self):
         _create_person(distinct_ids=["alice", "alice-alias"], team=self.team, properties={})
         _create_person(distinct_ids=["bob"], team=self.team, properties={})

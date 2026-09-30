@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -15,11 +16,11 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                 <>
                     <CalloutBox type="fyi" icon="IconInfo" title="Full working examples">
                         <Markdown>
-                            The [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-openai)
-                            and
-                            [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-openai)
-                            OpenAI examples show a complete end-to-end OpenTelemetry setup. Swap the instrumentation for
-                            any other `gen_ai.*`-emitting library to trace a different provider or framework.
+                            The [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-openai),
+                            [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-openai),
+                            and [Go](https://github.com/PostHog/posthog-go/tree/main/otel/example) examples show a
+                            complete end-to-end OpenTelemetry setup. Swap the instrumentation for any other
+                            `gen_ai.*`-emitting library to trace a different provider or framework.
                         </Markdown>
                     </CalloutBox>
 
@@ -45,6 +46,13 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                     npm install openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'Go',
+                                code: dedent`
+                                    go get github.com/posthog/posthog-go/otel go.opentelemetry.io/otel go.opentelemetry.io/otel/sdk
+                                `,
+                            },
                         ]}
                     />
                 </>
@@ -56,10 +64,10 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
             content: (
                 <>
                     <Markdown>
-                        Configure OpenTelemetry to export spans to PostHog via the `PostHogSpanProcessor`. The processor
-                        only forwards AI-related spans — spans whose name or attribute keys start with `gen_ai.`,
-                        `llm.`, `ai.`, or `traceloop.` — and drops everything else. PostHog converts `gen_ai.*` spans
-                        into `$ai_generation` events automatically.
+                        Configure OpenTelemetry to export spans to PostHog via the `PostHogSpanProcessor`
+                        (`posthogotel.NewSpanProcessor` in Go). The processor only forwards AI-related spans — spans
+                        whose name or attribute keys start with `gen_ai.`, `llm.`, `ai.`, or `traceloop.` — and drops
+                        everything else. PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
                     </Markdown>
 
                     <CodeBlock
@@ -118,8 +126,52 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                     sdk.start()
                                 `,
                             },
+                            {
+                                language: 'go',
+                                file: 'Go',
+                                code: dedent`
+                                    import (
+                                        "context"
+
+                                        posthogotel "github.com/posthog/posthog-go/otel"
+                                        "go.opentelemetry.io/otel"
+                                        "go.opentelemetry.io/otel/attribute"
+                                        sdkresource "go.opentelemetry.io/otel/sdk/resource"
+                                        sdktrace "go.opentelemetry.io/otel/sdk/trace"
+                                    )
+
+                                    func setupTracing(ctx context.Context) (*sdktrace.TracerProvider, error) {
+                                        processor, err := posthogotel.NewSpanProcessor(ctx, "<ph_project_token>",
+                                            posthogotel.WithHost("<ph_client_api_host>"),
+                                        )
+                                        if err != nil {
+                                            return nil, err
+                                        }
+
+                                        resource := sdkresource.NewWithAttributes("",
+                                            attribute.String("service.name", "my-app"),
+                                            attribute.String("posthog.distinct_id", "user_123"), // optional: identifies the user in PostHog
+                                            attribute.String("foo", "bar"), // custom properties are passed through
+                                        )
+                                        provider := sdktrace.NewTracerProvider(
+                                            sdktrace.WithResource(resource),
+                                            sdktrace.WithSpanProcessor(processor),
+                                        )
+                                        otel.SetTracerProvider(provider)
+                                        return provider, nil
+                                    }
+                                `,
+                            },
                         ]}
                     />
+
+                    <Markdown>
+                        {dedent`
+                            In Go, if your app already has a \`TracerProvider\`, attach the processor to it with
+                            \`provider.RegisterSpanProcessor(processor)\` instead of creating a new provider. Call
+                            \`provider.Shutdown\` (or \`provider.ForceFlush\`) before exit so buffered spans are sent.
+                        `}
+                    </Markdown>
                 </>
             ),
         },
@@ -132,6 +184,16 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                         With the processor and instrumentation wired up, any LLM call made through the instrumented SDK
                         is captured. PostHog receives the emitted `gen_ai.*` span and converts it into an
                         `$ai_generation` event.
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            Go has no instrumentation libraries for provider SDKs yet: start a span around each call
+                            and set the \`gen_ai.*\` attributes yourself, as shown in the Go tab. Frameworks that
+                            already emit \`gen_ai.*\` spans, like [ADK Go](https://google.golang.org/adk), are captured
+                            automatically. ADK Go sends message content as log records rather than span attributes,
+                            so its generations arrive without prompts and responses.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -168,6 +230,46 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                     })
 
                                     console.log(response.choices[0].message.content)
+                                `,
+                            },
+                            {
+                                language: 'go',
+                                file: 'Go',
+                                code: dedent`
+                                    import (
+                                        "go.opentelemetry.io/otel"
+                                        "go.opentelemetry.io/otel/attribute"
+                                        "go.opentelemetry.io/otel/codes"
+                                    )
+
+                                    tracer := otel.Tracer("my-app")
+                                    _, span := tracer.Start(ctx, "chat gpt-5-mini")
+                                    // Set the request attributes before the call so a failed call still
+                                    // carries the gen_ai.* keys the PostHog span filter looks for
+                                    span.SetAttributes(
+                                        attribute.String("gen_ai.operation.name", "chat"),
+                                        attribute.String("gen_ai.provider.name", "openai"),
+                                        attribute.String("gen_ai.request.model", "gpt-5-mini"),
+                                        // JSON-serialized chat messages
+                                        attribute.String("gen_ai.input.messages", \`[{"role":"user","content":"Tell me a fun fact about hedgehogs"}]\`),
+                                        attribute.String("server.address", "api.openai.com"),
+                                    )
+
+                                    resp, err := client.Chat.Completions.New(ctx, params) // your existing LLM call
+                                    if err != nil {
+                                        span.RecordError(err)
+                                        // Status Error is what marks the event as a failed generation in PostHog
+                                        span.SetStatus(codes.Error, err.Error())
+                                        span.End()
+                                        return err
+                                    }
+
+                                    span.SetAttributes(
+                                        attribute.String("gen_ai.output.messages", \`[{"role":"assistant","content":"Hedgehogs have around 5,000 spines."}]\`),
+                                        attribute.Int("gen_ai.usage.input_tokens", int(resp.Usage.PromptTokens)),
+                                        attribute.Int("gen_ai.usage.output_tokens", int(resp.Usage.CompletionTokens)),
+                                    )
+                                    span.End()
                                 `,
                             },
                         ]}
@@ -233,6 +335,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                 </>
             ),
         },
+        getOtelSessionIdStep(ctx, { languages: ['Python', 'Node', 'Go'] }),
         {
             title: 'Other instrumentations, direct OTLP, and troubleshooting',
             badge: 'optional',
@@ -251,7 +354,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
 
                     <Markdown>
                         {dedent`
-                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language that isn't Python or Node.js, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. The endpoint is signal-specific (traces only), so use the \`OTEL_EXPORTER_OTLP_TRACES_*\` variants rather than the general \`OTEL_EXPORTER_OTLP_*\` ones (the SDK appends \`/v1/traces\` to the latter and would 404).
+                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language other than Python, Node.js, or Go, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. The endpoint is signal-specific (traces only), so use the \`OTEL_EXPORTER_OTLP_TRACES_*\` variants rather than the general \`OTEL_EXPORTER_OTLP_*\` ones (the SDK appends \`/v1/traces\` to the latter and would 404).
                         `}
                     </Markdown>
 

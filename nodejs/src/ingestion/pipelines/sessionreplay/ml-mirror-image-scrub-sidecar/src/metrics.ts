@@ -1,5 +1,6 @@
 import { Counter, Gauge, Histogram, Registry } from 'prom-client'
 
+import { type UndecodableImageReason } from './image-input.ts'
 import { type StageTimings } from './scrub.ts'
 
 export const register = new Registry()
@@ -36,7 +37,8 @@ const failed = new Counter({
 })
 const undecodable = new Counter({
     name: 'ml_mirror_image_scrub_undecodable_total',
-    help: 'Inputs sharp could not decode (422) — permanently skipped, never retried',
+    help: 'Inputs permanently rejected as undecodable, by bounded reason',
+    labelNames: ['reason'],
     registers: [register],
 })
 const optedOut = new Counter({
@@ -113,7 +115,7 @@ const sourceMegapixels = new Histogram({
     buckets: [0.1, 0.25, 0.5, 1, 2, 2.56, 4, 8, 16, 50],
     registers: [register],
 })
-// The scrub is a privacy control, so its OUTCOME signals matter as much as its error signals: a
+// The scrub is an anonymization control, so its OUTCOME signals matter as much as its error signals: a
 // runaway NSFW gate irreversibly blanking everything, or a detector flatlining at zero (persisting
 // un-redacted screenshots), must be distinguishable from healthy operation.
 const blanked = new Counter({
@@ -206,7 +208,7 @@ export const ScrubMetrics = {
     incWorkerRestartFailure: () => workerRestartFailures.inc(),
     incScrubbed: () => scrubbed.inc(),
     incFailed: () => failed.inc(),
-    incUndecodable: () => undecodable.inc(),
+    incUndecodable: (reason: UndecodableImageReason) => undecodable.labels(reason).inc(),
     incOptedOut: () => optedOut.inc(),
     incRejected: () => rejected.inc(),
     incTooLarge: () => tooLarge.inc(),

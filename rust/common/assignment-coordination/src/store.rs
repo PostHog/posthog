@@ -214,6 +214,24 @@ impl EtcdStore {
             .collect())
     }
 
+    /// Like `list_keys`, with each key's mod_revision — for callers that
+    /// guard a later write on the key being unchanged since this look.
+    pub async fn list_keys_with_mod_revisions(&self, prefix: &str) -> Result<Vec<(String, i64)>> {
+        let _t = OpTimer::new("list_keys_with_mod_revisions");
+        let options = GetOptions::new().with_prefix().with_keys_only();
+        let resp = self.client.clone().get(prefix, Some(options)).await?;
+        record_payload_bytes("list_keys_with_mod_revisions", kvs_bytes(resp.kvs()));
+        Ok(resp
+            .kvs()
+            .iter()
+            .filter_map(|kv| {
+                kv.key_str()
+                    .ok()
+                    .map(|k| (k.to_string(), kv.mod_revision()))
+            })
+            .collect())
+    }
+
     /// Like `list`, but also returns the etcd store revision the snapshot
     /// was taken at. Pair with `watch_from(prefix, revision + 1)` for a
     /// gap-free snapshot-then-watch handshake: every event at or before

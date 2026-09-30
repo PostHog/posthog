@@ -41,9 +41,3 @@ class TestContextLayerFacade(BaseTest):
 
     def test_get_sandbox_mount_is_none_without_wiki(self) -> None:
         assert facade.get_sandbox_mount(self.organization.id) is None
-
-    def test_get_sandbox_mount_goes_dark_with_private_projects(self) -> None:
-        store.initialize_repo(self.organization.id)
-        self.team.access_control = True
-        self.team.save()
-        assert facade.get_sandbox_mount(self.organization.id) is None

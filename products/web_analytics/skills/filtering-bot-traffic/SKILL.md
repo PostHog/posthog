@@ -149,6 +149,34 @@ GROUP BY bot, operator
 ORDER BY hits DESC
 ```
 
+## Adding a bot PostHog doesn't know yet
+
+The built-in list only covers self-declared user agents PostHog already knows. When a
+scraper matters to a project but isn't detected — an internal load test, a partner
+integration, a niche crawler — add a **custom bot rule** instead of waiting for the
+built-in list to catch up. Rules extend the same classification surface, so `Is bot`
+(`isLikelyBot`), `Bot name`, and `Traffic category` reflect them everywhere HogQL runs.
+
+A rule matches one event property — the user agent by default, but also `$ip`, `$lib`,
+`$host`, `$pathname`, `$current_url`, `$browser`, `$os`, `$browser_language`,
+`$screen_width`, `$screen_height`, `$geoip_country_code`, `$referrer`, or
+`$referring_domain` — using `contains` (case-insensitive substring), `regex` (RE2), or
+`cidr` (an IP range, only valid with `$ip`). Set `name` to the label reported by `Bot
+name`, and optionally `category` to a built-in category like `ai_crawler` to relabel the
+traffic type.
+
+Three ways to manage rules:
+
+- **Settings UI** — Settings → Environment → Custom bots.
+- **MCP tools** — `web-analytics-bot-rules-list`, `web-analytics-bot-rules-create`,
+  `web-analytics-bot-rules-destroy`. Prefer these when driving PostHog through an agent.
+- **REST API** — `GET/POST /api/projects/{project_id}/web_analytics_bot_rules/` and
+  `DELETE /api/projects/{project_id}/web_analytics_bot_rules/{id}/`.
+
+Listing is open to project members; creating and deleting require a **project admin**
+(they mutate the admin-only `modifiers` team setting). A rule whose pattern can't run is
+rejected on save, so a bad rule can never take down the project's classification queries.
+
 ## Seeing bots that don't run JavaScript
 
 Most crawlers and AI agents never execute JS, so `posthog-js` never fires a `$pageview` for

@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat, SortMode
@@ -8,21 +10,27 @@ from products.warehouse_sources.backend.types import IncrementalField
 DUB_BASE_URL = "https://api.dub.co"
 
 
-@dataclass
+@frozen
 class DubEndpointConfig:
     name: str
     path: str
-    # "cursor" = startingAfter cursor pagination; "page" = 1-based page-number pagination.
-    pagination: Literal["cursor", "page"]
+    # "cursor" = startingAfter cursor pagination; "page" = 1-based page-number pagination;
+    # "single" = the whole table arrives in one response, as the aggregate endpoints do.
+    pagination: Literal["cursor", "page", "single"]
     page_size: int = 100
     page_size_param: str = "pageSize"
-    primary_key: str = "id"
+    primary_keys: tuple[str, ...] = ("id",)
     partition_key: Optional[str] = "createdAt"
     partition_format: PartitionFormat = "month"
     sort_mode: SortMode = "desc"
     params: dict[str, str] = field(default_factory=dict)
     # Set for the /events streams; selects which event type the shared endpoint returns.
     event_type: Optional[str] = None
+    # /links returns only the links sitting outside a folder unless `folderId` is passed, so
+    # this endpoint has to be walked once per folder as well to import the whole workspace.
+    folder_scoped: bool = False
+    # Walked once per enrolled partner by a custom iterator; see _partner_analytics_rows.
+    partner_scoped: bool = False
 
 
 def _event_endpoint(name: str, event_type: str, primary_key: str) -> DubEndpointConfig:
@@ -34,7 +42,7 @@ def _event_endpoint(name: str, event_type: str, primary_key: str) -> DubEndpoint
         # Dub's stricter per-second analytics rate limits.
         page_size=500,
         page_size_param="limit",
-        primary_key=primary_key,
+        primary_keys=(primary_key,),
         partition_key="timestamp",
         partition_format="week",
         sort_mode="asc",
@@ -43,8 +51,21 @@ def _event_endpoint(name: str, event_type: str, primary_key: str) -> DubEndpoint
     )
 
 
+# /analytics answers a 24h window of clicks only unless both defaults are widened, and each
+# groupBy returns a different row shape, so every breakdown is imported as its own table.
+def _analytics_endpoint(name: str, group_by: str, primary_keys: tuple[str, ...]) -> DubEndpointConfig:
+    return DubEndpointConfig(
+        name=name,
+        path="/analytics",
+        pagination="single",
+        primary_keys=primary_keys,
+        partition_key=None,
+        params={"groupBy": group_by, "event": "composite", "interval": "all"},
+    )
+
+
 DUB_ENDPOINTS: dict[str, DubEndpointConfig] = {
-    "links": DubEndpointConfig(name="links", path="/links", pagination="cursor"),
+    "links": DubEndpointConfig(name="links", path="/links", pagination="cursor", folder_scoped=True),
     "click_events": _event_endpoint("click_events", "clicks", primary_key="click_id"),
     "lead_events": _event_endpoint("lead_events", "leads", primary_key="eventId"),
     "sale_events": _event_endpoint("sale_events", "sales", primary_key="eventId"),
@@ -69,6 +90,33 @@ DUB_ENDPOINTS: dict[str, DubEndpointConfig] = {
     ),
     "commissions": DubEndpointConfig(name="commissions", path="/commissions", pagination="cursor"),
     "payouts": DubEndpointConfig(name="payouts", path="/payouts", pagination="page"),
+    "partner_applications": DubEndpointConfig(
+        name="partner_applications", path="/partners/applications", pagination="page"
+    ),
+    # Dub rejects a /partners/analytics request that names no partner, so there is no
+    # program-wide series to read: the table is the union of each partner's series. It carries
+    # earnings per bucket, which neither /partners nor the workspace-level /analytics reports.
+    "partner_analytics_timeseries": DubEndpointConfig(
+        name="partner_analytics_timeseries",
+        path="/partners/analytics",
+        pagination="single",
+        primary_keys=("partnerId", "start"),
+        partition_key=None,
+        params={"groupBy": "timeseries", "interval": "all"},
+        partner_scoped=True,
+    ),
+    "analytics_timeseries": _analytics_endpoint("analytics_timeseries", "timeseries", ("start",)),
+    "analytics_continents": _analytics_endpoint("analytics_continents", "continents", ("continent",)),
+    "analytics_countries": _analytics_endpoint("analytics_countries", "countries", ("country",)),
+    # Dub repeats the whole geo path on every row, and region and city names recur across
+    # countries, so the narrower cuts need the parent columns in the key to stay unique.
+    "analytics_regions": _analytics_endpoint("analytics_regions", "regions", ("country", "region")),
+    "analytics_cities": _analytics_endpoint("analytics_cities", "cities", ("country", "region", "city")),
+    "analytics_devices": _analytics_endpoint("analytics_devices", "devices", ("device",)),
+    "analytics_browsers": _analytics_endpoint("analytics_browsers", "browsers", ("browser",)),
+    "analytics_os": _analytics_endpoint("analytics_os", "os", ("os",)),
+    "analytics_referers": _analytics_endpoint("analytics_referers", "referers", ("referer",)),
+    "analytics_triggers": _analytics_endpoint("analytics_triggers", "triggers", ("trigger",)),
 }
 
 ENDPOINTS = tuple(DUB_ENDPOINTS.keys())
@@ -87,4 +135,24 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 # Endpoints gated by Dub plan or product setup: /events needs a Business plan or higher,
 # /payouts needs a Business partner-program plan, and /partners + /commissions require a
 # partner program. Used by get_endpoint_permissions to surface per-table reachability.
-PLAN_GATED_ENDPOINTS = ("click_events", "lead_events", "sale_events", "partners", "commissions", "payouts")
+PLAN_GATED_ENDPOINTS = (
+    "click_events",
+    "lead_events",
+    "sale_events",
+    "partners",
+    "commissions",
+    "payouts",
+    "partner_applications",
+    "partner_analytics_timeseries",
+)
+
+# These resolve the workspace's default partner program before they read anything, so a
+# workspace without Dub Partners gets 404 not_found on the list endpoint itself rather than a
+# plan error. Their paths are static and always valid, so a 404 here can only mean "no program".
+PARTNER_PROGRAM_ENDPOINTS = (
+    "partners",
+    "commissions",
+    "payouts",
+    "partner_applications",
+    "partner_analytics_timeseries",
+)

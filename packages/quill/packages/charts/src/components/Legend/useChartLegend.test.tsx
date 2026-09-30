@@ -117,6 +117,22 @@ describe('useChartLegend', () => {
         expect(result.current.legendProps.hiddenKeys).toEqual([])
     })
 
+    it('toggles instead of isolating on a coarse pointer, where the additive gesture is unreachable', () => {
+        const original = window.matchMedia
+        window.matchMedia = jest.fn().mockImplementation((query: string) => ({
+            matches: query === '(pointer: coarse)',
+        })) as unknown as typeof window.matchMedia
+        try {
+            const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true }))
+
+            act(() => result.current.legendProps.onItemClick!('b', PLAIN))
+            act(() => result.current.legendProps.onItemClick!('c', PLAIN))
+            expect(result.current.legendProps.hiddenKeys).toEqual(['b', 'c'])
+        } finally {
+            window.matchMedia = original
+        }
+    })
+
     it('adds to an isolated selection on an additive click without dropping it', () => {
         const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true }))
 

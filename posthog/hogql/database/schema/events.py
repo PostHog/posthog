@@ -58,6 +58,8 @@ class EventsPersonSubTable(VirtualTable):
 
 
 class EventsGroupSubTable(VirtualTable):
+    group_index: int = 0
+
     def __init__(self, group_index: int):
         super().__init__(
             fields={
@@ -66,6 +68,7 @@ class EventsGroupSubTable(VirtualTable):
                 "properties": StringJSONDatabaseField(name=f"group{group_index}_properties", nullable=False),
             }
         )
+        self.group_index = group_index
 
     def avoid_asterisk_fields(self):
         return []

@@ -1,5 +1,5 @@
 import type { McpServer } from "@agentclientprotocol/sdk";
-import { isPostHogExecDescriptor } from "../../posthog-exec-permission";
+import { isPostHogExecDescriptor } from "@posthog/harness/extensions/posthog-mcp-policy";
 import { sanitizeMcpServerName } from "../claude/mcp/tool-metadata";
 
 interface CodexMcpServerToolConfig {
@@ -35,7 +35,7 @@ export type CodexMcpServerConfig =
  * sanitization gets a numeric suffix, because a plain map write would silently
  * drop one of the colliding servers.
  */
-export function codexMcpServerName(name: string): string {
+function codexMcpServerName(name: string): string {
   return sanitizeMcpServerName(name) || "mcp-server";
 }
 

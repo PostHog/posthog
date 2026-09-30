@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import {
+  CANVAS_SDK_MODULE_SOURCE,
+  CANVAS_SDK_SPECIFIER,
+} from "@posthog/shared";
+import { describe, expect, it, vi } from "vitest";
+import builderSource from "../../../../../../../canvas/packages/canvas_builder/build.mjs?raw";
 import {
   buildSandboxDocument,
   decodeJsxUnicodeEscapes,
@@ -12,6 +17,47 @@ function clickTarget(html: string, selector: string): Element {
   const element = container.querySelector(selector);
   if (!element) throw new Error(`selector ${selector} not found`);
   return element;
+}
+
+// Runs the document's import-map setup script against stub Blob/URL/document
+// globals and returns the map it installs. jsdom has no createObjectURL, and
+// asserting the map it produces beats matching the script's source text.
+function installedImportMap(html: string): Record<string, string> {
+  const setup = [
+    ...new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelectorAll("script"),
+  ].find((script) => script.textContent?.includes("canvasImportMap"));
+  if (!setup?.textContent) throw new Error("import-map setup script not found");
+
+  const blobs: string[] = [];
+  const installed: { type?: string; textContent?: string } = {};
+  const documentStub = {
+    createElement: () => installed,
+    head: { appendChild: () => undefined },
+  };
+  const urlStub = {
+    createObjectURL: (blob: { parts: string[] }) =>
+      `blob:${blobs.push(blob.parts.join("")) - 1}`,
+  };
+  class BlobStub {
+    constructor(public parts: string[]) {}
+  }
+
+  new Function("document", "URL", "Blob", setup.textContent)(
+    documentStub,
+    urlStub,
+    BlobStub,
+  );
+
+  expect(installed.type).toBe("importmap");
+  const imports = JSON.parse(installed.textContent ?? "{}").imports;
+  // Resolve blob handles back to their source so callers can assert content.
+  for (const [name, url] of Object.entries(imports)) {
+    const index = /^blob:(\d+)$/.exec(String(url))?.[1];
+    if (index) imports[name] = blobs[Number(index)];
+  }
+  return imports;
 }
 
 describe("decodeJsxUnicodeEscapes", () => {
@@ -58,12 +104,98 @@ describe("decodeJsxUnicodeEscapes", () => {
 });
 
 describe("buildSandboxDocument", () => {
+  it("publishes navigation and the same GitHub URL restriction as the host", () => {
+    const source = builderSource.match(/const runtime = `([^`]*)`/)?.[1];
+    if (!source) throw new Error("Published runtime not found");
+    const listeners = new Map<string, (event: unknown) => void>();
+    const postMessage = vi.fn();
+    const frame = {
+      ph: undefined as unknown as {
+        navigate: {
+          toNewTask: (options: { prompt: string; repository: string }) => void;
+        };
+        openExternal: (url: string) => void;
+      },
+    };
+    const userActivation = { isActive: true };
+    const parent = {};
+    new Function(
+      "window",
+      "document",
+      "location",
+      "parent",
+      "navigator",
+      "addEventListener",
+      source,
+    )(
+      frame,
+      document,
+      { hash: "" },
+      parent,
+      { userActivation },
+      (name: string, listener: (event: unknown) => void) =>
+        listeners.set(name, listener),
+    );
+    listeners.get("message")?.({
+      source: parent,
+      data: { channel: "posthog-canvas", type: "connect" },
+      ports: [{ postMessage, addEventListener: vi.fn(), start: vi.fn() }],
+    });
+    frame.ph.navigate.toNewTask({
+      prompt: "Inspect this PR",
+      repository: "example/app",
+    });
+    expect(postMessage).toHaveBeenCalledWith({
+      channel: "posthog-canvas",
+      type: "navigate",
+      nav: {
+        target: "compose-task",
+        prompt: "Inspect this PR",
+        repository: "example/app",
+      },
+    });
+    frame.ph.openExternal("https://github.com/example/app/pull/42");
+    expect(postMessage).toHaveBeenLastCalledWith({
+      channel: "posthog-canvas",
+      type: "open-external",
+      url: "https://github.com/example/app/pull/42",
+    });
+    expect(() => frame.ph.openExternal("https://github.com/login")).toThrow(
+      "not allowed",
+    );
+    expect(() =>
+      frame.ph.openExternal("https://github.com.evil.com/example/app/pull/42"),
+    ).toThrow("not allowed");
+    userActivation.isActive = false;
+    expect(() =>
+      frame.ph.navigate.toNewTask({
+        prompt: "Inspect",
+        repository: "example/app",
+      }),
+    ).toThrow("user action");
+  });
   it("inlines the unicode-escape decoder into the bootstrap", () => {
     const html = buildSandboxDocument();
     expect(html).toContain(
       "const decodeUnicodeEscapes = function decodeJsxUnicodeEscapes(",
     );
     expect(html).toContain("jsxUnicodeEscapesPlugin");
+  });
+
+  // The SDK has no CDN pin, so it resolves only if the document mints it as a
+  // blob module and registers it. Assembling the map at runtime also has to
+  // keep the CDN pins it replaced, because losing those breaks every canvas
+  // rather than only the ones importing the SDK.
+  it("registers the canvas SDK alongside the CDN pins in the import map", () => {
+    const imports = installedImportMap(buildSandboxDocument());
+
+    expect(imports[CANVAS_SDK_SPECIFIER]).toBe(CANVAS_SDK_MODULE_SOURCE);
+    expect(imports.react).toContain("esm.sh");
+    expect(imports["react/jsx-runtime"]).toContain("esm.sh");
+  });
+
+  it("treats null connector options as an omitted refresh value", () => {
+    expect(buildSandboxDocument()).toContain("refresh: options?.refresh");
   });
 
   it("inlines the external-anchor resolver into the bootstrap", () => {

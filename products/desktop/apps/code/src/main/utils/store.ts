@@ -29,17 +29,6 @@ interface RendererStoreSchema {
   [key: string]: string;
 }
 
-interface QuickAskStoreSchema {
-  panelEnabled: boolean;
-  shortcut: string;
-  defaultChannelId: string;
-  defaultRepositories: string[];
-  defaultGithubIntegrationId: number;
-  defaultAdapter: string;
-  defaultModel: string;
-  defaultEffort: string;
-}
-
 export interface WindowStateSchema {
   x: number | undefined;
   y: number | undefined;
@@ -64,23 +53,6 @@ export const focusStore = new Store<FocusStoreSchema>({
   cwd: userDataDir,
   defaults: { sessions: {} },
 });
-
-export const quickAskStore = new Store<QuickAskStoreSchema>({
-  name: "quick-ask",
-  cwd: userDataDir,
-  defaults: {
-    panelEnabled: false,
-    shortcut: "",
-    defaultChannelId: "",
-    defaultRepositories: [],
-    defaultGithubIntegrationId: 0,
-    defaultAdapter: "",
-    defaultModel: "",
-    defaultEffort: "",
-  },
-});
-
-export type { FocusSession };
 
 export const windowStateStore = new Store<WindowStateSchema>({
   name: "window-state",
@@ -146,8 +118,4 @@ export function getFullScreenDisplayBounds(): DisplayBounds | undefined {
  */
 export function setRestoreFullScreenOnNextLaunch(restore: boolean): void {
   setWindowState("restoreFullScreenOnNextLaunch", restore);
-}
-
-export function getRestoreFullScreenOnNextLaunch(): boolean {
-  return windowStateStore.get("restoreFullScreenOnNextLaunch", false);
 }

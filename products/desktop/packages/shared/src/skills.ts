@@ -13,6 +13,7 @@ export interface SkillInfo {
   skillMdBytes: number;
   /** Frontmatter `disable-model-invocation: true`: only an explicit user invocation runs the skill, never the agent on its own. */
   disableModelInvocation?: boolean;
+  enabled?: boolean;
 }
 
 export interface SkillFileEntry {

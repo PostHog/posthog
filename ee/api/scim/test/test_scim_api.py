@@ -8,11 +8,12 @@ from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
+from products.access_control.backend.models.role import Role
+
 from ee.api.scim.auth import generate_scim_token
 from ee.api.scim.user import PostHogSCIMUser
 from ee.api.scim.utils import get_scim_base_url
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role
 
 
 class TestSCIMAPI(APILicensedTest):
@@ -635,6 +636,7 @@ class TestSCIMAuditLogging(APILicensedTest):
         assert log is not None, f"Expected activity log with activity='{expected_activity}'"
         assert log.is_system is True
         assert log.user is None
+        assert (log.credential_type, log.credential_id) == ("scim", str(self.config.id))
         assert log.organization_id == self.organization.id
         assert log.detail is not None
         assert log.detail.get("context", {}).get("identity_provider_config_id") == str(self.config.id)

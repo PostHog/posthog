@@ -1,19 +1,11 @@
-import { ArrowSquareOut } from "@phosphor-icons/react";
-import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
-import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Button, Switch } from "@posthog/quill";
+import { Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   EFFORT_LEVEL_DOCS_URLS,
   EFFORT_LEVEL_LABELS,
   EFFORT_LEVELS,
 } from "@posthog/shared/domain-types";
-import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import {
-  MISSION_CONTROL_CLIENT,
-  type MissionControlClient,
-} from "@posthog/ui/features/mission-control/identifiers";
 import {
   ReasoningLevelDropdown,
   type ReasoningLevelOption,
@@ -25,7 +17,7 @@ import {
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { SettingsSegmented } from "@posthog/ui/features/settings/components/SettingsSegmented";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
-import { ThemePicker } from "@posthog/ui/features/settings/components/ThemePicker";
+import { AccountSection } from "@posthog/ui/features/settings/sections/AccountSettings";
 import { UpdatesSection } from "@posthog/ui/features/settings/sections/UpdatesSettings";
 import {
   type AutoConvertLongText,
@@ -37,10 +29,8 @@ import {
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
 import { track } from "@posthog/ui/shell/analytics";
-import type { ThemePreference } from "@posthog/ui/shell/themeStore";
-import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 
 const DEFAULT_EFFORT_OPTIONS: ReasoningLevelOption[] = [
@@ -59,13 +49,6 @@ const MESSAGING_MODE_OPTIONS = [
 
 export function GeneralSettings() {
   const hostTRPC = useHostTRPC();
-  const isAuthenticated = useAuthStateValue(
-    (state) => state.status === "authenticated",
-  );
-  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
-
-  const theme = useThemeStore((state) => state.theme);
-  const setTheme = useThemeStore((state) => state.setTheme);
 
   const { localWorkspaces } = useHostCapabilities();
   const { preventSleepWhileRunning, setPreventSleepWhileRunning } =
@@ -103,40 +86,6 @@ export function GeneralSettings() {
     [setPreventSleepWhileRunning, preventSleepMutation],
   );
 
-  // Mission Control overlay state. The client is bound on desktop only, so on
-  // other hosts this resolves to null and the setting is hidden.
-  const queryClient = useQueryClient();
-  const missionControl = useServiceOptional<MissionControlClient>(
-    MISSION_CONTROL_CLIENT,
-  );
-  const { data: missionControlSupported } = useQuery({
-    queryKey: ["missionControlOverlay", "supported"],
-    queryFn: () => missionControl?.isSupported() ?? false,
-    enabled: missionControl != null,
-  });
-  const { data: missionControlEnabled } = useQuery({
-    queryKey: ["missionControlOverlay", "enabled"],
-    queryFn: () => missionControl?.getEnabled() ?? false,
-    enabled: missionControl != null && missionControlSupported === true,
-  });
-  const missionControlMutation = useMutation({
-    mutationFn: (enabled: boolean) =>
-      missionControl?.setEnabled(enabled) ?? Promise.resolve(),
-  });
-
-  const handleMissionControlOverlayChange = useCallback(
-    (checked: boolean) => {
-      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
-        setting_name: "mission_control_overlay",
-        new_value: checked,
-        old_value: !checked,
-      });
-      queryClient.setQueryData(["missionControlOverlay", "enabled"], checked);
-      missionControlMutation.mutate(checked);
-    },
-    [missionControlMutation, queryClient],
-  );
-
   const {
     autoConvertLongText,
     defaultInitialTaskMode,
@@ -153,18 +102,6 @@ export function GeneralSettings() {
     setDiffOpenMode,
     setSendMessagesWith,
   } = useSettingsStore();
-
-  const handleThemeChange = useCallback(
-    (value: ThemePreference) => {
-      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
-        setting_name: "theme",
-        new_value: value,
-        old_value: theme,
-      });
-      setTheme(value);
-    },
-    [theme, setTheme],
-  );
 
   const handleAutoConvertLongTextChange = useCallback(
     (value: AutoConvertLongText) => {
@@ -250,56 +187,19 @@ export function GeneralSettings() {
     [sendMessagesWith, setSendMessagesWith],
   );
 
-  const accountUrl = buildPostHogUrl("/settings/user", cloudRegion);
-
   return (
     <div className="flex flex-col gap-7">
-      {isAuthenticated && (
-        <SettingsCard>
-          <SettingsCardRow
-            label="PostHog account"
-            description="Account and billing details are managed on PostHog"
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!accountUrl}
-              onClick={() => {
-                if (accountUrl) window.open(accountUrl, "_blank");
-              }}
-            >
-              Manage
-              <ArrowSquareOut size={12} />
-            </Button>
-          </SettingsCardRow>
-        </SettingsCard>
-      )}
-
-      <SettingsSection label="Appearance">
-        <ThemePicker value={theme} onChange={handleThemeChange} />
-        {missionControl != null && missionControlSupported === true && (
-          <SettingsCard>
-            <SettingsCardRow
-              label="Mission Control overlay"
-              description="Show the PostHog logo over the window in macOS Mission Control"
-            >
-              <Switch
-                size="sm"
-                checked={missionControlEnabled ?? false}
-                onCheckedChange={handleMissionControlOverlayChange}
-              />
-            </SettingsCardRow>
-          </SettingsCard>
-        )}
-      </SettingsSection>
+      <AccountSection />
 
       <SettingsSection
         label="New tasks"
-        description="Defaults for every new task. You can change any of these per task in the composer."
+        description="Defaults for every new task; you can change any of these per task in the composer"
       >
         <SettingsCard>
-          <SettingsCardRow label="Start in">
+          <SettingsCardRow
+            label="Start in"
+            description="The mode a new task opens in; Plan drafts an approach before any changes"
+          >
             <SettingsSegmented
               ariaLabel="Initial task mode"
               value={defaultInitialTaskMode}
@@ -315,7 +215,10 @@ export function GeneralSettings() {
             />
           </SettingsCardRow>
 
-          <SettingsCardRow label="Effort">
+          <SettingsCardRow
+            label="Effort"
+            description="How much reasoning the agent puts into each turn"
+          >
             <ReasoningLevelDropdown
               value={defaultReasoningEffort}
               options={DEFAULT_EFFORT_OPTIONS}
@@ -332,11 +235,11 @@ export function GeneralSettings() {
 
           <SettingsCardRow
             label="Messaging"
-            description="Queue holds messages until the turn ends. Steer applies them mid-turn."
+            description="Queue holds messages until the turn ends; Steer applies them mid-turn"
           >
             <div className="flex items-center gap-5">
               <div className="flex flex-col items-start gap-1">
-                <span className="text-[10px] text-gray-9 uppercase tracking-wide">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
                   Local
                 </span>
                 <SettingsSegmented
@@ -351,7 +254,7 @@ export function GeneralSettings() {
                 />
               </div>
               <div className="flex flex-col items-start gap-1">
-                <span className="text-[10px] text-gray-9 uppercase tracking-wide">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
                   Cloud
                 </span>
                 <SettingsSegmented
@@ -370,14 +273,17 @@ export function GeneralSettings() {
         </SettingsCard>
       </SettingsSection>
 
-      <SettingsSection label="Composer">
+      <SettingsSection
+        label="Composer"
+        description="How the message box behaves while you type"
+      >
         <SettingsCard>
           <SettingsCardRow
             label="Send messages with"
             description={
               sendMessagesWith === "enter"
                 ? "Shift+Enter inserts a new line"
-                : undefined
+                : "Enter inserts a new line"
             }
           >
             <SettingsSegmented
@@ -417,9 +323,15 @@ export function GeneralSettings() {
         </SettingsCard>
       </SettingsSection>
 
-      <SettingsSection label="Editor">
+      <SettingsSection
+        label="Editor"
+        description="Where diffs open and what happens while agents run"
+      >
         <SettingsCard>
-          <SettingsCardRow label="Open diffs in">
+          <SettingsCardRow
+            label="Open diffs in"
+            description="Which pane a changed file opens in when you click it"
+          >
             <SettingsSelect
               ariaLabel="Open diffs in"
               value={diffOpenMode}
@@ -441,7 +353,7 @@ export function GeneralSettings() {
               label="Keep awake while agents work"
               description={
                 hasBuiltInBattery
-                  ? "Stops your computer from sleeping on its own during a task. Closing the lid still puts it to sleep."
+                  ? "Stops your computer from sleeping on its own during a task; closing the lid still puts it to sleep"
                   : "Stops your computer from sleeping on its own during a task"
               }
             >

@@ -8,7 +8,10 @@ from posthog.hogql import ast
 from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    job_created_floor_constant,
+    run_started_floor_constant,
+)
 
 # A job that failed in under this many seconds did no real work: it's a required-check aggregator
 # echoing a dependency's failure, which double-counts every real flake. The floor separates a job
@@ -39,9 +42,10 @@ _SELECT = """
         maxIf(j.duration_seconds, j.conclusion IN ('failure', 'timed_out')) AS failed_duration_seconds
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON r.id = j.run_id
-    -- created_at_raw is the unparsed string the scan can prune on; the parsed j.created_at filter
-    -- alone can't push down, so both floors keep the sweep off a full jobs+runs scan each hour.
-    WHERE j.created_at >= {date_from} AND j.created_at_raw >= {job_created_floor} AND j.head_sha != ''
+    -- Both sources carry a raw-string floor inside their builder (job_created_floor /
+    -- run_started_floor); the parsed j.created_at filter alone can't push down, so those floors
+    -- keep the sweep off a full jobs+runs scan each hour.
+    WHERE j.created_at >= {date_from} AND j.head_sha != ''
     -- concat yields NULL when j.name is NULL, which a bare NOT IN would drop.
        AND ifNull(concat(lower(r.repo_owner), '/', lower(r.repo_name), '/', j.name), '')
            NOT IN {by_design_failures}
@@ -73,7 +77,7 @@ def query_workflow_flakiness(
     min_failed_duration_seconds: int = NO_OP_JOB_MAX_SECONDS,
     workload: Workload = Workload.DEFAULT,
 ) -> list[FlakyJobRun]:
-    jobs_source = curated.jobs_source()
+    jobs_source = curated.jobs_source(created_floor=True)
     if jobs_source is None:
         return []
     response = curated.run(
@@ -86,10 +90,11 @@ def query_workflow_flakiness(
             "date_from": ast.Constant(value=date_from),
             "min_failed_duration_seconds": ast.Constant(value=min_failed_duration_seconds),
             "by_design_failures": ast.Constant(value=list(BY_DESIGN_FAILURES)),
-            # Same date-only floor for both tables: prunes the runs subquery (run_started_floor) and
-            # the jobs scan (job_created_floor via created_at_raw).
+            # Same date-only floor for both tables — each query filters the column it floors, so both
+            # take the tight one-day slack: the runs subquery (run_started_floor) and the jobs
+            # subquery (job_created_floor).
             "run_started_floor": run_started_floor_constant(date_from),
-            "job_created_floor": run_started_floor_constant(date_from),
+            "job_created_floor": job_created_floor_constant(date_from),
         },
     )
     return [

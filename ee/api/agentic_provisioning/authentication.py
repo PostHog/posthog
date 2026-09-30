@@ -10,12 +10,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
-from posthog.api.oauth.cimd import (
-    enqueue_cimd_refresh_if_stale,
-    get_application_by_client_id,
-    is_cimd_client_id,
-    is_cimd_url_blocked,
-)
+from posthog.api.oauth.cimd import enqueue_cimd_refresh_if_stale
 from posthog.api.oauth.client_assertion import (
     ClientAssertionError,
     ResolvedClientAssertion,
@@ -23,6 +18,7 @@ from posthog.api.oauth.client_assertion import (
     verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import ClientCredentials, extract_client_credentials, verify_client_secret
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, find_oauth_access_token
 from posthog.models.user import User
 
@@ -71,7 +67,7 @@ def resolve_bearer_access_token(request: Request) -> OAuthAccessToken:
     return access_token
 
 
-class ProvisioningAuthentication(BaseAuthentication):
+class ProvisioningAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """Authenticates provisioning requests from any registered partner.
 
     Partners are OAuthApplications with ``is_provisioning_partner`` set. The OAuthApplication
@@ -86,12 +82,17 @@ class ProvisioningAuthentication(BaseAuthentication):
     partner is identified.
     """
 
+    activity_credential_type = "partner"
+
     def authenticate(self, request: Request) -> tuple[None, OAuthApplication] | None:
         app = self._identify_partner(request)
         if app is None:
             return None
 
         capture_auth_event(app, "success", endpoint=request.path)
+        # A public partner is named by a client_id that anyone can send, so only a partner that proved
+        # itself with a secret or a signed assertion is recorded by id.
+        self.record_activity_actor(None, str(app.id) if app.requires_client_authentication else None)
         return (None, app)
 
     def _identify_partner(self, request: Request) -> OAuthApplication | None:
@@ -166,7 +167,7 @@ class ProvisioningAuthentication(BaseAuthentication):
         brought its own proof has to already exist for that proof to mean anything.
         """
         try:
-            app = get_application_by_client_id(client_id)
+            app = OAuthApplication.objects.get(client_id=client_id)
         except OAuthApplication.DoesNotExist:
             return None
 
@@ -179,7 +180,7 @@ class ProvisioningAuthentication(BaseAuthentication):
             # again: scope ceiling and jwks_uri edits would freeze at whatever the app was
             # promoted with. Async, so this request still serves the app we already have.
             try:
-                enqueue_cimd_refresh_if_stale(app.cimd_metadata_url or client_id)
+                enqueue_cimd_refresh_if_stale(app.client_id)
             except Exception as e:
                 logger.warning(
                     "provisioning_cimd_refresh_enqueue_error",
@@ -199,12 +200,10 @@ class ProvisioningAuthentication(BaseAuthentication):
         explicit call to client_registration, so an unknown client_id simply does not resolve
         and the caller is pointed there.
         """
-        if is_cimd_client_id(client_id) and is_cimd_url_blocked(client_id):
-            return None
         return self._resolve_partner(client_id)
 
 
-class ProvisioningBearerAuthentication(BaseAuthentication):
+class ProvisioningBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """Authenticate a provisioning partner via an OAuth bearer token, for the
     resource and deep-link endpoints.
 
@@ -212,7 +211,9 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
     Raises :class:`ProvisioningError` (rendered in the view's envelope) on failure.
     """
 
-    def authenticate(self, request: Request) -> tuple[User | None, OAuthAccessToken]:
+    activity_credential_type = "oauth"
+
+    def authenticate(self, request: Request) -> tuple[User, OAuthAccessToken]:
         try:
             access_token = resolve_bearer_access_token(request)
         except BearerTokenError as exc:
@@ -230,7 +231,18 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
         if not app.provisioning.can_provision_resources:
             raise ProvisioningError("forbidden", "Resource provisioning not enabled for this partner", status=403)
 
-        return access_token.user, access_token
+        # Deactivating a user drops their login sessions but leaves OAuth tokens intact, so the
+        # token has to fail closed here the way `posthog.auth._validate_token` does for the main
+        # API. A token with no user cannot identify a caller at all, and the views downstream
+        # read `request.user` as a User, so it fails closed too.
+        user = access_token.user
+        if user is None or not user.is_active:
+            raise ProvisioningError("unauthorized", "Authentication failed", status=401)
+
+        self.record_activity_actor(
+            user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id
+        )
+        return user, access_token
 
     def authenticate_header(self, request: Request) -> str:
         return "Bearer"
@@ -270,7 +282,7 @@ def authenticate_confidential_partner(request: Request, *, capability: str) -> O
     return partner
 
 
-class ConfidentialPartnerAuthentication(BaseAuthentication):
+class ConfidentialPartnerAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """DRF form of :func:`authenticate_confidential_partner`, so confidential
     endpoints declare it in ``authentication_classes`` and can't ship without
     it. The partner rides ``request.auth``; these endpoints act for the partner,
@@ -279,6 +291,8 @@ class ConfidentialPartnerAuthentication(BaseAuthentication):
     Subclassed per capability rather than parameterized, because DRF instantiates
     authentication classes with no arguments."""
 
+    # `ProvisioningAuthentication` records the partner, because this class authenticates through it.
+    activity_credential_type = "partner"
     capability: str
 
     def authenticate(self, request: Request) -> tuple[AnonymousUser, OAuthApplication]:

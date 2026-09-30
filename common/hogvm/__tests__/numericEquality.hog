@@ -1,0 +1,20 @@
+// Integers and floats are one numeric domain for equality and membership: `1 == 1.0`.
+// Operands are `let`-bound so the compiler emits the Eq/Float opcodes instead of folding.
+let one := 1
+let oneFloat := 1.0
+let thousand := 1000
+let thousandFloat := 1000.0
+let floatString := '1.0'
+
+print(one == oneFloat) // true
+print(one != oneFloat) // false
+print(2 == oneFloat) // false
+print(thousand == thousandFloat) // true
+print(true == oneFloat) // true
+print(one == floatString) // true
+print('1' == oneFloat) // true
+print(oneFloat in [1, 2]) // true
+print(has([1, 2], oneFloat)) // true
+print(indexOf([1.0, 2.0], 2)) // 2
+print(equals(one, oneFloat)) // true
+print(notEquals(one, oneFloat)) // false

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest.mock import patch
 
@@ -75,7 +75,18 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertIn("has no variants", str(ctx.exception))
 
-    @freeze_time("2024-01-07T12:00:00Z")
+    def test_missing_experiment_raises_validation_error(self):
+        # Cached exposure queries can outlive their experiment; a stale id must
+        # surface as a validation error, not an uncaught Experiment.DoesNotExist.
+        query = self._null_multivariate_query()
+        query.experiment_id = self.experiment.id + 1000
+
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        self.assertIn("not found", str(ctx.exception))
+
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):
         # Exposure events are captured under the flag's original key.
         original_key = self.feature_flag.key
@@ -151,7 +162,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ("query_window_starts_after_cutoff", True, -7, 14, 7, {"control": 2, "test": 1}),
         ]
     )
-    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30))
+    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30), tick=False)
     def test_exposure_event_selected_relative_to_cutoff(
         self,
         _name,
@@ -226,7 +237,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.total_exposures, expected_exposures)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_exposure_query_returns_correct_timeseries(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -385,7 +396,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.total_exposures["test"], 5)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_exposure_query_counts_users_only_on_first_exposure(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -504,7 +515,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.total_exposures["test"], 2)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_exposure_query_filters_test_accounts(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -710,7 +721,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ("feature_flag_called_precomputed", "$feature_flag_called", True),
         ]
     )
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_exposure_query_with_custom_exposure(self, _name, exposure_event, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -834,7 +845,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.total_exposures["test"], 5)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_exposure_query_without_feature_flag_property(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -972,7 +983,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.total_exposures["test"], 5)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_exposure_query_with_multiple_variant_exposures(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1065,7 +1076,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.total_exposures[MULTIPLE_VARIANT_KEY], 1)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_exposure_query_using_group_aggregation(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1103,7 +1114,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.total_exposures["test"], 3)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_exposure_query_multiple_variant_handling_first_seen(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1215,7 +1226,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertNotIn(MULTIPLE_VARIANT_KEY, response.total_exposures)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_exposure_query_with_action_as_exposure_criteria(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1328,7 +1339,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_series.exposure_counts[-1], 3)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_calculation_with_balanced_distribution(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
@@ -1392,7 +1403,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_calculation_detects_significant_mismatch(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
@@ -1460,7 +1471,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-07T12:00:00Z")
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_returns_none_when_insufficient_samples(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"

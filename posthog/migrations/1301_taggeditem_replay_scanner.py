@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("replay_vision", "0065_replayscannerbackfill_skipped_count_and_more"),
         ("posthog", "1300_identityproviderconfig_saml_relay_state_unique"),
     ]
 

@@ -79,7 +79,7 @@ Use when the product area already has a widget and you need another visualizatio
 - [ ] Reuse sibling **`groupId`** exactly; label comes from `DASHBOARD_WIDGET_GROUP_LABELS[groupId]`
 - [ ] Distinct **`label`**, **`description`**, **`defaultConfig`**, **`defaultLayout`** (and usually `headerTitle`)
 - [ ] Full backend stack: new `widget_specs/configs.py` model, `widgets/<widget_type>.py`, `registry.py` `WidgetSpec` entry
-- [ ] Full frontend stack: new component (same `widgets/<product>/` dir), edit modal + kea logic, preview in `widgets/previews/` + `DASHBOARD_WIDGET_PREVIEWS` in `catalog.ts`, registry entry in `registry.tsx`, extend `DashboardWidgetProductAccess` + `WIDGET_PRODUCT_ACCESS_CHECKS` in `widgetProductAccess.ts` when RBAC-gated
+- [ ] Full frontend stack: new component (same `widgets/<product>/` dir), edit modal + kea logic, preview in `widgets/previews/` + `DASHBOARD_WIDGET_PREVIEWS` in `widgets/previews/dashboardWidgetPreviews.ts`, registry entry in `registry.tsx`, extend `DashboardWidgetProductAccess` + `WIDGET_PRODUCT_ACCESS_CHECKS` in `widgetProductAccess.ts` when RBAC-gated
 - [ ] Tests: assert shared `groupId` in `registry.test.tsx` like existing ET variants
 
 ### 4c. First widget in a new product area
@@ -178,7 +178,7 @@ Repo rule: presentational widget components belong in Storybook (see `.cursor/ru
 - [ ] Spread shared kea **actions** from `editWidgetModalBuilders.ts`; **inline reducers** (typegen breaks on spread); inline typed `fieldErrors` / `activeFieldErrors` / `saveDisabledReason`
 - [ ] Date-filtered widgets: date range select from `WIDGET_DATE_RANGE_SELECT_OPTIONS` in `widgetConfigShared.ts`
 - [ ] Wire per-type API error parsing: export `parse*WidgetConfigApiError` from `*WidgetConfigValidation.ts` and set **`parseConfigApiError`** on the `DASHBOARD_WIDGET_REGISTRY` entry (`parseDashboardWidgetConfigApiError` in `registry.tsx` → `updateDashboardWidgetTile`)
-- [ ] Preview: component in `widgets/previews/`; register in `DASHBOARD_WIDGET_PREVIEWS` in `widget_types/catalog.ts` (reuse sample data from `widgetOverviewStoryFixtures.ts` when possible)
+- [ ] Preview: component in `widgets/previews/`; register in `DASHBOARD_WIDGET_PREVIEWS` in `widgets/previews/dashboardWidgetPreviews.ts` (not in the catalog: the catalog is on the app shell's import path, previews must stay off it) (reuse sample data from `widgetOverviewStoryFixtures.ts` when possible)
 
 ## 7. Frontend registry
 

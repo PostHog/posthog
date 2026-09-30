@@ -15,6 +15,9 @@ class IneligibleSessionKind(StrEnum):
     # Usually a property of the recording, but it can be a timing artifact (snapshots still ingesting, a
     # backfill landing late), so the retry endpoint accepts ineligible rows and the UI offers a retry here.
     NO_SNAPSHOTS = "no_snapshots"
+    # The recording's snapshot blocks exceed the rasterizer's size cap, so the render is refused before it starts.
+    # This is a fixed property of the recording, so no retry can make the scan succeed.
+    TOO_LARGE = "too_large"
 
 
 class FailureKind(StrEnum):

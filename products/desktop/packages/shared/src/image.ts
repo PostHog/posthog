@@ -59,7 +59,7 @@ const CLAUDE_IMAGE_MIME_TYPES: ReadonlySet<string> = new Set([
   "image/webp",
 ]);
 
-export const CLAUDE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
+const CLAUDE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
   "png",
   "jpg",
   "jpeg",

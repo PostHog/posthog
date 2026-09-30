@@ -59,6 +59,7 @@ class ProgressReporter:
         agent_model: str,
         max_sandboxes: int,
         trials: int,
+        case_timeout_seconds: int,
     ) -> None:
         lines = [
             "Sandboxed eval run",
@@ -67,6 +68,7 @@ class ProgressReporter:
             f"Agent: {agent_runtime} / {agent_model}",
             f"Sandbox concurrency: {max_sandboxes}",
             f"Trials per case: {trials}",
+            f"Case timeout: {case_timeout_seconds}s",
             "",
         ]
         _emit("\n".join(lines))

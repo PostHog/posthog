@@ -15,7 +15,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 from ...api.evaluation_runs import _evaluation_workflow_prefix
 from ...models.evaluations import Evaluation
@@ -82,7 +82,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.ai_observability.backend.api.evaluation_runs.query_with_columns")
+    @patch("products.ai_observability.backend.ai_event_lookup.query_with_columns")
     @patch("products.ai_observability.backend.api.evaluation_runs.sync_connect")
     def test_create_evaluation_run_success(self, mock_connect, mock_query):
         """Test successfully creating an evaluation run"""
@@ -141,7 +141,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
         assert workflow_inputs.event_data is not None
         assert workflow_inputs.event_data["uuid"] == target_event_id.replace("-", "")
 
-    @patch("products.ai_observability.backend.api.evaluation_runs.query_with_columns")
+    @patch("products.ai_observability.backend.ai_event_lookup.query_with_columns")
     @patch("products.ai_observability.backend.api.evaluation_runs.sync_connect")
     def test_create_evaluation_run_tags_clickhouse_query(self, mock_connect, mock_query):
         """The manual eval-trigger ClickHouse lookup must run inside an LLM analytics tag context.
@@ -235,7 +235,10 @@ class TestEvaluationRunViewSet(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert target in response.json()["error"]
+        body = response.json()
+        assert target in body["detail"]
+        # Callers match on this code, so a rename is a breaking change and should fail here.
+        assert body["code"] == "evaluation_target_mismatch"
 
     def test_create_evaluation_run_missing_params(self):
         """Test creating evaluation run with missing parameters"""
@@ -247,6 +250,9 @@ class TestEvaluationRunViewSet(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "target_event_id"
+        assert body["type"] == "validation_error"
 
     def test_create_evaluation_run_different_team(self):
         """Test creating evaluation run for evaluation from different team"""

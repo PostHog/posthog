@@ -16,7 +16,6 @@ const {
   track,
   useAppView,
   navigateToInbox,
-  navigateToAgents,
   navigateToSkills,
   navigateToMcpServers,
   navigateToCommandCenter,
@@ -28,7 +27,6 @@ const {
   track: vi.fn(),
   useAppView: vi.fn(),
   navigateToInbox: vi.fn(),
-  navigateToAgents: vi.fn(),
   navigateToSkills: vi.fn(),
   navigateToMcpServers: vi.fn(),
   navigateToCommandCenter: vi.fn(),
@@ -39,24 +37,19 @@ const {
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
-vi.mock("@posthog/ui/router/useAppView", () => ({ useAppView }));
-// Channel reports defaults off here so the Inbox item renders; the flag-on
-// test flips it via `channelReportsFlag`.
+vi.mock("@posthog/ui/router/useAppView", () => ({
+  useAppView,
+  useReportSourceNavType: () => null,
+}));
+// Channel reports defaults off here; the flag-on test flips it via
+// `channelReportsFlag`.
 let channelReportsFlag = false;
-let reportsInboxFlag = false;
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: (flag: string) =>
-    flag === "posthog-desktop-channel-reports"
-      ? channelReportsFlag
-      : flag === "posthog-desktop-reports-inbox"
-        ? reportsInboxFlag
-        : true,
+    flag === "posthog-desktop-channel-reports" ? channelReportsFlag : true,
 }));
 vi.mock("@posthog/ui/features/feature-flags/useChannelReportsEnabled", () => ({
   useChannelReportsEnabled: () => channelReportsFlag,
-}));
-vi.mock("@posthog/ui/features/feature-flags/useReportsInboxEnabled", () => ({
-  useReportsInboxEnabled: () => reportsInboxFlag,
 }));
 // These tests pin the legacy layout (flag off), where the "Enable channels"
 // toggle row is present.
@@ -65,7 +58,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity,
-  navigateToAgents,
   navigateToCommandCenter,
   navigateToContext: vi.fn(),
   navigateToInbox,
@@ -106,7 +98,16 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
   useTaskActivity: () => ({ items: [], unreadCount: 0, isLoading: false }),
 }));
 vi.mock("@tanstack/react-router", () => ({
-  useRouterState: () => false,
+  useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
+    select({
+      matches: [],
+      location: {
+        pathname: "/",
+        href: "/",
+        search: {},
+        state: {},
+      },
+    }),
 }));
 
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
@@ -124,11 +125,7 @@ describe("SidebarNavSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAppView.mockReturnValue({ type: "task-input" });
-    useSidebarStore.setState({
-      navItemOverrides: {},
-      navItemOrder: [],
-      channelsEnabled: true,
-    });
+    useSidebarStore.setState({ channelsEnabled: true });
   });
 
   it("renders Search directly and removes the More dropdown", () => {
@@ -138,19 +135,6 @@ describe("SidebarNavSection", () => {
     expect(
       screen.queryByRole("button", { name: "More" }),
     ).not.toBeInTheDocument();
-  });
-
-  it.each([
-    ["inbox", "Self-driving"],
-    ["command-center", "Command Center"],
-    ["activity", "Activity"],
-    ["configure", "Settings"],
-    ["loops", "Loops"],
-  ] as const)("removes %s from the sidebar when hidden", (id, label) => {
-    useSidebarStore.setState({ navItemOverrides: { [id]: false } });
-    renderNav();
-
-    expect(screen.queryByText(label)).not.toBeInTheDocument();
   });
 
   it("renders Activity directly under Inbox by default", () => {
@@ -203,21 +187,8 @@ describe("SidebarNavSection", () => {
     expect(openBrowserTab).not.toHaveBeenCalled();
   });
 
-  it("removes the Inbox item when channel reports replace the inbox", () => {
+  it("keeps the Inbox item when channel reports are on", () => {
     channelReportsFlag = true;
-    try {
-      renderNav();
-      expect(
-        screen.queryByRole("button", { name: /Self-driving/ }),
-      ).not.toBeInTheDocument();
-    } finally {
-      channelReportsFlag = false;
-    }
-  });
-
-  it("keeps the Inbox item when the reports inbox reclaims the slot", () => {
-    channelReportsFlag = true;
-    reportsInboxFlag = true;
     try {
       renderNav();
       expect(
@@ -225,7 +196,6 @@ describe("SidebarNavSection", () => {
       ).toBeInTheDocument();
     } finally {
       channelReportsFlag = false;
-      reportsInboxFlag = false;
     }
   });
 

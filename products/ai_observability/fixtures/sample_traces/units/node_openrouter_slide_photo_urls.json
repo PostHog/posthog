@@ -1,0 +1,128 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Summarizing photographed thermodynamics slides",
+  "scenario": "StudyAI lets a student photograph a run of lecture slides and turns them into quick study notes; here four physics slides on entropy and the Carnot cycle go in and a short revision summary comes out.",
+  "summary": {
+    "events": {
+      "$ai_trace": 1,
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-node"
+    ],
+    "providers": [
+      "openrouter"
+    ],
+    "frameworks": [],
+    "models": [
+      "google/gemini-3.8-flash"
+    ],
+    "content_types": [
+      "input_image",
+      "input_text",
+      "message",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib_version": "5.51.6",
+        "$ai_span_name": "digest-lecture-slides",
+        "operation": "generate_lecture_slide_summary",
+        "$ai_provider": "openrouter",
+        "$ai_model": "google/gemini-3.8-flash",
+        "app": "studyai",
+        "input_image_count": 1,
+        "$is_server": true,
+        "account.tier.code": "pro",
+        "environment": "production",
+        "$lib": "posthog-node",
+        "classroom.workspace.id": "ws_8f21a94c",
+        "$ai_trace_id": "d0526670-24ff-7d10-9395-17af3fd38c30",
+        "$ai_span_id": "d0526670-24ff-7d10-9395-17af3fd38c30",
+        "$geoip_disable": true
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 31,
+      "distinct_id": "user-1",
+      "properties": {
+        "upstream.generation.id": "gen-8f21a943-50f4-74ae-fb48-52c48c0f0",
+        "$lib_version": "5.51.6",
+        "$is_server": true,
+        "$geoip_disable": true,
+        "retry_attempts": 0,
+        "input_image_count": 1,
+        "$ai_parent_id": "d0526670-24ff-7d10-9395-17af3fd38c30",
+        "environment": "production",
+        "$ai_trace_id": "d0526670-24ff-7d10-9395-17af3fd38c30",
+        "$ai_provider": "openrouter",
+        "$ai_output_tokens": 100,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_latency": 2.784,
+        "$ai_span_name": "digest-lecture-slides",
+        "$ai_generation_id": "gen-8f21a943-50f4-74ae-fb48-52c48c0f0",
+        "app": "studyai",
+        "classroom.workspace.id": "ws_8f21a94c",
+        "$ai_model": "google/gemini-3.8-flash",
+        "$ai_input_tokens": 4448,
+        "account.tier.code": "pro",
+        "operation": "generate_lecture_slide_summary",
+        "$lib": "posthog-node",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "These four photos show consecutive slides from today's thermodynamics lecture on entropy and the second law, photographed off the projector screen from the third row, so a corner of two of them is slightly blurred where the professor's laser pointer was moving across the text.\nRead whatever text and diagrams you can make out on each slide, then write concise study notes covering the key definitions, the Carnot efficiency formula, and how to set up the refrigerator COP practice problem shown on the last slide, in that order.\nKeep the notes short enough for a five-minute review before Friday's quiz, and call out anything that looks boxed, starred, or underlined on the slide, since our professor almost always tests exactly those items.",
+                "type": "input_text"
+              },
+              {
+                "detail": "auto",
+                "image_url": "https://media.example.com/node_openrouter_slide_photo_urls__W1980739.jpg",
+                "type": "input_image"
+              },
+              {
+                "detail": "auto",
+                "image_url": "https://media.example.com/node_openrouter_slide_photo_urls__W1444062.jpg",
+                "type": "input_image"
+              },
+              {
+                "detail": "auto",
+                "image_url": "https://media.example.com/node_openrouter_slide_photo_urls__W7534715.jpg",
+                "type": "input_image"
+              },
+              {
+                "detail": "auto",
+                "image_url": "https://media.example.com/node_openrouter_slide_photo_urls__W424585.jpg",
+                "type": "input_image"
+              }
+            ],
+            "role": "user",
+            "type": "message"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "**Second Law & Entropy**\n- Entropy of an isolated system never decreases; it's the arrow of time for spontaneous processes.\n- Carnot efficiency: eta = 1 - Tc/Th (temperatures in kelvin). This was boxed on the slide, likely tested.\n- Real engines always fall below Carnot efficiency due to friction and irreversible heat transfer.\n- Practice problem setup: refrigerator COP = Tc / (Th - Tc); plug in the two chamber temperatures from the diagram before solving for COP.",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

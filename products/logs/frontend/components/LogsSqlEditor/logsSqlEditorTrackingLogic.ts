@@ -25,10 +25,8 @@ export interface logsSqlEditorTrackingLogicActions {
     sqlEditorSaveAsEndpointSubmit: (
         name: string,
         description?: string | undefined,
-        queryOverride?: string | undefined,
-        dagId?: string | undefined
+        queryOverride?: string | undefined
     ) => {
-        dagId: string | undefined
         description: string | undefined
         name: string
         queryOverride: string | undefined
@@ -44,13 +42,11 @@ export interface logsSqlEditorTrackingLogicActions {
         name: string,
         materializeAfterSave?: any,
         fromDraft?: string | undefined,
-        dagId?: string | undefined,
         folderId?: string | null | undefined,
         isTest?: any,
         queryOverride?: string | undefined,
         incremental?: import('~/types').DataWarehouseSavedQueryIncremental | undefined
     ) => {
-        dagId: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
         incremental: import('~/types').DataWarehouseSavedQueryIncremental | undefined

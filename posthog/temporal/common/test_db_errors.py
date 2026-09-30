@@ -1,6 +1,11 @@
+import errno
+
 import pytest
 
-from django.db import InterfaceError, InternalError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError, ProgrammingError
+
+import psycopg.errors
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.db_errors import is_transient_db_error
 
@@ -9,6 +14,11 @@ class _WithSqlstate(Exception):
     def __init__(self, sqlstate: str) -> None:
         super().__init__(sqlstate)
         self.sqlstate = sqlstate
+
+
+def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
+    error.__cause__ = cause
+    return error
 
 
 @pytest.mark.parametrize(
@@ -36,37 +46,95 @@ class _WithSqlstate(Exception):
         ),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
+        # The connect path's socket/selector setup raises a bare OSError, not an OperationalError,
+        # when this worker's own fd table is full — same condition already retried on a source's
+        # connect path (postgres.py::_is_too_many_open_files_error).
+        (OSError(errno.EMFILE, "Too many open files"), True),
+        (OSError(errno.ENFILE, "Too many open files in system"), True),
+        # An unrelated errno (e.g. a real permissions problem) must not be swept up just because
+        # it shares the exception type.
+        (OSError(errno.EACCES, "Permission denied"), False),
+        # An activity that re-raises one typed error keeps the drop in __cause__ only.
+        (
+            _raised_from(
+                ApplicationError("Failed to emit $ai_evaluation"),
+                OperationalError("server closed the connection unexpectedly"),
+            ),
+            True,
+        ),
+        # Two links deep, and the condition is a SQLSTATE rather than a message.
+        (
+            _raised_from(
+                ApplicationError("Failed to emit $ai_evaluation"),
+                _raised_from(OperationalError("some driver-specific message"), _WithSqlstate("57P03")),
+            ),
+            True,
+        ),
+        # The wrapper must stay reportable when what it hides is a real defect.
+        (
+            _raised_from(ApplicationError("Failed to emit $ai_evaluation"), KeyError("team_id")),
+            False,
+        ),
     ],
 )
 def test_is_transient_db_error_by_message(error: BaseException, expected: bool) -> None:
     assert is_transient_db_error(error) is expected
 
 
+@pytest.mark.parametrize("suppress_context", [False, True])
+def test_is_transient_db_error_ignores_context(suppress_context: bool) -> None:
+    error = KeyError("team_id")
+    error.__context__ = OperationalError("server closed the connection unexpectedly")
+    error.__suppress_context__ = suppress_context
+
+    assert not is_transient_db_error(error)
+
+
+@pytest.mark.parametrize("cycle_length", [1, 2])
+def test_is_transient_db_error_handles_cyclic_causes(cycle_length: int) -> None:
+    errors = [ValueError("not a database error") for _ in range(cycle_length)]
+    for index, error in enumerate(errors):
+        error.__cause__ = errors[(index + 1) % cycle_length]
+
+    assert not is_transient_db_error(errors[0])
+
+
 @pytest.mark.parametrize(
-    "sqlstate,expected",
+    "error_cls,sqlstate,expected",
     [
-        ("57P03", True),  # cannot_connect_now (server starting up/shutting down)
-        ("3D000", False),  # invalid_catalog_name — persistent misconfiguration
-        ("08P01", False),  # protocol_violation — shared with genuine protocol bugs, so message-only
+        (OperationalError, "57P03", True),  # cannot_connect_now (server starting up/shutting down)
+        (OperationalError, "3D000", False),  # invalid_catalog_name — persistent misconfiguration
+        (OperationalError, "08P01", False),  # protocol_violation — shared with genuine protocol bugs
+        # read_only_sql_transaction: Django wraps psycopg's ReadOnlySqlTransaction as InternalError,
+        # not OperationalError/InterfaceError — a primary/replica failover briefly rejects writes
+        # with this exact SQLSTATE until promotion completes. Exercises the class-independent path.
+        (InternalError, "25006", True),
+        (InternalError, "42601", False),  # syntax_error — a real bug, must keep reaching error tracking
+        # in_failed_sql_transaction shares class 25 with the code above but means a prior statement
+        # in the same transaction already failed — a real defect, not a self-healing infra blip.
+        # Guards against widening the match to the whole class-25 prefix instead of the exact code.
+        (InternalError, "25P02", False),
+        (OperationalError, "40P01", True),  # deadlock_detected — a lock-ordering race, retry resolves it
     ],
 )
-def test_is_transient_db_error_by_sqlstate(sqlstate: str, expected: bool) -> None:
-    error = OperationalError("some driver-specific message")
+def test_is_transient_db_error_by_sqlstate(error_cls: type[Exception], sqlstate: str, expected: bool) -> None:
+    error = error_cls("some driver-specific message")
     error.__cause__ = _WithSqlstate(sqlstate)
     assert is_transient_db_error(error) is expected
 
 
-def test_is_transient_db_error_for_read_only_transaction_failover() -> None:
-    # psycopg raises this under InternalError, not OperationalError — a primary/replica failover
-    # briefly rejects writes with this exact SQLSTATE until promotion completes.
-    error = InternalError("cannot execute INSERT in a read-only transaction")
-    error.__cause__ = _WithSqlstate("25006")
-    assert is_transient_db_error(error) is True
-
-
-def test_is_transient_db_error_rejects_other_internal_errors() -> None:
-    # Class 25 (invalid transaction state) has other codes that are real bugs, not infra hiccups —
-    # only the exact read-only-transaction code should be treated as transient.
-    error = InternalError("current transaction is aborted")
-    error.__cause__ = _WithSqlstate("25P02")
-    assert is_transient_db_error(error) is False
+@pytest.mark.parametrize(
+    "cause,expected",
+    [
+        # A migration adding a column and the activity code reading it ship in the same deploy;
+        # a worker rolling out ahead of the migration completing gets this from Postgres.
+        (psycopg.errors.UndefinedColumn("column posthog_externaldataschema.auto_disabled_at does not exist"), True),
+        (psycopg.errors.UndefinedTable('relation "sourcebatch" does not exist'), True),
+        # A real bug (e.g. a typo in raw SQL) must keep reaching error tracking.
+        (psycopg.errors.SyntaxErrorOrAccessRuleViolation("syntax error"), False),
+    ],
+)
+def test_is_transient_db_error_for_schema_lag(cause: Exception, expected: bool) -> None:
+    error = ProgrammingError(str(cause))
+    error.__cause__ = cause
+    assert is_transient_db_error(error) is expected

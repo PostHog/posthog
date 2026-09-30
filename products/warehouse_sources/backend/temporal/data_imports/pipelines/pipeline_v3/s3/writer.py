@@ -12,6 +12,9 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    unify_schemas_with_text_fallback,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_s3_write_duration_metric,
     get_s3_write_errors_metric,
@@ -52,6 +55,22 @@ def build_schema_dict(schema: pa.Schema) -> dict:
         ],
         "pandas_metadata": schema.pandas_metadata,
     }
+
+
+def _object_size(file_info: object) -> int:
+    # s3fs reports the object size under the lowercase `size` key. S3's own HeadObject shape
+    # uses `Size`, so both are accepted rather than trusting one client's spelling.
+    if not isinstance(file_info, dict):
+        return 0
+    for key in ("size", "Size"):
+        value = file_info.get(key)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return 0
 
 
 def _is_transient_s3_write_error(exc: BaseException) -> bool:
@@ -136,16 +155,16 @@ class S3BatchWriter:
         if activity.in_activity():
             get_s3_write_duration_metric().record(write_duration)
 
-        file_info = self._s3.info(s3_path_without_protocol)
-        byte_size = file_info.get("Size", 0) if isinstance(file_info, dict) else 0
+        byte_size = _object_size(self._s3.info(s3_path_without_protocol))
 
         if self._schema is None:
             self._schema = pa_table.schema
         else:
             # Batches infer their own types, so one run's column can land int64 in an early batch and
             # double in a later one (whole vs fractional values). Permissive promotion widens to the
-            # common type instead of raising ArrowTypeError; the default only unifies identical types.
-            self._schema = pa.unify_schemas([self._schema, pa_table.schema], promote_options="permissive")
+            # common type; flips promotion can't reconcile (string vs int64) fall back to text
+            # instead of raising ArrowTypeError.
+            self._schema = unify_schemas_with_text_fallback([self._schema, pa_table.schema], self._logger)
 
         self._logger.debug(
             f"Batch {batch_index} written successfully",

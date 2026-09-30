@@ -1,3 +1,4 @@
+import re
 import uuid
 import datetime as dt
 import contextlib
@@ -13,6 +14,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.sync import database_sync_to_async
 
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
+from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob
 from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     S3_COPY_BATCH_SIZE,
@@ -244,7 +246,7 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     connect.assert_called_once_with(
         "postgresql://duckgres",
         autocommit=True,
-        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi",
+        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=32Gi",
     )
     assert s3.copy_calls == [
         (
@@ -350,7 +352,7 @@ def test_production_register_connection_requests_right_sized_duckgres_worker(
         password="example-password",
         autocommit=True,
         application_name="ducklake-register",
-        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi",
+        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=32Gi",
     )
 
 
@@ -549,6 +551,96 @@ def test_should_publish_prepared_generation(
     )
 
     assert registration_module._should_publish_prepared_generation(_activity_inputs()) is expected
+
+
+@pytest.mark.parametrize(
+    ("prepared_queryable_folder", "distinct_per_job"),
+    [
+        # A timestamped folder is one generation by construction, so its token stays the timestamp.
+        ("customers__query_1234567890_abcdef12", False),
+        # A rotation slot is reused by later syncs; the job tells the generations apart.
+        ("customers__query_a", True),
+    ],
+)
+def test_generation_token_tells_syncs_on_a_reused_folder_name_apart(
+    prepared_queryable_folder: str, distinct_per_job: bool
+) -> None:
+    first = registration_module._generation_token(prepared_queryable_folder, "job-1")
+    second = registration_module._generation_token(prepared_queryable_folder, "job-2")
+
+    assert (first != second) is distinct_per_job
+    if not distinct_per_job:
+        assert first == "1234567890_abcdef12"
+
+
+@pytest.mark.django_db
+def test_stale_generation_still_publishes_when_the_current_slot_was_registered_by_an_earlier_job(team) -> None:
+    # Slot names repeat: the generation now on slot a was published by job-3, and an earlier
+    # generation on the same slot (job-1) was registered before. Job-2's generation on slot b is
+    # stale but newer than anything DuckLake holds, so it must publish; treating job-1's registration
+    # as "the newer folder already landed" left DuckLake a generation behind.
+    source = ExternalDataSource.objects.create(
+        team=team, source_id="source", connection_id="connection", source_type="Postgres", status="Running"
+    )
+    table = DataWarehouseTable.objects.create(
+        team=team,
+        name="customers",
+        format="Delta",
+        url_pattern="s3://bucket/path",
+        external_data_source=source,
+        queryable_folder="customers__query_a",
+    )
+    schema = ExternalDataSchema.objects.create(
+        team=team,
+        name="customers",
+        source=source,
+        table=table,
+        sync_type_config={
+            "query_folder_state": {
+                "customers__query": {
+                    "active": "customers__query_a",
+                    "active_since": "2026-08-19T10:00:00+00:00",
+                    "active_job_id": "job-3",
+                    "history_since": "2026-08-19T08:00:00+00:00",
+                    "inactive_since": {"customers__query_b": "2026-08-19T10:00:00+00:00"},
+                }
+            }
+        },
+    )
+    started_at = dt.datetime(2026, 8, 19, 9, tzinfo=dt.UTC)
+    earlier_registration = registration_module._register_source_job_update(
+        inputs=DuckLakeRegisterDataImportsInputs(
+            team_id=team.id, job_id="job-1", schema_id=schema.id, prepared_queryable_folder="customers__query_a"
+        ),
+        status=ManagedWarehouseSourceJobStatus.COMPLETED,
+        started_at=started_at,
+        finished_at=started_at,
+    )
+    ManagedWarehouseSourceJob.objects.for_team(team.id).create(
+        team=team,
+        environment_id=team.id,
+        schema_id=schema.id,
+        source_job_id="job-1",
+        attempt_id=earlier_registration.attempt_id,
+        workflow_type=ManagedWarehouseSourceJob.WorkflowType.REGISTER,
+        status=ManagedWarehouseSourceJob.Status.COMPLETED,
+        started_at=started_at,
+        finished_at=started_at,
+    )
+    stale_inputs = DuckLakeRegisterDataImportsActivityInputs(
+        team_id=team.id,
+        job_id="job-2",
+        metadata=DuckLakeRegisterDataImportsMetadata(
+            source_schema_id=str(schema.id),
+            prepared_queryable_folder="customers__query_b",
+            prepared_source_uri="s3://source/team/customers__query_b",
+            landing_uri="s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job-2",
+            ducklake_schema_name="posthog_data_imports_team_1",
+            ducklake_table_name="postgres_customers",
+        ),
+    )
+
+    assert registration_module._should_publish_prepared_generation(stale_inputs) is True
 
 
 def test_copy_activity_registers_when_prepared_generation_is_no_longer_current(monkeypatch):
@@ -1174,6 +1266,24 @@ def _mock_activity_workload_metrics(monkeypatch):
         metrics.bytes_getter,
     )
     return metrics
+
+
+def test_register_worker_memory_stays_above_the_oom_floor() -> None:
+    """Registration workers must keep enough memory to materialize a generation.
+
+    The exact-string assertions elsewhere in this module pin whatever value is
+    configured; they pass just as happily on a value too small to run. This
+    pins the floor instead. Registration reads a whole generation through
+    read_parquet, and a duckgres worker's RSS ratchets across the sequential
+    sessions one run opens, so dropping this below 32Gi reintroduces the
+    OOM-kill that shows up as a lost connection mid-registration.
+    """
+    options = registration_module._DUCKGRES_REGISTER_WORKER_OPTIONS
+    match = re.search(r"duckgres\.worker_memory=(\d+)Gi", options)
+    assert match is not None, f"worker_memory must be set in Gi: {options!r}"
+    assert int(match.group(1)) >= 32, (
+        f"registration worker memory is {match.group(1)}Gi, below the 32Gi floor: {options!r}"
+    )
 
 
 def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:

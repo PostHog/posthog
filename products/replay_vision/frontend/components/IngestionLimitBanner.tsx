@@ -12,19 +12,19 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 export function IngestionLimitBanner(): JSX.Element | null {
     // visionQuotaLogic triggers the billing load; billingLogic doesn't self-load on mount.
     useMountedLogic(visionQuotaLogic)
-    const { isProductOverUsageLimit } = useValues(billingLogic)
+    const { isProductAtOrOverUsageLimit } = useValues(billingLogic)
 
-    const eventsLimited = isProductOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)
-    const recordingsLimited = isProductOverUsageLimit(ProductKey.SESSION_REPLAY)
+    const eventsLimited = isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)
+    const recordingsLimited = isProductAtOrOverUsageLimit(ProductKey.SESSION_REPLAY)
     if (!eventsLimited && !recordingsLimited) {
         return null
     }
     const message =
         eventsLimited && recordingsLimited
-            ? 'Your organization is over its Product analytics and Session replay limits, so new events and recordings may not be captured. Scanners may have nothing new to scan until the limits are raised.'
+            ? 'Your organization has reached its Product analytics and Session replay limits, so new events and recordings may not be captured. Scanners may have nothing new to scan until the limits are raised.'
             : eventsLimited
-              ? 'Your organization is over its Product analytics limit, so new events may not be captured. Sessions without event data are marked ineligible when scanned.'
-              : 'Your organization is over its Session replay limit, so new recordings may not be captured. Scanners may have nothing new to scan until the limit is raised.'
+              ? 'Your organization has reached its Product analytics limit, so new events may not be captured. Sessions without event data are marked ineligible when scanned.'
+              : 'Your organization has reached its Session replay limit, so new recordings may not be captured. Scanners may have nothing new to scan until the limit is raised.'
     return (
         <LemonBanner type="warning">
             {message} <Link to={urls.organizationBilling()}>Manage billing limits</Link>

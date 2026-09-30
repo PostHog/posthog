@@ -8,6 +8,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -216,20 +218,37 @@ def _request(
         ) from e
 
 
+# Setup-time messages for a token Notion refuses. Worded to match the sync-time messages the
+# source class maps the same two failures to, so the same problem reads the same way in the
+# wizard and in the sync error panel.
+INVALID_TOKEN_ERROR = (
+    "Your Notion integration token is invalid or expired. Create a new internal integration token in Notion, "
+    "then enter it here."
+)
+MISSING_CAPABILITIES_ERROR = (
+    "Your Notion integration cannot read your content. Give it read capabilities in Notion and share the pages "
+    "and databases you want to sync with it."
+)
+# The raw exception, and Notion's own error body, carry request URLs and response detail that mean
+# nothing to the person filling in the form. Capture them instead and show fixed guidance.
+TOKEN_CHECK_FAILED_ERROR = "PostHog could not check your Notion token. Wait a few minutes, then try again."
+
+
 def validate_credentials(token: str, api_version: str) -> tuple[bool, str | None]:
     try:
         session = make_tracked_session(headers=_get_headers(token, api_version), redact_values=(token,))
         response = session.get(f"{NOTION_BASE_URL}/v1/users/me", timeout=10)
     except Exception as e:
-        return False, str(e)
+        capture_exception(e)
+        return False, TOKEN_CHECK_FAILED_ERROR
 
     if response.status_code == 200:
         return True, None
     if response.status_code == 401:
-        return False, "Invalid Notion integration token"
+        return False, INVALID_TOKEN_ERROR
     if response.status_code == 403:
-        return False, "Notion integration token is missing the required capabilities"
-    return False, f"Notion API error: HTTP {response.status_code}"
+        return False, MISSING_CAPABILITIES_ERROR
+    return False, TOKEN_CHECK_FAILED_ERROR
 
 
 def _search_body(object_filter: str, cursor: str | None) -> dict[str, Any]:
@@ -345,9 +364,19 @@ def _iter_page_ids(
 ) -> Iterator[str]:
     cursor: str | None = None
     while True:
-        data = _request(
-            session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor), throttle=throttle
-        )
+        try:
+            data = _request(
+                session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor), throttle=throttle
+            )
+        except NotionBadRequestError as e:
+            if cursor is None or not _is_invalid_start_cursor(e):
+                raise
+            # A cursor can expire mid-enumeration on a large workspace; restart from the beginning
+            # rather than failing the blocks/comments fan-out. Page ids already yielded get re-yielded,
+            # which the callers tolerate (blocks/comments dedup on primary key at merge).
+            logger.warning("Notion: page-id search cursor rejected as invalid; restarting enumeration from the start")
+            cursor = None
+            continue
         for item in data.get("results", []):
             # "id" is the primary key driving the blocks/comments fan-out; access it directly so a
             # malformed response missing it surfaces loudly instead of silently dropping the page.

@@ -9,6 +9,10 @@ export interface TurnTrailer {
     isLastTurn: boolean
     /** The turn's assistant text, concatenated across its message bubbles. */
     turnText: string
+    /** The turn's gateway trace id — `$ai_trace_id` on its generations and its feedback. */
+    traceId?: string
+    /** When the turn completed, in milliseconds. Absent for imported or untimed history. */
+    timestamp?: number
 }
 
 /**
@@ -28,7 +32,18 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
             // A crashed turn never emits its separator; its text must not leak into the next turn.
             textParts = []
         } else if (item.type === 'turn_separator') {
-            trailers.set(item.id, { turnIndex, isLastTurn: false, turnText: textParts.join('\n\n') })
+            // A separator with no answer behind it is a duplicate turn-end marker (the history/live
+            // seam can leak one); it is not a turn and gets no trailer.
+            if (textParts.length === 0) {
+                continue
+            }
+            trailers.set(item.id, {
+                turnIndex,
+                isLastTurn: false,
+                turnText: textParts.join('\n\n'),
+                traceId: item.traceId,
+                timestamp: item.startedAt,
+            })
             lastSeparatorId = item.id
             turnIndex += 1
             textParts = []
@@ -41,4 +56,23 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
         }
     }
     return trailers
+}
+
+/** Human messages keep their own footer, and rows of an unfinished turn have no separator yet, so neither gets an entry. */
+export function mapRowsToTurnSeparator(items: ReadonlyArray<{ id: string; type: string }>): Map<string, string> {
+    const membership = new Map<string, string>()
+    let pending: string[] = []
+    for (const item of items) {
+        if (item.type === 'human_message') {
+            pending = []
+        } else if (item.type === 'turn_separator') {
+            for (const id of pending) {
+                membership.set(id, item.id)
+            }
+            pending = []
+        } else {
+            pending.push(item.id)
+        }
+    }
+    return membership
 }

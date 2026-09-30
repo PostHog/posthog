@@ -30,13 +30,13 @@ from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
     a_delete_schedule,
+    a_describe_schedule,
     a_schedule_exists,
     a_trigger_schedule,
     a_unpause_schedule,
     a_update_schedule,
     create_schedule,
     delete_schedule,
-    describe_schedule,
     pause_schedule,
     schedule_exists,
     trigger_schedule,
@@ -44,6 +44,8 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
+
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus, ExternalDataSchemaSyncType
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -227,6 +229,22 @@ def external_data_workflow_exists(id: str) -> bool:
 async def a_external_data_workflow_exists(id: str) -> bool:
     temporal = await async_connect()
     return await a_schedule_exists(temporal, schedule_id=id)
+
+
+@async_to_sync
+async def is_external_data_schedule_paused(id: str) -> bool:
+    """Whether a schema's extraction schedule exists and is currently paused.
+
+    A missing schedule reads as not paused — there is nothing to resume.
+    """
+    temporal = await async_connect()
+    try:
+        desc = await a_describe_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return desc.schedule.state.paused
 
 
 def pause_external_data_schedule(id: str):
@@ -415,7 +433,7 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
     return (
         ExternalDataSchema.objects.exclude(deleted=True)
-        .filter(team_id=team_id, status=ExternalDataSchema.Status.PAUSED)
+        .filter(team_id=team_id, status=ExternalDataSchemaStatus.PAUSED)
         .exists()
     )
 
@@ -503,13 +521,29 @@ def get_cdc_extraction_schedule(
     )
 
 
-def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = False) -> None:
+def sync_cdc_extraction_schedule(
+    source: ExternalDataSource, create: bool = False, trigger_immediately: bool = True
+) -> None:
     """Create or update the CDC extraction Temporal schedule for a source.
 
     Calculates the interval from the most frequent CDC schema. If no CDC
-    schemas are active, deletes the schedule.
+    schemas are active, deletes the schedule. A schedule this creates fires its
+    first run straight away unless `trigger_immediately` is off.
     """
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.source_management import source_type_supports_cdc
+
+    if not source_type_supports_cdc(source.source_type):
+        # Nothing can read a change stream from this source type, so the schedule could only fire
+        # and fail on every interval. Drop any an earlier call left behind, because the extraction
+        # activity deletes its own schedule for the same reason and this must not recreate it.
+        logger.warning(
+            "Refusing a CDC extraction schedule — source type does not support CDC",
+            source_id=str(source.id),
+            source_type=source.source_type,
+        )
+        delete_cdc_extraction_schedule(str(source.id))
+        return
 
     # `source__deleted=True` is excluded so a deleted source (whose schemas may have been
     # left non-deleted by `soft_delete`) collapses to the "no active CDC schemas" branch below
@@ -517,7 +551,7 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     cdc_schemas = list(
         ExternalDataSchema.objects.filter(
             source=source,
-            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type=ExternalDataSchemaSyncType.CDC,
             should_sync=True,
         )
         .exclude(deleted=True)
@@ -554,15 +588,41 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     )
 
     if create:
-        create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+        create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=trigger_immediately)
     else:
         try:
             update_schedule(temporal, id=schedule_id, schedule=schedule)
         except temporalio.service.RPCError as e:
             if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+                create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=trigger_immediately)
             else:
                 raise
+
+
+def trigger_cdc_extraction_schedule(source_id: str) -> bool:
+    """Start a CDC extraction run for a source now. Returns False when the schedule is gone.
+
+    Recreating it is the caller's job, because building a schedule reads the source row and this
+    boundary takes ids: `sync_cdc_extraction_schedule(source, create=True)` fires its first run.
+    """
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
+    temporal = sync_connect()
+    try:
+        trigger_schedule(temporal, schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+            raise
+        return False
+    return True
+
+
+def cdc_extraction_schedule_exists(source_id: str) -> bool:
+    """Whether the source's CDC extraction schedule is there.
+
+    Recreating a missing one is the caller's job, as it is for the trigger: building a schedule
+    reads the source row, and this boundary takes ids.
+    """
+    return external_data_workflow_exists(_get_cdc_extraction_schedule_id(source_id))
 
 
 def delete_cdc_extraction_schedule(source_id: str) -> None:
@@ -616,31 +676,12 @@ async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
     schedule_id = _get_cdc_extraction_schedule_id(source_id)
     temporal = await async_connect()
     try:
-        desc = await describe_schedule(temporal, schedule_id=schedule_id)
+        desc = await a_describe_schedule(temporal, schedule_id=schedule_id)
     except temporalio.service.RPCError as e:
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             return False
         raise
     return desc.schedule.state.paused
-
-
-@async_to_sync
-async def cdc_extraction_schedule_has_running_action(source_id: str) -> bool:
-    """Whether an extraction run started by the source's schedule is still executing.
-
-    Pausing a schedule stops future firings but not a workflow already running — anything that
-    must not race an in-flight extraction (the buffered-ingress rollback) has to wait on this
-    after pausing. A missing schedule has nothing running.
-    """
-    schedule_id = _get_cdc_extraction_schedule_id(source_id)
-    temporal = await async_connect()
-    try:
-        desc = await describe_schedule(temporal, schedule_id=schedule_id)
-    except temporalio.service.RPCError as e:
-        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-            return False
-        raise
-    return bool(desc.info.running_actions)
 
 
 @async_to_sync

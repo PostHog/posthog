@@ -1,3 +1,5 @@
+from typing import get_type_hints
+
 import pytest
 from posthog.test.base import APIBaseTest
 
@@ -7,15 +9,12 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
+from products.mcp_analytics.backend.facade import queries
 from products.mcp_analytics.backend.hogql_queries.base import validate_mcp_analytics_access
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 # Guards that "mcp_analytics" being registered in ACCESS_CONTROL_RESOURCES is actually enforced
@@ -123,3 +122,22 @@ class TestMCPAnalyticsAccessControl(_MCPAnalyticsTeamScopedTestMixin, APIBaseTes
         user = User.objects.create_and_join(self.organization, "mcp-default@posthog.com", "testtest")
 
         assert validate_mcp_analytics_access(self.team, user) is True
+
+    @parameterized.expand(
+        [
+            (runner_name, access_level, should_raise)
+            for runner_name in queries.__all__
+            for access_level, should_raise in (("none", True), ("viewer", False))
+        ]
+    )
+    def test_every_query_runner_enforces_rbac(self, runner_name: str, access_level: str, should_raise: bool) -> None:
+        runner_cls = getattr(queries, runner_name)
+        query = get_type_hints(runner_cls)["query"].model_construct()
+        user = self._login_with_access_level(access_level)
+        runner = runner_cls(query=query, team=self.team, user=user)
+
+        if should_raise:
+            with self.assertRaises(UserAccessControlError):
+                runner.validate_query_runner_access(user)
+        else:
+            assert runner.validate_query_runner_access(user) is True

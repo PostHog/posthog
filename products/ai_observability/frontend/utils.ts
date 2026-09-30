@@ -4,16 +4,21 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { isObject, isString } from 'lib/utils/guards'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { DateRange, LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
-    EVALUATION_NOT_SKIPPED_HOGQL,
-    EVALUATION_PASSED_HOGQL,
+    EVALUATION_BOOLEAN_GRADED_HOGQL,
+    EVALUATION_NUMERIC_GRADED_HOGQL,
+    EVALUATION_NUMERIC_MEAN_HOGQL,
+    numericEvaluationPassedHogQL,
+    categoricalEvaluationPassedHogQL,
+    EVALUATION_CATEGORICAL_GRADED_HOGQL,
+    EVALUATION_RESULT_TRUE_HOGQL,
     EVALUATION_RUNS_QUERY_LIMIT,
 } from './evaluations/constants'
-import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
+import type { EvaluationConfig, EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
 import type { SummarizeRequestApi } from './generated/api.schemas'
 import {
     AnthropicDocumentMessage,
@@ -105,6 +110,72 @@ export function cleanPagedSearchOrderParams(
 
 function formatUsage(inputTokens: number, outputTokens?: number | null): string | null {
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
+}
+
+/** Whether an AI content property holds anything to render. An empty container holds nothing. */
+export function hasAiContent(value: unknown): boolean {
+    if (value === null || value === undefined || value === '') {
+        return false
+    }
+    if (Array.isArray(value)) {
+        return value.length > 0
+    }
+    if (typeof value === 'object') {
+        return Object.keys(value).length > 0
+    }
+    return true
+}
+
+/**
+ * Picks the AI value to render or pass on: the first that carries content, else the first that is
+ * present at all. Content first, because a generation can send an empty `$ai_output_choices` while
+ * `$ai_output` holds the response, and a nullish check would keep the empty container. Presence as
+ * the fallback, because `useAIData` runs the heavy-property lookup when a side is nullish — a
+ * generation whose output genuinely is empty must render its notice, not fire that query.
+ */
+export function selectAiValue(...values: unknown[]): unknown {
+    return values.find(hasAiContent) ?? values.find((value) => value !== null && value !== undefined)
+}
+
+// Token counts arrive straight off untyped event properties, so a provider that reports one as a
+// string still has to be readable. posthog-ai below 7.3.0 sent them as `{ total, noCache, cacheRead }`.
+// Ingestion normalizes that now, but events captured before it still hold the object shape.
+export function aiTokenCount(value: unknown): number | null {
+    const unwrapped =
+        value !== null && typeof value === 'object' && !Array.isArray(value) && 'total' in value
+            ? (value as { total: unknown }).total
+            : value
+    const parsed = typeof unwrapped === 'string' ? Number(unwrapped) : unwrapped
+    return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null
+}
+
+// Stop reasons that explain an empty output. Each provider spells the same outcome its own way, and
+// the OTel middlewares pass the value through verbatim. `max_tokens`, `MAX_TOKENS`, and `length` all
+// mean the response ran out of room, so match a normalized set rather than one literal.
+const TRUNCATED_STOP_REASONS = new Set(['max_tokens', 'max_output_tokens', 'length', 'model_length'])
+const BLOCKED_STOP_REASONS = new Set([
+    'prohibited_content',
+    'content_filter',
+    'content_filtered',
+    'safety',
+    'recitation',
+    'blocklist',
+])
+
+/** Maps an `$ai_stop_reason` value to what it means for the user, or null for a normal ending. */
+export function describeStopReason(value: unknown): string | null {
+    if (typeof value !== 'string') {
+        return null
+    }
+    // The Vercel AI SDK hyphenates its values, so `content-filter` has to reach the same entry.
+    const normalized = value.trim().toLowerCase().replace(/-/g, '_')
+    if (TRUNCATED_STOP_REASONS.has(normalized)) {
+        return 'The response hit its token limit.'
+    }
+    if (BLOCKED_STOP_REASONS.has(normalized)) {
+        return 'The provider blocked the response.'
+    }
+    return null
 }
 
 export function formatLLMUsage(
@@ -1061,6 +1132,13 @@ type RawEvaluationRunRow = [
     sentiment_score: number | string | null,
     session_id: string | null,
     skipped: boolean | string | null,
+    score?: number | string | null,
+    score_min?: number | string | null,
+    score_max?: number | string | null,
+    categories?: string[] | string | null,
+    start_time?: string | null,
+    backfill_id?: string | null,
+    probability?: number | string | null,
 ]
 
 export function normalizeEvaluationType(value: unknown): EvaluationType | undefined {
@@ -1071,7 +1149,7 @@ export function normalizeEvaluationType(value: unknown): EvaluationType | undefi
 }
 
 export function normalizeEvaluationOutputType(value: unknown): EvaluationOutputType | undefined {
-    if (value === 'boolean' || value === 'sentiment') {
+    if (value === 'boolean' || value === 'sentiment' || value === 'numeric' || value === 'categorical') {
         return value
     }
     return undefined
@@ -1107,6 +1185,10 @@ export interface NormalizedEvaluationResultProperties {
     rawResultType?: unknown
     rawSentimentLabel?: unknown
     rawSentimentScore?: unknown
+    rawCategories?: unknown
+    rawScore?: unknown
+    rawScoreMin?: unknown
+    rawScoreMax?: unknown
 }
 
 export function normalizeEvaluationResultProperties({
@@ -1116,9 +1198,22 @@ export function normalizeEvaluationResultProperties({
     rawResultType,
     rawSentimentLabel,
     rawSentimentScore,
+    rawScore,
+    rawCategories,
+    rawScoreMin,
+    rawScoreMax,
 }: NormalizedEvaluationResultProperties): Pick<
     EvaluationRun,
-    'evaluation_type' | 'result_type' | 'result' | 'sentiment_label' | 'sentiment_score' | 'applicable'
+    | 'evaluation_type'
+    | 'result_type'
+    | 'result'
+    | 'sentiment_label'
+    | 'sentiment_score'
+    | 'applicable'
+    | 'categories'
+    | 'score'
+    | 'score_min'
+    | 'score_max'
 > {
     const evaluationType = normalizeEvaluationType(rawEvaluationType)
     const sentimentLabel =
@@ -1127,8 +1222,22 @@ export function normalizeEvaluationResultProperties({
         normalizeEvaluationOutputType(rawResultType) ??
         (evaluationType === 'sentiment' || sentimentLabel ? 'sentiment' : 'boolean')
 
+    if (resultType === 'categorical') {
+        if (rawCategories == null && isExplicitEvaluationPass(rawApplicable)) {
+            rawCategories = []
+        } else if (typeof rawCategories === 'string') {
+            try {
+                rawCategories = JSON.parse(rawCategories)
+            } catch {
+                rawCategories = null
+            }
+        }
+    }
+
     const result =
         resultType === 'sentiment' ||
+        resultType === 'numeric' ||
+        resultType === 'categorical' ||
         isExplicitEvaluationNotApplicable(rawApplicable) ||
         rawResult === null ||
         rawResult === undefined
@@ -1141,6 +1250,27 @@ export function normalizeEvaluationResultProperties({
         result,
         sentiment_label: sentimentLabel,
         sentiment_score: normalizeOptionalNumber(rawSentimentScore),
+        ...(resultType === 'categorical'
+            ? {
+                  categories:
+                      !isExplicitEvaluationNotApplicable(rawApplicable) &&
+                      Array.isArray(rawCategories) &&
+                      rawCategories.every((value) => typeof value === 'string')
+                          ? rawCategories
+                          : null,
+              }
+            : {}),
+        ...(resultType === 'numeric'
+            ? {
+                  score:
+                      isExplicitEvaluationNotApplicable(rawApplicable) ||
+                      (typeof rawScore !== 'number' && (typeof rawScore !== 'string' || !rawScore.trim()))
+                          ? null
+                          : normalizeOptionalNumber(rawScore),
+                  score_min: normalizeOptionalNumber(rawScoreMin),
+                  score_max: normalizeOptionalNumber(rawScoreMax),
+              }
+            : {}),
         applicable: normalizeEvaluationApplicable(rawApplicable),
     }
 }
@@ -1153,6 +1283,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         rawResultType: row[10],
         rawSentimentLabel: row[11],
         rawSentimentScore: row[12],
+        rawScore: row[15],
+        rawScoreMin: row[16],
+        rawScoreMax: row[17],
+        rawCategories: row[18],
     })
 
     return {
@@ -1165,7 +1299,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         session_id: row[13] || null,
         ...normalizedResult,
         skipped: isExplicitEvaluationPass(row[14]),
-        reasoning: row[7] || 'No reasoning provided',
+        reasoning: row[7] ?? '',
+        probability: normalizeOptionalNumber(row[21]),
+        start_time: row[19] || null,
+        backfill_id: row[20] || null,
         status: 'completed' as const,
     }
 }
@@ -1174,12 +1311,14 @@ export async function queryEvaluationRuns(params: {
     evaluationId?: string
     traceId?: string
     sessionId?: string
+    backfillId?: string
+    dateRange?: DateRange
     /** Bounds the scan so it can prune partitions. Omitted for the trace and generation surfaces,
      * which read a single unit's runs and have always been unbounded. */
     lookbackDays?: number
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, traceId, sessionId, lookbackDays, forceRefresh } = params
+    const { evaluationId, traceId, sessionId, backfillId, dateRange, lookbackDays, forceRefresh } = params
 
     const propertyValue = evaluationId || traceId || sessionId
 
@@ -1208,12 +1347,21 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_sentiment_label as sentiment_label,
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_session_id as session_id,
-            properties.$ai_evaluation_skipped as skipped
+            properties.$ai_evaluation_skipped as skipped,
+            properties.$ai_evaluation_numeric_result as score,
+            properties.$ai_evaluation_numeric_result_min as score_min,
+            properties.$ai_evaluation_numeric_result_max as score_max,
+            properties.$ai_evaluation_categorical_result as categories,
+            properties.$ai_evaluation_start_time as start_time,
+            properties.$ai_evaluation_backfill_id as backfill_id,
+            properties.$ai_evaluation_probability as probability
         FROM events
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+            ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
             ${lookbackDays ? hogql.raw(`AND timestamp >= now() - INTERVAL ${Math.floor(lookbackDays)} DAY`) : hogql.raw('')}
+            ${dateRange ? hogql.raw('AND {filters}') : hogql.raw('')}
         ORDER BY timestamp DESC
         LIMIT ${EVALUATION_RUNS_QUERY_LIMIT}
     `
@@ -1221,7 +1369,10 @@ export async function queryEvaluationRuns(params: {
     const response = await api.queryHogQL(
         query,
         { scene: 'AIObservability', productKey: 'llm_analytics' },
-        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+        {
+            ...(dateRange && { queryParams: { filters: { dateRange } } }),
+            ...(forceRefresh && { refresh: 'force_blocking' }),
+        }
     )
 
     return (response.results || []).map(mapEvaluationRunRow)
@@ -1230,7 +1381,12 @@ export async function queryEvaluationRuns(params: {
 export interface EvaluationRunsStats {
     total: number
     applicable: number
-    passed: number
+    trueCount: number
+    scoreCount?: number
+    scoreMean?: number | null
+    numericPassCount?: number
+    categoricalCount?: number
+    categoricalPassCount?: number
 }
 
 // Counts every matching run server-side. queryEvaluationRuns caps its fetch at
@@ -1238,11 +1394,14 @@ export interface EvaluationRunsStats {
 // undercounting. Counting semantics mirror the evaluations list view (evaluationMetricsLogic)
 // so both surfaces report the same totals.
 export async function queryEvaluationRunsStats(params: {
+    evaluation?: EvaluationConfig | null
     evaluationId?: string
     traceId?: string
+    backfillId?: string
+    dateRange?: DateRange
     forceRefresh?: boolean
 }): Promise<EvaluationRunsStats> {
-    const { evaluationId, traceId, forceRefresh } = params
+    const { evaluation, evaluationId, traceId, backfillId, dateRange, forceRefresh } = params
 
     const propertyValue = evaluationId || traceId
 
@@ -1255,29 +1414,44 @@ export async function queryEvaluationRunsStats(params: {
     const query = hogql`
         SELECT
             count() as total,
-            countIf(properties.$ai_evaluation_result IS NOT NULL AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as applicable,
-            countIf(${hogql.raw(EVALUATION_PASSED_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as passed
+            countIf(${hogql.raw(EVALUATION_BOOLEAN_GRADED_HOGQL)}) as applicable,
+            countIf(${hogql.raw(EVALUATION_RESULT_TRUE_HOGQL)} AND ${hogql.raw(EVALUATION_BOOLEAN_GRADED_HOGQL)}) as true_count,
+            countIf(${hogql.raw(EVALUATION_NUMERIC_GRADED_HOGQL)}) as score_count,
+            ${hogql.raw(EVALUATION_NUMERIC_MEAN_HOGQL)} as score_mean,
+            countIf(${hogql.raw(evaluation?.output_type === 'numeric' ? numericEvaluationPassedHogQL(evaluation) : 'false')} AND ${hogql.raw(EVALUATION_NUMERIC_GRADED_HOGQL)}) as numeric_pass_count,
+            countIf(${hogql.raw(EVALUATION_CATEGORICAL_GRADED_HOGQL)}) as categorical_count,
+            countIf(${hogql.raw(evaluation?.output_type === 'categorical' ? categoricalEvaluationPassedHogQL(evaluation) : 'false')} AND ${hogql.raw(EVALUATION_CATEGORICAL_GRADED_HOGQL)}) as categorical_pass_count
         FROM events
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+            ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
+            ${dateRange ? hogql.raw('AND {filters}') : hogql.raw('')}
     `
 
     const response = await api.queryHogQL(
         query,
         { scene: 'AIObservability', productKey: 'llm_analytics' },
-        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+        {
+            ...(dateRange && { queryParams: { filters: { dateRange } } }),
+            ...(forceRefresh && { refresh: 'force_blocking' }),
+        }
     )
 
     const row = response.results?.[0]
 
     if (!row) {
-        return { total: 0, applicable: 0, passed: 0 }
+        return { total: 0, applicable: 0, trueCount: 0 }
     }
 
     return {
         total: Number(row[0]) || 0,
         applicable: Number(row[1]) || 0,
-        passed: Number(row[2]) || 0,
+        trueCount: Number(row[2]) || 0,
+        scoreCount: Number(row[3]) || 0,
+        scoreMean: Number(row[3]) > 0 ? normalizeOptionalNumber(row[4]) : null,
+        numericPassCount: Number(row[5]) || 0,
+        categoricalCount: Number(row[6]) || 0,
+        categoricalPassCount: Number(row[7]) || 0,
     }
 }

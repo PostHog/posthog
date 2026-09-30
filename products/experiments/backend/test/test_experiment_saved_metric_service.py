@@ -22,19 +22,20 @@ class TestExperimentSavedMetricService(APIBaseTest):
             "source": {"kind": "EventsNode", "event": "$pageview"},
         }
 
-    def test_create_saved_metric_with_minimum_fields(self) -> None:
+    @parameterized.expand([("without_uuid", {}), ("with_client_uuid", {"uuid": "inline-metric-uuid"})])
+    def test_create_saved_metric_with_minimum_fields(self, _name: str, client_uuid: dict) -> None:
         original_query = self._valid_experiment_metric()
         saved_metric = self._service().create_saved_metric(
             name="Service saved metric",
             description="Created through the service",
-            query=original_query,
+            query={**original_query, **client_uuid},
         )
 
         assert saved_metric.team_id == self.team.id
         assert saved_metric.created_by_id == self.user.id
         assert saved_metric.name == "Service saved metric"
         assert saved_metric.description == "Created through the service"
-        assert saved_metric.query["uuid"]
+        assert saved_metric.query["uuid"] not in (None, "", "inline-metric-uuid")
         assert {key: value for key, value in saved_metric.query.items() if key != "uuid"} == original_query
 
     @parameterized.expand(
@@ -58,6 +59,22 @@ class TestExperimentSavedMetricService(APIBaseTest):
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
                 "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'",
+            ),
+            (
+                "conversion_window_on_exposure_start_retention",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "ExperimentExposureNode"},
+                    "completion_event": {"kind": "EventsNode", "event": "purchase"},
+                    "retention_window_start": 0,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "first_seen",
+                    "conversion_window": 14,
+                    "conversion_window_unit": "day",
+                },
+                "a conversion window cannot be combined with an experiment exposure start",
             ),
         ]
     )

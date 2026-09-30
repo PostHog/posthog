@@ -2,6 +2,7 @@ import { resolveCloudResumeOptions } from "@posthog/core/sessions/cloudRunOption
 import { convertStoredEntriesToPortableSessionEvents } from "@posthog/core/sessions/portableSessionEvents";
 import {
   type CloudTaskUpdatePayload,
+  isIdleResumeTurnComplete,
   isTerminalStatus,
   type StoredLogEntry,
   serializeCloudPrompt,
@@ -141,6 +142,7 @@ const TURN_END_METHODS = new Set([
 
 interface BatchAnalysis {
   hasTurnEnd: boolean;
+  hasNonIdleTurnEnd: boolean;
   hasAwaitingUserInput: boolean;
   hasTurnCompleted: boolean;
   hasTurnFailed: boolean;
@@ -156,6 +158,7 @@ function analyzeEntries(
   localUserEchoes: Set<string>,
 ): BatchAnalysis {
   let hasTurnEnd = false;
+  let hasNonIdleTurnEnd = false;
   let hasAwaitingUserInput = false;
   let hasTurnCompleted = false;
   let hasTurnFailed = false;
@@ -167,12 +170,16 @@ function analyzeEntries(
   for (const entry of entries) {
     const method = entry.notification?.method;
     if (method && TURN_END_METHODS.has(method)) {
+      const idleResume = isIdleResumeTurnComplete(entry);
       hasTurnEnd = true;
+      if (!idleResume) {
+        hasNonIdleTurnEnd = true;
+      }
       if (method === "_posthog/awaiting_user_input") {
         hasAwaitingUserInput = true;
       }
       if (
-        method === "_posthog/turn_complete" ||
+        (method === "_posthog/turn_complete" && !idleResume) ||
         method === "_posthog/task_complete"
       ) {
         hasTurnCompleted = true;
@@ -218,6 +225,7 @@ function analyzeEntries(
 
   return {
     hasTurnEnd,
+    hasNonIdleTurnEnd,
     hasAwaitingUserInput,
     hasTurnCompleted,
     hasTurnFailed,
@@ -1033,7 +1041,7 @@ export const useTaskSessionStore = create<TaskSessionStore>((set, get) => ({
         let nextAwaitingPing = current.awaitingPing;
         if (
           !isSnapshot &&
-          (analysis.hasTurnEnd || analysis.agentMessageFinalized)
+          (analysis.hasNonIdleTurnEnd || analysis.agentMessageFinalized)
         ) {
           nextAwaitingPing = false;
         }

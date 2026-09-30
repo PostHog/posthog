@@ -3,9 +3,12 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
+from products.ai_observability.backend.api.clustering_job import ClusteringJobSerializer
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
 
 
@@ -59,6 +62,41 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Prod Traffic")
         self.assertEqual(ClusteringJob.objects.filter(team=self.team).count(), 1)
+
+    # The default test client uses force_login, which skips the scope check, so these
+    # cases use a real Personal API Key — the path MCP and OAuth callers take — to lock
+    # the scope the MCP tools must declare (ai_observability_clusters, not llm_analytics).
+    @parameterized.expand(
+        [
+            ("correct_read_scope", ["ai_observability_clusters:read"], status.HTTP_200_OK),
+            ("write_scope_grants_read", ["ai_observability_clusters:write"], status.HTTP_200_OK),
+            ("wrong_scope_denied", ["llm_analytics:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_list_pak_scope(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("correct_write_scope", ["ai_observability_clusters:write"], status.HTTP_201_CREATED),
+            ("read_scope_denied", ["ai_observability_clusters:read"], status.HTTP_403_FORBIDDEN),
+            ("wrong_scope_denied", ["llm_analytics:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_pak_scope(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.post(
+            self._url(),
+            {"name": "Scoped", "analysis_level": "trace", "event_filters": [], "enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status)
 
     def test_create_job_with_filters(self):
         filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact", "type": "event"}]
@@ -260,6 +298,32 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not found or deleted", str(response.json()))
 
+    def test_create_rejects_malformed_event_filters(self):
+        response = self.client.post(
+            self._url(),
+            {"name": "Malformed", "analysis_level": "trace", "event_filters": {"key": "$ai_model"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "event_filters")
+        self.assertEqual(ClusteringJob.objects.filter(team=self.team).count(), 0)
+
+    @parameterized.expand(
+        [
+            ("bare_string", "$ai_model"),
+            ("list_holding_a_string", ["$ai_model"]),
+        ]
+    )
+    def test_list_still_serializes_a_row_holding_a_malformed_shape(self, name, stored_filters):
+        # The column is an unvalidated JSONField and the config writer only checks for a
+        # list, so an existing row can hold a shape the write path now rejects. The
+        # config-to-job migration copied those values across, which is how a stored list
+        # can hold a non-dict element.
+        self._create_job(name=f"Legacy {name}", event_filters=stored_filters)
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["event_filters"], stored_filters)
+
     def test_partial_update_rejects_missing_cohort_filter(self):
         job = self._create_job(name="Will be broken")
         response = self.client.patch(
@@ -270,6 +334,32 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         job.refresh_from_db()
         self.assertEqual(job.event_filters, [])
+
+
+class TestClusteringJobSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("mapping", {"key": "$ai_model"}),
+            ("list_of_strings", ["$ai_model"]),
+            ("bare_string", "$ai_model"),
+            ("number", 1),
+            ("boolean", True),
+        ]
+    )
+    def test_rejects_event_filters_that_are_not_a_list_of_objects(self, _name, value) -> None:
+        serializer = ClusteringJobSerializer(data={"event_filters": value}, partial=True)
+        assert not serializer.is_valid()
+        assert "event_filters" in serializer.errors
+
+    def test_accepts_event_filter_with_null_value_and_label(self) -> None:
+        # A non-cohort filter never dereferences the team, so a stub get_team keeps
+        # this DB-free while still reaching field validation of the null values.
+        filters = [{"key": "$ai_model", "operator": "exact", "type": "event", "value": None, "label": None}]
+        serializer = ClusteringJobSerializer(
+            data={"event_filters": filters}, partial=True, context={"get_team": lambda: None}
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["event_filters"] == filters
 
 
 class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):

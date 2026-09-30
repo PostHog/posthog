@@ -1,4 +1,5 @@
 import json
+import time
 import logging
 from dataclasses import dataclass
 
@@ -7,7 +8,16 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotRunningError
-from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.memory_watchdog import (
+    build_memory_watchdog_read_command,
+    parse_memory_watchdog_read_output,
+)
+from products.tasks.backend.logic.services.sandbox import SandboxBase, get_sandbox_class_for_sandbox_id
+from products.tasks.backend.temporal.metrics import (
+    increment_memory_watchdog_events,
+    increment_memory_watchdog_teardown,
+    record_memory_peak_ratio,
+)
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = logging.getLogger(__name__)
@@ -24,6 +34,22 @@ class ReadSandboxLogsInput:
 SANDBOX_TERMINATED_MESSAGE = "Sandbox terminated before logs could be captured; no agent-server logs available."
 
 
+def _report_memory_watchdog(sandbox: SandboxBase, sandbox_id: str, run_id: str | None) -> None:
+    result = sandbox.execute(build_memory_watchdog_read_command(), timeout_seconds=10)
+    summary = parse_memory_watchdog_read_output(result.stdout, time.time())
+    logger.info(
+        f"Sandbox memory watchdog summary run_id={run_id} sandbox_id={sandbox_id} kills={summary.kill_count} "
+        f"no_target={summary.no_target} pressure_episodes={summary.pressure_episodes} "
+        f"peak_ratio={summary.peak_ratio} alive={summary.alive} source={summary.source}"
+    )
+    increment_memory_watchdog_teardown(summary.status)
+    increment_memory_watchdog_events("kill", summary.kill_count)
+    increment_memory_watchdog_events("no_target", summary.no_target)
+    increment_memory_watchdog_events("pressure", summary.pressure_episodes)
+    if summary.peak_ratio is not None:
+        record_memory_peak_ratio(summary.peak_ratio)
+
+
 @activity.defn
 @asyncify
 def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
@@ -33,7 +59,7 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
         sandbox_id=input.sandbox_id,
     ):
         try:
-            sandbox = Sandbox.get_by_id(input.sandbox_id)
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
             if not sandbox.is_running():
                 logger.info(f"Sandbox {input.sandbox_id} already terminated; skipping log capture")
                 return SANDBOX_TERMINATED_MESSAGE
@@ -80,6 +106,11 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
                             emit_agent_log(input.run_id, "debug", msg)
             except Exception:
                 logger.debug("agentsh audit query failed for sandbox %s", input.sandbox_id, exc_info=True)
+
+            try:
+                _report_memory_watchdog(sandbox, input.sandbox_id, input.run_id)
+            except Exception:
+                logger.warning("Memory watchdog summary failed for sandbox %s", input.sandbox_id, exc_info=True)
 
             return logs
         except SandboxNotRunningError:

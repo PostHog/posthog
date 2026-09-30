@@ -1,6 +1,7 @@
+from typing import Any
 from uuid import UUID
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 import structlog
@@ -12,6 +13,10 @@ from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.types import (
     DIRECT_ENGINE_BY_SOURCE_TYPE,
+    ExternalDataSchemaSyncFrequency,
+    ExternalDataSourceAccessMethod,
+    ExternalDataSourceCreatedVia,
+    ExternalDataSourceStatus,
     ExternalDataSourceType,
     ManagedWarehouseSQLMode,
     external_data_source_type_choices,
@@ -32,35 +37,18 @@ class ExternalDataSourceManager(models.Manager):
 
 
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    class AccessMethod(models.TextChoices):
-        WAREHOUSE = "warehouse", "warehouse"
-        DIRECT = "direct", "direct"
-
-    class CreatedVia(models.TextChoices):
-        WEB = "web", "web"
-        API = "api", "api"
-        MCP = "mcp", "mcp"
-        WIZARD = "wizard", "wizard"
-        SELF_DRIVING = "self_driving", "self_driving"
-
-    class Status(models.TextChoices):
-        RUNNING = "Running", "Running"
-        PAUSED = "Paused", "Paused"
-        ERROR = "Error", "Error"
-        COMPLETED = "Completed", "Completed"
-        CANCELLED = "Cancelled", "Cancelled"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    AccessMethod = ExternalDataSourceAccessMethod
+    CreatedVia = ExternalDataSourceCreatedVia
+    Status = ExternalDataSourceStatus
 
     # Deprecated, use `ExternalDataSchema.SyncFrequency`
-    class SyncFrequency(models.TextChoices):
-        DAILY = "day", "Daily"
-        WEEKLY = "week", "Weekly"
-        MONTHLY = "month", "Monthly"
-        # TODO provide flexible schedule definition
+    SyncFrequency = ExternalDataSchemaSyncFrequency
 
     source_id = models.CharField(max_length=400)
     connection_id = models.CharField(max_length=400)
     destination_id = models.CharField(max_length=400, null=True, blank=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     # Deprecated, use `ExternalDataSchema.sync_frequency_interval`
     sync_frequency = models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
@@ -102,6 +90,31 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     class Meta:
         db_table = "posthog_externaldatasource"
+
+    def merge_connection_metadata(self, metadata: dict[str, Any]) -> None:
+        """Merge ``metadata`` into ``connection_metadata`` under a lock on this row.
+
+        Several writers share the field: the API stores direct-query connection config, and the
+        schema-discovery pass and the backfill command store probed server versions. Each one holds
+        a row it read before a network round trip, so a plain read-modify-write drops whichever
+        write landed in between. Re-reading under the lock is what makes the merge safe, and the
+        lock covers only that re-read and the write, with no network call inside it.
+
+        ``of=("self",)`` keeps the lock on this row. The default manager joins
+        ``revenue_analytics_config``, and an unqualified ``FOR UPDATE`` would lock the joined rows
+        as well.
+
+        ``updated_at`` stays out of the write so a probe does not read as a customer edit.
+        """
+        with transaction.atomic():
+            locked = type(self).objects.select_for_update(of=("self",)).get(pk=self.pk)
+            # The field is an unconstrained JSONField, so a non-mapping value is replaced rather
+            # than unpacked, which would raise.
+            existing = locked.connection_metadata if isinstance(locked.connection_metadata, dict) else {}
+            merged = {**existing, **metadata}
+            locked.connection_metadata = merged
+            locked.save(update_fields=["connection_metadata"])
+        self.connection_metadata = merged
 
     @property
     def is_direct_query(self) -> bool:

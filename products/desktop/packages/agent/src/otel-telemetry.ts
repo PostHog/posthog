@@ -1,3 +1,4 @@
+import type { SpanContext } from "@opentelemetry/api";
 import { SeverityNumber } from "@opentelemetry/api-logs";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
@@ -195,9 +196,11 @@ export function mapNotificationToLogRecord(
       // params.error is free text that can embed prompt or repo content
       // (exception messages, provider errors), so only its provenance is
       // exported. The raw message stays in the session log and on the task
-      // run's error_message.
+      // run's error_message. The classification is a fixed vocabulary, so it is
+      // safe to export and lets APM split failures by class.
       const attrs: Attributes = {};
       strAttr(attrs, "error_source", params.source);
+      strAttr(attrs, "error_category", params.errorCategory);
       strAttr(attrs, "stop_reason", params.stopReason);
       return record(ERROR, "run error", method, attrs);
     }
@@ -232,11 +235,6 @@ export function mapNotificationToLogRecord(
         attrs,
       );
     }
-    case POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT: {
-      const attrs: Attributes = {};
-      strAttr(attrs, "branch", params.branch);
-      return record(INFO, "git checkpoint", method, attrs);
-    }
     case POSTHOG_NOTIFICATIONS.BRANCH_CREATED: {
       const attrs: Attributes = {};
       strAttr(attrs, "branch", params.branch ?? params.branchName);
@@ -249,6 +247,20 @@ export function mapNotificationToLogRecord(
     }
     case POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY:
       return record(INFO, "compact boundary", method, {});
+    case POSTHOG_NOTIFICATIONS.PROCESS_KILLED: {
+      const attrs: Attributes = {};
+      const comm = strAttr(attrs, "process_comm", params.comm);
+      strAttr(attrs, "process_signal", params.signal);
+      numAttr(attrs, "process_tree_rss_bytes", params.treeRssBytes);
+      numAttr(attrs, "memory_current_bytes", params.memoryCurrentBytes);
+      numAttr(attrs, "memory_limit_bytes", params.memoryLimitBytes);
+      return record(
+        WARN,
+        `process killed${comm ? ` (${comm})` : ""}`,
+        method,
+        attrs,
+      );
+    }
     case POSTHOG_NOTIFICATIONS.PERMISSION_REQUEST:
     case POSTHOG_NOTIFICATIONS.PERMISSION_RESPONSE:
     case POSTHOG_NOTIFICATIONS.PERMISSION_RESOLVED: {
@@ -279,6 +291,7 @@ export class OtelRunTelemetry implements SessionLogSink {
   private runId: string;
   private debugLogger?: Logger;
   private shutdownStarted = false;
+  private shutdownPromise?: Promise<void>;
 
   constructor(
     config: OtelTelemetryConfig,
@@ -332,6 +345,10 @@ export class OtelRunTelemetry implements SessionLogSink {
     }
   }
 
+  getRunSpanContext(): SpanContext | undefined {
+    return this.traceBuilder?.getRunSpanContext();
+  }
+
   append(sessionId: string, entry: StoredNotification): void {
     // Resource attributes pin this writer to one run; ignore entries for any
     // other session so records are never mislabeled.
@@ -368,14 +385,16 @@ export class OtelRunTelemetry implements SessionLogSink {
   /**
    * Ends open spans, flushes batched records, then stops the providers.
    * Idempotent and best-effort: the two providers shut down independently
-   * and a failure in one never skips the other. Never rejects.
+   * and a failure in one never skips the other. Never rejects. A second
+   * caller waits for the first flush rather than returning early, because the
+   * process can exit as soon as the last caller resolves.
    */
   async shutdown(): Promise<void> {
-    if (this.shutdownStarted) return;
     this.shutdownStarted = true;
-    await Promise.allSettled([
+    this.shutdownPromise ??= Promise.allSettled([
       this.traceBuilder?.shutdown(),
       this.loggerProvider.shutdown(),
-    ]);
+    ]).then(() => undefined);
+    await this.shutdownPromise;
   }
 }

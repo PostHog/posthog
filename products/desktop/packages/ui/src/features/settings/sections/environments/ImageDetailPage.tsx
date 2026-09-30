@@ -33,6 +33,7 @@ interface ImageDetailPageProps {
   /** Names of the environments starting from this image, or null while unknown. */
   usedBy: readonly string[] | null;
   onDone: () => void;
+  onUseInEnvironment: () => void;
 }
 
 /**
@@ -44,6 +45,7 @@ export function ImageDetailPage({
   image,
   usedBy,
   onDone,
+  onUseInEnvironment,
 }: ImageDetailPageProps) {
   const { data } = useSandboxCustomImageDetail(image.id);
   const { buildMutation, builderTaskMutation, updateMutation, deleteMutation } =
@@ -166,6 +168,16 @@ export function ImageDetailPage({
               ? "No environment starts from it yet"
               : `Used by ${usedBy.join(", ")}`}
         </Text>
+        {current.status === "ready" && (
+          <Button
+            variant="link-muted"
+            size="sm"
+            data-attr="image-detail-use-in-environment"
+            onClick={onUseInEnvironment}
+          >
+            Use in an environment
+          </Button>
+        )}
       </div>
 
       {isImageBuildFailed(current.status) && (
@@ -196,7 +208,7 @@ export function ImageDetailPage({
         {/* filePath drives the language mode, so this is a real YAML editor. */}
         {/* A definite height: the editor fills its parent and scrolls inside,
             so min/max alone would clip instead of scroll. */}
-        <div className="h-[380px] overflow-hidden rounded-(--radius-3) border border-(--gray-5)">
+        <div className="h-[380px] overflow-hidden rounded-(--radius-3) border border-border">
           {/* Seed from the server value, not the live-edited spec: feeding
               edits back as content would recreate the editor each keystroke
               and lose the caret. Edits are captured through onContentChange. */}

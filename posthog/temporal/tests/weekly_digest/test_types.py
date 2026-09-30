@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from posthog.temporal.weekly_digest.activities import DIGEST_ITEM_COUNT_THRESHOLD
 from posthog.temporal.weekly_digest.types import (
+    DEFAULT_PRODUCT_SUGGESTION_TEXT,
     DashboardList,
     Digest,
     DigestDashboard,
@@ -461,69 +462,26 @@ def test_digest_external_data_source():
     assert source.id == source_id
 
 
-def test_digest_product_suggestion_get_readable_reason_text_with_custom_text():
-    """Test that custom reason_text takes precedence."""
+def test_digest_product_suggestion_uses_campaign_copy_when_present():
+    """Test that the campaign's own promo copy takes precedence."""
     suggestion = DigestProductSuggestion(
         team_id=1,
         product_path="Error tracking",
-        reason="used_by_colleagues",
         reason_text="Custom message for this user",
     )
 
     assert suggestion.get_readable_reason_text() == "Custom message for this user"
 
 
-def test_digest_product_suggestion_get_readable_reason_text_fallback_to_default():
-    """Test that reason enum maps to default text when reason_text is None."""
+def test_digest_product_suggestion_falls_back_to_default_copy():
+    """Test that a campaign without promo copy gets the default blurb."""
     suggestion = DigestProductSuggestion(
         team_id=1,
         product_path="Session replay",
-        reason="sales_led",
         reason_text=None,
     )
 
-    assert suggestion.get_readable_reason_text() == "This product is recommended for you by our team."
-
-
-def test_digest_product_suggestion_get_readable_reason_text_supported_reasons():
-    """Test that sales_led and new_product reasons map to readable text."""
-    reason_mappings = {
-        "new_product": "This is a brand new product. Give it a try!",
-        "sales_led": "This product is recommended for you by our team.",
-    }
-
-    for reason, expected_text in reason_mappings.items():
-        suggestion = DigestProductSuggestion(
-            team_id=1,
-            product_path="Test Product",
-            reason=reason,
-            reason_text=None,
-        )
-        assert suggestion.get_readable_reason_text() == expected_text, f"Failed for reason: {reason}"
-
-
-def test_digest_product_suggestion_get_readable_reason_text_unsupported_reason():
-    """Test that unsupported reasons return None (fallback)."""
-    suggestion = DigestProductSuggestion(
-        team_id=1,
-        product_path="Test Product",
-        reason="used_by_colleagues",  # Not in digest defaults
-        reason_text=None,
-    )
-
-    assert suggestion.get_readable_reason_text() is None
-
-
-def test_digest_product_suggestion_get_readable_reason_text_no_reason():
-    """Test that None is returned when neither reason nor reason_text is set."""
-    suggestion = DigestProductSuggestion(
-        team_id=1,
-        product_path="Feature flags",
-        reason=None,
-        reason_text=None,
-    )
-
-    assert suggestion.get_readable_reason_text() is None
+    assert suggestion.get_readable_reason_text() == DEFAULT_PRODUCT_SUGGESTION_TEXT
 
 
 def test_user_specific_digest_render_payload_with_product_suggestion():
@@ -552,7 +510,6 @@ def test_user_specific_digest_render_payload_with_product_suggestion():
     suggestion = DigestProductSuggestion(
         team_id=1,
         product_path="Error tracking",
-        reason="sales_led",
         reason_text=None,
     )
 
@@ -568,7 +525,7 @@ def test_user_specific_digest_render_payload_with_product_suggestion():
     assert "new_product_suggestion" in team_report
     new_suggestion = team_report["new_product_suggestion"]
     assert new_suggestion["product_path"] == "Error tracking"
-    assert new_suggestion["reason_text"] == "This product is recommended for you by our team."
+    assert new_suggestion["reason_text"] == DEFAULT_PRODUCT_SUGGESTION_TEXT
 
 
 def test_user_specific_digest_render_payload_with_custom_reason_text():
@@ -597,7 +554,6 @@ def test_user_specific_digest_render_payload_with_custom_reason_text():
     suggestion = DigestProductSuggestion(
         team_id=1,
         product_path="Session replay",
-        reason="product_intent",
         reason_text="Custom reason text for this user",
     )
 
@@ -642,7 +598,6 @@ def test_user_specific_digest_render_payload_suggestion_wrong_team():
     suggestion = DigestProductSuggestion(
         team_id=999,
         product_path="Error tracking",
-        reason="sales_led",
         reason_text=None,
     )
 

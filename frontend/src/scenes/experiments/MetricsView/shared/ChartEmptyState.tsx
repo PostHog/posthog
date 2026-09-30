@@ -3,7 +3,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { isLegacyExperimentQuery } from 'scenes/experiments/utils'
 
-import { LegacyErrorChecklist } from '~/scenes/experiments/legacy'
+import { LegacyErrorChecklist } from 'products/experiments/frontend/legacy'
 
 import { MetricErrorState } from '../new/MetricErrorState'
 import { ErrorChecklist } from './ErrorChecklist'
@@ -63,9 +63,9 @@ export function ChartEmptyState({
     }
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
         <div
             className="flex items-center justify-center w-full"
+            // eslint-disable-next-line react/forbid-dom-props
             style={error ? { minHeight: `${height}px` } : { height: `${height}px` }}
         >
             {error.hasDiagnostics ? (

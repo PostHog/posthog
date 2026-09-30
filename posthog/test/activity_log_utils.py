@@ -6,11 +6,13 @@ covered by the activity logging system.
 """
 
 from typing import TYPE_CHECKING, Any, Optional
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.utils import timezone
 
 from rest_framework import status
+
+from posthog.test.insight_queries import default_pageview_query
 
 from ee.api.test.base import APILicensedTest
 
@@ -125,7 +127,7 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create an insight via API."""
         data = {
             "name": name,
-            "filters": {"events": [{"id": "$pageview"}], "display": "ActionsLineGraph"},
+            "query": default_pageview_query(),
             "description": "Test insight description",
             **kwargs,
         }
@@ -490,21 +492,18 @@ class ActivityLogTestHelper(APILicensedTest):
 
     # BatchExport
     def create_batch_export(self, name: str = "Test Export", **kwargs) -> dict[str, Any]:
-        """Create a batch export via direct model creation (like the original tests)."""
-        from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
+        """Create a batch export directly, without the API."""
+        from products.batch_exports.backend.facade import testing as batch_exports_testing
+        from products.batch_exports.backend.facade.contracts import DestinationType
 
-        # Create destination first (like the original tests do)
-        destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.HTTP, config={"url": "https://example.com"}
-        )
-
-        batch_export = BatchExport.objects.create(
-            team=self.team,
+        batch_export_id = batch_exports_testing.create_batch_export(
+            self.team.id,
             name=name,
-            destination=destination,
-            interval="hour",
+            destination_type=DestinationType.HTTP,
+            destination_config={"url": "https://example.com"},
             **kwargs,
         )
+        batch_export = batch_exports_testing.get_batch_export(batch_export_id, team_id=self.team.id)
 
         # Return in the same format as API would
         return {
@@ -515,13 +514,10 @@ class ActivityLogTestHelper(APILicensedTest):
         }
 
     def update_batch_export(self, export_id: str, updates: dict[str, Any]) -> dict[str, Any]:
-        """Update a batch export via direct model access (like the original tests)."""
-        from products.batch_exports.backend.models.batch_export import BatchExport
+        """Update a batch export directly, without the API."""
+        from products.batch_exports.backend.facade import testing as batch_exports_testing
 
-        batch_export = BatchExport.objects.get(id=export_id)
-        for field, value in updates.items():
-            setattr(batch_export, field, value)
-        batch_export.save()
+        batch_export = batch_exports_testing.update_batch_export(UUID(export_id), team_id=self.team.id, **updates)
 
         return {
             "id": str(batch_export.id),
@@ -755,7 +751,11 @@ class ActivityLogTestHelper(APILicensedTest):
         data = {
             "name": name,
             "description": "Test saved metric",
-            "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            "query": {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/experiment_saved_metrics/", data, format="json")

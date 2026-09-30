@@ -19,7 +19,7 @@ def provider_requires_key(provider: str) -> bool:
 class LLMModelConfiguration(UUIDTModel):
     """Configuration for LLM model selection, used by evals and other features."""
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     provider = models.CharField(max_length=50, choices=llm_provider_choices)
     model = models.CharField(max_length=100)
     provider_key = models.ForeignKey(
@@ -60,7 +60,7 @@ class LLMModelConfiguration(UUIDTModel):
             from products.ai_observability.backend.llm.client import Client
 
             api_key = self.provider_key.encrypted_config.get("api_key")
-            return Client.list_models(self.provider, api_key)
+            return Client.list_models(self.provider, api_key, **self.provider_key.provider_extra_kwargs())
 
         from products.ai_observability.backend.llm import PLAYGROUND_MODELS_BY_PROVIDER
 

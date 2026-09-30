@@ -9,12 +9,19 @@ from django.core.cache import cache
 from django.utils.dateparse import parse_datetime
 
 from posthog.models import Project, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.audiences import ResolvedAudience
-from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import (
+    PullRequest,
+    PullRequestAudience,
+    ReviewRun,
+    StamphogInstallation,
+    StamphogRepoConfig,
+)
 from products.stamphog.backend.tasks.tasks import (
     _INBOX_OPT_OUT_DISMISS_MESSAGE,
     _parse_pr_url,
@@ -678,40 +685,38 @@ def _installation_payload(
     return payload
 
 
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_installation_repos_added_creates_disabled_rows_and_skips_existing(team, repo_config):
-    # A repo added to the installation after the initial sync must appear in the toggle list without a
-    # manual re-sync — as a disabled row, since enabling reviews stays a human decision. An already
-    # registered repo is left untouched (no duplicate, no settings reset).
-    with team_scope(team.id):
-        # Webhooks carry no PostHog identity, so the new row must inherit the connecting user
-        # (the review-credential principal) from its synced sibling.
-        StamphogRepoConfig.objects.filter(id=repo_config.id).update(connected_by_user_id=4242)
-    payload = _installation_payload(action="added", added=["acme/new-repo", REPO])
-    process_installation_event(payload, "delivery-inst-added")
+def _record_installation(team_id: int, repositories: list[str]) -> StamphogInstallation:
+    with team_scope(team_id):
+        return StamphogInstallation.objects.create(
+            team_id=team_id, installation_id=INSTALLATION_ID, repositories=repositories, connected_by_user_id=4242
+        )
 
-    with team_scope(team.id):
-        new_row = StamphogRepoConfig.objects.get(repository="acme/new-repo")
-        assert new_row.enabled is False
-        assert new_row.digest_enabled is False
-        assert new_row.installation_id == INSTALLATION_ID
-        assert new_row.connected_by_user_id == 4242
-        repo_config.refresh_from_db()
-        assert repo_config.enabled is True  # existing row untouched
-        assert StamphogRepoConfig.objects.count() == 2
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_installation_repos_added_leave_the_snapshot_alone(team, repo_config):
+    # The webhook carries no user, so no member proved access to the new repo. An outside collaborator
+    # who connected the installation would otherwise be offered every private repo installed later.
+    installation = _record_installation(team.id, [REPO])
+
+    process_installation_event(_installation_payload(action="added", added=["acme/new-repo"]), "delivery-inst-added")
+
+    installation.refresh_from_db()
+    assert installation.repositories == [REPO]
+    assert not StamphogRepoConfig.objects.unscoped().filter(repository="acme/new-repo").exists()
 
 
 @pytest.mark.parametrize(
-    "payload_kwargs,expect_disabled",
+    "payload_kwargs,expect_disabled,expected_snapshot",
     [
-        ({"action": "removed", "removed": [REPO]}, True),
-        ({"action": "deleted"}, True),
-        ({"action": "suspend"}, False),
+        ({"action": "removed", "removed": [REPO]}, True, ["acme/other"]),
+        # An uninstall deletes the record, so nothing is offered for adding under a dead installation.
+        ({"action": "deleted"}, True, None),
+        ({"action": "suspend"}, False, ["acme/other", REPO]),
     ],
     ids=["repo_removed_disables_row", "uninstall_disables_all_rows", "other_installation_action_ignored"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_installation_removal_tombstones_rows(team, repo_config, payload_kwargs, expect_disabled):
+def test_installation_removal_tombstones_rows(team, repo_config, payload_kwargs, expect_disabled, expected_snapshot):
     # Removed repos and a full uninstall tombstone the configs (disabled, rows and history kept);
     # other installation actions are acked and ignored. In-flight runs must be superseded too —
     # workflows never re-check `enabled`, so a run already in the sandbox would otherwise still
@@ -728,6 +733,7 @@ def test_installation_removal_tombstones_rows(team, repo_config, payload_kwargs,
         terminal = ReviewRun.objects.create(
             team_id=team.id, pull_request=pull_request, head_sha="sha-0", status=ReviewRunStatus.COMPLETED
         )
+    _record_installation(team.id, ["acme/other", REPO])
 
     process_installation_event(_installation_payload(**payload_kwargs), f"delivery-inst-{payload_kwargs['action']}")
 
@@ -740,6 +746,8 @@ def test_installation_removal_tombstones_rows(team, repo_config, payload_kwargs,
     expected_in_flight = ReviewRunStatus.SUPERSEDED if expect_disabled else ReviewRunStatus.REVIEWING
     assert in_flight.status == expected_in_flight
     assert terminal.status == ReviewRunStatus.COMPLETED
+    snapshots = list(StamphogInstallation.objects.unscoped().values_list("repositories", flat=True))
+    assert snapshots == ([] if expected_snapshot is None else [expected_snapshot])
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -769,6 +777,13 @@ def test_installation_uninstall_tombstones_every_owning_team(team, repo_config):
     with team_scope(team.id):
         repo_config.digest_enabled = True
         repo_config.save()
+        dormant_config = StamphogRepoConfig.objects.create(
+            team_id=team.id,
+            repository="acme/dormant",
+            installation_id=INSTALLATION_ID,
+            enabled=False,
+            digest_enabled=False,
+        )
 
     process_installation_event(_installation_payload(action="deleted"), "delivery-multi-uninstall")
 
@@ -779,22 +794,20 @@ def test_installation_uninstall_tombstones_every_owning_team(team, repo_config):
     assert (repo_config.enabled, repo_config.digest_enabled) == (False, False)
     assert (second_config.enabled, second_config.digest_enabled) == (False, False)
 
-
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_installation_repos_added_skips_when_installation_spans_multiple_teams(team, repo_config):
-    # Ambiguous ownership: two teams share the installation, so auto-binding a newly added repo could
-    # attach it to a team its adder never intended. The webhook add is skipped and left to the
-    # authenticated sync flow — no row is created for either team.
-    second_team = _make_second_team(team.organization)
-    with team_scope(second_team.id):
-        StamphogRepoConfig.objects.create(
-            team_id=second_team.id, repository="acme/other", installation_id=INSTALLATION_ID
-        )
-
-    payload = _installation_payload(action="added", added=["acme/brand-new"])
-    process_installation_event(payload, "delivery-multi-add")
-
-    assert StamphogRepoConfig.objects.unscoped().filter(repository="acme/brand-new").exists() is False
+    # The uninstall runs as a queryset update, which the model signal cannot see, so the task logs
+    # it by hand. No PostHog user is behind a webhook, so each row is a system row, and the already
+    # disabled config moved nothing and gets no row.
+    logs = list(ActivityLog.objects.filter(detail__trigger__job_id="delivery-multi-uninstall"))
+    assert {log.item_id for log in logs} == {str(repo_config.id), str(second_config.id)}
+    assert str(dormant_config.id) not in {log.item_id for log in logs}
+    for log in logs:
+        assert log.scope == "StamphogRepoConfig"
+        assert log.activity == "updated"
+        assert log.user is None
+        assert log.is_system is True
+        assert log.detail is not None
+        enabled_change = next(change for change in log.detail["changes"] if change["field"] == "enabled")
+        assert (enabled_change["before"], enabled_change["after"]) == (True, False)
 
 
 def _selfdriving_payload(**overrides: Any) -> dict[str, Any]:

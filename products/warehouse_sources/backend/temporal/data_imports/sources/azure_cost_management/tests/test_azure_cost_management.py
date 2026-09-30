@@ -176,6 +176,8 @@ class TestNormalizeScope:
             ("query_delimiter", "subscriptions/abc/resources?api-version=2021-04-01"),
             ("fragment_delimiter", "subscriptions/abc/resources#"),
             ("backslash", "subscriptions\\abc"),
+            # A bare subscription id, without the collection segment Azure needs in front of it.
+            ("single_segment", "00000000-0000-0000-0000-000000000000"),
         ]
     )
     def test_rejects_non_path_scopes(self, _name: str, raw: str) -> None:
@@ -517,6 +519,16 @@ class TestValidateCredentials:
 
         assert valid is False
         assert message is not None and "Cost Management Reader" in message
+
+    @parameterized.expand([(400,), (404,)])
+    def test_unknown_scope_reports_the_path_not_the_role(self, status: int) -> None:
+        session = _FakeSession([_token_response(), _FakeResponse(status, reason="Not Found")])
+        with mock.patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
+            valid, message = validate_credentials("tenant", "client", "secret", "subscriptions/abc", "2025-03-01")
+
+        assert valid is False
+        assert message is not None and "Azure Resource Manager path" in message
+        assert "Cost Management Reader" not in message
 
 
 def _run_rows(

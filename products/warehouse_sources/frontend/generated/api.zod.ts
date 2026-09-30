@@ -9,8 +9,117 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsCreateBodyNameMax = 400
+
+export const ExternalDataDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .describe(
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        )
+        .describe(
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        ),
+    name: zod
+        .string()
+        .max(externalDataDestinationsCreateBodyNameMax)
+        .describe('Human-readable name shown when picking destinations for a source or table.'),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration.'
+        ),
+    integration: zod
+        .number()
+        .nullish()
+        .describe(
+            "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+})
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsUpdateBodyNameMax = 400
+
+export const ExternalDataDestinationsUpdateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .describe(
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        )
+        .describe(
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        ),
+    name: zod
+        .string()
+        .max(externalDataDestinationsUpdateBodyNameMax)
+        .describe('Human-readable name shown when picking destinations for a source or table.'),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration.'
+        ),
+    integration: zod
+        .number()
+        .nullish()
+        .describe(
+            "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+})
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsPartialUpdateBodyNameMax = 400
+
+export const ExternalDataDestinationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .describe(
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        )
+        .optional()
+        .describe(
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        ),
+    name: zod
+        .string()
+        .max(externalDataDestinationsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name shown when picking destinations for a source or table.'),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration.'
+        ),
+    integration: zod
+        .number()
+        .nullish()
+        .describe(
+            "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+})
+
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasUpdateBodyFullRefreshIntervalDaysMax = 90
 
 export const externalDataSchemasUpdateBodyApiVersionMax = 128
 
@@ -66,6 +175,14 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
                 'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
             ),
         sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+        full_refresh_interval_days: zod
+            .number()
+            .min(1)
+            .max(externalDataSchemasUpdateBodyFullRefreshIntervalDaysMax)
+            .nullish()
+            .describe(
+                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+            ),
         primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
         cdc_table_mode: zod
             .union([
@@ -112,6 +229,8 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
 
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasPartialUpdateBodyFullRefreshIntervalDaysMax = 90
 
 export const externalDataSchemasPartialUpdateBodyApiVersionMax = 128
 
@@ -167,6 +286,14 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
                 'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
             ),
         sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+        full_refresh_interval_days: zod
+            .number()
+            .min(1)
+            .max(externalDataSchemasPartialUpdateBodyFullRefreshIntervalDaysMax)
+            .nullish()
+            .describe(
+                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+            ),
         primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
         cdc_table_mode: zod
             .union([
@@ -211,106 +338,19 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
-export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin = 0
-export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
-
-export const externalDataSchemasIncrementalFieldsCreateBodyApiVersionMax = 128
-
-export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod
-    .object({
-        should_sync: zod.boolean().optional(),
-        sync_type: zod
-            .union([
-                zod
-                    .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
-                    .describe(
-                        '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
-            ),
-        incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
-        incremental_field_type: zod
-            .union([
-                zod
-                    .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid', 'xid'])
-                    .describe(
-                        '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
-            ),
-        incremental_field_lookback_seconds: zod
-            .number()
-            .min(externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin)
-            .max(externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax)
-            .nullish()
-            .describe(
-                'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp\/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).'
-            ),
-        sync_frequency: zod
-            .union([
-                zod
-                    .enum(['never', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
-                    .describe(
-                        '\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
-            ),
-        sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
-        primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
-        cdc_table_mode: zod
-            .union([
-                zod
-                    .enum(['consolidated', 'cdc_only', 'both'])
-                    .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
-            ),
-        enabled_columns: zod
-            .array(zod.string())
-            .nullish()
-            .describe(
-                'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
-            ),
-        row_filters: zod
-            .array(
-                zod.object({
-                    column: zod.string(),
-                    operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
-                    value: zod
-                        .unknown()
-                        .describe(
-                            "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
-                        ),
-                })
-            )
-            .nullish()
-            .describe(
-                "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
-            ),
-        api_version: zod
-            .string()
-            .max(externalDataSchemasIncrementalFieldsCreateBodyApiVersionMax)
-            .nullish()
-            .describe(
-                "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
-            ),
-    })
-    .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
+/**
+ * Read or replace this table's destination override.
+ *
+ * Send `destination_ids: null` to clear the override so the table follows its source again.
+ */
+export const ExternalDataSchemasDestinationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    destination_ids: zod
+        .array(zod.uuid())
+        .nullish()
+        .describe(
+            'Destinations to sync to. On a table, null clears the override so the table follows its source again.'
+        ),
+})
 
 /**
  * Create, Read, Update and Delete External data Sources.
@@ -336,6 +376,8 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Create, Read, Update and Delete External data Sources.
  */
+export const externalDataSourcesBulkUpdateSchemasPartialUpdateBodySchemasItemFullRefreshIntervalDaysMax = 90
+
 export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     schemas: zod
         .array(
@@ -362,6 +404,14 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                 incremental_field_type: zod.string().nullish().describe('Type of the incremental cursor field.'),
                 sync_frequency: zod.string().nullish().describe('Human-readable sync frequency value.'),
                 sync_time_of_day: zod.iso.time({}).nullish().describe('UTC anchor time for scheduled syncs.'),
+                full_refresh_interval_days: zod
+                    .number()
+                    .min(1)
+                    .max(externalDataSourcesBulkUpdateSchemasPartialUpdateBodySchemasItemFullRefreshIntervalDaysMax)
+                    .nullish()
+                    .describe(
+                        'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Re-imported rows count toward usage, and workflows and destinations that run on new rows of the table run again for every row. Incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+                    ),
                 primary_key_columns: zod
                     .array(zod.string())
                     .nullish()
@@ -403,7 +453,6 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     ),
             })
         )
-        .optional()
         .describe('Schema updates to apply in a single batch.'),
 })
 
@@ -436,6 +485,20 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
 export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Read or replace the destinations every table on this source syncs to.
+ *
+ * A table with its own override ignores this set until the override is cleared.
+ */
+export const ExternalDataSourcesDestinationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    destination_ids: zod
+        .array(zod.uuid())
+        .nullish()
+        .describe(
+            'Destinations to sync to. On a table, null clears the override so the table follows its source again.'
+        ),
+})
 
 /**
  * Disable CDC on an existing source.
@@ -510,6 +573,32 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * List the accounts a source's typed-in credentials can reach, in the shared
+ * IntegrationAccount shape.
+ *
+ * The OAuth twin takes an integration id because the token already lives on the server. Here
+ * the credentials are still in the form, so they arrive in the body — POST, not GET, to keep a
+ * private key out of the URL and out of anything that logs one. Nothing is cached for the same
+ * reason: the cache key would have to include the credentials.
+ */
+export const ExternalDataSourcesCredentialAccountsCreateBody = /* @__PURE__ */ zod
+    .object({
+        source_type: zod
+            .string()
+            .describe("The data warehouse source type whose picker is asking (e.g. 'AppleSearchAds')."),
+        credentials: zod
+            .record(zod.string(), zod.string())
+            .describe(
+                "Values of the sibling fields named by the picker's `credentialFields`. Any other key is rejected."
+            ),
+        api_version: zod
+            .string()
+            .nullish()
+            .describe("Vendor API version the source is pinned to. Defaults to the source's current default."),
+    })
+    .describe('Body for listing accounts from credentials the user has typed but not yet submitted.')
+
+/**
  * Create, Read, Update and Delete External data Sources.
  */
 export const ExternalDataSourcesDatabaseSchemaCreateBody = /* @__PURE__ */ zod
@@ -527,6 +616,7 @@ export const ExternalDataSourcesDatabaseSchemaCreateBody = /* @__PURE__ */ zod
  * since the docs are sent to the LLM gateway.
  */
 export const externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault = ``
+export const externalDataSourcesDraftCustomManifestCreateBodyDocsUrlTwoMax = 0
 
 export const ExternalDataSourcesDraftCustomManifestCreateBody = /* @__PURE__ */ zod.object({
     source_name: zod
@@ -534,7 +624,7 @@ export const ExternalDataSourcesDraftCustomManifestCreateBody = /* @__PURE__ */ 
         .default(externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault)
         .describe("Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model."),
     docs_url: zod
-        .url()
+        .union([zod.url(), zod.string().max(externalDataSourcesDraftCustomManifestCreateBodyDocsUrlTwoMax)])
         .optional()
         .describe(
             'URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy.'

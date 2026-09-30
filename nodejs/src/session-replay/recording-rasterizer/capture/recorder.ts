@@ -1,6 +1,7 @@
-import type { InactivityPeriod } from '@posthog/replay-headless/protocol'
+import { type InactivityPeriod, METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
 
 import { config as defaultConfig } from '~/session-replay/recording-rasterizer/config'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 import {
     RasterizationProgress,
@@ -9,7 +10,7 @@ import {
 } from '~/session-replay/recording-rasterizer/types'
 import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 
-import { BlockProxy } from './block-proxy'
+import { BlockProxy, BlockSource } from './block-proxy'
 import { BrowserPool } from './browser-pool'
 import { capturePlayback } from './capture'
 import { CapturePage } from './capture-page'
@@ -52,6 +53,7 @@ export interface RasterizeOptions {
     // Aborting closes the page, which unsticks a pending CDP send and makes the capture loop fail
     // fast, so the browser-pool slot is reclaimed instead of riding out a doomed attempt.
     signal?: AbortSignal
+    blockSource?: BlockSource
 }
 
 export async function rasterizeRecording(
@@ -86,7 +88,7 @@ export async function rasterizeRecording(
         signal?.throwIfAborted()
         const viewport = {
             width: input.viewport_width || 1280,
-            height: input.viewport_height || 720,
+            height: (input.viewport_height || 720) + (input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0),
         }
         const playerUrl = `${cfg.siteUrl}/player`
         const capturePage = await CapturePage.prepare(
@@ -98,9 +100,23 @@ export async function rasterizeRecording(
             log
         )
 
-        const blockProxy = new BlockProxy(cfg, log)
+        const blockProxy = options.blockSource ?? new BlockProxy(cfg, log)
         const blockCount = await blockProxy.fetchBlocks(input)
-        log.info({ blockCount }, 'block listing fetched')
+        const compressedBytes = blockProxy.totalCompressedBytes
+        log.info({ blockCount, compressedBytes }, 'block listing fetched')
+        if (!Number.isFinite(compressedBytes)) {
+            // A malformed listing yields NaN, and NaN > cap is false: the gate would switch off
+            // silently. Fail open, but visibly.
+            log.warn({ blockCount }, 'block listing has non-numeric byte ranges; size gate skipped')
+        } else if (compressedBytes > cfg.maxRecordingCompressedBytes) {
+            // Fail permanently before loading: oversized recordings run the pod into its memory
+            // limit, and the kernel kill takes the healthy renders on the pod down with it.
+            throw new RasterizationError(
+                `Recording too large to render: ${compressedBytes} compressed bytes in ${blockCount} blocks (limit ${cfg.maxRecordingCompressedBytes})`,
+                false,
+                'RECORDING_TOO_LARGE'
+            )
+        }
 
         const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, blockCount)
         player = new PlayerController(capturePage, blockProxy, onProgress, log)
@@ -135,6 +151,9 @@ export async function rasterizeRecording(
             frame_count: captureResult.frame_count,
             truncated: captureResult.truncated,
             inactivity_periods: captureResult.inactivity_periods,
+            frame_session_ms: captureResult.frame_session_ms,
+            pre_roll_frames: captureResult.pre_roll_frames,
+            output_fps: captureConfig.outputFps,
             timings: { setup_s: setupS, capture_s: captureResult.timings.capture_s },
         }
     } finally {

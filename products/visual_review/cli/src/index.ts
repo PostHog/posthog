@@ -17,6 +17,7 @@ import { hashImageWithDimensions } from './hasher.js'
 import { log, reportRunOutcome } from './outcome.js'
 import { scanDirectory } from './scanner.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
+import { buildStoryIndex, type StoryIndexMap } from './storyIndex.js'
 
 program.name('vr').description('Visual Review CLI for snapshot testing').version('0.0.1')
 
@@ -37,6 +38,7 @@ program
     .option('--token <value>', 'Personal API token (Authorization: Bearer)')
     .option('--cookie <value>', 'Session cookie for authentication')
     .option('--purpose <purpose>', 'Run purpose: review (gating, approvable) or observe (tracking only)', 'review')
+    .option('--tolerate-drift', 'Report snapshot drift on an observe run without failing. Default branch only.')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
         if (!baselineExists(options.baseline)) {
@@ -58,6 +60,7 @@ program
     .description('Compare local screenshots against baseline (no API calls)')
     .requiredOption('--dir <path>', 'Directory containing PNG screenshots')
     .requiredOption('--baseline <path>', 'Path to snapshots.yml baseline file')
+    .option('--partial', 'Screenshots cover only part of the baseline (a shard); skip the removed check')
     .action(async (options: VerifyOptions) => {
         try {
             const exitCode = await runVerify(options)
@@ -112,7 +115,19 @@ run.command('upload')
     .option('--team <id>', 'Team ID (overrides snapshots.yml config)')
     .option('--token <value>', 'Personal API token')
     .option('--cookie <value>', 'Session cookie')
+    .option(
+        '--storybook-index <path>',
+        "Storybook index.json of the build these snapshots came from. Sends the story-to-file map Visual Review uses to find each snapshot's owning team."
+    )
+    .option(
+        '--storybook-root <dir>',
+        'Directory Storybook ran in, relative to the repository root. Required with --storybook-index.'
+    )
     .action(async (options: RunUploadOptions) => {
+        if (options.storybookIndex && !options.storybookRoot) {
+            console.error('Error: --storybook-root is required with --storybook-index')
+            process.exit(2)
+        }
         if (!baselineExists(options.baseline)) {
             process.exit(0)
         }
@@ -133,6 +148,7 @@ run.command('complete')
     .option('--token <value>', 'Personal API token')
     .option('--cookie <value>', 'Session cookie')
     .option('--purpose <purpose>', 'Run purpose: review or observe. Must match `run create`.', 'review')
+    .option('--tolerate-drift', 'Report snapshot drift on an observe run without failing. Default branch only.')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: RunCompleteOptions) => {
         if (!baselineExists(options.baseline)) {
@@ -156,6 +172,7 @@ program.parse()
 interface VerifyOptions {
     dir: string
     baseline: string
+    partial?: boolean
 }
 
 interface SubmitOptions {
@@ -171,6 +188,7 @@ interface SubmitOptions {
     token?: string
     cookie?: string
     purpose?: string
+    tolerateDrift?: boolean
     autoApprove?: boolean
 }
 
@@ -197,6 +215,8 @@ interface RunUploadOptions {
     team?: string
     token?: string
     cookie?: string
+    storybookIndex?: string
+    storybookRoot?: string
 }
 
 interface RunCompleteOptions {
@@ -207,6 +227,7 @@ interface RunCompleteOptions {
     token?: string
     cookie?: string
     purpose?: string
+    tolerateDrift?: boolean
     autoApprove?: boolean
 }
 
@@ -328,6 +349,26 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
     return result.run_id
 }
 
+// The map only attributes snapshots to teams, so a map that cannot be read or sent must not fail the
+// upload of the snapshots themselves.
+function readStoryIndex(
+    indexPath: string | undefined,
+    storybookRoot: string | undefined,
+    runId: string
+): StoryIndexMap | undefined {
+    if (!indexPath || !storybookRoot) {
+        return undefined
+    }
+    try {
+        const map = buildStoryIndex(readFileSync(indexPath, 'utf-8'), storybookRoot)
+        log(`[run:${runId}] Story index: ${map.storyCount} stories, ${map.hash.slice(0, 12)}`)
+        return map
+    } catch (error) {
+        log(`[run:${runId}] Could not read the Storybook index, sending snapshots without it: ${error}`)
+        return undefined
+    }
+}
+
 async function runUpload(options: RunUploadOptions): Promise<void> {
     const { client } = makeClient(options)
     const runId = options.runId
@@ -358,6 +399,7 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
 
     log(`[run:${runId}] Sending ${snapshots.length} snapshots to backend`)
 
+    const storyIndex = readStoryIndex(options.storybookIndex, options.storybookRoot, runId)
     const addResult = await client.addSnapshots(runId, {
         snapshots: snapshots.map((s) => ({
             identifier: s.identifier,
@@ -365,7 +407,17 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
             width: s.width,
             height: s.height,
         })),
+        storyIndexHash: storyIndex?.hash,
     })
+
+    if (storyIndex && addResult.story_index_upload) {
+        try {
+            await client.uploadToS3(addResult.story_index_upload, storyIndex.content, 'application/json')
+            log(`[run:${runId}] Uploaded story index ${storyIndex.hash.slice(0, 12)}`)
+        } catch (error) {
+            log(`[run:${runId}] Story index upload failed: ${error}`)
+        }
+    }
 
     log(`[run:${runId}] Registered ${addResult.added} snapshot(s), ${addResult.uploads.length} upload(s) needed`)
 
@@ -433,7 +485,8 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
         client,
         run,
         `${api}/project/${team}/visual_review/runs/${runId}`,
-        options.purpose ?? 'review'
+        options.purpose ?? 'review',
+        options.tolerateDrift ?? false
     )
 }
 
@@ -445,14 +498,19 @@ async function runVerify(options: VerifyOptions): Promise<number> {
 
     const scanned = scanDirectory(dirPath)
 
-    if (scanned.length === 0) {
-        console.error('No PNGs found in directory')
-        return 1
-    }
-
     const baselineHashes = readBaselineHashes(baselinePath)
     if (Object.keys(baselineHashes).length === 0) {
         console.error('No baseline hashes found — run `vr submit` on a PR first')
+        return 1
+    }
+
+    if (scanned.length === 0) {
+        // A shard whose story files all skip their screenshot writes no PNG, and that is not a mismatch.
+        if (options.partial) {
+            log('No PNGs found in directory, nothing to verify')
+            return 0
+        }
+        console.error('No PNGs found in directory')
         return 1
     }
 
@@ -476,7 +534,7 @@ async function runVerify(options: VerifyOptions): Promise<number> {
     }
 
     const currentIds = new Set(scanned.map((s) => s.identifier))
-    const removed = Object.keys(baselineHashes).filter((id) => !currentIds.has(id))
+    const removed = options.partial ? [] : Object.keys(baselineHashes).filter((id) => !currentIds.has(id))
 
     const unchanged = scanned.length - changed.length - added.length
     log(
@@ -656,5 +714,11 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         return 0
     }
 
-    return reportRunOutcome(client, run, `${api}/project/${team}/visual_review/runs/${runId}`, purpose)
+    return reportRunOutcome(
+        client,
+        run,
+        `${api}/project/${team}/visual_review/runs/${runId}`,
+        purpose,
+        options.tolerateDrift ?? false
+    )
 }

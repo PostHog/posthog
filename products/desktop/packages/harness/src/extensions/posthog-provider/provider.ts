@@ -31,6 +31,9 @@ export type PosthogOAuthCredentials = Pick<
   "access" | "refresh" | "expires"
 > & {
   region: CloudRegion;
+  /** Set for a custom region, so a refresh can verify the issuing instance. */
+  customCloudUrl?: string;
+  customOauthClientId?: string;
 };
 
 export function parsePosthogOAuthCredentials(
