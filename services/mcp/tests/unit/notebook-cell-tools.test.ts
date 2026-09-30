@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { buildToolResultPayload } from '@/lib/build-tool-result'
 import { GENERATED_TOOLS } from '@/tools/generated/notebooks'
-import { addCellHandler } from '@/tools/notebooks/addCell'
+import { addCellHandler, NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
 import { runNotebookHandler } from '@/tools/notebooks/runNotebook'
@@ -399,7 +399,7 @@ describe('notebook cell tools', () => {
 
         it('update cell with only a visualization changes the chart without re-running, and null restores the table', async () => {
             const state = makeState(
-                '# Doc\n\n<SQLV2 nodeId="target" code="select 1 as x" returnVariable="df" runId="old" result={{"columns":["x"],"types":[["x","Int64"]],"row_count":1,"first_page":[[1]]}} />\n'
+                '# Doc\n\n<SQLV2 nodeId="target" code="select 1 as x" returnVariable="df" runId="old" result={{"columns":["x"],"types":[["x","Int64"]],"row_count":20,"first_page":[[1]],"has_more":true,"previewOnly":true}} />\n'
             )
             const context = createMockContext(state)
 
@@ -416,6 +416,8 @@ describe('notebook cell tools', () => {
                 updated: true,
                 visualization_warnings: expect.arrayContaining(["yAxis column 'y' is not in the result columns: x."]),
             })
+            // The stored preview holds fewer rows than the chart restores, so it must not claim truncation.
+            expect(JSON.stringify(charted)).not.toContain('plots only')
 
             await updateCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target', visualization: null })
 
@@ -424,6 +426,20 @@ describe('notebook cell tools', () => {
             expect(state.markdown).not.toContain('vizQuery')
             expect(state.markdown).toContain('runId="old"')
         })
+
+        it.each(['WorldMap', 'TwoDimensionalHeatmap'])(
+            'refuses the %s display, which opens a sql cell on an empty chart',
+            (display) => {
+                expect(
+                    NotebooksAddCellSchema.safeParse({
+                        notebook_id: 'aBcD1234',
+                        cell_type: 'sql',
+                        code: 'select 1',
+                        visualization: { display },
+                    }).success
+                ).toBe(false)
+            }
+        )
 
         it.each([
             {

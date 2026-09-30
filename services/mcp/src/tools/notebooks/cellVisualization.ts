@@ -4,9 +4,13 @@ import { ChartDisplayType, ChartSettings, TableSettings } from '@/schema/query'
 
 import { readExpressionProp, removeProp, upsertProp } from './cellTags'
 
+// The SQL chart has no renderer for WorldMap, and TwoDimensionalHeatmap needs heatmap column
+// settings this schema does not carry, so either one opens the cell on an empty chart.
+const SqlCellDisplayType = ChartDisplayType.exclude(['WorldMap', 'TwoDimensionalHeatmap'])
+
 export const CellVisualizationSchema = z
     .object({
-        display: ChartDisplayType.describe(
+        display: SqlCellDisplayType.describe(
             'Chart type. Use ActionsLineGraph or ActionsAreaGraph for a time series, ActionsBar for categories, ActionsPie for shares of a total, BoldNumber for one headline value, and ActionsTable for a formatted table.'
         ),
         chartSettings: ChartSettings.optional().describe(
@@ -27,6 +31,7 @@ interface ResultColumns {
     row_count?: number | null
     first_page?: unknown[] | null
     has_more?: boolean | null
+    previewOnly?: boolean | null
 }
 
 // `vizQuery.source` is left out because the node always rebuilds it from the cell's current
@@ -116,7 +121,9 @@ export function visualizationWarnings(tagSource: string, result: ResultColumns |
     const plotted = result.first_page?.length ?? 0
     const truncated = !!result.has_more || (result.row_count ?? 0) > plotted
     // A table pages through the rows, and a bold number shows one value, so only a plot loses points.
-    if (!['ActionsTable', 'BoldNumber'].includes(visualization.display) && truncated) {
+    // A stored preview keeps fewer rows than the run result the chart restores, so its count proves
+    // nothing about the chart. The run that stored it already reported this from the full result.
+    if (!['ActionsTable', 'BoldNumber'].includes(visualization.display) && truncated && !result.previewOnly) {
         warnings.push(
             `The chart plots only the first ${plotted} rows of ${result.row_count ?? 'more'}. Aggregate in SQL so the result fits.`
         )
