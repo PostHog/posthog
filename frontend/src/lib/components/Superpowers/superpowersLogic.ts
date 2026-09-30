@@ -22,7 +22,6 @@ export interface superpowersLogicValues {
     effectiveOptOut: boolean // mcpHintLogic
     preflight: PreflightStatus | null // preflightLogic
     user: UserType | null // userLogic
-    excludedFromPostHogTeamCohort: boolean
     fakeBillingAlert: FakeBillingAlert
     fakeStatusOverride: FakeStatusOverride
     isSuperpowersOpen: boolean
@@ -105,13 +104,6 @@ export const superpowersLogic = kea<superpowersLogicType>([
             'none' as FakeBillingAlert,
             {
                 setFakeBillingAlert: (_, { alert }) => alert,
-            },
-        ],
-        excludedFromPostHogTeamCohort: [
-            false,
-            { persist: true },
-            {
-                setExcludedFromPostHogTeamCohort: (_, { excluded }) => excluded,
             },
         ],
     }),

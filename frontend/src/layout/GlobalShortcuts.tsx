@@ -21,7 +21,7 @@ import { themeLogic } from './navigation-3000/themeLogic'
 import { sceneLayoutLogic } from './scenes/sceneLayoutLogic'
 
 export function GlobalShortcuts(): null {
-    const { superpowersEnabled, user, excludedFromPostHogTeamCohort } = useValues(superpowersLogic)
+    const { superpowersEnabled, user } = useValues(superpowersLogic)
     const { setExcludedFromPostHogTeamCohort } = useActions(superpowersLogic)
     const { shortcutMenuOpen } = useValues(shortcutLogic)
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
@@ -75,12 +75,23 @@ export function GlobalShortcuts(): null {
         disabled: !superpowersEnabled,
     })
 
+    // Two commands instead of one toggle: the browser cannot read the person's current value, so a
+    // toggle would guess wrong on a new browser or for another staff member on the same browser.
     useShortcut({
-        name: 'TogglePostHogTeamCohort',
+        name: 'LeavePostHogTeamCohort',
         keybind: [],
-        intent: excludedFromPostHogTeamCohort ? 'Rejoin the PostHog Team cohort' : 'Leave the PostHog Team cohort',
+        intent: 'Leave the PostHog Team cohort',
         interaction: 'function',
-        callback: () => setExcludedFromPostHogTeamCohort(!excludedFromPostHogTeamCohort),
+        callback: () => setExcludedFromPostHogTeamCohort(true),
+        disabled: !user?.is_staff,
+    })
+
+    useShortcut({
+        name: 'RejoinPostHogTeamCohort',
+        keybind: [],
+        intent: 'Rejoin the PostHog Team cohort',
+        interaction: 'function',
+        callback: () => setExcludedFromPostHogTeamCohort(false),
         disabled: !user?.is_staff,
     })
 

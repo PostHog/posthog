@@ -3,6 +3,7 @@ import posthog, { BeforeSendFn, BrowserMetricsConfig, SessionRecordingOptions } 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
@@ -34,13 +35,17 @@ type UserIdentityWithFlags = NonNullable<Window['POSTHOG_USER_IDENTITY_WITH_FLAG
  * the bootstrap as off until /flags responds, so the first render drops those flags and then shows
  * them again. This fills only the missing keys from the last flags this same user saw, so server
  * values still win and a different user on the same browser never gets them.
+ *
+ * `distinctId` is the user Django evaluated the bootstrap for. The bootstrap itself carries no
+ * distinct ID, so it cannot identify the user.
  */
 export function withLastSeenFeatureFlags(
     bootstrap: UserIdentityWithFlags,
-    lastSeen: LastSeenFeatureFlags | null
+    lastSeen: LastSeenFeatureFlags | null,
+    distinctId: string | undefined
 ): UserIdentityWithFlags {
     // An empty bootstrap makes posthog-js use its own persisted flags, which are already complete.
-    if (!lastSeen || lastSeen.distinctId !== bootstrap.distinctID || !Object.keys(bootstrap.featureFlags).length) {
+    if (!lastSeen || !distinctId || lastSeen.distinctId !== distinctId || !Object.keys(bootstrap.featureFlags).length) {
         return bootstrap
     }
     return { ...bootstrap, featureFlags: { ...lastSeen.featureFlags, ...bootstrap.featureFlags } }
@@ -96,7 +101,11 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 'prod_interest', // posthog.com sets these based on what docs were browsed
             ],
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS
-                ? withLastSeenFeatureFlags(window.POSTHOG_USER_IDENTITY_WITH_FLAGS, readLastSeenFeatureFlags())
+                ? withLastSeenFeatureFlags(
+                      window.POSTHOG_USER_IDENTITY_WITH_FLAGS,
+                      readLastSeenFeatureFlags(),
+                      getAppContext()?.current_user?.distinct_id
+                  )
                 : {},
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,

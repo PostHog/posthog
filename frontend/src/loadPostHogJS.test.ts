@@ -38,9 +38,9 @@ describe('loadPostHogJS', () => {
                 expected: serverFlags,
             },
         ])('$case', ({ lastSeen, bootstrapFlags, expected }) => {
-            const bootstrap = { distinctID: 'user-a', isIdentifiedID: true, featureFlags: bootstrapFlags }
-
-            expect(withLastSeenFeatureFlags(bootstrap, lastSeen).featureFlags).toEqual(expected)
+            expect(withLastSeenFeatureFlags({ featureFlags: bootstrapFlags }, lastSeen, 'user-a').featureFlags).toEqual(
+                expected
+            )
         })
     })
 
