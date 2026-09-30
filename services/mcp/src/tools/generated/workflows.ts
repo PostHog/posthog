@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const BroadcastsCreateSchema = () => {
@@ -512,7 +512,26 @@ const workflowsRestoreRevision = (): ToolBase<ReturnType<typeof WorkflowsRestore
 
 const WorkflowsSearchSchema = () => {
     const HogFlowsSearchListQueryParams = orvalSchemas.HogFlowsSearchListQueryParams()
-    return HogFlowsSearchListQueryParams
+    return HogFlowsSearchListQueryParams.extend({
+        fields: z
+            .array(
+                z.enum([
+                    'id',
+                    'name',
+                    'status',
+                    'updated_at',
+                    'matched_fields',
+                    'matched_step_count',
+                    'matched_steps',
+                    'matched_steps_truncated',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
 }
 
 const workflowsSearch = (): ToolBase<
@@ -530,10 +549,13 @@ const workflowsSearch = (): ToolBase<
                 broadcast_eligible: params.broadcast_eligible,
                 created_at: params.created_at,
                 created_by: params.created_by,
+                excerpt_chars: params.excerpt_chars,
                 id: params.id,
                 limit: params.limit,
+                max_matched_steps: params.max_matched_steps,
                 offset: params.offset,
                 origin_product: params.origin_product,
+                output: params.output,
                 q: params.q,
                 status: params.status,
                 trigger: params.trigger,
@@ -541,12 +563,32 @@ const workflowsSearch = (): ToolBase<
                 updated_at: params.updated_at,
             },
         })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(
+                    item,
+                    params.fields?.length
+                        ? params.fields
+                        : [
+                              'id',
+                              'name',
+                              'status',
+                              'updated_at',
+                              'matched_fields',
+                              'matched_step_count',
+                              'matched_steps',
+                              'matched_steps_truncated',
+                          ]
+                )
+            ),
+        } as typeof result
         return await withPostHogUrl(
             context,
             {
-                ...result,
+                ...filtered,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) =>
+                    (filtered.results ?? []).map((item) =>
                         withPostHogUrl(context, item, `/workflows/${item.id}/workflow`)
                     )
                 ),

@@ -21,7 +21,22 @@ class StepSearchVersion(models.TextChoices):
     DRAFT = "draft"
 
 
+class WorkflowMetadataField(models.TextChoices):
+    NAME = "name"
+    DESCRIPTION = "description"
+
+
+class WorkflowSearchOutput(models.TextChoices):
+    NAMES = "names"
+    COUNTS = "counts"
+    MATCHES = "matches"
+
+
 MAX_SEARCH_TERM_LENGTH: Final = 200
+DEFAULT_MAX_MATCHED_STEPS: Final = 2
+MAX_MATCHED_STEPS: Final = 10
+DEFAULT_EXCERPT_CHARS: Final = 80
+MAX_EXCERPT_CHARS: Final = 160
 
 # The HogFlow fields that `build_search_text` reads. Saving any of them rebuilds `HogFlow.search_text`.
 SEARCH_TEXT_SOURCE_FIELDS: Final[frozenset[str]] = frozenset({"name", "description", "actions", "draft"})
@@ -30,8 +45,6 @@ SEARCH_TEXT_SOURCE_FIELDS: Final[frozenset[str]] = frozenset({"name", "descripti
 # as whitespace, so the `[\s\-_]*` that a space in the search term becomes cannot match across it. The search
 # rejects a term that contains it, so a term never spans two fields.
 SEARCH_TEXT_SEPARATOR: Final = "﷐"
-
-EXCERPT_PADDING: Final = 40
 
 # The characters that Postgres counts as `\s` under a glibc UTF-8 locale, so the step matcher finds the text that
 # the row search matched. RE2's `\s` is ASCII only and omits the vertical tab. No-break spaces are not in the set.
@@ -58,6 +71,23 @@ class StepSearchMatch:
     field: StepSearchField
     matched_in: StepSearchVersion
     excerpt: str
+
+
+@frozen
+class SearchResultShape:
+    """What a search result row carries beyond its metadata, as the caller asked for it."""
+
+    regex: re2._Regexp
+    output: WorkflowSearchOutput
+    max_steps: int
+    excerpt_chars: int
+
+
+@frozen
+class StepMatches:
+    count: int
+    # The first matches in step order, at most the requested number.
+    steps: list[StepSearchMatch]
 
 
 def search_pattern(term: str) -> str:
@@ -211,13 +241,16 @@ def build_search_text(*, name: str | None, description: str | None, actions: obj
     return SEARCH_TEXT_SEPARATOR.join(dict.fromkeys(value for value in values if value))
 
 
-def _excerpt(text: str, regex: re2._Regexp) -> str:
+def _excerpt(text: str, regex: re2._Regexp, max_chars: int) -> str:
+    if max_chars == 0:
+        return ""
     collapsed = " ".join(text.split())
     match = regex.search(collapsed)
     if match is None:
-        return collapsed[: 2 * EXCERPT_PADDING]
-    start = max(0, match.start() - EXCERPT_PADDING)
-    end = min(len(collapsed), match.end() + EXCERPT_PADDING)
+        return collapsed[:max_chars]
+    padding = max(0, (max_chars - (match.end() - match.start())) // 2)
+    start = max(0, match.start() - padding)
+    end = min(len(collapsed), match.end() + padding, start + max_chars)
     # Snap to word boundaries so the excerpt does not open or close in the middle of a word.
     first_space = collapsed.find(" ", start, match.start())
     if start > 0 and first_space != -1:
@@ -230,20 +263,32 @@ def _excerpt(text: str, regex: re2._Regexp) -> str:
     return f"{prefix}{collapsed[start:end]}{suffix}"
 
 
-def find_step_matches(actions: object, draft: object, regex: re2._Regexp) -> list[StepSearchMatch]:
+def find_step_matches(
+    actions: object, draft: object, regex: re2._Regexp, *, max_steps: int, excerpt_chars: int
+) -> StepMatches:
     """The steps whose text matches `regex` from `step_regex`, one entry per step with the first field that matched.
 
     A staged step is listed only when its live version did not match, so each step appears once, with the text a
     person most likely looks at.
     """
-    matches: dict[str, StepSearchMatch] = {}
+    first_match: dict[str, StepSearchText] = {}
     for step in iter_step_search_texts(actions, draft):
-        if step.action_id in matches or regex.search(step.text) is None:
-            continue
-        matches[step.action_id] = StepSearchMatch(
+        if step.action_id not in first_match and regex.search(step.text) is not None:
+            first_match[step.action_id] = step
+    steps = [
+        StepSearchMatch(
             action_id=step.action_id,
             field=step.field,
             matched_in=step.matched_in,
-            excerpt=_excerpt(step.text, regex),
+            excerpt=_excerpt(step.text, regex, excerpt_chars),
         )
-    return list(matches.values())
+        for step in list(first_match.values())[:max_steps]
+    ]
+    return StepMatches(count=len(first_match), steps=steps)
+
+
+def matched_metadata_fields(
+    name: str | None, description: str | None, regex: re2._Regexp
+) -> list[WorkflowMetadataField]:
+    values = ((WorkflowMetadataField.NAME, name), (WorkflowMetadataField.DESCRIPTION, description))
+    return [field for field, value in values if value and regex.search(value) is not None]

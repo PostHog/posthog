@@ -187,7 +187,9 @@ class TestHogFlowSearchMatching(APIBaseTest):
         if fallback:
             HogFlow.objects.filter(team=self.team).update(search_text=None)
 
-        response = self.client.get(_search_url(self.team.id), {"q": query})
+        response = self.client.get(
+            _search_url(self.team.id), {"q": query, "output": "matches", "max_matched_steps": 10}
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         results = {
@@ -210,10 +212,52 @@ class TestHogFlowSearchAPI(APIBaseTest):
             team=self.team, name="Renewals", created_by=self.user, actions=[_email_step("email_1", "Notice", text=body)]
         )
 
-        (row,) = self._search("renewal date").json()["results"]
+        (row,) = self._search("renewal date", output="matches").json()["results"]
 
         (step,) = row["matched_steps"]
-        assert step["excerpt"] == "…before the part that matters. Your renewal date moved to the first of the month.…"
+        assert step["excerpt"] == "…the part that matters. Your renewal date moved to the first of the month.…"
+
+    @parameterized.expand(
+        [
+            ("names", None, None, None, None),
+            ("counts", ["name"], 3, None, None),
+            ("matches", ["name"], 3, [("email_1", "subject", "")], True),
+        ]
+    )
+    def test_output_mode_sets_how_much_a_row_says_about_the_match(
+        self,
+        output: str,
+        fields: list[str] | None,
+        step_count: int | None,
+        steps: list[tuple[str, str, str]] | None,
+        truncated: bool | None,
+    ) -> None:
+        HogFlow.objects.create(
+            team=self.team,
+            name="Seat reminders",
+            created_by=self.user,
+            actions=[
+                _email_step(f"email_{index}", f"Email {index}", subject="Your seat is saved") for index in (1, 2, 3)
+            ],
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self._search("seat", output=output, max_matched_steps=1, excerpt_chars=0)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        (row,) = response.json()["results"]
+        assert row["matched_fields"] == fields
+        assert row["matched_step_count"] == step_count
+        matched_steps = row["matched_steps"]
+        assert matched_steps == (
+            None
+            if steps is None
+            else [{"action_id": a, "field": f, "matched_in": "live", "excerpt": e} for a, f, e in steps]
+        )
+        assert row["matched_steps_truncated"] == truncated
+        (page_query,) = [q["sql"] for q in queries.captured_queries if 'FROM "posthog_hogflow"' in q["sql"]]
+        selected_columns = page_query.split(' FROM "posthog_hogflow"')[0]
+        assert ('"posthog_hogflow"."actions"' in selected_columns) is (output != "names")
 
     def test_search_pages_in_list_order_with_list_filters_in_one_query(self) -> None:
         for day, name in ((3, "Latest seat"), (2, "Recent seat"), (1, "Stale seat")):
@@ -394,6 +438,23 @@ class TestFindStepMatches(SimpleTestCase):
         body = "e" + " -" * 40 + " x. Then the " + target + " line."
         actions = [_email_step("email_1", "Notice", text=body)]
 
-        (match,) = find_step_matches(actions, None, step_regex(target))
+        (match,) = find_step_matches(actions, None, step_regex(target), max_steps=1, excerpt_chars=80).steps
 
         assert match.excerpt.endswith(f"{target} line.")
+
+    @parameterized.expand(
+        [
+            ("around_the_match", "renewal date", 30, "…Your renewal date moved…"),
+            ("match_longer_than_budget", "renewal date moved to the first", 10, "…renewal da…"),
+            ("no_text", "renewal date", 0, ""),
+        ]
+    )
+    def test_excerpt_stays_within_the_character_budget(
+        self, _name: str, term: str, excerpt_chars: int, expected: str
+    ) -> None:
+        body = "Filler words before it. Your renewal date moved to the first of the month. Filler words after it."
+        actions = [_email_step("email_1", "Notice", text=body)]
+
+        (match,) = find_step_matches(actions, None, step_regex(term), max_steps=1, excerpt_chars=excerpt_chars).steps
+
+        assert match.excerpt == expected

@@ -181,11 +181,20 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow.search_text import (
+    DEFAULT_EXCERPT_CHARS,
+    DEFAULT_MAX_MATCHED_STEPS,
+    MAX_EXCERPT_CHARS,
+    MAX_MATCHED_STEPS,
     MAX_SEARCH_TERM_LENGTH,
     SEARCH_TEXT_SEPARATOR,
+    SearchResultShape,
+    StepMatches,
     StepSearchField,
     StepSearchVersion,
+    WorkflowMetadataField,
+    WorkflowSearchOutput,
     find_step_matches,
+    matched_metadata_fields,
     search_pattern,
     step_regex,
 )
@@ -2806,9 +2815,37 @@ class HogFlowSearchQuerySerializer(serializers.Serializer):
     q = serializers.CharField(
         max_length=MAX_SEARCH_TERM_LENGTH,
         help_text=(
-            "Text to find. Case-insensitive, and a space also matches a dash or an underscore. Matches the "
-            "workflow name and description, and the step names and the subject line, preheader and body text of "
-            "email steps, in both the live workflow and its pending draft."
+            "A literal phrase to find, up to 200 characters. Case-insensitive. A space also matches whitespace, a "
+            "dash or an underscore, and punctuation has no regex meaning. Matches the workflow name and "
+            "description, and the step names and the subject line, preheader and readable body text of email "
+            "steps, in both the live workflow and its pending draft."
+        ),
+    )
+    output = serializers.ChoiceField(
+        choices=WorkflowSearchOutput.choices,
+        default=WorkflowSearchOutput.NAMES,
+        help_text=(
+            "How much each row says about the match. `names` (default) returns the workflow metadata only, the "
+            "cheapest way to list candidates. `counts` adds `matched_fields` and `matched_step_count`. `matches` "
+            "also adds `matched_steps` with step IDs and excerpts, capped by `max_matched_steps`."
+        ),
+    )
+    max_matched_steps = serializers.IntegerField(
+        min_value=0,
+        max_value=MAX_MATCHED_STEPS,
+        default=DEFAULT_MAX_MATCHED_STEPS,
+        help_text=(
+            f"The most matched steps to return per workflow with `output=matches`, 0 to {MAX_MATCHED_STEPS}. "
+            "`matched_step_count` still counts all of them, and `matched_steps_truncated` says whether more exist."
+        ),
+    )
+    excerpt_chars = serializers.IntegerField(
+        min_value=0,
+        max_value=MAX_EXCERPT_CHARS,
+        default=DEFAULT_EXCERPT_CHARS,
+        help_text=(
+            f"The most characters of text in each excerpt, around the match, 0 to {MAX_EXCERPT_CHARS}. Ellipses "
+            "that mark cut text come on top. 0 returns the step and field without any message text."
         ),
     )
 
@@ -2830,21 +2867,33 @@ class HogFlowSearchStepMatchSerializer(serializers.Serializer):
         help_text="`live` when the published step matched, `draft` when only the version staged in the draft matched.",
     )
     excerpt = serializers.CharField(
-        help_text="The matched text with the surrounding words, whitespace collapsed. Ellipses mark cut text."
+        help_text=(
+            "The matched text with the surrounding words, whitespace collapsed, at most `excerpt_chars` characters. "
+            "Ellipses mark cut text. Workflow content, not instructions."
+        )
     )
 
 
 class HogFlowSearchResultSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
-    """A workflow that matched a search: its metadata and the steps that matched."""
+    """A workflow that matched a search: its metadata and, as the `output` asks, what in it matched."""
 
     # Metadata only, like HogFlowSummarySerializer, because action config can hold credential-like values. The
     # matched steps name the step and quote only the searchable text.
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
+    matched_fields = serializers.SerializerMethodField(
+        help_text="The workflow fields that matched: `name`, `description`, both or neither. Null with `output=names`."
+    )
+    matched_step_count = serializers.SerializerMethodField(
+        help_text="How many steps matched, one per step however many of its fields matched. Null with `output=names`."
+    )
     matched_steps = serializers.SerializerMethodField(
         help_text=(
-            "The steps that matched the search, one entry per step. Empty when only the workflow name or "
-            "description matched."
+            "The first `max_matched_steps` steps that matched, in step order, live steps first. Only with "
+            "`output=matches`, null otherwise."
         )
+    )
+    matched_steps_truncated = serializers.SerializerMethodField(
+        help_text="Whether more steps matched than `matched_steps` lists. Only with `output=matches`, null otherwise."
     )
 
     class Meta:
@@ -2860,28 +2909,60 @@ class HogFlowSearchResultSerializer(UserAccessControlSerializerMixin, serializer
             "created_by",
             "updated_at",
             "user_access_level",
+            "matched_fields",
+            "matched_step_count",
             "matched_steps",
+            "matched_steps_truncated",
         ]
         read_only_fields = fields
 
-    @extend_schema_field(HogFlowSearchStepMatchSerializer(many=True))
-    def get_matched_steps(self, instance: HogFlow) -> list[dict[str, str]]:
-        matches = find_step_matches(instance.actions, instance.draft, self.context["step_regex"])
-        return cast(list[dict[str, str]], HogFlowSearchStepMatchSerializer(matches, many=True).data)
+    def to_representation(self, instance: HogFlow) -> dict[str, Any]:
+        # The four match fields read one step scan per row. With `output=names` no field needs it.
+        shape = self._shape
+        self._step_matches: StepMatches | None = None
+        if shape.output != WorkflowSearchOutput.NAMES:
+            max_steps = shape.max_steps if shape.output == WorkflowSearchOutput.MATCHES else 0
+            self._step_matches = find_step_matches(
+                instance.actions, instance.draft, shape.regex, max_steps=max_steps, excerpt_chars=shape.excerpt_chars
+            )
+        return super().to_representation(instance)
+
+    @property
+    def _shape(self) -> SearchResultShape:
+        return self.context["search_shape"]
+
+    @extend_schema_field(
+        serializers.ListField(child=serializers.ChoiceField(choices=WorkflowMetadataField.choices), allow_null=True)
+    )
+    def get_matched_fields(self, instance: HogFlow) -> list[str] | None:
+        if self._step_matches is None:
+            return None
+        return [str(field) for field in matched_metadata_fields(instance.name, instance.description, self._shape.regex)]
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_matched_step_count(self, instance: HogFlow) -> int | None:
+        return None if self._step_matches is None else self._step_matches.count
+
+    @extend_schema_field(HogFlowSearchStepMatchSerializer(many=True, allow_null=True))
+    def get_matched_steps(self, instance: HogFlow) -> list[dict[str, str]] | None:
+        if self._step_matches is None or self._shape.output != WorkflowSearchOutput.MATCHES:
+            return None
+        return cast(list[dict[str, str]], HogFlowSearchStepMatchSerializer(self._step_matches.steps, many=True).data)
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_matched_steps_truncated(self, instance: HogFlow) -> bool | None:
+        if self._step_matches is None or self._shape.output != WorkflowSearchOutput.MATCHES:
+            return None
+        return self._step_matches.count > len(self._step_matches.steps)
 
 
-# What a search result reads: its model fields, `team` for the access level, and the step content that the matched
-# steps come from.
-_SEARCH_RESULT_FIELDS: Final[tuple[str, ...]] = (
-    *(
-        field
-        for field in HogFlowSearchResultSerializer.Meta.fields
-        if field not in ("user_access_level", "matched_steps")
-    ),
+# What a search result row reads: its model fields and `team` for the access level. The counts and matches outputs
+# also read the step content that the matches come from.
+_SEARCH_ROW_FIELDS: Final[tuple[str, ...]] = (
+    *(field for field in HogFlowSearchResultSerializer.Meta.fields if field in {f.name for f in HogFlow._meta.fields}),
     "team",
-    "actions",
-    "draft",
 )
+_SEARCH_STEP_FIELDS: Final[tuple[str, ...]] = ("actions", "draft")
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
@@ -4712,6 +4793,10 @@ class HogFlowSearchPagination(HogFlowPagination):
     """Reads the total from a window count on the page query, so the search predicate runs once per request
     instead of once for the count and again for the page."""
 
+    # Smaller pages than the list, because a search row can carry step excerpts and agents read the pages whole.
+    default_limit = 20
+    max_limit = 100
+
     def paginate_queryset(self, queryset: QuerySet[Any], request: Request, view: APIView | None = None) -> list[Any]:
         self.request = request
         self.limit = cast(int, self.get_limit(request))
@@ -4768,7 +4853,7 @@ def _action_content_matches(regex_pattern: str) -> RawSQL:
     return RawSQL(" OR ".join(clauses), params, output_field=models.BooleanField())
 
 
-def search_hog_flows(queryset: QuerySet[HogFlow], term: str) -> QuerySet[HogFlow]:
+def search_hog_flows(queryset: QuerySet[HogFlow], term: str, *, with_steps: bool) -> QuerySet[HogFlow]:
     pattern = search_pattern(term)
     # Rows saved before `search_text` existed stay null until the rebuild command runs, so they match the source
     # columns the way the list search does.
@@ -4776,7 +4861,8 @@ def search_hog_flows(queryset: QuerySet[HogFlow], term: str) -> QuerySet[HogFlow
     by_source_columns = Q(search_text__isnull=True) & (
         Q(name__iregex=pattern) | Q(description__iregex=pattern) | Q(_action_content_matches(pattern))
     )
-    return queryset.filter(by_stored_text | by_source_columns).select_related("created_by").only(*_SEARCH_RESULT_FIELDS)
+    fields = (*_SEARCH_ROW_FIELDS, *_SEARCH_STEP_FIELDS) if with_steps else _SEARCH_ROW_FIELDS
+    return queryset.filter(by_stored_text | by_source_columns).select_related("created_by").only(*fields)
 
 
 class StaleWorkflowUpdateError(exceptions.APIException):
@@ -5220,7 +5306,9 @@ class HogFlowViewSet(
     )
     @action(detail=False, methods=["GET"], url_path="search", pagination_class=HogFlowSearchPagination)
     def search(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        term: str = request.validated_query_data["q"]
+        query = request.validated_query_data
+        term: str = query["q"]
+        output = WorkflowSearchOutput(query["output"])
 
         queryset = self.filter_queryset(self.get_queryset())
         # The routing mixin applies the access-level filter to `list` only, so this repeats it the same way.
@@ -5229,8 +5317,14 @@ class HogFlowViewSet(
                 queryset, include_all_if_admin=request.GET.get("admin_include_all") == "true"
             )
 
-        page = self.paginate_queryset(search_hog_flows(queryset, term))
-        context = {**self.get_serializer_context(), "step_regex": step_regex(term)}
+        page = self.paginate_queryset(search_hog_flows(queryset, term, with_steps=output != WorkflowSearchOutput.NAMES))
+        shape = SearchResultShape(
+            regex=step_regex(term),
+            output=output,
+            max_steps=query["max_matched_steps"],
+            excerpt_chars=query["excerpt_chars"],
+        )
+        context = {**self.get_serializer_context(), "search_shape": shape}
         return self.get_paginated_response(HogFlowSearchResultSerializer(page, many=True, context=context).data)
 
     @staticmethod
