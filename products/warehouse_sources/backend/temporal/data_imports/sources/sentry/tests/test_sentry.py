@@ -2037,10 +2037,10 @@ class TestSentryCustomIteratorEndpoints:
         def side_effect(url, headers=None, params=None, timeout=None):
             if url.endswith("/organizations/acme/projects/"):
                 return _response([{"id": "1", "slug": "web"}])
-            if (params or {}).get("stat") == "generated":
-                # Sentry persistently 500s for this project's "generated" stat.
-                return _response(None, status_code=500)
             if (params or {}).get("stat") == "received":
+                # Sentry persistently 500s for this project's "received" stat.
+                return _response(None, status_code=500)
+            if (params or {}).get("stat") == "generated":
                 return _response([[1772409600, 12]])
             return _response([])
 
@@ -2055,11 +2055,11 @@ class TestSentryCustomIteratorEndpoints:
             job_id="job-id",
         )
 
-        # The 500 on the "generated" stat is skipped; the healthy "received" stat still
-        # yields its points instead of the whole sync failing.
+        # The 500 on the "received" stat (first in PROJECT_STAT_NAMES) is skipped; the
+        # sync still reaches the later "generated" stat instead of stopping at the skip.
         rows = list(cast(Any, resp.items()))
         assert rows == [
-            {"stat": "received", "timestamp": 1772409600, "value": 12, "project_id": "1", "project_slug": "web"}
+            {"stat": "generated", "timestamp": 1772409600, "value": 12, "project_id": "1", "project_slug": "web"}
         ]
 
     @parameterized.expand(
