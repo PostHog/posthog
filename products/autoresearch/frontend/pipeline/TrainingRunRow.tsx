@@ -41,7 +41,8 @@ function RunReport({ runId }: { runId: string }): JSX.Element | null {
                 {
                     key: 'report',
                     header: 'Report',
-                    content: <LemonMarkdownWithMermaid>{report}</LemonMarkdownWithMermaid>,
+                    // The agent writes this report, so a remote image in it would make the viewer's browser call that host.
+                    content: <LemonMarkdownWithMermaid disableImages="all">{report}</LemonMarkdownWithMermaid>,
                 },
             ]}
         />

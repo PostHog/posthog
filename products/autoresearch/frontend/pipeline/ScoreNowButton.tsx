@@ -22,7 +22,13 @@ export function ScoreNowButton(): JSX.Element | null {
             onClick={() => scoreNow()}
             data-attr="autoresearch-model-score"
             loading={scoreResultLoading}
-            disabledReason={hasChampion ? undefined : 'Train a champion model first'}
+            disabledReason={
+                pipeline.status === 'paused'
+                    ? 'Resume the model to score it'
+                    : hasChampion
+                      ? undefined
+                      : 'Train a champion model first'
+            }
         >
             Score now
         </LemonButton>

@@ -57,6 +57,9 @@ function isPipelineTab(value: string | undefined): value is AutoresearchPipeline
 }
 
 /** One decile of the latest scoring run's predicted probabilities: `lower` ≤ p < `lower` + 0.1. */
+/** How far back the Predictions tab looks for the latest scoring batch, so it never scans the full history. */
+export const LATEST_BATCH_LOOKBACK_DAYS = 90
+
 export interface ProbabilityBucket {
     lower: number
     users: number
@@ -70,6 +73,7 @@ interface ValidationRunMetrics {
     per_model?: Record<
         string,
         {
+            emitted_role?: string
             model_role: string
             n_scored: number
             n_positive?: number
@@ -83,6 +87,20 @@ interface ValidationRunMetrics {
             warning?: string
         }
     >
+}
+
+/** The list endpoints page at 100 rows. Follow every page so a long-lived model shows its whole history. */
+async function fetchAllPages<T>(
+    fetchPage: (offset: number) => Promise<{ results: T[]; next?: string | null }>
+): Promise<T[]> {
+    const rows: T[] = []
+    for (;;) {
+        const response = await fetchPage(rows.length)
+        rows.push(...response.results)
+        if (!response.next || response.results.length === 0) {
+            return rows
+        }
+    }
 }
 
 /** A decoded artifact bundle file, ready for display. */
@@ -142,6 +160,8 @@ export interface DailyVolumePoint {
 export interface OnlinePerformanceRow {
     run_id: string
     prediction_date: string
+    /** The role the model held when it emitted these predictions; `model_role` is its role now. */
+    emitted_role: string
     model_role: string
     n_scored: number
     realized_auc: number | null
@@ -168,6 +188,7 @@ export interface autoresearchPipelineLogicValues {
     modelsLoading: boolean
     onlinePerformanceRows: OnlinePerformanceRow[]
     pipeline: AutoresearchPipelineApi | null
+    pipelineError: boolean
     pipelineLoading: boolean
     probabilityDistribution: ProbabilityBucket[] | null
     probabilityDistributionError: boolean
@@ -176,6 +197,7 @@ export interface autoresearchPipelineLogicValues {
     reportByRun: Record<string, string | null>
     reportByRunLoading: boolean
     runs: AutoresearchRunApi[]
+    runsError: boolean
     runsLoading: boolean
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
@@ -186,6 +208,7 @@ export interface autoresearchPipelineLogicValues {
     suggestionSubmitResult: AutoresearchSuggestionApi | null
     suggestionSubmitResultLoading: boolean
     suggestions: AutoresearchSuggestionApi[]
+    suggestionsError: boolean
     suggestionsLoading: boolean
     trainingRuns: AutoresearchTrainingRunApi[]
     trainingRunsLoading: boolean
@@ -584,6 +607,28 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 loadProbabilityDistributionFailure: () => true,
             },
         ],
+        pipelineError: [
+            false,
+            {
+                loadPipeline: () => false,
+                loadPipelineSuccess: () => false,
+                loadPipelineFailure: () => true,
+            },
+        ],
+        runsError: [
+            false,
+            {
+                loadRuns: () => false,
+                loadRunsFailure: () => true,
+            },
+        ],
+        suggestionsError: [
+            false,
+            {
+                loadSuggestions: () => false,
+                loadSuggestionsFailure: () => true,
+            },
+        ],
         dailyVolumeError: [
             false,
             {
@@ -625,8 +670,8 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    const response = await autoresearchModelsList(String(values.currentTeamId), props.id)
-                    return response.results
+                    const teamId = String(values.currentTeamId)
+                    return fetchAllPages((offset) => autoresearchModelsList(teamId, props.id, { offset }))
                 },
             },
         ],
@@ -637,8 +682,8 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    const response = await autoresearchTrainingRunsList(String(values.currentTeamId), props.id)
-                    return response.results
+                    const teamId = String(values.currentTeamId)
+                    return fetchAllPages((offset) => autoresearchTrainingRunsList(teamId, props.id, { offset }))
                 },
             },
         ],
@@ -649,8 +694,8 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    const response = await autoresearchRunsList(String(values.currentTeamId), props.id)
-                    return response.results
+                    const teamId = String(values.currentTeamId)
+                    return fetchAllPages((offset) => autoresearchRunsList(teamId, props.id, { offset }))
                 },
             },
         ],
@@ -661,8 +706,8 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    const response = await autoresearchSuggestionsList(String(values.currentTeamId), props.id)
-                    return response.results
+                    const teamId = String(values.currentTeamId)
+                    return fetchAllPages((offset) => autoresearchSuggestionsList(teamId, props.id, { offset }))
                 },
             },
         ],
@@ -754,7 +799,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             null as ProbabilityBucket[] | null,
             {
                 loadProbabilityDistribution: async () => {
-                    // One row per person: a same-day rescore emits another event, and only the latest score should count.
+                    // A scoring run stamps its whole batch with one timestamp, so the latest batch is its exact timestamp.
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT least(floor(p * 10), 9) AS bucket, count() AS users
@@ -765,11 +810,12 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                                 FROM events
                                 WHERE event = 'autoresearch_prediction'
                                   AND properties.$autoresearch_pipeline_id = ${props.id}
-                                  AND toDate(timestamp) = (
-                                      SELECT max(toDate(timestamp))
+                                  AND timestamp = (
+                                      SELECT max(timestamp)
                                       FROM events
                                       WHERE event = 'autoresearch_prediction'
                                         AND properties.$autoresearch_pipeline_id = ${props.id}
+                                        AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
                                   )
                                 GROUP BY person_id
                             )
@@ -789,7 +835,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             null as DailyVolumePoint[] | null,
             {
                 loadDailyVolume: async () => {
-                    // Latest 60 scoring days, returned oldest-first for left-to-right display.
+                    // The last 60 days, returned oldest-first for left-to-right display. The time bound keeps the scan off the full history.
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT toDate(timestamp) AS day,
@@ -798,6 +844,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                             FROM events
                             WHERE event = 'autoresearch_prediction'
                               AND properties.$autoresearch_pipeline_id = ${props.id}
+                              AND timestamp >= now() - INTERVAL 60 DAY
                             GROUP BY day
                             ORDER BY day DESC
                             LIMIT 60
@@ -865,6 +912,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                         rows.push({
                             run_id: run.id,
                             prediction_date: m.prediction_date,
+                            emitted_role: model.emitted_role ?? model.model_role,
                             model_role: model.model_role,
                             n_scored: model.n_scored,
                             realized_auc: model.realized_auc ?? null,

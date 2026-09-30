@@ -5,6 +5,8 @@ import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 
+import { LATEST_BATCH_LOOKBACK_DAYS } from '../autoresearchPipelineLogic'
+
 /** Links to the person's page. The value is a (person UUID, display name) tuple; the display name falls back to the UUID. */
 function PersonCell({ value }: { value: unknown }): JSX.Element {
     const [id, name] = Array.isArray(value) ? value : [value, null]
@@ -43,11 +45,13 @@ export function ProbabilityUsersTable({
                 source: {
                     kind: NodeKind.HogQLQuery,
                     query: `
+                        -- A scoring run stamps its whole batch with one timestamp, so the latest batch is its exact timestamp.
                         WITH latest AS (
-                            SELECT max(toDate(timestamp)) AS d
+                            SELECT max(timestamp) AS t
                             FROM events
                             WHERE event = 'autoresearch_prediction'
                               AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                              AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
                         ),
                         scored AS (
                             SELECT
@@ -57,7 +61,7 @@ export function ProbabilityUsersTable({
                             FROM events
                             WHERE event = 'autoresearch_prediction'
                               AND properties.$autoresearch_pipeline_id = {pipeline_id}
-                              AND toDate(timestamp) = (SELECT d FROM latest)
+                              AND timestamp = (SELECT t FROM latest)
                             GROUP BY person_id
                         )
                         -- LEFT JOIN persons directly on the person UUID: the implicit person join goes via

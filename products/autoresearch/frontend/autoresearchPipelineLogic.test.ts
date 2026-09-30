@@ -6,7 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 
 import { autoresearchPipelineLogic, trainingRunProgress } from './autoresearchPipelineLogic'
-import { autoresearchRetrieve } from './generated/api'
+import { autoresearchModelsList, autoresearchRetrieve } from './generated/api'
 import { AutoresearchTrainingRunApi, IterationTrailApi } from './generated/api.schemas'
 
 jest.mock('./generated/api', () => ({
@@ -18,6 +18,7 @@ jest.mock('./generated/api', () => ({
 }))
 
 const mockRetrieve = autoresearchRetrieve as jest.Mock
+const mockModelsList = autoresearchModelsList as jest.Mock
 
 function makeRun(overrides: Partial<AutoresearchTrainingRunApi>): AutoresearchTrainingRunApi {
     return {
@@ -47,6 +48,22 @@ function makeIteration(overrides: Partial<IterationTrailApi>): IterationTrailApi
 }
 
 describe('autoresearchPipelineLogic', () => {
+    it('follows every page of models so a champion past the first page still counts', async () => {
+        jest.clearAllMocks()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model' })
+        mockModelsList
+            .mockResolvedValueOnce({ results: [{ id: 'challenger', role: 'challenger' }], next: 'page-2' })
+            .mockResolvedValueOnce({ results: [{ id: 'champion', role: 'champion' }], next: null })
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.models.map((m) => m.id)).toEqual(['challenger', 'champion'])
+        expect(mockModelsList).toHaveBeenLastCalledWith(expect.any(String), 'pipeline-1', { offset: 1 })
+    })
+
     it('waits for the flag before it loads the model, then loads once', async () => {
         jest.clearAllMocks()
         initKeaTests()

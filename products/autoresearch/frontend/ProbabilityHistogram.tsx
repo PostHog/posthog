@@ -34,7 +34,13 @@ export function ProbabilityHistogram({ buckets }: { buckets: ProbabilityBucket[]
                                     }}
                                 />
                             </div>
-                            <span className="text-xs text-muted whitespace-nowrap">{label}</span>
+                            {/* A narrow scene leaves each bucket too little room for the full range, so show its lower bound. */}
+                            <span className="text-xs text-muted whitespace-nowrap @min-[48rem]/main-content:hidden">
+                                {Math.round(bucket.lower * 100)}%
+                            </span>
+                            <span className="text-xs text-muted whitespace-nowrap hidden @min-[48rem]/main-content:inline">
+                                {label}
+                            </span>
                         </div>
                     </Tooltip>
                 )

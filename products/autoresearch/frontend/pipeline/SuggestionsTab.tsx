@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -28,7 +28,8 @@ const SUGGESTION_PRIORITY: Record<AutoresearchSuggestionPriorityEnumApi, string>
 }
 
 export function SuggestionsTab(): JSX.Element {
-    const { suggestions, suggestionsLoading } = useValues(autoresearchPipelineLogic)
+    const { suggestions, suggestionsLoading, suggestionsError } = useValues(autoresearchPipelineLogic)
+    const { loadSuggestions } = useActions(autoresearchPipelineLogic)
     return (
         <div className="space-y-4">
             <p className="text-sm text-muted">
@@ -38,6 +39,17 @@ export function SuggestionsTab(): JSX.Element {
             <SuggestionForm />
             {suggestionsLoading ? (
                 <Spinner />
+            ) : suggestionsError ? (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Retry',
+                        onClick: () => loadSuggestions(),
+                        'data-attr': 'autoresearch-model-suggestions-retry',
+                    }}
+                >
+                    Couldn't load the suggestions. Try again, and if it keeps happening contact support.
+                </LemonBanner>
             ) : suggestions.length === 0 ? (
                 <div className="text-muted text-sm">No suggestions yet. Send one above to steer the next run.</div>
             ) : (

@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { OnlinePerformanceRow, autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { EmptyTab } from './EmptyTab'
@@ -18,10 +18,22 @@ function fmt(value: number | null, decimals = 3): string {
 }
 
 export function OnlinePerformanceTab(): JSX.Element {
-    const { onlinePerformanceRows, runsLoading } = useValues(autoresearchPipelineLogic)
+    const { onlinePerformanceRows, runsLoading, runsError } = useValues(autoresearchPipelineLogic)
+    const { loadRuns } = useActions(autoresearchPipelineLogic)
 
     if (runsLoading) {
         return <Spinner />
+    }
+
+    if (runsError) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{ children: 'Retry', onClick: () => loadRuns(), 'data-attr': 'autoresearch-model-runs-retry' }}
+            >
+                Couldn't load this model's scoring runs. Try again, and if it keeps happening contact support.
+            </LemonBanner>
+        )
     }
 
     if (onlinePerformanceRows.length === 0) {
@@ -37,7 +49,7 @@ export function OnlinePerformanceTab(): JSX.Element {
 
     // Champion metric trends over time, oldest → newest, for the sparklines.
     const championRows = onlinePerformanceRows
-        .filter((r) => r.model_role === 'champion')
+        .filter((r) => r.emitted_role === 'champion')
         .sort((a, b) => a.prediction_date.localeCompare(b.prediction_date))
     const trend = (pick: (r: OnlinePerformanceRow) => number | null): { date: string; value: number }[] =>
         championRows.filter((r) => pick(r) != null).map((r) => ({ date: r.prediction_date, value: pick(r) as number }))

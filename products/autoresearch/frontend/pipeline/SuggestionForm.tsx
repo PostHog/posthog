@@ -13,6 +13,7 @@ export function SuggestionForm(): JSX.Element {
             <div className="text-sm font-semibold">Steer the agent</div>
             <LemonTextArea
                 value={suggestionDraft}
+                maxLength={2000}
                 onChange={setSuggestionDraft}
                 placeholder="e.g. Try a momentum feature: downloads in the last 7 days over the last 30 days."
                 minRows={2}

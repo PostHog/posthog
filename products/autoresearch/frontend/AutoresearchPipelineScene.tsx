@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTab, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTab, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -29,8 +29,8 @@ export const scene: SceneExport = {
 }
 
 export function AutoresearchPipelineScene(): JSX.Element {
-    const { pipeline, pipelineLoading, activeTab } = useValues(autoresearchPipelineLogic)
-    const { setActiveTab } = useActions(autoresearchPipelineLogic)
+    const { pipeline, pipelineLoading, pipelineError, activeTab } = useValues(autoresearchPipelineLogic)
+    const { setActiveTab, loadDetail } = useActions(autoresearchPipelineLogic)
     const isEnabled = useFeatureFlag('AUTORESEARCH')
 
     const tabs: LemonTab<AutoresearchPipelineTab>[] = [
@@ -64,6 +64,13 @@ export function AutoresearchPipelineScene(): JSX.Element {
 
             {pipelineLoading && !pipeline ? (
                 <Spinner />
+            ) : pipelineError && !pipeline ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Retry', onClick: () => loadDetail(), 'data-attr': 'autoresearch-model-retry' }}
+                >
+                    Couldn't load this model. It may have been deleted. Try again, or go back to the model list.
+                </LemonBanner>
             ) : (
                 <LemonTabs
                     activeKey={activeTab}

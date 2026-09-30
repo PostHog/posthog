@@ -49,12 +49,14 @@ export function FeatureImportanceChart({ explanation }: { explanation: unknown }
         return null
     }
     const hasImportances = features.some((f) => f.importance != null)
+    // Gain has no fixed scale, so bars are relative to the strongest feature.
+    const maxImportance = Math.max(0, ...features.map((f) => f.importance ?? 0))
     const content = (
         <div className="space-y-2">
             <div className="text-xs text-muted">
                 <span style={{ color: 'var(--success)' }}>● raises</span>{' '}
                 <span style={{ color: 'var(--danger)' }}>● lowers</span> the prediction
-                {hasImportances ? ' · bars on a fixed 0-1 importance scale' : ' · strongest first'}
+                {hasImportances ? ' · bars relative to the strongest feature' : ' · strongest first'}
             </div>
             <div className="space-y-1">
                 {features.map((f) => {
@@ -76,7 +78,7 @@ export function FeatureImportanceChart({ explanation }: { explanation: unknown }
                                         <div
                                             className="h-full rounded"
                                             style={{
-                                                width: `${Math.min(100, Math.max(2, (f.importance ?? 0) * 100))}%`,
+                                                width: `${maxImportance > 0 ? Math.max(2, ((f.importance ?? 0) / maxImportance) * 100) : 2}%`,
                                                 backgroundColor: isNegative ? 'var(--danger)' : 'var(--success)',
                                             }}
                                         />
