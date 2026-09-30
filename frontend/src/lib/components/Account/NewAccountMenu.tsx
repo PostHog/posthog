@@ -59,8 +59,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { currentTeam } = useValues(teamLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
-    const { pendingInvites } = useValues(pendingInvitesLogic)
-    const hasPendingInvites = pendingInvites.length > 0
+    const { pendingInvitesLabel } = useValues(pendingInvitesLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { billingEntryUrl } = useValues(billingLogic)
@@ -98,7 +97,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         {currentOrganization ? currentOrganization.name : 'Select organization'}
                                     </div>
                                     <div>Project: {currentTeam ? currentTeam.name : 'Select project'}</div>
-                                    {hasPendingInvites && <div>You have a pending invitation</div>}
+                                    {pendingInvitesLabel && <div>{pendingInvitesLabel}</div>}
                                 </div>
                             }
                         >
@@ -119,8 +118,9 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         : 'Account menu'}
                                 </span>
                             )}
-                            {hasPendingInvites && (
+                            {pendingInvitesLabel && (
                                 <PendingInviteDot
+                                    label={pendingInvitesLabel}
                                     className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'mr-0.5'}
                                 />
                             )}
@@ -174,6 +174,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 <ButtonPrimitive
                                                     menuItem
                                                     data-attr="new-account-menu-all-projects-button"
+                                                    tooltip={
+                                                        pendingInvitesLabel
+                                                            ? `${pendingInvitesLabel}. Click to view.`
+                                                            : undefined
+                                                    }
+                                                    tooltipPlacement="right"
                                                 >
                                                     <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-4 dark:text-tertiary text-[8px]">
                                                         {String.fromCodePoint(
@@ -183,7 +189,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     <span className="truncate font-semibold">
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>
-                                                    {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
+                                                    {pendingInvitesLabel && (
+                                                        <PendingInviteDot
+                                                            label={pendingInvitesLabel}
+                                                            className="mr-0.5"
+                                                        />
+                                                    )}
                                                     <MenuOpenIndicator intent="sub" className="ml-auto" />
                                                 </ButtonPrimitive>
                                             }

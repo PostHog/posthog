@@ -26,10 +26,10 @@ export function ProjectName({ team, className }: { team: TeamBasicType; classNam
     )
 }
 
-export function PendingInviteDot({ className }: { className?: string }): JSX.Element {
+export function PendingInviteDot({ label, className }: { label: string; className?: string }): JSX.Element {
     return (
         <span
-            aria-label="Pending invitation"
+            aria-label={label}
             className={cn('relative flex items-center justify-center size-1.5 shrink-0', className)}
         >
             <span className="absolute inset-0 rounded-full bg-accent opacity-60 animate-ping" />
@@ -45,8 +45,7 @@ export function ProjectMenu({
 }): JSX.Element | null {
     const iconOnly = buttonProps?.iconOnly ?? false
     const { currentTeam } = useValues(teamLogic)
-    const { pendingInvites } = useValues(pendingInvitesLogic)
-    const hasPendingInvites = pendingInvites.length > 0
+    const { pendingInvitesLabel } = useValues(pendingInvitesLogic)
 
     return isAuthenticatedTeam(currentTeam) ? (
         <PopoverPrimitive>
@@ -61,7 +60,7 @@ export function ProjectMenu({
                         iconOnly ? 'min-w-auto' : '',
                         buttonProps.className
                     )}
-                    tooltip={hasPendingInvites ? 'You have a pending invitation' : buttonProps.tooltip}
+                    tooltip={pendingInvitesLabel ?? buttonProps.tooltip}
                 >
                     {iconOnly ? (
                         <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 dark:text-tertiary">
@@ -70,8 +69,11 @@ export function ProjectMenu({
                     ) : (
                         <span className="truncate">{currentTeam.name ?? 'Project'}</span>
                     )}
-                    {hasPendingInvites && (
-                        <PendingInviteDot className={iconOnly ? 'absolute top-0.5 right-0.5' : 'ml-1'} />
+                    {pendingInvitesLabel && (
+                        <PendingInviteDot
+                            label={pendingInvitesLabel}
+                            className={iconOnly ? 'absolute top-0.5 right-0.5' : 'ml-1'}
+                        />
                     )}
                     {!iconOnly && <MenuOpenIndicator className="ml-auto" />}
                 </ButtonPrimitive>
