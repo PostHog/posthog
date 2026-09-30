@@ -14,7 +14,11 @@ export function WarehouseSyncWarningList({ warnings }: { warnings: DataWarehouse
                     {warning.source_id && (
                         <>
                             {' '}
-                            <Link to={urls.dataWarehouseSource(`managed-${warning.source_id}`)} target="_blank">
+                            <Link
+                                to={urls.dataWarehouseSource(`managed-${warning.source_id}`)}
+                                target="_blank"
+                                data-attr="warehouse-sync-warning-manage-source"
+                            >
                                 Manage source
                             </Link>
                         </>

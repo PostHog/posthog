@@ -27,7 +27,11 @@ export function warehouseSyncWarnings(
     return (warnings ?? []).filter((warning): warning is DataWarehouseSyncWarning => warning.type === 'warehouse_sync')
 }
 
-/** One entry per out-of-date table on the dashboard, with every insight that reads it. */
+/**
+ * One entry per out-of-date table on the dashboard, with every insight that reads it. Each tile's cached
+ * results carry the warning from when they were computed, so tiles cached at different times keep
+ * separate entries rather than borrowing another tile's message.
+ */
 export function warehouseSyncDashboardEntries(tiles: DashboardTile[]): WarehouseSyncDashboardEntry[] {
     const entries = new Map<string, WarehouseSyncDashboardEntry>()
     for (const tile of tiles) {
@@ -36,7 +40,7 @@ export function warehouseSyncDashboardEntries(tiles: DashboardTile[]): Warehouse
             continue
         }
         for (const warning of warehouseSyncWarnings(insight.warnings)) {
-            const key = `${warning.source_id ?? warning.source_type}:${warning.schema_name}:${warning.table_name}`
+            const key = `${warning.source_id ?? warning.source_type}:${warning.schema_name}:${warning.table_name}:${warning.message}`
             const entry = entries.get(key) ?? { warning, insights: [] }
             entry.insights.push({
                 tileId: tile.id,

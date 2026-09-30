@@ -27,20 +27,29 @@ export function DashboardWarehouseSyncBanner(): JSX.Element | null {
             <ul className="list-disc pl-5">
                 {entries.map(({ warning, insights }) => (
                     <li
-                        key={`${warning.source_id ?? warning.source_type}-${warning.schema_name}-${warning.table_name}`}
+                        key={`${warning.source_id ?? warning.source_type}-${warning.schema_name}-${warning.table_name}-${warning.message}`}
                     >
                         <span>{trimRedundantTail(warning.message)}</span> Used by{' '}
                         {insights.map((insight, index) => (
                             <Fragment key={insight.tileId}>
                                 {index > 0 ? ', ' : ''}
-                                <Link to={urls.insightView(insight.shortId)}>{insight.name}</Link>
+                                <Link
+                                    to={urls.insightView(insight.shortId)}
+                                    data-attr="dashboard-warehouse-sync-insight"
+                                >
+                                    {insight.name}
+                                </Link>
                             </Fragment>
                         ))}
                         .
                         {warning.source_id && (
                             <>
                                 {' '}
-                                <Link to={urls.dataWarehouseSource(`managed-${warning.source_id}`)} target="_blank">
+                                <Link
+                                    to={urls.dataWarehouseSource(`managed-${warning.source_id}`)}
+                                    target="_blank"
+                                    data-attr="dashboard-warehouse-sync-manage-source"
+                                >
                                     Manage source
                                 </Link>
                             </>

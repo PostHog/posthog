@@ -58,7 +58,7 @@ describe('warehouseSyncWarnings', () => {
         })
     })
 
-    it('lists each out-of-date table once, with every insight on the dashboard that reads it', () => {
+    it('groups the insights that read an out-of-date table, keeping tiles cached at different times apart', () => {
         const invoices = syncWarning('invoices')
         const entries = warehouseSyncDashboardEntries([
             tile(1, { short_id: 'aaa' as InsightShortId, name: 'Revenue', warnings: [invoices] }),
@@ -75,11 +75,18 @@ describe('warehouseSyncWarnings', () => {
                 warnings: [{ type: 'access_control', message: 'Some objects are hidden.', resources: ['insight'] }],
             }),
             tile(6, null),
+            // Cached a day earlier, so its message names a different age for the same table.
+            tile(7, {
+                short_id: 'fff' as InsightShortId,
+                name: 'Older cache',
+                warnings: [{ ...invoices, message: 'Last sync of `invoices` (from Stripe) failed a day ago.' }],
+            }),
         ])
 
         expect(entries.map(({ warning, insights }) => [warning.table_name, insights.map((i) => i.name)])).toEqual([
             ['stripe_invoices', ['Revenue', 'Revenue by day']],
             ['stripe_charges', ['Revenue by day']],
+            ['stripe_invoices', ['Older cache']],
         ])
     })
 })

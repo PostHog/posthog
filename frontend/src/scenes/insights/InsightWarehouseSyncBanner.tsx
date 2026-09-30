@@ -9,9 +9,12 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys
 import { InsightLogicProps } from '~/types'
 
 export function InsightWarehouseSyncBanner({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
-    const { response } = useValues(dataNodeLogic({ key: insightVizDataNodeKey(insightProps) } as DataNodeLogicProps))
+    const { response, responseLoading } = useValues(
+        dataNodeLogic({ key: insightVizDataNodeKey(insightProps) } as DataNodeLogicProps)
+    )
     const syncWarnings = warehouseSyncWarnings(response && 'warnings' in response ? response.warnings : null)
-    if (syncWarnings.length === 0) {
+    // While a new query runs, the response still belongs to the previous query.
+    if (responseLoading || syncWarnings.length === 0) {
         return null
     }
 
