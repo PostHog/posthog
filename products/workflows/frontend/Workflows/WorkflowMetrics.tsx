@@ -23,7 +23,11 @@ import { PushMetricsSummary } from './PushMetricsSummary'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
-import { type EmailMetricName, METRIC_COLORS, buildEmailMetricInvocationSearchParams } from './workflowMetricsSummaryLogic'
+import {
+    type EmailMetricName,
+    METRIC_COLORS,
+    buildEmailMetricInvocationSearchParams,
+} from './workflowMetricsSummaryLogic'
 
 const HedgehogGreek = pngHoggie(greekPng)
 

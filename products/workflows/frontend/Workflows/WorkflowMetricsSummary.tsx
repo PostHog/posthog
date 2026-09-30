@@ -13,7 +13,6 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { EmailLinksTable } from './EmailLinksTable'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
-    type EmailLinkRow,
     type EmailMetric,
     type EmailMetricName,
     type EmailMetricRow,
@@ -142,7 +141,11 @@ export function WorkflowMetricsSummary({
                         },
                         // The rollup and its per-type rows are written together, so this is normally
                         // zero. Showing any remainder keeps the tags adding up to the rollup.
-                        { label: 'bounced', value: Math.max(0, row.bounced - classifiedBounces), metric: 'email_bounced' },
+                        {
+                            label: 'bounced',
+                            value: Math.max(0, row.bounced - classifiedBounces),
+                            metric: 'email_bounced',
+                        },
                     ]
                     const issues = [
                         ...bounceIssues.map((bounce) => ({
