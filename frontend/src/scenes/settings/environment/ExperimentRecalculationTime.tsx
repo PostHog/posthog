@@ -97,7 +97,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
             />
             {allowSecondTime &&
                 (times.length > 1 ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
                         <LemonSelect
                             value={utcHourFromTimeString(times[1]).toString()}
                             onChange={(value) => handleTimeChange(1, value)}
