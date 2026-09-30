@@ -729,7 +729,16 @@ def _capture_trial_edit(
             corroboration_collapsed=collapsed,
         )
         if result.changed:
-            document["updated_at"] = timezone.now().isoformat()
+            # Production moves `updated_at` only when it saves report content. Notes, reviewers and a
+            # repository change are artefacts only, so they must not reorder the private inbox either.
+            if (
+                updated_fields
+                or append_evidence
+                or charts_set is not None
+                or metrics_set is not None
+                or prompts_set is not None
+            ):
+                document["updated_at"] = timezone.now().isoformat()
             if not any(artefact["type"] == "task_run" for artefact in report.artefacts):
                 report.artefacts.append(
                     _trial_artefact(
