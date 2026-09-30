@@ -184,8 +184,8 @@ def _page_path(url: str) -> str:
     return urlparse(url).path.rstrip("/") or "/"
 
 
-def _page_key(url: str) -> tuple[str, str]:
-    return site_host(url), _page_path(url)
+def _page_key(url: str) -> str:
+    return f"{site_host(url)}{_page_path(url)}"
 
 
 def _clean(text: str) -> str:
@@ -309,7 +309,7 @@ def fetch_named_competitor_pages(
     skipped: list[str] = []
     for url in urls[:MAX_NAMED_COMPETITOR_PAGES]:
         page = _page_key(url)
-        if not page[0] or page in known_pages or has_same_public_site(url, site_origin):
+        if not site_host(url) or page in known_pages or has_same_public_site(url, site_origin):
             continue
         document = fetch_competitor_page(url)
         if document is None:
