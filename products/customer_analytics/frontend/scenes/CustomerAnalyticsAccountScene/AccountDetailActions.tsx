@@ -17,38 +17,32 @@ export function AccountDetailActions({ projectId }: AccountDetailActionsProps): 
     const logic = accountViewsLogic({ projectId })
     const { accountDetailTabs, config, configError, configLoading } = useValues(logic)
     const { openConfigure, openCreateEditor } = useActions(logic)
-    const accountViewsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]
-    const accountTabsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_TABS]
 
-    if (!accountViewsEnabled && !accountTabsEnabled) {
+    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]) {
         return null
     }
 
     return (
         <>
-            {accountTabsEnabled ? (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconGear />}
-                    data-attr="account-detail-configure-tabs"
-                    disabledReason={configLoading || (!config && !configError) ? 'Loading tab settings' : undefined}
-                    onClick={() => openConfigure(config && !configError ? accountDetailTabs : null)}
-                >
-                    Configure tabs
-                </LemonButton>
-            ) : null}
-            {accountViewsEnabled ? (
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPlus />}
-                    data-attr="account-detail-add-view"
-                    onClick={openCreateEditor}
-                >
-                    New view
-                </LemonButton>
-            ) : null}
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconGear />}
+                data-attr="account-detail-configure-tabs"
+                disabledReason={configLoading || (!config && !configError) ? 'Loading tab settings' : undefined}
+                onClick={() => openConfigure(config && !configError ? accountDetailTabs : null)}
+            >
+                Configure tabs
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlus />}
+                data-attr="account-detail-add-view"
+                onClick={openCreateEditor}
+            >
+                New view
+            </LemonButton>
         </>
     )
 }

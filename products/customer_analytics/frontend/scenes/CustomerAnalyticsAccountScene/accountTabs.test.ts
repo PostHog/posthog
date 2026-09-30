@@ -34,7 +34,7 @@ describe('account tabs', () => {
         expect(getActiveAccountTabId(tabs, emptyConfig, 'view:missing', 1)).toBe('view:missing')
     })
 
-    it('does not apply tab preferences while the tab settings flag is disabled', () => {
+    it('does not apply tab preferences while account views are disabled', () => {
         const config: AccountDetailTabsConfigApi = {
             ordered_tab_ids: ['system:users'],
             hidden_tab_ids: ['system:notes', 'view:shared'],

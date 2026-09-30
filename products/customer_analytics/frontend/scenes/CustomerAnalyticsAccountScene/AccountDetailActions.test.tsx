@@ -24,7 +24,6 @@ describe('AccountDetailActions', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]: true,
-            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_TABS]: true,
         })
     })
 
@@ -72,15 +71,5 @@ describe('AccountDetailActions', () => {
             default_tab_id: 'system:users',
         })
         logic.unmount()
-    })
-
-    it('shows tab settings without account views', () => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_TABS]: true,
-        })
-        render(<AccountDetailActions projectId={1} />)
-
-        expect(screen.getByText('Configure tabs')).toBeInTheDocument()
-        expect(screen.queryByText('New view')).not.toBeInTheDocument()
     })
 })

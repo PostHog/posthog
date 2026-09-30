@@ -43,17 +43,16 @@ export function AccountDetailNavigation({
     const { views, accountDetailTabs, config, configError, viewsError, viewsLoading } = useValues(logic)
     const { openEditEditor, openConfigure, loadViews } = useActions(logic)
     const accountViewsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]
-    const accountTabsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_TABS]
     const tabs = listAccountTabs(featureFlags, accountViewsEnabled ? views : [])
     const requestedTabIdFromRoute = requestedTab ? getAccountTabIdFromRoute(requestedTab) : undefined
     const requestedTabId =
         requestedTabIdFromRoute?.startsWith('view:') && !accountViewsEnabled ? undefined : requestedTabIdFromRoute
-    const activeTabId = getActiveAccountTabId(tabs, accountDetailTabs, requestedTabId, user?.id, accountTabsEnabled)
+    const activeTabId = getActiveAccountTabId(tabs, accountDetailTabs, requestedTabId, user?.id, accountViewsEnabled)
     const activeTab = tabs.find((tab) => tab.id === activeTabId)
     const loadingView = activeTabId.startsWith('view:') && !activeTab && viewsLoading && accountViewsEnabled
     const viewLoadError = activeTabId.startsWith('view:') && !activeTab && !!viewsError && accountViewsEnabled
     const missingView = activeTabId.startsWith('view:') && !activeTab && !loadingView && !viewLoadError
-    const visibleTabs = listVisibleAccountTabs(tabs, accountDetailTabs, activeTabId, user?.id, accountTabsEnabled)
+    const visibleTabs = listVisibleAccountTabs(tabs, accountDetailTabs, activeTabId, user?.id, accountViewsEnabled)
     const tabDefinitions = loadingView
         ? [
               ...visibleTabs,
@@ -124,7 +123,7 @@ export function AccountDetailNavigation({
                         accountId,
                         externalId,
                         loadingViewId: loadingView ? activeTabId : undefined,
-                        openConfigure: accountTabsEnabled
+                        openConfigure: accountViewsEnabled
                             ? () => openConfigure(config && !configError ? accountDetailTabs : null)
                             : undefined,
                     })}
