@@ -45,15 +45,6 @@ The `state` field must be a JSON object.
 
 Run responses omit internal cost accounting, including gateway request IDs.
 
-## GitHub pull request attribution
-
-GitHub webhooks identify a task run by a previously verified PR URL, a server-generated Self-driving or wizard head branch, or a repository and branch pair in `output.head_branches` recorded by commit reporting.
-Clients that report a PR URL without explicit head-branch records can match only that exact URL, with the same repository and `branch` as the webhook's head branch.
-This fallback does not apply to runs with a server-generated Self-driving or wizard head branch.
-The checkout branch in `branch` and the current checkout recorded in `output.head_branch` do not establish PR ownership by themselves.
-A pull request that only shares a checkout branch with a run is treated as external and is not attached to that run or its report.
-Previously verified PR associations remain eligible for matching; this rule does not repair historical associations.
-
 ## Event delivery
 
 Cloud runs send live events through event ingest. Clients can replay only events mirrored into the backend stream.
