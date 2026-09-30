@@ -625,7 +625,6 @@ class CuratedGitHubSource:
     def _catalog(self) -> Database:
         with self._lock:
             if self._database is None:
-                # Building the catalog is slow, and every query of one request reads the same one.
                 self._database = Database.create_for(
                     team=self._team,
                     user=self._user,

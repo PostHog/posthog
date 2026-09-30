@@ -368,7 +368,6 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert item.estimated_cost_usd == pytest.approx(0.016)
         assert item.billable_minutes == pytest.approx(2.0)
 
-        # PR 71 has no jobs, and a repeat read reuses both answers rather than scanning the jobs again.
         repeat, cost_queries = list_counting_cost_queries()
         assert cost_queries == 0
         assert next(i for i in repeat.items if i.number == 70).estimated_cost_usd == pytest.approx(0.016)
