@@ -185,8 +185,7 @@ class CuratedGitHubSource:
         self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
         self._depot_job_attempts_resolved = False
         self._database: Database | None = None
-        # Concurrent reads (see concurrent_reads) share the query budget, the catalog and the lazily
-        # resolved sources, so they take and build each of them under this lock.
+        # Guards the query budget, the catalog and the lazily resolved sources, which concurrent reads share.
         self._lock = threading.Lock()
 
     @property
@@ -669,10 +668,8 @@ class CuratedGitHubSource:
 
 
 class ConcurrentReads:
-    """The shared helper copies the caller's context and query tags into each worker and re-raises a
-    failed read in the caller. A worker thread opens its own Postgres connection, so the read closes
-    it. Under TEST the reads run inline, because a worker's connection cannot see the test transaction.
-    """
+    """Each worker closes the Postgres connection it opens. Under TEST the reads run inline, because a
+    worker's connection cannot see the test transaction."""
 
     def __init__(self) -> None:
         self._work: list[Callable[[], None]] = []
