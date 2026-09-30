@@ -38,12 +38,27 @@ describe('safeStorageEngine', () => {
         jest.restoreAllMocks()
     })
 
-    it('keeps persisted reducers working for the session when storage rejects every write', () => {
+    it.each([
+        [
+            'rejects every write',
+            (): void => {
+                jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+                    throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+                })
+            },
+        ],
+        [
+            'blocks every access',
+            (): void => {
+                jest.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+                    throw new DOMException('Access to storage is denied.', 'SecurityError')
+                })
+            },
+        ],
+    ])('keeps persisted reducers working for the session when storage %s', (_name, failStorage) => {
         initKeaTests()
         const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
-        jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-            throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
-        })
+        failStorage()
 
         const logic = persistedSettingLogic()
         expect(() => logic.mount()).not.toThrow()
