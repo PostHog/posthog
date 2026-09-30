@@ -10,6 +10,7 @@ import { TodaySessionMenu } from './TodaySessionMenu'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionRenameInput } from './TodaySessionRenameInput'
 import { TodaySessionStatusIcon } from './TodaySessionStatusIcon'
+import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem, activeCloudRunId, analysisRunId, canHandOff } from './todayWorkItems'
 
@@ -18,12 +19,14 @@ interface TodaySessionRowProps {
     pinned: boolean
     dataAttr: string
     surface: TodaySessionSurface
+    unread: boolean
 }
 
-export function TodaySessionRow({ item, pinned, dataAttr, surface }: TodaySessionRowProps): JSX.Element {
+export function TodaySessionRow({ item, pinned, dataAttr, surface, unread }: TodaySessionRowProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
     const { location, searchParams } = useValues(router)
     const { user } = useValues(userLogic)
+    const { pullRequestStates } = useValues(todaySpacesLogic)
 
     const [pullRequest] = item.pullRequests
 
@@ -42,10 +45,13 @@ export function TodaySessionRow({ item, pinned, dataAttr, surface }: TodaySessio
                     <TaskPullRequestChip
                         pullRequest={pullRequest}
                         label={`#${pullRequest.number}`}
+                        state={pullRequestStates[pullRequest.url]}
+                        size="row"
                         dataAttr="today-pr-chip-sidebar"
                     />
                 ) : null
             }
+            unread={unread}
             action={
                 <TodaySessionMenu
                     sessionId={item.id}
