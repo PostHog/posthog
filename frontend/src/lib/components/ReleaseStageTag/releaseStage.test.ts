@@ -14,7 +14,7 @@ describe('releaseStage', () => {
     })
 
     test.each<[string | null, ReleaseStage | null]>([
-        ['Links', 'internal'],
+        ['Pulse', 'internal'],
         ['DataCatalog', 'beta'],
         ['Inbox', 'beta'],
         ['Dashboard', null],
