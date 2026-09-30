@@ -214,7 +214,7 @@ async def test_managed_question_and_threshold_drive_the_decision() -> None:
             "products.signals.backend.system_one_decision.posthoganalytics.get_feature_flag",
             return_value="system-one-only",
         ),
-        patch("products.signals.backend.system_one_decision.posthoganalytics.capture"),
+        patch("products.signals.backend.system_one_decision.posthoganalytics.capture") as capture,
         patch(
             "products.signals.backend.system_one_decision.decision_api.decide_when_available",
             return_value=_actionability_result(probability=0.9),
@@ -226,6 +226,7 @@ async def test_managed_question_and_threshold_drive_the_decision() -> None:
     request = decide.call_args.args[0]
     assert request.questions["actionable"].instructions == "Managed question?"
     assert request.properties["$ai_prompt_version"] == "2"
+    assert capture.call_args.kwargs["properties"]["$ai_prompt_version"] == "2"
 
 
 @pytest.mark.asyncio

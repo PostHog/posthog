@@ -16,6 +16,10 @@ PROMPT_LABEL = "production"
 PROMPT_REFRESH_SECONDS = 60
 DEFAULT_SYSTEM_ONE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 ALLOWED_SYSTEM_ONE_MODELS = {DEFAULT_SYSTEM_ONE_MODEL, "posthog/hogference/jeeves-0.1"}
+SAFETY_RESPONSE_FIELDS = {
+    "signals-signal-safety-system-one": ("safe", "threat_type", "explanation"),
+    "signals-report-safety-system-one": ("choice", "explanation"),
+}
 
 
 @frozen
@@ -72,6 +76,11 @@ def _parse_prompt(result: PromptResult, fallback: SystemOnePrompt) -> SystemOneP
     if not math.isfinite(threshold) or not 0 < threshold <= 1:
         return None
     if fallback.name.startswith("signals-actionability-") and not _valid_actionability_policy(policy):
+        return None
+    response_fields = SAFETY_RESPONSE_FIELDS.get(fallback.name)
+    if response_fields is not None and (
+        "json" not in policy.lower() or any(f'"{field}"' not in policy for field in response_fields)
+    ):
         return None
     if not isinstance(result.version, int) or result.version < 1:
         return None
@@ -131,8 +140,9 @@ class _PromptCache:
             prompt = None
         with self._lock:
             state = self._states[fallback.name]
-            if prompt is not None:
-                state.prompt = prompt
+            if prompt is None and state.prompt.source == "managed":
+                logger.warning("Signals System One prompt reverted to bundled", prompt_name=fallback.name)
+            state.prompt = prompt or fallback
             state.refreshed_at = time.monotonic()
             state.refreshing = False
 

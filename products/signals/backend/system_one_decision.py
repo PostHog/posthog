@@ -379,7 +379,7 @@ async def run_model_decision(
             "typesafe_latency_ms": system_one_call.latency_seconds * 1000,
             "typesafe_threshold": prompt.threshold,
             "$ai_prompt_name": prompt.name,
-            "$ai_prompt_version": prompt.version,
+            "$ai_prompt_version": str(prompt.version) if prompt.version is not None else None,
             "system_one_prompt_source": prompt.source,
         }
         if system_one is not None:
