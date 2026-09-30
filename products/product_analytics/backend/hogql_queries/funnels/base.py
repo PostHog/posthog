@@ -20,6 +20,7 @@ from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.hogql_queries.query_runner import resolve_series_custom_name
 from posthog.hogql_queries.utils.breakdowns import ALL_USERS_COHORT_ID
 from posthog.hogql_queries.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
@@ -225,7 +226,7 @@ class FunnelBase(ABC):
         return {
             "action_id": action_id,
             "name": name,
-            "custom_name": step.custom_name,
+            "custom_name": resolve_series_custom_name(step, name),
             "order": index,
             "people": people if people else [],
             "count": correct_result_for_sampling(count, sampling_factor),

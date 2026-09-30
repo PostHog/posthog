@@ -3221,7 +3221,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return cached_response, False
 
         series_by_order = dict(enumerate(series))
-        # Only TrendsQuery surfaces a `name`-based rename into custom_name on the fresh path (see
+        # Of the queries handled here, only TrendsQuery surfaces a `name`-based rename into custom_name
+        # on the fresh path (see
         # TrendsQueryRunner's use of resolve_series_custom_name). Stickiness/lifecycle use custom_name
         # only, so honoring `name` here would desync their cached responses from a fresh computation.
         honor_name = isinstance(self.query, TrendsQuery)
@@ -3264,10 +3265,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not results or not isinstance(results, list):
             return cached_response, False
 
-        custom_names_by_order: dict[int, str | None] = {}
-        for i, s in enumerate(series):
-            custom_name = getattr(s, "custom_name", None)
-            custom_names_by_order[i] = custom_name
+        # The cached step's `name` holds the raw event/action label, as _serialize_step writes it.
+        # Resolving against it keeps a cached response identical to a fresh computation, which also
+        # honors a `name`-based rename.
+        series_by_order = dict(enumerate(series))
 
         was_modified = False
 
@@ -3278,8 +3279,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     if not isinstance(step, dict):
                         continue
                     order = step.get("order")
-                    if order is not None and order in custom_names_by_order:
-                        new_name = custom_names_by_order[order]
+                    if order is not None and order in series_by_order:
+                        new_name = resolve_series_custom_name(series_by_order[order], step.get("name"))
                         if step.get("custom_name") != new_name:
                             step["custom_name"] = new_name
                             was_modified = True
@@ -3289,8 +3290,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if not isinstance(step, dict):
                     continue
                 order = step.get("order")
-                if order is not None and order in custom_names_by_order:
-                    new_name = custom_names_by_order[order]
+                if order is not None and order in series_by_order:
+                    new_name = resolve_series_custom_name(series_by_order[order], step.get("name"))
                     if step.get("custom_name") != new_name:
                         step["custom_name"] = new_name
                         was_modified = True

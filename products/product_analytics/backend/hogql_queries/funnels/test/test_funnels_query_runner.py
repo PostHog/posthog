@@ -1,10 +1,17 @@
 from datetime import UTC, datetime
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 from parameterized import parameterized
 
-from posthog.schema import CachedFunnelsQueryResponse, DashboardFilter, EventsNode, FunnelsQuery, IntervalType
+from posthog.schema import (
+    CachedFunnelsQueryResponse,
+    DashboardFilter,
+    DateRange,
+    EventsNode,
+    FunnelsQuery,
+    IntervalType,
+)
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 
@@ -132,3 +139,43 @@ class TestFunnelsSeriesCustomNames(BaseTest):
 
         self.assertEqual(patched_response.results, expected_results)
         self.assertEqual(was_modified, expect_modified)
+
+    def test_apply_funnels_custom_names_resolves_a_name_rename(self):
+        # Separate from the cases above because the series differs: the rename lands in `name`,
+        # which is where the query editor, the API and experiment metrics write it.
+        query = FunnelsQuery(series=[EventsNode(event="step1", name="Signed up")])
+
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedFunnelsQueryResponse(
+            results=[{"order": 0, "name": "step1", "custom_name": None, "count": 100}],
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
+
+        self.assertEqual(patched_response.results[0]["custom_name"], "Signed up")
+        self.assertTrue(was_modified)
+
+
+class TestFunnelsStepCustomNames(ClickhouseTestMixin, APIBaseTest):
+    def test_step_renames_reach_the_response(self):
+        _create_person(distinct_ids=["user_1"], team=self.team)
+        _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2026-01-01T12:00:00Z")
+        _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2026-01-01T12:01:00Z")
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one", name="Signed up"),
+                EventsNode(event="step two", custom_name="Activated"),
+            ],
+            dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-02"),
+        )
+
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual([step["custom_name"] for step in results], ["Signed up", "Activated"])
