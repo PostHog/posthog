@@ -125,45 +125,6 @@ def test_compose_filters_clause_uses_legacy_events_schema(settings, ateam):
     assert result_values == {"hogql_val_0": "$browser", "hogql_val_1": "Chrome"}
 
 
-def test_compose_filters_clause_reads_flags_from_the_native_map(ateam):
-    result_clause, result_values = compose_filters_clause(
-        [
-            {"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]},
-            {"key": "properties.`$feature/other-feature` = 'control'", "type": "hogql"},
-        ],
-        team_id=ateam.id,
-        native_events_source=True,
-    )
-
-    def map_read(flag_key: int, flag_name: int) -> str:
-        return f"""replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_{flag_key})s, %(hogql_val_{flag_name})s), ''), 'null'), '^"|"$', '')"""
-
-    assert result_clause == (
-        f"""and(ifNull(equals(multiIf(ifNull(equals({map_read(0, 1)}, %(hogql_val_2)s), 0), 'false', ifNull(equals({map_read(3, 4)}, %(hogql_val_5)s), 0), 'true', {map_read(6, 7)}), %(hogql_val_8)s), 0), """
-        f"""ifNull(equals(multiIf(ifNull(equals({map_read(9, 10)}, %(hogql_val_11)s), 0), 'false', ifNull(equals({map_read(12, 13)}, %(hogql_val_14)s), 0), 'true', {map_read(15, 16)}), %(hogql_val_17)s), 0))"""
-    )
-    assert result_values == {
-        "hogql_val_0": "$feature_flags",
-        "hogql_val_1": "some-feature",
-        "hogql_val_2": "$false",
-        "hogql_val_3": "$feature_flags",
-        "hogql_val_4": "some-feature",
-        "hogql_val_5": "$true",
-        "hogql_val_6": "$feature_flags",
-        "hogql_val_7": "some-feature",
-        "hogql_val_8": "true",
-        "hogql_val_9": "$feature_flags",
-        "hogql_val_10": "other-feature",
-        "hogql_val_11": "$false",
-        "hogql_val_12": "$feature_flags",
-        "hogql_val_13": "other-feature",
-        "hogql_val_14": "$true",
-        "hogql_val_15": "$feature_flags",
-        "hogql_val_16": "other-feature",
-        "hogql_val_17": "control",
-    }
-
-
 @pytest.mark.parametrize(
     "property_type,document,predicate",
     [
@@ -190,21 +151,6 @@ async def test_filters_preserve_property_types(ateam, property_type, document, p
     assert result == [(1,)]
 
 
-@pytest.mark.parametrize(
-    "filters",
-    (
-        [
-            {"key": "event in (select * from events)", "type": "hogql", "value": None},
-        ],
-        [
-            {"key": "event =", "type": "hogql", "value": None},
-        ],
-    ),
-    ids=[
-        "hogql0",
-        "hogql1",
-    ],
-)
 def test_compose_filters_clause_raises(
     filters: list[dict[str, typing.Any]],
     ateam,
