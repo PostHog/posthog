@@ -1097,6 +1097,10 @@ def _create_run_row(
     # Both inputs can change between runs, so like `github_guidance` this is stamped rather than
     # re-derived at read time, letting an eval or A/B compare only runs that got the same prompt.
     metadata["business_knowledge_maintained"] = business_knowledge_maintained
+    # Stamped only for background enrollments, because a person who edits the config takes it over
+    # and deleting it nulls `scout_config`. Reports this run authors keep their background origin.
+    if config.enrollment_origin == SignalScoutConfig.EnrollmentOrigin.BACKGROUND:
+        metadata["enrollment_origin"] = config.enrollment_origin
     # Dispatch-time snapshot of the structured-output contract. The prompt renders this exact
     # schema, so the record endpoint validates against the snapshot rather than the live config
     # value — a mid-run schema edit must not reject records that match what the run was shown.

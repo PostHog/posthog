@@ -1336,10 +1336,15 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("enrollment_origin", "expect_autostart"),
-    [(SignalScoutConfig.EnrollmentOrigin.BACKGROUND, False), (SignalScoutConfig.EnrollmentOrigin.USER, True)],
+    ("run_origin", "config_after", "expect_autostart"),
+    [
+        ("background", "background", False),
+        ("background", "taken_over", False),
+        ("background", "deleted", False),
+        ("user", "user", True),
+    ],
 )
-async def test_background_scout_reports_never_reach_autostart(enrollment_origin, expect_autostart):
+async def test_background_scout_reports_never_reach_autostart(run_origin, config_after, expect_autostart):
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="background-org")
         team = Team.objects.create(organization=organization, name="background-team")
@@ -1371,9 +1376,7 @@ async def test_background_scout_reports_never_reach_autostart(enrollment_origin,
         TaskRun = apps.get_model("tasks", "TaskRun")
         scout_task = Task.objects.create(team=team, title="scout", description="d")
         with team_scope(team.id):
-            config = SignalScoutConfig.objects.create(
-                team=team, skill_name=SCOUT_SKILL, enrollment_origin=enrollment_origin
-            )
+            config = SignalScoutConfig.objects.create(team=team, skill_name=SCOUT_SKILL, enrollment_origin=run_origin)
             SignalScoutRun.objects.create(
                 team=team,
                 task_run=TaskRun.objects.create(team=team, task=scout_task),
@@ -1381,7 +1384,14 @@ async def test_background_scout_reports_never_reach_autostart(enrollment_origin,
                 skill_name=SCOUT_SKILL,
                 skill_version=1,
                 emitted_report_ids=[str(report.id)],
+                metadata={"enrollment_origin": run_origin} if run_origin == "background" else {},
             )
+            if config_after == "taken_over":
+                config.enrollment_origin = SignalScoutConfig.EnrollmentOrigin.USER
+                config.enabled = False
+                config.save()
+            elif config_after == "deleted":
+                config.delete()
         return team, report
 
     team, report = await sync_to_async(_setup)()

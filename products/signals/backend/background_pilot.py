@@ -18,7 +18,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_authorship import resolve_background_scout_configs
+from products.signals.backend.scout_authorship import resolve_background_authoring_runs
 
 logger = structlog.get_logger(__name__)
 
@@ -43,10 +43,6 @@ def _capture(*, event: str, team: Team, user: User | None, properties: dict[str,
         logger.warning("signals_background_pilot: failed to capture event", event=event, team_id=team.id)
 
 
-def _config_properties(config: SignalScoutConfig) -> dict[str, Any]:
-    return {"scout_config_id": str(config.id), "skill_name": config.skill_name}
-
-
 def capture_background_report_events(
     *, team: Team, user: User | None, event: str, report_ids: list[str], properties: dict[str, Any] | None = None
 ) -> None:
@@ -55,16 +51,21 @@ def capture_background_report_events(
     Best-effort: a failed lookup or capture never fails the request that called it.
     """
     try:
-        configs = resolve_background_scout_configs(team.id, report_ids)
+        runs = resolve_background_authoring_runs(team.id, report_ids)
     except Exception:
         logger.warning("signals_background_pilot: failed to resolve report origin", event=event, team_id=team.id)
         return
-    for report_id, config in configs.items():
+    for report_id, run in runs.items():
         _capture(
             event=event,
             team=team,
             user=user,
-            properties={"report_id": report_id, **_config_properties(config), **(properties or {})},
+            properties={
+                "report_id": report_id,
+                "scout_config_id": str(run.scout_config_id) if run.scout_config_id else None,
+                "skill_name": run.skill_name,
+                **(properties or {}),
+            },
         )
 
 
@@ -76,5 +77,5 @@ def capture_background_scout_opted_out(*, config: SignalScoutConfig, user: User 
         event=BACKGROUND_SCOUT_OPTED_OUT_EVENT,
         team=config.team,
         user=user,
-        properties={**_config_properties(config), "action": action},
+        properties={"scout_config_id": str(config.id), "skill_name": config.skill_name, "action": action},
     )

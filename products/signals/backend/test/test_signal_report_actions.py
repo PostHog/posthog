@@ -128,6 +128,9 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
             skill_name=config.skill_name,
             skill_version=1,
             emitted_report_ids=[str(report.id)],
+            metadata={"enrollment_origin": enrollment_origin}
+            if enrollment_origin == SignalScoutConfig.EnrollmentOrigin.BACKGROUND
+            else {},
         )
         return config
 

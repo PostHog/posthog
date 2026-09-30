@@ -2509,8 +2509,6 @@ class SignalReportViewSet(
         serializer = SignalReportStateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        was_suppressed = report.status == SignalReport.Status.SUPPRESSED
-
         outcome, detail = self._transition_report_state(
             report,
             target=data["state"],
@@ -2537,7 +2535,7 @@ class SignalReportViewSet(
             dismissal_note=data.get("dismissal_note"),
         )
         self._capture_background_dismissals(
-            reports=[] if was_suppressed else [report],
+            reports=[report] if getattr(report, "_newly_suppressed", False) else [],
             target=data["state"],
             dismissal_reason=data.get("dismissal_reason"),
         )
@@ -3074,6 +3072,8 @@ class SignalReportViewSet(
                 # and tracker issue. An external agent keeps its user principal, so it names the
                 # person who ran it rather than nobody.
                 report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
+                # Read under the row lock, so two concurrent dismissals count as one new suppression.
+                report._newly_suppressed = target_status == SignalReport.Status.SUPPRESSED  # type: ignore[attr-defined]
 
                 report.save(update_fields=updated_fields)
 
@@ -3187,7 +3187,6 @@ class SignalReportViewSet(
                 detail = None
                 report_status = None
             else:
-                was_suppressed = report.status == SignalReport.Status.SUPPRESSED
                 outcome, detail = self._transition_report_state(
                     report,
                     target=target,
@@ -3199,7 +3198,7 @@ class SignalReportViewSet(
                 report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
                 if outcome == SignalReportBulkStateOutcome.TRANSITIONED:
                     transitioned.append(report)
-                    if not was_suppressed:
+                    if getattr(report, "_newly_suppressed", False):
                         newly_dismissed.append(report)
             results.append(
                 {
