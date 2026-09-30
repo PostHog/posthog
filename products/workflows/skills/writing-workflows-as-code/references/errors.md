@@ -1,0 +1,49 @@
+# Errors
+
+`workflows-check-code` and `workflows-apply-code` refuse a file with HTTP 400 and `{"errors": [...]}`, every error at once, in file order.
+Apply refuses exactly what check refuses, and writes nothing when it refuses.
+
+Each error has these fields:
+
+| Field     | Holds                                                                                                                 |
+| --------- | --------------------------------------------------------------------------------------------------------------------- |
+| `status`  | A stable code from the table below. Branch on it.                                                                     |
+| `message` | What is wrong, naming the field.                                                                                      |
+| `why`     | Why PostHog refuses it.                                                                                               |
+| `fix`     | The change that makes it pass. Often it names the exact value to write.                                               |
+| `path`    | Where, in the file's own field names: `steps[1].arms[0].then[0].subject`. Null for a mistake in the whole file.       |
+| `line`    | 1-based line of the value, of the key for `unknown_field`, or of the parent mapping for `missing_field`.              |
+| `column`  | 1-based column, as `line`. Both are null for JSON content and when the file has no node there, such as an empty file. |
+
+Fix every error, then check the whole file again. One fix can reveal the next error, because PostHog compiles the workflow only once the file itself reads cleanly.
+
+## Statuses
+
+| `status`                    | What happened                                                                                                                           | What to change                                                                                                                   |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_yaml`              | The YAML (or JSON) parser stopped, or the content nests too deep.                                                                       | Fix the indentation, quotes or colons at the line. Remove control characters.                                                    |
+| `yaml_feature_not_allowed`  | The file uses an anchor (`&`), an alias (`*`), a merge key (`<<`), a tag (`!`), or a key that is not text.                              | Write each value out in full where it applies. Quote a key such as `1` or `true`.                                                |
+| `duplicate_key`             | One mapping sets the same key twice.                                                                                                    | Keep one of the two.                                                                                                             |
+| `content_too_large`         | `content` is over 1 MiB.                                                                                                                | Send one workflow file per request.                                                                                              |
+| `unsupported_version`       | `version` is not the number `1`.                                                                                                        | Write `version: 1`, without quotes.                                                                                              |
+| `missing_field`             | A required field is missing: `key`, `name`, `trigger` and `steps` at the top, or a field a trigger or step type needs.                  | Add the field the message names.                                                                                                 |
+| `unknown_field`             | A field the schema does not list, usually a typo.                                                                                       | Rename it as `fix` says, or remove it.                                                                                           |
+| `invalid_value`             | A value has the wrong type or form: a key or step id with other characters, a duration such as `3 days`, a number where text belongs.   | Write the value `fix` gives. YAML reads `1.10`, `true` or `null` as other types, so quote a value that must stay text.           |
+| `unknown_type`              | A trigger or step `type` that does not exist.                                                                                           | Use a type from the schema. For any other action, write `type: step` with its `action_type`.                                     |
+| `duplicate_step_id`         | Two steps get the same id, usually two steps with the same name.                                                                        | Give one of them a different name, or an explicit `id`.                                                                          |
+| `secret_input`              | A step sets a value for a secret input of its template.                                                                                 | Remove the input. Apply keeps the value stored on the workflow under the same step id.                                           |
+| `unknown_template`          | A function step names a template PostHog does not have.                                                                                 | Use a template id from `cdp-function-templates-list`.                                                                            |
+| `invalid_workflow`          | The file reads cleanly, but the workflow it compiles to fails the checks every saved workflow passes, such as a missing template input. | Change the step at `path` as the message says.                                                                                   |
+| `status_change_not_allowed` | Through MCP, the file creates an active workflow or changes a workflow's `status`.                                                      | Set `status` back to the stored value and apply. Turn the workflow on with `workflows-enable`; a person turns it off in PostHog. |
+| `conflict`                  | Apply only, HTTP 409: another request created or removed the workflow with this key during the apply.                                   | Apply the file again.                                                                                                            |
+
+## Other responses
+
+These are not file mistakes, so they do not use the error shape above.
+
+| Response                         | Meaning                                                                                                              |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 400 with a field name as the key | The request body is wrong: `content` is missing, or the body carries a field besides `content`. Send only `content`. |
+| 401                              | PostHog did not accept the API key. Check the key and that the host is the PostHog that issued it.                   |
+| 403                              | The key or the user may not do this: check needs `hog_flow:read`, apply needs `hog_flow:write` and editor access.    |
+| 404 on `workflows-get-code`      | No workflow has this id in the project.                                                                              |
