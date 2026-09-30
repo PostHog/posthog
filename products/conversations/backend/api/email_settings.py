@@ -98,6 +98,14 @@ class ForwardingChallengeRateLimitKeys:
     attempts: str
 
 
+@frozen
+class PendingCustomerEmailSetup:
+    user: User
+    team: Team
+    channel: EmailChannel
+    setup: EmailChannelSetup
+
+
 def _forwarding_challenge_rate_limit_keys(recipient: str) -> ForwardingChallengeRateLimitKeys:
     recipient_hash = sha256(recipient.strip().lower().encode()).hexdigest()
     key_prefix = f"customer-email-forwarding-challenge:{recipient_hash}"
@@ -161,6 +169,39 @@ def _resolve_config_from_request(request: Request) -> tuple[User, Team, EmailCha
     id_serializer = ConfigIdSerializer(data=request.data)
     id_serializer.is_valid(raise_exception=True)
     return _resolve_config(request, id_serializer.validated_data["config_id"])
+
+
+def _resolve_pending_customer_email_setup(request: ValidatedRequest) -> PendingCustomerEmailSetup | Response:
+    result = _get_team_from_request(request)
+    if isinstance(result, Response):
+        return result
+    user, team = result
+
+    channel = (
+        EmailChannel.objects.select_for_update()
+        .filter(
+            id=request.validated_data["config_id"],
+            team=team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=user,
+        )
+        .first()
+    )
+    if channel is None:
+        return Response({"error": "Email config not found"}, status=404)
+    if channel.connection_status != EmailChannelConnectionStatus.PENDING_CONFIRMATION:
+        return Response({"error": "This forwarding setup is not pending confirmation."}, status=400)
+
+    setup = EmailChannelSetup.objects.for_team(team.id).select_for_update().filter(channel=channel).first()
+    if setup is None:
+        return Response({"error": "This forwarding setup is no longer available."}, status=400)
+    if setup.expires_at <= timezone.now():
+        setup.delete()
+        channel.connection_status = EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
+        channel.save(update_fields=["connection_status"])
+        return Response({"error": "This forwarding setup expired. Add the email again to restart."}, status=400)
+
+    return PendingCustomerEmailSetup(user=user, team=team, channel=channel, setup=setup)
 
 
 def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> dict[str, object]:
@@ -909,9 +950,9 @@ class EmailVerifyForwardingView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = [EmailForwardingChallengeThrottle]
 
-    @extend_schema(
+    @validated_request(
         tags=["conversations"],
-        request=ConfigIdSerializer,
+        request_serializer=ConfigIdSerializer,
         responses={
             200: EmailChannelOperationResponseSerializer,
             400: OpenApiResponse(response=EmailChannelErrorSerializer),
@@ -921,44 +962,15 @@ class EmailVerifyForwardingView(APIView):
             503: OpenApiResponse(response=EmailChannelErrorSerializer),
         },
     )
-    def post(self, request: Request, *args, **kwargs) -> Response:
-        result = _get_team_from_request(request)
-        if isinstance(result, Response):
-            return result
-        user, team = result
-
-        id_serializer = ConfigIdSerializer(data=request.data)
-        id_serializer.is_valid(raise_exception=True)
-        config_id = id_serializer.validated_data["config_id"]
-
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         with transaction.atomic():
-            config = (
-                EmailChannel.objects.select_for_update()
-                .filter(
-                    id=config_id,
-                    team=team,
-                    kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
-                    owner=user,
-                )
-                .first()
-            )
-            if config is None:
-                return Response({"error": "Email config not found"}, status=404)
-            if config.connection_status != EmailChannelConnectionStatus.PENDING_CONFIRMATION:
-                return Response({"error": "This forwarding setup is not pending confirmation."}, status=400)
+            pending_setup = _resolve_pending_customer_email_setup(request)
+            if isinstance(pending_setup, Response):
+                return pending_setup
 
-            setup = EmailChannelSetup.objects.for_team(team.id).select_for_update().filter(channel=config).first()
-            if setup is None:
-                return Response({"error": "This forwarding setup is no longer available."}, status=400)
-            if setup.expires_at <= timezone.now():
-                setup.delete()
-                config.connection_status = EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
-                config.save(update_fields=["connection_status"])
-                return Response({"error": "This forwarding setup expired. Add the email again to restart."}, status=400)
-
-            setup_id = setup.id
-            channel_id = config.id
-            recipient = config.from_email
+            setup_id = pending_setup.setup.id
+            channel_id = pending_setup.channel.id
+            recipient = pending_setup.channel.from_email
 
         if not is_smtp_email_service_available():
             return Response(
@@ -988,7 +1000,7 @@ class EmailVerifyForwardingView(APIView):
             )
 
         challenge = create_forwarding_challenge(
-            team_id=team.id,
+            team_id=pending_setup.team.id,
             channel_id=channel_id,
             setup_id=setup_id,
         )
@@ -1012,7 +1024,7 @@ class EmailVerifyForwardingView(APIView):
             cache.delete(rate_limit_keys.cooldown)
             logger.error(  # noqa: TRY400 - exception details may contain the signed challenge token
                 "customer_email_forwarding_challenge_enqueue_failed",
-                team_id=team.id,
+                team_id=pending_setup.team.id,
                 config_id=str(channel_id),
             )
             return Response({"error": "Could not send the verification email. Try again."}, status=502)
@@ -1024,9 +1036,9 @@ class EmailVerifyForwardingView(APIView):
         )
         logger.info(
             "customer_email_forwarding_challenge_enqueued",
-            team_id=team.id,
+            team_id=pending_setup.team.id,
             config_id=str(channel_id),
-            user_id=user.id,
+            user_id=pending_setup.user.id,
         )
         return Response({"ok": True})
 
@@ -1034,59 +1046,30 @@ class EmailVerifyForwardingView(APIView):
 class EmailConfirmForwardingView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
+    @validated_request(
         tags=["conversations"],
-        request=ConfigIdSerializer,
+        request_serializer=ConfigIdSerializer,
         responses={
             200: EmailConfirmForwardingResponseSerializer,
             400: OpenApiResponse(response=EmailChannelErrorSerializer),
             404: OpenApiResponse(response=EmailChannelErrorSerializer),
         },
     )
-    def post(self, request: Request, *args, **kwargs) -> Response:
-        result = _get_team_from_request(request)
-        if isinstance(result, Response):
-            return result
-        user, team = result
-
-        id_serializer = ConfigIdSerializer(data=request.data)
-        id_serializer.is_valid(raise_exception=True)
-        config_id = id_serializer.validated_data["config_id"]
-
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         with transaction.atomic():
-            config = (
-                EmailChannel.objects.select_for_update()
-                .filter(
-                    id=config_id,
-                    team=team,
-                    kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
-                    owner=user,
-                )
-                .first()
-            )
-            if config is None:
-                return Response({"error": "Email config not found"}, status=404)
-            if config.connection_status != EmailChannelConnectionStatus.PENDING_CONFIRMATION:
-                return Response({"error": "This forwarding setup is not pending confirmation."}, status=400)
-
-            setup = EmailChannelSetup.objects.for_team(team.id).select_for_update().filter(channel=config).first()
-            if setup is None:
-                return Response({"error": "This forwarding setup is no longer available."}, status=400)
-            if setup.expires_at <= timezone.now():
-                setup.delete()
-                config.connection_status = EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
-                config.save(update_fields=["connection_status"])
-                return Response({"error": "This forwarding setup expired. Add the email again to restart."}, status=400)
-            if not setup.confirmation_action:
+            pending_setup = _resolve_pending_customer_email_setup(request)
+            if isinstance(pending_setup, Response):
+                return pending_setup
+            if not pending_setup.setup.confirmation_action:
                 return Response({"error": "Gmail has not sent a forwarding confirmation yet."}, status=400)
 
-            confirmation_url = setup.confirmation_action
+            confirmation_url = pending_setup.setup.confirmation_action
 
         logger.info(
             "customer_email_forwarding_confirmation_opened",
-            team_id=team.id,
-            config_id=config.id,
-            user_id=user.id,
+            team_id=pending_setup.team.id,
+            config_id=pending_setup.channel.id,
+            user_id=pending_setup.user.id,
         )
         return Response({"ok": True, "confirmation_url": confirmation_url})
 
