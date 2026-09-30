@@ -60,6 +60,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_calculation.spec import (
     ExperimentCalculationSettings,
     saved_metric_calculation_keys,
@@ -2741,15 +2742,7 @@ class ExperimentService:
         try:
             first_metric = experiment.metrics[0] if experiment.metrics else None
             if first_metric and first_metric.get("uuid"):
-                metric_result = (
-                    ExperimentMetricResult.objects.filter(
-                        experiment=experiment,
-                        metric_uuid=first_metric["uuid"],
-                        status=ExperimentMetricResult.Status.COMPLETED,
-                    )
-                    .order_by("-completed_at")
-                    .first()
-                )
+                metric_result = MetricResultStore(experiment_id=experiment.id).last_completed(first_metric["uuid"])
                 if metric_result and metric_result.result:
                     # Significance lives on each variant. The top-level `significant` is a legacy
                     # field that stored results leave null. A variant's value is null when
@@ -4434,9 +4427,9 @@ class ExperimentService:
         for experiment_date in experiment_dates:
             timeseries[experiment_date.isoformat()] = None
 
-        metric_results = ExperimentMetricResult.objects.filter(
-            experiment_id=experiment.id, metric_uuid=metric_uuid, fingerprint=fingerprint
-        ).order_by("query_to")
+        stored = MetricResultStore(experiment_id=experiment.id).timeseries(
+            metric_uuid, fingerprint, timezone=project_tz
+        )
 
         completed_count = 0
         failed_count = 0
@@ -4444,18 +4437,11 @@ class ExperimentService:
         no_record_count = 0
         latest_completed_at = None
 
-        results_by_date: dict[date, ExperimentMetricResult] = {}
-        for result in metric_results:
-            query_to_adjusted = result.query_to - timedelta(microseconds=1)
-            query_to_in_project_tz = query_to_adjusted.astimezone(project_tz)
-            day_in_project_tz = query_to_in_project_tz.date()
-            results_by_date[day_in_project_tz] = result
-
         for experiment_date in experiment_dates:
             date_key = experiment_date.isoformat()
 
-            if experiment_date in results_by_date:
-                metric_result = results_by_date[experiment_date]
+            if experiment_date in stored.by_day:
+                metric_result = stored.by_day[experiment_date]
 
                 if metric_result.status == "completed":
                     timeseries[date_key] = strip_step_sessions(metric_result.result)
@@ -4494,8 +4480,6 @@ class ExperimentService:
             ],
         ).first()
 
-        first_result = metric_results.first()
-        last_result = metric_results.last()
         response = {
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
@@ -4503,8 +4487,10 @@ class ExperimentService:
             "timeseries": timeseries,
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
-            "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
-            "updated_at": last_result.updated_at.isoformat() if last_result else experiment.updated_at.isoformat(),
+            "created_at": stored.earliest.created_at.isoformat()
+            if stored.earliest
+            else experiment.created_at.isoformat(),
+            "updated_at": stored.latest.updated_at.isoformat() if stored.latest else experiment.updated_at.isoformat(),
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }

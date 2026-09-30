@@ -14,12 +14,13 @@ from parameterized import parameterized
 
 from products.experiments.backend.admin.recalculation_admin import ExperimentMetricsRecalculationAdmin
 from products.experiments.backend.admin.recalculation_panel import build_recalculation_panel, format_duration
+from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
+from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.recalculation import _recalc_fingerprints_for_run
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -124,11 +125,12 @@ class TestRecalculationAdminPanel(BaseTest):
             completed_at=datetime(2026, 1, 2, 10, 0, 30, tzinfo=UTC),
         )
         # No metric_errors entry, so the failure text comes from the FAILED result row's error_message.
-        fingerprints = _recalc_fingerprints_for_run(exp, recalc)
+        spec = plan_metric(exp, "m-named")
+        assert spec is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m-named",
-            fingerprint=fingerprints["m-named"],
+            fingerprint=compute_recalc_fingerprint(spec.calculation_key()),
             query_from=datetime(2026, 1, 1, tzinfo=UTC),
             query_to=query_to,
             status=ExperimentMetricResult.Status.FAILED,

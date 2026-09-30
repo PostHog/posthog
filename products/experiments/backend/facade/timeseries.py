@@ -4,6 +4,7 @@ from products.experiments.backend.metric_calculation.keys import (
     metric_calculation_keys,
     metric_calculation_keys_for_experiments,
 )
+from products.experiments.backend.metric_calculation.results import previous_completed_metric_result
 from products.experiments.backend.metric_resolution import (
     build_metric,
     is_daily_timeseries_metric,
@@ -20,6 +21,7 @@ __all__ = [
     "is_scheduled_metric",
     "metric_calculation_keys",
     "metric_calculation_keys_for_experiments",
+    "previous_completed_metric_result",
     "resolve_saved_metric_definition",
     "sync_timeseries_recalculation",
 ]

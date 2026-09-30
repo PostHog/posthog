@@ -6,11 +6,11 @@ import structlog
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 
-from products.experiments.backend.facade.timeseries import resolve_saved_metric_definition
-from products.experiments.backend.models.experiment import (
-    Experiment,
-    ExperimentMetricResult as ExperimentMetricResultModel,
+from products.experiments.backend.facade.timeseries import (
+    previous_completed_metric_result,
+    resolve_saved_metric_definition,
 )
+from products.experiments.backend.models.experiment import Experiment
 
 logger = structlog.get_logger(__name__)
 
@@ -119,21 +119,15 @@ def check_significance_transition(
         if not new_significant_keys:
             return
 
-        previous = (
-            ExperimentMetricResultModel.objects.filter(
-                experiment=experiment,
-                metric_uuid=metric_uuid,
-                fingerprint=fingerprint,
-                status=ExperimentMetricResultModel.Status.COMPLETED,
-                query_to__lt=query_to_utc,
-            )
-            .order_by("-query_to")
-            .first()
+        previous_result = previous_completed_metric_result(
+            experiment.id,
+            team_id=experiment.team_id,
+            metric_uuid=metric_uuid,
+            calculation_key=fingerprint,
+            before=query_to_utc,
         )
 
-        prev_significant_keys = (
-            _get_significant_variant_keys(previous.result) if previous and previous.result else set()
-        )
+        prev_significant_keys = _get_significant_variant_keys(previous_result) if previous_result else set()
         newly_significant = new_significant_keys - prev_significant_keys
 
         if not newly_significant:
