@@ -191,6 +191,7 @@ type processor struct {
 	pathBuf       bytes.Buffer
 	docs          [envelopeDocs]bytes.Buffer
 	docNullKeys   [envelopeDocs][]string
+	nullKeySeen   map[string]struct{}
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -1619,12 +1620,28 @@ func writeNullKeySegment(buf *bytes.Buffer, segment string) {
 }
 
 // A duplicate key can leave a non-null value under a recorded path after cleaning.
+// The seen set keeps deduplication linear, because one event can carry thousands of null fields.
 func (p *processor) finishNullKeys(root *value, out []string) []string {
+	if len(p.nullKeys) == 0 {
+		return out
+	}
+	if p.nullKeySeen == nil {
+		p.nullKeySeen = make(map[string]struct{}, len(p.nullKeys))
+	}
+	clear(p.nullKeySeen)
+	for _, key := range out {
+		p.nullKeySeen[key] = struct{}{}
+	}
 	for _, key := range p.nullKeys {
-		if slices.Contains(out, key) || pathExists(root, key) {
+		if _, seen := p.nullKeySeen[key]; seen || pathExists(root, key) {
 			continue
 		}
+		p.nullKeySeen[key] = struct{}{}
 		out = append(out, key)
+	}
+	// A pooled worker reuses the processor across rows, so drop a large set instead of keeping its memory.
+	if len(p.nullKeySeen) > 4096 {
+		p.nullKeySeen = nil
 	}
 	return out
 }
