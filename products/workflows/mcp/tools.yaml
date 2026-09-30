@@ -39,6 +39,11 @@ tools:
             workflows-patch-action-email.
         inject_body:
             origin_product: broadcasts
+        exclude_params:
+            - managed_by
+            - source_repository
+            - source_path
+            - source_ref
     hog-flow-templates-create:
         operation: hog_flow_templates_create
         enabled: false
