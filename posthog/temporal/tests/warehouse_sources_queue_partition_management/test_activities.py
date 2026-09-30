@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, call, patch
 from django.db import connection
 
 import psycopg
+from asgiref.sync import sync_to_async
 from psycopg.conninfo import make_conninfo
 
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
@@ -511,7 +512,9 @@ async def test_activity_terminalizes_only_sourcebatch_partitions_then_drops(acti
 
 
 @pytest.mark.asyncio
-async def test_activity_runs_queue_database_statements_off_the_event_loop_thread(activity_environment) -> None:
+async def test_activity_runs_queue_database_statements_on_a_pool_thread(activity_environment) -> None:
+    shared_thread_sensitive_ident = await sync_to_async(threading.get_ident)()
+
     with (
         _patched_pg({"sourcebatch": [OLD_BATCH_PART]}) as conn,
         _patched_s3([]),
@@ -520,7 +523,7 @@ async def test_activity_runs_queue_database_statements_off_the_event_loop_thread
         await activity_environment.run(manage_warehouse_sources_queue_partitions)
 
     assert conn.dropped == [OLD_BATCH_PART]
-    assert threading.get_ident() not in conn.execute_threads
+    assert conn.execute_threads.isdisjoint({threading.get_ident(), shared_thread_sensitive_ident})
 
 
 @pytest.mark.asyncio
