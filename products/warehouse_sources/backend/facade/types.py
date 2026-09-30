@@ -1424,6 +1424,9 @@ class ExternalDataSourceType(models.TextChoices):
     COMMSLAYER = "Commslayer", "Commslayer"
     SPRINTO = "Sprinto", "Sprinto"
     GEM = "Gem", "Gem"
+    AUDIOGO = "AudioGO", "AudioGO"
+    EXACTONLINE = "ExactOnline", "ExactOnline"
+    LETTRLABS = "LettrLabs", "LettrLabs"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:

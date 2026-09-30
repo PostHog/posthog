@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import json
 import time
 import uuid
@@ -67,6 +66,7 @@ from .sandbox import (
     build_agent_runtime_env_prefix,
     build_subscription_flags,
     parse_sandbox_repo_mount_map,
+    read_pinned_agent_version,
     redact_sandbox_command,
     wait_for_health_check,
 )
@@ -983,6 +983,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token_file: str | None = None,
+        sandbox_runtime: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -992,6 +993,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             interaction_origin=interaction_origin,
             agent_runtime=agent_runtime,
             sandbox_id=self.id,
+            sandbox_runtime=sandbox_runtime,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
@@ -1085,6 +1087,9 @@ class DockerSandbox(AgentServerLaunchMixin):
 
     def _agent_server_reuse_enabled(self) -> bool:
         return False
+
+    def _sandbox_runtime(self) -> str | None:
+        return "docker"
 
     def _install_agent_server_launch_files(self) -> tuple[str, ...]:
         return ()
@@ -1353,12 +1358,7 @@ def _none_if_blank(value: str) -> str | None:
 
 
 def _pinned_agent_version(dockerfile_path: str) -> str | None:
-    try:
-        source = Path(dockerfile_path).read_text(encoding="utf-8")
-    except OSError:
-        return None
-    match = re.search(r"^ARG AGENT_VERSION=(\S+)", source, re.MULTILINE)
-    return match.group(1) if match else None
+    return read_pinned_agent_version(Path(dockerfile_path))
 
 
 def ensure_fresh_base_image(*, force: bool = False) -> None:
