@@ -2789,7 +2789,6 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         answerFilters: [
             [] as EventPropertyFilter[],
-            { persist: true },
             {
                 setAnswerFilters: (_, { filters }) => filters,
             },
