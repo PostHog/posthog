@@ -4,6 +4,7 @@ Only a configuration the backfill already copied is touched, so a team reaches t
 through a backfill and never through an edit. Wired in `LogsConfig.ready()`.
 """
 
+import os
 from typing import Any
 
 from django.db import transaction
@@ -19,6 +20,10 @@ from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import platform_upsert_for
 
 logger = structlog.get_logger(__name__)
+
+# Turns the sync off without a deploy. The platform copies then go stale until it is back on
+# and the backfill runs again.
+SYNC_ENABLED = os.environ.get("LOGS_ALERTING_PLATFORM_SYNC_ENABLED", "true").lower() == "true"
 
 # The fields a person edits. The logs evaluator saves only runtime fields on every check, and a
 # save that touches none of these must not cost the platform a write.
@@ -49,7 +54,7 @@ def sync_platform_copy_on_save(
     update_fields: frozenset[str] | None = None,
     **kwargs: Any,
 ) -> None:
-    if raw or created:
+    if raw or created or not SYNC_ENABLED:
         return
     if update_fields is not None and not (update_fields & _CONFIGURATION_FIELDS):
         return
@@ -69,6 +74,8 @@ def delete_platform_copy(
     instance: LogsAlertConfiguration,
     **kwargs: Any,
 ) -> None:
+    if not SYNC_ENABLED:
+        return
     try:
         with transaction.atomic():
             delete_configuration_copied_from(instance.team_id, instance.id)

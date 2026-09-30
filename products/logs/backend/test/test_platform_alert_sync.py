@@ -72,6 +72,18 @@ class TestPlatformAlertSync(BaseTest):
 
         assert self._copies() == []
 
+    def test_the_kill_switch_stops_edits_and_deletes_reaching_the_copy(self) -> None:
+        legacy, copy = self._backfilled()
+
+        with patch("products.logs.backend.platform_alert_sync.SYNC_ENABLED", False):
+            legacy.threshold_count = 500
+            legacy.save()
+            copy.refresh_from_db()
+            assert copy.threshold_count == 10
+
+            legacy.delete()
+            assert self._copies() == [copy]
+
     def test_a_failed_sync_does_not_block_the_edit(self) -> None:
         legacy, _ = self._backfilled()
 
