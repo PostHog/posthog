@@ -54,8 +54,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry
     stop_cdc_past_billing_retention,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (
+    AUTO_DROPPED_LAG_REASON,
     SELF_MANAGED_LAG_REASON,
     clear_recovered_self_managed_lag,
+    clear_slot_loss_markers,
     mark_cdc_broken,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter, purge_buffer_prefix
@@ -1251,6 +1253,7 @@ class CDCExtractActivity:
             self._release_reset_awaiting_slot(schema)
         for schema in reset_schemas:
             self._unpause_schema_schedule(schema)
+        clear_slot_loss_markers(self.source)
 
         self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))
 
@@ -1689,7 +1692,7 @@ def cleanup_orphan_slots_activity() -> None:
                         # schedule so it stops retrying against a slot that no longer exists.
                         mark_cdc_broken(
                             source,
-                            "auto_dropped_critical_lag",
+                            AUTO_DROPPED_LAG_REASON,
                             f"Change data capture was automatically stopped because replication lag "
                             f"exceeded {critical_threshold_mb} MB and the safety net dropped the "
                             f"replication slot. Use Repair CDC to recreate it and re-sync.",
