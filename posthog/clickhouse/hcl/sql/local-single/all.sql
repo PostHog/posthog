@@ -5742,7 +5742,7 @@ CREATE MATERIALIZED VIEW posthog.person_distinct_id_overrides_mv TO posthog.writ
 FROM posthog.kafka_person_distinct_id_overrides
 WHERE version > 0;
 CREATE MATERIALIZED VIEW posthog.person_group_membership_mv TO posthog.writable_person_group_membership (team_id Int64, group_type_index UInt8, group_key String, distinct_id String, first_seen DateTime64(6, 'UTC'), last_seen DateTime64(6, 'UTC')) AS WITH
-  dictGet('person_group_membership_config_dict', ('group_type_index', 'enabled'), tuple(toInt64(team_id))) AS config
+  dictGet('posthog.person_group_membership_config_dict', ('group_type_index', 'enabled'), tuple(toInt64(team_id))) AS config
 SELECT
   team_id,
   config.1 AS group_type_index,
@@ -5752,15 +5752,17 @@ SELECT
   max(timestamp) AS last_seen
 FROM posthog.kafka_person_group_membership
 WHERE
-  config.2 = 1
+  ((config.2) = 1)
 AND
-  group_type_index <= 4
+  (group_type_index <= 4)
 AND
-  person_mode != 'propertyless'
+  (person_mode != 'propertyless')
 AND
-  group_key != ''
+  (group_key != '')
 GROUP BY
-  team_id, group_type_index, group_key, distinct_id;
+  team_id, group_type_index, group_key, distinct_id
+SETTINGS
+  optimize_inverse_dictionary_lookup = 0;
 CREATE MATERIALIZED VIEW posthog.person_mv TO posthog.writable_person (id UUID, created_at DateTime64(3), team_id Int64, properties String, is_identified Int8, is_deleted Int8, version UInt64, last_seen_at Nullable(DateTime64(3)), _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
   id,
   created_at,

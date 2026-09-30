@@ -170,6 +170,7 @@ SETTINGS kafka_skip_broken_messages = 100,
 
 
 def PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL(source_table: str) -> str:
+    # The inverse-lookup rewrite casts one-column tuple dictionary keys to Int64 and fails.
     return f"""WITH dictGet('{PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY}',
     ('group_type_index', 'enabled'), tuple(toInt64(team_id))) AS config
 SELECT
@@ -184,7 +185,8 @@ WHERE config.2 = 1
     AND group_type_index <= {PERSON_GROUP_MEMBERSHIP_MAX_GROUP_TYPE_INDEX}
     AND person_mode != 'propertyless'
     AND group_key != ''
-GROUP BY team_id, group_type_index, group_key, distinct_id"""
+GROUP BY team_id, group_type_index, group_key, distinct_id
+SETTINGS optimize_inverse_dictionary_lookup = 0"""
 
 
 def PERSON_GROUP_MEMBERSHIP_MV_SQL() -> str:

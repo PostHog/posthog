@@ -2672,7 +2672,7 @@ SQL
     to_table = "posthog.writable_person_group_membership"
     query    = <<SQL
 WITH
-  dictGet('person_group_membership_config_dict', ('group_type_index', 'enabled'), tuple(toInt64(team_id))) AS config
+  dictGet('posthog.person_group_membership_config_dict', ('group_type_index', 'enabled'), tuple(toInt64(team_id))) AS config
 SELECT
   team_id,
   config.1 AS group_type_index,
@@ -2682,15 +2682,17 @@ SELECT
   max(timestamp) AS last_seen
 FROM posthog.kafka_person_group_membership
 WHERE
-  config.2 = 1
+  ((config.2) = 1)
 AND
-  group_type_index <= 4
+  (group_type_index <= 4)
 AND
-  person_mode != 'propertyless'
+  (person_mode != 'propertyless')
 AND
-  group_key != ''
+  (group_key != '')
 GROUP BY
   team_id, group_type_index, group_key, distinct_id
+SETTINGS
+  optimize_inverse_dictionary_lookup = 0
 SQL
 
     column "team_id" {
