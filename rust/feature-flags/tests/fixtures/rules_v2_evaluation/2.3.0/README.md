@@ -1,11 +1,10 @@
 # Feature Flag Rules v2 contract
 
 This package defines Feature Flag Rules v2 configuration, definitions, response, management diagnostic and event contracts, plus the canonical evaluation corpus.
-Contract package 2.2.0 contains config schema 1.0.0, registry 2.0.0, corpus 1.1.0, wire schemas/fixtures 1.0.0, and person boolean evaluation corpus 1.0.0.
+Contract package 2.3.0 contains config schema 1.0.0, registry 2.0.0, corpus 1.1.0, wire schemas/fixtures 1.0.0, person boolean evaluation corpus 1.0.0, and typed value evaluation corpus 1.0.0.
 The contract version is independent of the test harness package version.
 
 The package does not enable config writes or runtime evaluation.
-It reserves number and object values for later writer support.
 
 ## Terminology and OpenFeature translation
 
@@ -48,6 +47,7 @@ Percentage rollout inclusion maps to TARGETING_MATCH by contract choice; OpenFea
 - corpus/legacy_projection.json records how a version 1 outcome projects into each response protocol version.
 - schemas/hash_sha1_60_v1.schema.json, schemas/v1_evaluation.schema.json, and schemas/legacy_projection.schema.json are the companion schemas for the corpus files.
 - corpus/v2_boolean_evaluation.json contains the person boolean evaluation corpus, and schemas/v2_boolean_evaluation.schema.json is its companion schema.
+- corpus/v2_value_evaluation.json contains the string, number and object evaluation corpus with each result's legacy rendering, and schemas/v2_value_evaluation.schema.json is its companion schema.
 - manifest.json assigns stable fixture and case IDs and declares the compatibility policy.
 - SHA256SUMS records the SHA-256 digest for each package file except itself.
 
@@ -68,6 +68,7 @@ The config schema stays at 1.0.0 because contract 2.0.0 does not change its publ
 The literal registry is 2.0.0: it removes the four unused management warning codes (`EXPERIMENT_VALUE_COLLISION`, `SDK_REMOTE_FALLBACK_REQUIRED`, `SDK_EXPERIMENT_CONTEXT_MISSING`, `LEGACY_PROJECTION_LIMITED`) from the `warning_codes` published in registry 1.0.0 (contract 1.2.0), which the compatibility policy classifies as a major change; the five remaining codes are unchanged.
 The corpus files and their companion schemas are corpus version 1.1.0.
 Contract package 2.1.0 adds config fixtures for the targeted-release and percentage-rollout family; it changes no published schema, registry, corpus or fixture bytes.
+Contract package 2.3.0 adds the typed value evaluation corpus; it also changes no published bytes.
 
 ## Corpus rules
 
@@ -236,3 +237,32 @@ Eligibility cases run through the existing request boundary and require omission
 Parser cases require whole-document rejection, separately from evaluation support.
 The existing published variant/experiment/holdout/group/dependency vectors remain outside this component's evaluator scope.
 A passing boolean corpus does not establish those families or production reachability.
+
+## Typed value evaluation corpus
+
+Contract 2.3.0 adds `corpus/v2_value_evaluation.json` and its schema as a separate 1.0.0 component for string, number and object flags.
+Cases use the boolean corpus case shape and context rules, and `expected` is exhaustive in the same way.
+`expected.value` is the typed JSON value, or null when the result delegates to the caller default.
+Compare values by JSON type as well as value: the number `1` and the boolean `true` differ.
+
+Ordering rows repeat nine scenarios for each type: a targeted match, a 100 percent rollout hit, a 0 percent rollout miss under `return_default` with a typed and with a null default, a miss under `continue`, no rule match with a typed and with a null default, and first-match ordering with and without a targeting miss.
+Rules in one config return different values, so a consumer that reports the wrong rule's value fails.
+Value rows cover the value domain: non-ASCII and boolean-looking strings; zero, negative, decimal, exponent and ±(2^53 − 1) numbers; and empty, nested and 20-level objects.
+Every number in a value row round-trips through binary64.
+Parser rows require whole-document rejection: an empty string, a value or default of the wrong JSON type, a top-level array for an object flag, a number outside ±(2^53 − 1) at any depth, and an object deeper than 20 levels.
+
+### Legacy rendering
+
+Each success row carries `legacy`, the rendering of its value in the response shapes before v3:
+
+| Value | `enabled` | `variant` | Flag map value | Payload |
+| --- | --- | --- | --- | --- |
+| null | false | null | false | none |
+| string | true | the string | the string | none |
+| number or object | true | null | true | the value |
+
+`enabled` also decides whether the flag appears in the enabled-only `/decide` map and key list.
+Zero and the empty object are values, so they render as enabled.
+The payload travels as a JSON-encoded string in `metadata.payload` and `featureFlagPayloads`, like a version 1 payload, so existing payload accessors decode it.
+The corpus records the decoded value because key order and number spelling in the encoded string are not canonical; decode before comparing.
+A v3 record carries `expected.value` in `value`, and its `metadata.payload` stays null for config version 2, as the wire schema requires.

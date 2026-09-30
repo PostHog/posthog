@@ -2693,7 +2693,7 @@ export const getUserCustomerAnalyticsConfigRetrieveUrl = (projectId: string, id:
 }
 
 /**
- * Get the requesting user's account sidebar and task digest configuration for this project. The first read creates an empty configuration row.
+ * Get the requesting user's account sidebar and task digest configuration for this project. Project defaults are returned until the user saves a personal pinned-property selection.
  * @summary Get account sidebar configuration
  */
 export const userCustomerAnalyticsConfigRetrieve = async (
