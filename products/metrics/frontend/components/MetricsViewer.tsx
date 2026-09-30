@@ -209,7 +209,7 @@ export const MetricsViewer = (): JSX.Element => {
     // The loader breakpoint debounces input.
     useEffect(() => {
         fetchQueryResults({})
-    }, [queryFingerprint, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [queryFingerprint, dateFrom, dateTo, timezone]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Characterize the recent window against the rest, so the chart carries a "vs baseline"
     // badge without the user having to eyeball the shape. The loader suppresses the badge
@@ -220,7 +220,7 @@ export const MetricsViewer = (): JSX.Element => {
         } else {
             clearAnomaly()
         }
-    }, [anomalyFingerprint, dateFrom, dateTo, hasMetricName]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [anomalyFingerprint, dateFrom, dateTo, hasMetricName, timezone]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const showFormulaInput = viewerClauses.length > 1 || formula !== ''
 

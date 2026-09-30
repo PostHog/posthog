@@ -727,4 +727,17 @@ describe('metricsViewerLogic', () => {
     ])('resolves a custom date in the project timezone %s', (timezone, expected) => {
         expect(resolveDate('2026-06-15T10:00:00', timezone)).toBe(expected)
     })
+
+    it.each([
+        ['UTC', '2026-06-08T00:00:00.000Z'],
+        ['Europe/Zurich', '2026-06-07T22:00:00.000Z'],
+        ['America/New_York', '2026-06-08T04:00:00.000Z'],
+    ])('resolves a relative date from midnight in the project timezone %s', (timezone, expected) => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-06-15T10:00:00Z'))
+        try {
+            expect(resolveDate('-7d', timezone)).toBe(expected)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })
