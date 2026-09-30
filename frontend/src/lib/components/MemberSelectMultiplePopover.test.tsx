@@ -94,52 +94,24 @@ describe('multi-select member pickers', () => {
         expect(firstRow.compareDocumentPosition(secondRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     }
 
-    it('keeps the member list in place and updates selected duplicates after selection activity stops', async () => {
+    it('keeps each selected member in its original place', async () => {
         renderPicker(MemberSelectMultiplePopover)
         await userEvent.click(screen.getByText('Created by'))
         const members = await screen.findByRole('list', { name: 'Members' })
         await within(members).findByText('Rose')
         expectListedInOrder(members, 'John', 'Rose')
 
-        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate'] })
-        try {
-            const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
-            await user.click(within(members).getByText('Rose'))
-            expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
-
-            await act(async () => jest.advanceTimersByTime(400))
-            await user.click(within(members).getByText('John'))
-            await act(async () => jest.advanceTimersByTime(599))
-            expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
-            expectListedInOrder(members, 'John', 'Rose')
-
-            await act(async () => jest.advanceTimersByTime(1))
-            expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
-            await user.unhover(members)
-            await act(async () => jest.advanceTimersByTime(0))
-            const selected = screen.getByRole('list', { name: 'Selected members' })
-            expectListedInOrder(selected, 'John', 'Rose')
-            expectListedInOrder(members, 'John', 'Rose')
-
-            await user.click(within(selected).getByText('Rose'))
-            expect(within(members).getByText('Rose').closest('[role="menuitemcheckbox"]')).toHaveAttribute(
-                'aria-checked',
-                'false'
-            )
-            await act(async () => jest.advanceTimersByTime(600))
-            expect(within(screen.getByRole('list', { name: 'Selected members' })).getByText('Rose')).toBeInTheDocument()
-            await user.unhover(selected)
-            await act(async () => jest.advanceTimersByTime(0))
-            expect(within(screen.getByRole('list', { name: 'Selected members' })).queryByText('Rose')).toBeNull()
-
-            await user.click(within(members).getByText('John'))
-            await user.unhover(members)
-            await act(async () => jest.advanceTimersByTime(600))
-            expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
-            expectListedInOrder(members, 'John', 'Rose')
-        } finally {
-            jest.useRealTimers()
-        }
+        await userEvent.click(within(members).getByText('Rose'))
+        await userEvent.click(within(members).getByText('John'))
+        expectListedInOrder(members, 'John', 'Rose')
+        expect(screen.getAllByText('Rose')).toHaveLength(1)
+        expect(screen.getAllByText('John')).toHaveLength(1)
+        expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
+        await userEvent.click(within(members).getByText('Rose'))
+        expect(within(members).getByText('Rose').closest('[role="menuitemcheckbox"]')).toHaveAttribute(
+            'aria-checked',
+            'false'
+        )
     })
 
     it('keeps three adjacent members in place while the pointer stays on the list', async () => {
@@ -154,7 +126,7 @@ describe('multi-select member pickers', () => {
             for (const name of ['Alice', 'Ben', 'Chloe']) {
                 fireEvent.click(within(members).getByText(name))
                 await act(async () => jest.advanceTimersByTime(720))
-                expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
+                expect(screen.getAllByText(name)).toHaveLength(1)
             }
             expectListedInOrder(members, 'Alice', 'Ben')
             expectListedInOrder(members, 'Ben', 'Chloe')
@@ -167,8 +139,7 @@ describe('multi-select member pickers', () => {
 
             fireEvent.mouseLeave(members.parentElement!)
             await act(async () => jest.advanceTimersByTime(0))
-            const selected = screen.getByRole('list', { name: 'Selected members' })
-            expect(within(selected).getAllByRole('menuitemcheckbox')).toHaveLength(3)
+            expect(within(members).getAllByRole('menuitemcheckbox')).toHaveLength(5)
             expectListedInOrder(members, 'Alice', 'Ben')
             expectListedInOrder(members, 'Ben', 'Chloe')
         } finally {
@@ -176,16 +147,18 @@ describe('multi-select member pickers', () => {
         }
     })
 
-    it('shows selected duplicates on open but hides them during search', async () => {
+    it('does not pin selected members in a short list or during search', async () => {
         renderPicker(MemberSelectMultiplePopover, [MOCK_SECOND_BASIC_USER.id])
         await userEvent.click(screen.getByText('Created by (1)'))
         const members = await screen.findByRole('list', { name: 'Members' })
         await within(members).findByText('Rose')
-        expect(within(screen.getByRole('list', { name: 'Selected members' })).getByText('Rose')).toBeInTheDocument()
+        expect(screen.getAllByText('Rose')).toHaveLength(1)
+        expect(within(members).getByText('Rose').closest('li')).not.toHaveClass('sticky')
         expectListedInOrder(members, 'John', 'Rose')
 
         fireEvent.change(screen.getByPlaceholderText('Search'), { target: { value: 'Rose' } })
-        expect(screen.queryByRole('list', { name: 'Selected members' })).not.toBeInTheDocument()
+        await within(members).findByText('Rose')
+        expect(within(members).getByText('Rose').closest('li')).not.toHaveClass('sticky')
     })
 
     it.each([

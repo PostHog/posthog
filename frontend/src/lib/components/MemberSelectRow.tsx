@@ -1,3 +1,5 @@
+import { CSSProperties } from 'react'
+
 import { LemonButton, LemonCheckbox, ProfilePicture } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils/strings'
@@ -10,12 +12,13 @@ export type MemberSelectRowProps = {
     onClick: () => void
     /** Pass to render a selection checkbox (multi-select). Omit for single-select rows. */
     checked?: boolean
+    stickyStyle?: CSSProperties
 }
 
-export function MemberSelectRow({ member, isYou, onClick, checked }: MemberSelectRowProps): JSX.Element {
+export function MemberSelectRow({ member, isYou, onClick, checked, stickyStyle }: MemberSelectRowProps): JSX.Element {
     const isMultiSelect = checked !== undefined
     return (
-        <li>
+        <li className={stickyStyle ? 'sticky z-10 bg-bg-light' : undefined} style={stickyStyle}>
             <LemonButton
                 fullWidth
                 role={isMultiSelect ? 'menuitemcheckbox' : 'menuitem'}
