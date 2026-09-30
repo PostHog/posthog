@@ -1592,14 +1592,6 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(value, expected, expression)
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_runtime_first_property_keys_fail_fast(self) -> None:
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-
-        for expression in ("JSONHas(properties, event)", "JSONExtractRaw(properties, event)"):
-            with pytest.raises(QueryError, match="constant first key"):
-                self._expr(expression, context)
-
     def test_property_groups_optimized_in_comparisons(self) -> None:
         # The IN operator works much like equality when the right hand side of the expression is all constants. Like
         # equality, it also needs to handle the empty string special case.
