@@ -128,6 +128,7 @@ export interface sourceCatalogLogicValues {
     categoriesWithCounts: CatalogCategory[]
     filteredItems: CatalogItem[]
     hasCrossCategoryMatches: boolean
+    registeredInterestSources: string[]
     search: string
     selectedCategory: SourceCategoryFilter
     sourceRequestModalOpen: boolean
@@ -259,6 +260,14 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         selectedCategory: [
             ALL_SOURCES_CATEGORY as SourceCategoryFilter,
             { setSelectedCategory: (_, { category }) => category },
+        ],
+        // Which "Coming soon" tiles this visit already asked to be told about, so the tile can
+        // confirm it rather than offering the same action again.
+        registeredInterestSources: [
+            [] as string[],
+            {
+                registerInterest: (state, { item }) => (state.includes(item.name) ? state : [...state, item.name]),
+            },
         ],
         sourceRequestModalOpen: [
             false,
