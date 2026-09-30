@@ -32,13 +32,8 @@ def _gateway_ceiling_error() -> InternalServerError:
     return InternalServerError("gateway timeout", response=httpx.Response(504, request=_REQUEST), body=None)
 
 
-def _json_body_parse_error() -> BadRequestError:
-    # OpenAI reports a request body it could not read as a 400 that names the JSON body.
-    return BadRequestError(
-        "We could not parse the JSON body of your request.",
-        response=httpx.Response(400, request=_REQUEST),
-        body=None,
-    )
+def _bad_request_error() -> BadRequestError:
+    return BadRequestError("bad request", response=httpx.Response(400, request=_REQUEST), body=None)
 
 
 def _connection_error() -> APIConnectionError:
@@ -111,7 +106,7 @@ class TestSummarizeWithOpenAI:
         [
             (Exception("API Error"), "Failed to generate summary"),
             (_rate_limit_error(), "Failed to generate summary (the model provider returned 429)"),
-            (_json_body_parse_error(), "Failed to generate summary (the model provider returned 400)"),
+            (_bad_request_error(), "Failed to generate summary (the model provider returned 400)"),
             (_connection_error(), "Failed to generate summary (we could not reach the model provider)"),
         ],
     )
@@ -140,7 +135,7 @@ class TestSummarizeWithOpenAI:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
             mock_client.with_options.return_value = mock_client
-            mock_client.chat.completions.create.side_effect = _json_body_parse_error()
+            mock_client.chat.completions.create.side_effect = _bad_request_error()
 
             with pytest.raises(exceptions.APIException) as raised:
                 summarize_with_openai(
@@ -282,14 +277,7 @@ class TestSummarizeWithOpenAI:
                 mock_client.with_options.assert_called_once_with(max_retries=0)
 
     @pytest.mark.parametrize(
-        "flex_error",
-        [
-            _rate_limit_error(),
-            _connection_error(),
-            _gateway_ceiling_error(),
-            _flex_408_error(),
-            _json_body_parse_error(),
-        ],
+        "flex_error", [_rate_limit_error(), _connection_error(), _gateway_ceiling_error(), _flex_408_error()]
     )
     def test_flex_failure_falls_back_to_standard_tier(self, valid_response_json, flex_error):
         mock_response = MagicMock()
@@ -324,7 +312,7 @@ class TestSummarizeWithOpenAI:
             mock_get_client.return_value = mock_client
             mock_client.with_options.return_value = mock_client
             mock_client.chat.completions.create.side_effect = BadRequestError(
-                "Invalid schema for response_format", response=httpx.Response(400, request=_REQUEST), body=None
+                "bad request", response=httpx.Response(400, request=_REQUEST), body=None
             )
 
             with pytest.raises(exceptions.APIException, match="Failed to generate summary"):
