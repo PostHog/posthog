@@ -380,6 +380,8 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             ("email_unavailable", "Email delivery is unavailable."),
             ("invalid_configuration", "AI data processing consent was withdrawn for this project."),
             ("llm_detector_unavailable", "The AI detector could not complete this check."),
+            ("data_unavailable", "The query returned fewer rows than the detector window needs."),
+            ("query_error", "Unable to resolve field: revenue"),
         ]
     )
     def test_retrieve_check_includes_allowlisted_error_code(self, code: str, message: str) -> None:

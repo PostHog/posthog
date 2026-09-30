@@ -24,13 +24,13 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertState
 
-from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -59,7 +59,11 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slots,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
-from posthog.temporal.alerts.metrics import record_ai_detector_check_outcome, record_due_insight_alert_metrics
+from posthog.temporal.alerts.metrics import (
+    record_ai_detector_check_outcome,
+    record_due_insight_alert_metrics,
+    record_errored_alert_check,
+)
 from posthog.temporal.alerts.retry_policy import ALERT_PREPARE_RETRY_POLICY, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
     AdmitEvaluationsInputs,
@@ -81,7 +85,12 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import get_metric_meter
 
 from products.alerts.backend.evaluation import check_alert_for_insight
-from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
+from products.alerts.backend.evaluation.contract import (
+    ALERT_DATA_UNAVAILABLE_ERROR_CODE,
+    ALERT_QUERY_ERROR_CODE,
+    AlertDataUnavailableError,
+    AlertExtractionError,
+)
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -616,7 +625,23 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
     Both evaluate_alert's failure path and the retry-exhausted record_failed_evaluation activity go
     through here, so the errored-check write stays in one place.
     """
+    record_errored_alert_check(error.get("code"))
     return add_alert_check(alert, None, error)
+
+
+def _evaluation_exception_error(err: Exception, *, include_traceback: bool = True) -> dict:
+    """The error payload for an exception that evaluate_alert has no dedicated branch for.
+
+    Call it inside the except block, so the traceback belongs to err. Exposed ClickHouse and HogQL
+    errors describe a problem in the owner's query, so they get a code that shows their message to
+    the owner. Other messages can contain internal details, so they get no code.
+    """
+    error: dict = {"message": str(err)}
+    if isinstance(err, ExposedCHQueryError | ExposedHogQLError):
+        error["code"] = ALERT_QUERY_ERROR_CODE
+    if include_traceback:
+        error["traceback"] = traceback.format_exc()
+    return error
 
 
 @temporalio.activity.defn
@@ -672,7 +697,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # behind must not write a check of its own.
             raise
         except AlertDataUnavailableError as err:
-            error = {"message": str(err)}
+            error = {"code": ALERT_DATA_UNAVAILABLE_ERROR_CODE, "message": str(err)}
         except LLMDetectorUnavailableError:
             # An LLM detector that couldn't reach a verdict must not resolve to "not firing":
             # re-raise so the retry policy gets another attempt. Once the attempts run out the
@@ -702,7 +727,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     error=err,
                     properties={"alert_id": str(alert.id), "insight_id": alert.insight_id},
                 )
-                error = {"message": str(err)}
+                error = _evaluation_exception_error(err, include_traceback=False)
             else:
                 capture_exception(
                     err,
@@ -712,7 +737,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                         "team_id": alert.team_id,
                     },
                 )
-                error = {"message": str(err), "traceback": traceback.format_exc()}
+                error = _evaluation_exception_error(err)
         except Exception as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
@@ -723,7 +748,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     "team_id": alert.team_id,
                 },
             )
-            error = {"message": str(err), "traceback": traceback.format_exc()}
+            error = _evaluation_exception_error(err)
 
         should_start_investigation = False
         should_gate_notification = False

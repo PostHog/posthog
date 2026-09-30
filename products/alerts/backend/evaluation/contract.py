@@ -70,6 +70,11 @@ def zero_sentinel_series() -> ComparableSeries:
     )
 
 
+# Error codes for check failures whose message is written for the alert's owner.
+ALERT_DATA_UNAVAILABLE_ERROR_CODE = "data_unavailable"
+ALERT_QUERY_ERROR_CODE = "query_error"
+
+
 class AlertExtractionError(Exception):
     """The alert cannot be evaluated as configured (wrong query shape, bad config).
 

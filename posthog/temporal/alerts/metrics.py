@@ -20,6 +20,19 @@ def record_ai_detector_check_outcome(outcome: AiDetectorCheckOutcome) -> None:
     _AI_DETECTOR_CHECK_COUNTER.labels(outcome=outcome).inc()
 
 
+# An errored check has no event of its own, so this counter is the only count of errored checks
+# by the reason the owner sees.
+_ERRORED_ALERT_CHECK_COUNTER = Counter(
+    "posthog_insight_alerts_errored_checks_total",
+    "Errored insight alert checks, by error code",
+    labelnames=["code"],
+)
+
+
+def record_errored_alert_check(code: str | None) -> None:
+    _ERRORED_ALERT_CHECK_COUNTER.labels(code=code or "none").inc()
+
+
 def record_due_insight_alert_metrics(due_count: int, oldest_due_at: datetime | None, polled_at: datetime) -> None:
     oldest_due_age_seconds: float = 0.0
     if oldest_due_at is not None:
