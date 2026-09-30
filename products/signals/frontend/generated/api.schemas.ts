@@ -3460,14 +3460,14 @@ export const SignalScoutConfigPauseReasonEnumApi = {
 } as const
 
 /**
- * * `user` - User
+ * * `team` - Team
  * * `background` - Background
  */
-export type SignalScoutConfigEnrollmentOriginEnumApi =
-    (typeof SignalScoutConfigEnrollmentOriginEnumApi)[keyof typeof SignalScoutConfigEnrollmentOriginEnumApi]
+export type SignalScoutConfigManagedByEnumApi =
+    (typeof SignalScoutConfigManagedByEnumApi)[keyof typeof SignalScoutConfigManagedByEnumApi]
 
-export const SignalScoutConfigEnrollmentOriginEnumApi = {
-    User: 'user',
+export const SignalScoutConfigManagedByEnumApi = {
+    Team: 'team',
     Background: 'background',
 } as const
 
@@ -3511,7 +3511,7 @@ export interface SignalScoutConfigApi {
      * * `paused_by_system` - Paused by system
      * * `paused_by_user` - Paused by user */
     readonly status: SignalScoutConfigStatusEnumApi
-    /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` (PostHog retired the scout), or `background_removed` (PostHog ended a background enrollment). Null unless `status` is `pending_pause` or `paused_by_system`.
+    /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` (PostHog retired the scout), or `background_removed` (the background lane stopped managing the scout). Null unless `status` is `pending_pause` or `paused_by_system`.
      *
      * * `no_output` - No output
      * * `ignored` - Ignored
@@ -3519,11 +3519,11 @@ export interface SignalScoutConfigApi {
      * * `retired` - Retired
      * * `background_removed` - Background removed */
     readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
-    /** Who put this scout on the project. `user`: a person set it up or changed it. `background`: PostHog enrolled it and has not seen a person edit it yet. Any edit through this API changes `background` to `user`.
+    /** Who controls this scout now. `team`: a person set it up or has changed it. `background`: PostHog runs it in the background and no person has edited it yet. Any edit through this API changes `background` to `team`.
      *
      * * `user` - User
      * * `background` - Background */
-    readonly enrollment_origin: SignalScoutConfigEnrollmentOriginEnumApi
+    readonly managed_by: SignalScoutConfigManagedByEnumApi
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     readonly emit: boolean
     /**

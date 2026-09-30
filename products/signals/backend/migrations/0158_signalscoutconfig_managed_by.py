@@ -11,11 +11,11 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="signalscoutconfig",
-            name="enrollment_origin",
+            name="managed_by",
             field=models.CharField(
-                choices=[("user", "User"), ("background", "Background")],
-                db_default="user",
-                default="user",
+                choices=[("team", "Team"), ("background", "Background")],
+                db_default="team",
+                default="team",
                 max_length=20,
             ),
         ),
