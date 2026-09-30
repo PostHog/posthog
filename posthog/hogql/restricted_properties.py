@@ -132,6 +132,9 @@ def restricted_property_keys_for_table_type(
         )
     }
     if restricted_keys and context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable)):
+        # The native JSON columns store the flat key `a.b` under the path `a%2Eb`, and the printer reads a
+        # requested `a%2Eb` from that same path. Restrict both spellings, or the encoded one reads the value.
+        restricted_keys |= {key.replace(".", "%2E") for key in restricted_keys if "." in key}
         # Quarantine contains raw property values inside a string, beyond JSONDropKeys' reach.
         restricted_keys.add(UNPARSEABLE_PROPERTIES_KEY)
     return restricted_keys
