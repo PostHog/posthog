@@ -3505,10 +3505,10 @@ Today (7): `accounts`, `articles`, `engagements`, `features`, `kc_bots`, `segmen
 
 Diffed against: <https://jsapi.apiary.io/apis/gainsightpx.apib>
 
-- [ ] `events/feature_match` — feature usage events — the headline Gainsight PX metric, and the join from the features table we already sync to actual usage (high)
-- [ ] `events/pageView` — the core page-view event stream underpinning any adoption or navigation analysis (high)
-- [ ] `events/session` — session-level events giving visit frequency, duration and stickiness (high)
-- [ ] `events/engagementView` — who saw and interacted with each engagement — the only way to measure the engagements table's performance (high)
+- [x] `events/feature_match` — feature usage events — the headline Gainsight PX metric, and the join from the features table we already sync to actual usage (high)
+- [x] `events/pageView` — the core page-view event stream underpinning any adoption or navigation analysis (high)
+- [x] `events/session` — session-level events giving visit frequency, duration and stickiness (high)
+- [x] `events/engagementView` — who saw and interacted with each engagement — the only way to measure the engagements table's performance (high)
 - [ ] `survey/responses` — NPS/CES/survey answers, a headline reporting object with no substitute (high)
 - [ ] `events/custom` — customer-defined events captured by PX, typically the business-critical ones (high)
 - [ ] `events/segment_match` — segment entry/exit events that resolve the segments table into per-user membership over time (medium)
