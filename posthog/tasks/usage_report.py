@@ -2922,12 +2922,19 @@ def convert_team_usage_rows_to_dict(
     return team_id_map
 
 
-@timed_log()
+@frozen
+class _UsageRecordRow:
+    team_id: int
+    organization_id: str
+    usage_key: str
+    unit: str
+    quantity: int
+
+
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_usage_records_in_period(
+def _query_usage_records(
     period: DayRange, usage_keys: tuple[str, ...], caller: UsageCounterCaller
-) -> list[UsageRecordTotal]:
-    validate_usage_record_window(period)
+) -> list[_UsageRecordRow]:
     with tags_context(product=Product.BILLING, feature=Feature.USAGE_REPORT, usage_report=f"{caller}_usage_counters"):
         rows = sync_execute(
             """
@@ -2942,11 +2949,28 @@ def get_usage_records_in_period(
             ch_user=ClickHouseUser.BILLING,
             settings={**CH_BILLING_SETTINGS, "do_not_merge_across_partitions_select_final": 1},
         )
+    return [
+        _UsageRecordRow(team_id=team_id, organization_id=str(org_id), usage_key=key, unit=unit, quantity=quantity)
+        for team_id, org_id, key, unit, quantity in rows
+    ]
+
+
+@timed_log()
+def get_usage_records_in_period(
+    period: DayRange, usage_keys: tuple[str, ...], caller: UsageCounterCaller
+) -> list[UsageRecordTotal]:
+    # Validation runs outside the retried query, because a bad window or unit fails the same way on every attempt.
+    validate_usage_record_window(period)
     totals = []
-    for team_id, org_id, key, unit, quantity in rows:
-        if unit != RECORD_USAGE_UNITS[key]:
-            raise ValueError(f"Unexpected unit {unit!r} for usage key {key!r}; expected {RECORD_USAGE_UNITS[key]!r}")
-        totals.append(UsageRecordTotal(team_id=team_id, organization_id=str(org_id), usage_key=key, quantity=quantity))
+    for row in _query_usage_records(period, usage_keys, caller):
+        expected = RECORD_USAGE_UNITS[row.usage_key]
+        if row.unit != expected:
+            raise ValueError(f"Unexpected unit {row.unit!r} for usage key {row.usage_key!r}; expected {expected!r}")
+        totals.append(
+            UsageRecordTotal(
+                team_id=row.team_id, organization_id=row.organization_id, usage_key=row.usage_key, quantity=row.quantity
+            )
+        )
     return totals
 
 

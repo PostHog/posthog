@@ -48,11 +48,11 @@ class TestUsageRecordQuery(SimpleTestCase):
         if mixed:
             rows.insert(0, (1, "org-a", "cdp_billable_invocations", "invocations", 10))
         with (
-            patch("posthog.tasks.usage_report.sync_execute", return_value=rows),
-            patch("retry.api.time.sleep"),
+            patch("posthog.tasks.usage_report.sync_execute", return_value=rows) as scan,
             self.assertRaisesRegex(ValueError, "Unexpected unit 'bytes' for usage key 'cdp_billable_invocations'"),
         ):
             usage_report.get_usage_records_in_period(period, ("cdp_billable_invocations",), "daily_report")
+        scan.assert_called_once()
 
 
 class TestUsageCounterReport(SimpleTestCase):

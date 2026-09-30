@@ -232,11 +232,11 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     monkeypatch.setattr("posthog.tasks.usage_report.ph_scoped_capture", lambda **kw: nullcontext(capture))
     scan = mock.Mock(
         return_value=[
-            (team_a1.id, org_a.id, "cdp_billable_invocations", 7),
-            (team_a2.id, org_a.id, "cdp_billable_invocations", 9),
-            (idle_team.id, idle_org.id, "cdp_billable_invocations", 4),
-            (987654, deleted_org_id, "cdp_billable_invocations", 6),
-            (987655, excluded_org_id, "cdp_billable_invocations", 23),
+            (team_a1.id, org_a.id, "cdp_billable_invocations", "invocations", 7),
+            (team_a2.id, org_a.id, "cdp_billable_invocations", "invocations", 9),
+            (idle_team.id, idle_org.id, "cdp_billable_invocations", "invocations", 4),
+            (987654, deleted_org_id, "cdp_billable_invocations", "invocations", 6),
+            (987655, excluded_org_id, "cdp_billable_invocations", "invocations", 23),
         ]
     )
     monkeypatch.setattr("posthog.tasks.usage_report.sync_execute", scan)
