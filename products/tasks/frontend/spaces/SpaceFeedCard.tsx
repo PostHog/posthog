@@ -14,6 +14,7 @@ import { TodaySessionStatusIcon } from '~/layout/today/TodaySessionStatusIcon'
 import { analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
+import { spaceFeedPreview } from './spaceFeedPreview'
 import { spaceFeedStatus } from './spaceFeedStatus'
 
 interface SpaceFeedCardProps {
@@ -26,7 +27,7 @@ export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element
     const { user } = useValues(userLogic)
     const item = sessionItem(task)
     const status = spaceFeedStatus(task.latest_run)
-    const preview = 'description_preview' in task ? task.description_preview : task.description
+    const preview = spaceFeedPreview('description_preview' in task ? task.description_preview : task.description)
     const author = task.created_by
     const authorName = author ? [author.first_name, author.last_name].filter(Boolean).join(' ') || author.email : null
     const initials = authorName
