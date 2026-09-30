@@ -1425,6 +1425,43 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
             },
         },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID],
+            template_id: 'template-pagerduty',
+            name: 'PagerDuty incident on insight alert firing',
+            description: 'Triggers a PagerDuty incident when this insight alert fires',
+            inputs: {
+                event_action: { value: 'trigger' },
+                // Insight alerts send no resolved event, so the incident stays open until someone resolves it in
+                // PagerDuty. One key per alert keeps repeat firings on that open incident.
+                dedup_key: { value: 'posthog-insight-alert-{event.properties.alert_id}' },
+                summary: {
+                    value: "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                },
+                source: { value: '{project.name}' },
+                component: { value: 'insight alert' },
+                event_class: { value: 'firing' },
+                custom_details: {
+                    value: {
+                        breaches: '{event.properties.breaches}',
+                        alert_name: '{event.properties.alert_name}',
+                        insight_name: '{event.properties.insight_name}',
+                    },
+                },
+                links: {
+                    value: [
+                        {
+                            href: '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=pagerduty',
+                            text: 'View alert in PostHog',
+                        },
+                        {
+                            href: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=pagerduty',
+                            text: 'View insight in PostHog',
+                        },
+                    ],
+                },
+            },
+        },
     ],
     'logs-alert-firing': [
         {
