@@ -12,6 +12,7 @@ from parameterized import parameterized
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
     BUDGET_KEY_PREFIX,
+    BUDGET_REDIS_TIMEOUT_SECONDS,
     BudgetSpec,
     QueryCost,
     budget_spec_for,
@@ -24,7 +25,7 @@ from posthog.api_queries_budget import (
     seconds_until_positive,
 )
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
 from posthog.redis import get_client
 
 SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
@@ -34,6 +35,8 @@ SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
     API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=70_000_000_000,
     API_QUERIES_BUDGET_PAID_MULTIPLIER=10,
     API_QUERIES_BUDGET_CAPACITY_HOURS=24,
+    API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR=1_000,
+    API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR=5_000e9,
 )
 class TestBudgetSpecFor(SimpleTestCase):
     @parameterized.expand(
@@ -47,9 +50,31 @@ class TestBudgetSpecFor(SimpleTestCase):
         organization = SimpleNamespace(has_active_subscription=has_active_subscription)
         assert budget_spec_for(organization) == BudgetSpec(bytes_per_hour=per_hour, capacity_bytes=capacity)
 
+    @parameterized.expand(
+        [
+            ("unknown_volume_keeps_floor", True, None, 700e9),
+            ("small_volume_keeps_floor", True, 1_000, 700e9),
+            ("volume_scales_above_floor", True, 1_000_000_000, 1_000e9),
+            ("volume_is_capped", True, 100_000_000_000, 5_000e9),
+            ("free_scales_from_its_own_floor", False, 100_000_000, 100e9),
+        ]
+    )
+    def test_spec_scales_with_events_last_year(self, _name, has_active_subscription, events_last_year, per_hour):
+        organization = SimpleNamespace(has_active_subscription=has_active_subscription)
+        assert budget_spec_for(organization, events_last_year).bytes_per_hour == per_hour
+
 
 @override_settings(API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=70, API_QUERIES_BUDGET_CAPACITY_HOURS=24)
 class TestTokenBucket(BaseTest):
+    def test_budget_redis_calls_use_a_one_second_timeout(self):
+        with patch("posthog.api_queries_budget.get_client") as get_client:
+            refill_and_read("team-a", SPEC)
+
+        get_client.assert_called_once_with(
+            socket_timeout=BUDGET_REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=BUDGET_REDIS_TIMEOUT_SECONDS,
+        )
+
     def test_fresh_bucket_starts_full(self):
         assert refill_and_read("team-a", SPEC, now=1000.0) == 7200.0
 
@@ -118,7 +143,7 @@ class TestRequestQueryCost(SimpleTestCase):
         assert get_request_query_cost() is None
 
 
-class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
+class TestBudgetedQueryMetering(ClickhouseTestMixin, BaseTest):
     # LIMIT applies to the aggregate's single output row, not to system.numbers itself,
     # so bound the scan inside a subquery or the read never terminates.
     BOUNDED_QUERY = "SELECT sum(number) FROM (SELECT number FROM system.numbers LIMIT 10000)"
@@ -127,10 +152,10 @@ class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
         super().setUp()
         reset_request_query_cost()
 
-    def test_chargeable_query_debits_the_team_budget(self):
+    def test_budgeted_query_debits_the_team_budget(self):
         spec = budget_spec_for(self.organization)
         refill_and_read(str(self.team.pk), spec)
-        tag_queries(chargeable=1, team_id=self.team.pk)
+        tag_queries(api_queries_budgeted=True, team_id=self.team.pk)
         try:
             sync_execute(self.BOUNDED_QUERY)
         finally:
@@ -142,6 +167,29 @@ class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
     def test_untagged_query_is_not_metered(self):
         sync_execute(self.BOUNDED_QUERY)
         assert get_request_query_cost() is None
+
+    def test_chargeable_but_unbudgeted_query_is_not_metered(self):
+        tag_queries(chargeable=1, team_id=self.team.pk)
+        try:
+            sync_execute(self.BOUNDED_QUERY)
+        finally:
+            reset_query_tags()
+        assert get_request_query_cost() is None
+
+    @parameterized.expand(
+        [
+            ("caller_supplied_endpoints_product_tag", {"product": Product.ENDPOINTS}),
+            ("caller_supplied_data_catalog_product_tag", {"product": Product.DATA_CATALOG}),
+        ]
+    )
+    def test_caller_supplied_tags_do_not_change_metering(self, _name, tags):
+        tag_queries(api_queries_budgeted=True, team_id=self.team.pk, **tags)
+        try:
+            sync_execute(self.BOUNDED_QUERY)
+        finally:
+            reset_query_tags()
+        cost = get_request_query_cost()
+        assert cost is not None and cost.bytes_read > 0
 
 
 class QueryDied(Exception):
@@ -156,7 +204,7 @@ class TestFailedQueryMetering(BaseTest):
         fake_client.execute.side_effect = QueryDied("network down before connecting")
         pool = MagicMock()
         pool.__enter__.return_value = fake_client
-        tag_queries(chargeable=1, team_id=self.team.pk)
+        tag_queries(api_queries_budgeted=True, team_id=self.team.pk)
         try:
             with patch("posthog.clickhouse.client.execute.get_client_from_pool", return_value=pool):
                 with pytest.raises(QueryDied):

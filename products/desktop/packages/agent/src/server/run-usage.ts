@@ -88,11 +88,12 @@ export function reportRunUsage(
   taskId: string,
   runId: string,
   logger: Logger,
+  extraState?: Record<string, unknown> | false,
 ): Promise<void> {
   const send = (): Promise<void> =>
     api
       .updateTaskRun(taskId, runId, {
-        state: { token_usage: accumulator.snapshot() },
+        state: { token_usage: accumulator.snapshot(), ...(extraState || {}) },
       })
       .then(
         () => undefined,

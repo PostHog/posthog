@@ -103,6 +103,7 @@ IntervieweeContext
 KernelRuntime
 LLMModelConfiguration
 LLMPrompt
+LLMPromptDependency
 LLMPromptLabel
 LLMProviderKey
 LLMSkill
@@ -129,6 +130,7 @@ ProductTour
 ProjectSecretAPIKey
 PropertyAccessControl
 QueryTabState
+QueueJob
 QuickFilter
 QuickFilterContext
 Reminder

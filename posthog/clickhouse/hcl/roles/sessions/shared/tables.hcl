@@ -412,6 +412,9 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
+    }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
@@ -437,6 +440,11 @@ database "posthog" {
     }
     index "flag_keys_bloom_filter" {
       expr        = "flag_keys"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "flag_key_values_bloom_filter" {
+      expr        = "flag_key_values"
       type        = "bloom_filter()"
       granularity = 1
     }

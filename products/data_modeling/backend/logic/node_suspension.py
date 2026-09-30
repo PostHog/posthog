@@ -13,9 +13,6 @@ from django.db import transaction
 
 import structlog
 
-from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
-
 from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
@@ -25,29 +22,6 @@ logger = structlog.get_logger(__name__)
 
 SUSPENDED_KEY = "suspended"
 RESET_KEY = "suspension_reset"
-
-SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
-
-
-def is_suspension_enforced(team_id: int) -> bool:
-    """Whether a suspension marker actually stops the node from running.
-
-    Markers are written fleet-wide, but only an enforced team has its schedule stopped, so every
-    reader that reports suspension to a customer has to ask this first.
-    """
-    try:
-        team = Team.objects.only("organization_id").get(id=team_id)
-        return feature_enabled_or_false(
-            SUSPENSION_ENFORCEMENT_FLAG,
-            str(team_id),
-            groups={"organization": str(team.organization_id), "project": str(team_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team_id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.warning("Failed to evaluate suspension enforcement flag; treating as disabled", team_id=team_id)
-        return False
 
 
 def _now() -> str:

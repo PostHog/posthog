@@ -8,10 +8,7 @@ import {
   EFFORT_LEVEL_DOCS_URLS,
   EFFORT_LEVEL_LABELS,
 } from "@posthog/shared/domain-types";
-import {
-  normalizeModelId,
-  reasoningEffortsForModel,
-} from "@posthog/shared/model-catalog";
+import { reasoningEffortsForModel } from "@posthog/shared/model-catalog";
 import type { EffortLevel } from "../types";
 
 export const DEFAULT_MODEL = "opus";

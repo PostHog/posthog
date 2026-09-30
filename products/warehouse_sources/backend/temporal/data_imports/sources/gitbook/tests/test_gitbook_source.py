@@ -52,7 +52,10 @@ class TestGitBookSource:
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.source.gitbook_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
-        inputs.schema_name = "spaces"
+        inputs.schema_name = "site_answers"
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2026-05-01T00:00:00Z"
+        inputs.incremental_field = "createdAt"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -60,8 +63,11 @@ class TestGitBookSource:
         mock_source.assert_called_once()
         kwargs = mock_source.call_args.kwargs
         assert kwargs["api_token"] == "gb-token"
-        assert kwargs["endpoint"] == "spaces"
+        assert kwargs["endpoint"] == "site_answers"
         assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == "2026-05-01T00:00:00Z"
+        assert kwargs["incremental_field"] == "createdAt"
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

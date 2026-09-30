@@ -201,7 +201,7 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
                 runtime_adapter="codex",
                 model="gpt-5.6-sol",
                 reasoning_effort="high",
-                initial_permission_mode="bypassPermissions",
+                initial_permission_mode="full-access",
             ),
             step_name="context-layer-dream",
             ai_stage=DREAM_AI_STAGE,

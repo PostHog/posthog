@@ -2,7 +2,6 @@ import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { parsePersonFromHogQLRow } from 'scenes/persons/person-utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 
@@ -10,6 +9,8 @@ import { performQuery } from '~/queries/query'
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { PersonType } from '~/types'
+
+import { parsePersonFromHogQLRow } from 'products/persons/frontend/person-utils'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'

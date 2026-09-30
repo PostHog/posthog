@@ -195,7 +195,37 @@ const AssistantDataVisualizationNode = z.object({
     ).optional(),
 })
 
-const InsightQuery = z.union([AssistantInsightVizNode, AssistantDataVisualizationNode])
+const InsightNodeKind = z.enum([
+    'TrendsQuery',
+    'FunnelsQuery',
+    'RetentionQuery',
+    'PathsQuery',
+    'PathsV2Query',
+    'StickinessQuery',
+    'LifecycleQuery',
+    'WebStatsTableQuery',
+    'WebOverviewQuery',
+])
+
+const AssistantBareInsightQuery = z
+    .object({
+        kind: InsightNodeKind,
+    })
+    .catchall(z.unknown())
+
+const AssistantBareHogQLQuery = z
+    .object({
+        kind: z.literal('HogQLQuery').default('HogQLQuery'),
+        query: z.string().describe('The HogQL query to run.'),
+    })
+    .catchall(z.unknown())
+
+const InsightQuery = z.union([
+    AssistantInsightVizNode,
+    AssistantDataVisualizationNode,
+    AssistantBareInsightQuery,
+    AssistantBareHogQLQuery,
+])
 
 const ElementsStatsRetrieveSchema = () => {
     const ElementsStatsRetrieveQueryParams = orvalSchemas.ElementsStatsRetrieveQueryParams()
@@ -242,7 +272,10 @@ const InsightCreateSchema = () => {
     })
 }
 
-const insightCreate = (): ToolBase<ReturnType<typeof InsightCreateSchema>, WithPostHogUrl<Schemas.Insight>> => ({
+const insightCreate = (): ToolBase<
+    ReturnType<typeof InsightCreateSchema>,
+    WithAgentNote<WithPostHogUrl<Schemas.Insight>>
+> => ({
     name: 'insight-create',
     schema: InsightCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof InsightCreateSchema>>) => {
@@ -280,7 +313,10 @@ const insightCreate = (): ToolBase<ReturnType<typeof InsightCreateSchema>, WithP
             'hogql',
             'types',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
+            'After creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it, offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing about alerts. Wait for the user to accept before creating an alert.'
+        )
     },
 })
 

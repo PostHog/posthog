@@ -24,8 +24,8 @@ from posthog.dataclasses import frozen
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.tasks.alerts.utils import INSIGHT_ALERT_FIRING_EVENT
 
-from products.alerts.backend.insight_alert_destinations import INSIGHT_CHART_BLOCK, SLACK_TEMPLATE_ID
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.alerts.backend.logic.insight_alert_destinations import INSIGHT_CHART_BLOCK, SLACK_TEMPLATE_ID
+from products.cdp.backend.facade.models import HogFunction
 
 logger = structlog.get_logger(__name__)
 

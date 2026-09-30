@@ -1,7 +1,7 @@
 import type { Adapter } from "./adapter";
 import { getCustomCloud, isCustomCloudHost } from "./custom-cloud";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
-import { labelForModel } from "./model-catalog";
+import { isOfferedModel, labelForModel } from "./model-catalog";
 import {
   customModelMeta,
   modelHarnessMeta,
@@ -53,37 +53,9 @@ export interface CloudTaskModePreset {
   description: string;
 }
 
-export const DEFAULT_GATEWAY_MODEL = "claude-opus-4-8";
+export const DEFAULT_GATEWAY_MODEL = "claude-opus-5-5";
 
-export const DEFAULT_CODEX_MODEL = "gpt-5.5";
-
-export const BLOCKED_GATEWAY_MODEL_IDS = [
-  "gpt-5-mini",
-  "openai/gpt-5-mini",
-  "gpt-5.2",
-  "openai/gpt-5.2",
-  "gpt-5.3",
-  "openai/gpt-5.3",
-  "gpt-5.3-codex",
-  "openai/gpt-5.3-codex",
-  "gpt-5.4",
-  "openai/gpt-5.4",
-  "claude-opus-4-5",
-  "anthropic/claude-opus-4-5",
-  "claude-opus-4-6",
-  "anthropic/claude-opus-4-6",
-  "claude-opus-4-7",
-  "anthropic/claude-opus-4-7",
-  "claude-sonnet-4-5",
-  "anthropic/claude-sonnet-4-5",
-  "claude-sonnet-4-6",
-  "anthropic/claude-sonnet-4-6",
-  "claude-haiku-4-5",
-  "anthropic/claude-haiku-4-5",
-  "@cf/zai-org/glm-5.2",
-] as const;
-
-const BLOCKED_GATEWAY_MODELS = new Set<string>(BLOCKED_GATEWAY_MODEL_IDS);
+export const DEFAULT_CODEX_MODEL = "gpt-6-sol";
 
 const CLAUDE_MODE_PRESETS: readonly CloudTaskModePreset[] = [
   {
@@ -160,7 +132,7 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
 
   return entries
     .filter(isGatewayModel)
-    .filter((model) => !isBlockedModelId(model.id))
+    .filter((model) => isOfferedModel(model.id))
     .map((model) => ({
       id: model.id,
       owned_by: model.owned_by ?? "",
@@ -170,10 +142,6 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
       allowed: model.allowed !== false,
       restriction_reason: model.restriction_reason ?? null,
     }));
-}
-
-export function isBlockedModelId(modelId: string): boolean {
-  return BLOCKED_GATEWAY_MODELS.has(modelId.toLowerCase());
 }
 
 export function isAnthropicModel(model: GatewayModel): boolean {
@@ -196,18 +164,6 @@ export function isOpenAIModel(model: GatewayModel): boolean {
 
 export function isCloudflareModelId(modelId: string): boolean {
   return modelId.startsWith("@cf/");
-}
-
-export function isGlmModelId(modelId: string): boolean {
-  return modelId.toLowerCase().includes("glm");
-}
-
-export function isGlm53ModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3";
-}
-
-export function isGlm53FlashModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3-flash";
 }
 
 export function isCloudflareModel(model: GatewayModel): boolean {
@@ -349,11 +305,6 @@ export function adapterForModelId(modelId: string): Adapter {
     ? "codex"
     : "claude";
 }
-
-export const HARNESS_DISPLAY_NAMES: Record<Adapter, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-};
 
 function buildModelSelectOptions(
   models: readonly GatewayModel[],
@@ -544,4 +495,65 @@ export function buildCloudTaskConfigOptions(
   }
 
   return configOptions;
+}
+
+export const PAID_PLAN_REQUIRED_REASON = "paid_plan_required";
+
+export interface AllowedModelsPin {
+  /** The desktop product's model list; empty keeps every entry. */
+  productModels: readonly string[];
+  /** What the token can call; null (the dev override) allows every entry. */
+  allowedModels: readonly string[] | null;
+}
+
+function modelNames(entry: Record<string, unknown>): string[] {
+  const names = typeof entry.id === "string" ? [entry.id] : [];
+  if (Array.isArray(entry.aliases)) {
+    for (const alias of entry.aliases) {
+      if (typeof alias === "string") names.push(alias);
+    }
+  }
+  return names;
+}
+
+/**
+ * Filters the Go gateway's unfiltered `/v1/models` body to the desktop product
+ * list and marks `allowed` from the token's pin, keeping the response shape.
+ */
+export function applyAllowedModels(
+  body: unknown,
+  pin: AllowedModelsPin,
+): unknown {
+  const product = new Set(pin.productModels);
+  const allowed = pin.allowedModels && new Set(pin.allowedModels);
+  const rewrite = (entries: unknown[]): unknown[] =>
+    entries.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const record = entry as Record<string, unknown>;
+      const names = modelNames(record);
+      if (names.length === 0) return [];
+      if (product.size > 0 && !names.some((name) => product.has(name))) {
+        return [];
+      }
+      const isAllowed =
+        allowed === null || names.some((name) => allowed.has(name));
+      return [
+        {
+          ...record,
+          allowed: isAllowed,
+          restriction_reason: isAllowed ? null : PAID_PLAN_REQUIRED_REASON,
+        },
+      ];
+    });
+
+  if (Array.isArray(body)) return rewrite(body);
+  if (!body || typeof body !== "object") return body;
+  const response = body as GatewayModelsResponse & Record<string, unknown>;
+  if (Array.isArray(response.data)) {
+    return { ...response, data: rewrite(response.data) };
+  }
+  if (Array.isArray(response.models)) {
+    return { ...response, models: rewrite(response.models) };
+  }
+  return body;
 }

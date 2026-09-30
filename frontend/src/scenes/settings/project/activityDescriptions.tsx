@@ -3,6 +3,7 @@ import {
     ActivityLogUserName,
     Describer,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -27,6 +28,13 @@ export const projectSecretAPIKeyActivityDescriber: Describer = (logItem: Activit
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the project secret API key',
+                <>
+                    {keyName} for {scopeName}
+                </>
+            ),
             description: (
                 <>
                     {actor} created project secret API key {keyName} for {scopeName}
@@ -40,6 +48,13 @@ export const projectSecretAPIKeyActivityDescriber: Describer = (logItem: Activit
 
         if (rolled) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Rolled the project secret API key',
+                    <>
+                        {keyName} for {scopeName}
+                    </>
+                ),
                 description: (
                     <>
                         {actor} rolled project secret API key {keyName} for {scopeName}
@@ -49,6 +64,13 @@ export const projectSecretAPIKeyActivityDescriber: Describer = (logItem: Activit
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Updated the project secret API key',
+                <>
+                    {keyName} for {scopeName}
+                </>
+            ),
             description: (
                 <>
                     {actor} updated project secret API key {keyName} for {scopeName}
@@ -59,6 +81,13 @@ export const projectSecretAPIKeyActivityDescriber: Describer = (logItem: Activit
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Deleted the project secret API key',
+                <>
+                    {keyName} for {scopeName}
+                </>
+            ),
             description: (
                 <>
                     {actor} deleted project secret API key {keyName} for {scopeName}

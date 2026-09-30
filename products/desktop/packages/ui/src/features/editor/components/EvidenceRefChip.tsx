@@ -3,6 +3,7 @@ import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { isPostHogObjectKind } from "@posthog/core/message-editor/content";
 import { Button } from "@posthog/quill";
 import { getCloudUrlFromRegion } from "@posthog/shared";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   type MouseEvent,
@@ -50,8 +51,8 @@ import { useEvidencePreviewPrefetch } from "../useEvidencePreviewPrefetch";
  *
  * The reference carries only `kind/id`. Hovering or focusing mounts the card,
  * which resolves the object's live name and status through the PostHog API
- * (for `hogql`, runs the query); clicking a linked reference opens the object
- * in PostHog at a URL derived from the reference and the current project.
+ * (for `hogql`, runs the query); report links open the report in the app.
+ * Other links open a task object tab, or PostHog outside a task.
  * Nothing about the object is stored in the message itself.
  *
  * The card is a Base UI popover, not a tooltip: it holds real controls (the
@@ -64,11 +65,9 @@ import { useEvidencePreviewPrefetch } from "../useEvidencePreviewPrefetch";
 const SPARK_W = 100;
 const SPARK_H = 30;
 const SPARK_PAD = 2;
-// Surfaces with their own palette (the quick-ask panel) set
-// --evidence-spark-color; everywhere else PostHog's first data-viz color
-// applies, with a hex fallback because the tooltip portals outside the
-// theme root.
-const SPARK_COLOR = "var(--evidence-spark-color, var(--data-color-1, #1d4aff))";
+// PostHog's first data-viz color, with a hex fallback because the tooltip
+// portals outside the theme root.
+const SPARK_COLOR = "var(--data-color-1, #1d4aff)";
 
 /** Mini chart of the preview's primary series: a line for time series, columns for categories. */
 export function EvidenceSparkline({
@@ -424,12 +423,30 @@ export function useEvidenceUrl(kind: string, id: string): string | null {
   return `${getCloudUrlFromRegion(cloudRegion)}/project/${projectId}${path}`;
 }
 
-export function EvidenceRefChip({
-  target,
-  children,
-}: {
+interface EvidenceRefChipProps {
   target: EvidenceLinkTarget;
   children: ReactNode;
+}
+
+export function EvidenceRefChip(props: EvidenceRefChipProps) {
+  return props.target.kind === "report" ? (
+    <InboxReportRefChip {...props} />
+  ) : (
+    <EvidenceRefChipContent {...props} />
+  );
+}
+
+function InboxReportRefChip(props: EvidenceRefChipProps) {
+  const openReport = useOpenInboxReport();
+  return <EvidenceRefChipContent {...props} onOpenReport={openReport} />;
+}
+
+function EvidenceRefChipContent({
+  target,
+  children,
+  onOpenReport,
+}: EvidenceRefChipProps & {
+  onOpenReport?: (reportId: string) => Promise<void>;
 }) {
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
@@ -464,6 +481,11 @@ export function EvidenceRefChip({
 
   const openReference = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
+    if (onOpenReport) {
+      void onOpenReport(target.id);
+      setOpen(false);
+      return;
+    }
     if (taskId) {
       openPostHogObjectTab(taskId, {
         kind: target.kind,
@@ -501,7 +523,7 @@ export function EvidenceRefChip({
         // to PostHog instead of toggling the popover.
         onFocus={() => setOpen(true)}
         render={
-          url || taskId ? (
+          url || taskId || onOpenReport ? (
             // Keep the truthful role: Enter follows the link (opens the
             // object's page in the app, or in PostHog outside a session), it
             // does not act as a popover button.

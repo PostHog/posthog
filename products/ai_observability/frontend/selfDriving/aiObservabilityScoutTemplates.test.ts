@@ -7,8 +7,8 @@ import {
 } from './aiObservabilityScoutTemplates'
 
 describe('AI observability scout templates', () => {
-    it('provides three uniquely named templates', () => {
-        expect(AI_OBSERVABILITY_SCOUT_TEMPLATES).toHaveLength(3)
+    it('provides four uniquely named templates', () => {
+        expect(AI_OBSERVABILITY_SCOUT_TEMPLATES).toHaveLength(4)
 
         const names = AI_OBSERVABILITY_SCOUT_TEMPLATES.map((template) => template.initialValues.name)
         expect(new Set(names).size).toBe(names.length)

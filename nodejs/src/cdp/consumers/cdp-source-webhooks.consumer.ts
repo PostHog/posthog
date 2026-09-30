@@ -73,6 +73,24 @@ export const getCustomHttpResponse = (
     return null
 }
 
+// Metric names a webhook template may raise from its own code. A template signals one with
+// `appMetric`, beside `httpResponse`. This lets a template answer 200 to a delivery it cannot
+// process, and still record the failure against the function.
+const TEMPLATE_APP_METRIC_NAMES = ['missing_credential'] as const satisfies readonly MinimalAppMetric['metric_name'][]
+
+export const getCustomAppMetricName = (
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+): MinimalAppMetric['metric_name'] | null => {
+    if (typeof result.execResult === 'object' && result.execResult && 'appMetric' in result.execResult) {
+        const appMetric = result.execResult.appMetric
+        if (typeof appMetric === 'string' && (TEMPLATE_APP_METRIC_NAMES as readonly string[]).includes(appMetric)) {
+            return appMetric as MinimalAppMetric['metric_name']
+        }
+    }
+
+    return null
+}
+
 export class SourceWebhookError extends Error {
     status: number
 
@@ -299,18 +317,15 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     count: 1,
                 })
 
+                // Queued before queueInvocations serializes the invocation, because
+                // queueLifecycleRow stamps `state.firstScheduledAt` and only a stamp set before
+                // serialization reaches cyclotron.
+                this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(
+                    hogFlowInvocation,
+                    'running'
+                )
+
                 await this.hogflowQueue.queueInvocations([hogFlowInvocation])
-
-                addMetric({
-                    metric_kind: 'billing',
-                    metric_name: 'billable_invocation',
-                    count: 1,
-                })
-
-                this.cdpUsageReporter.reportBillableInvocation({
-                    teamId: invocation.teamId,
-                    recordId: `webhook:${invocationId}`,
-                })
             } else {
                 addMetric({
                     metric_kind: 'failure',
@@ -324,6 +339,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             return functionResult
         } catch (error) {
             logger.error('Error triggering hog flow', { error })
+            // The 'running' row is queued before the invocation reaches cyclotron, so a throw after
+            // that point leaves a row for a run that does not exist and would never terminate.
+            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocationId])
             addMetric({
                 metric_kind: 'failure',
                 metric_name: 'trigger_failed',
@@ -396,8 +414,22 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
 
                 const customHttpResponse = getCustomHttpResponse(result)
+                const customAppMetricName = getCustomAppMetricName(result)
+
+                if (customAppMetricName) {
+                    result.metrics.push({
+                        team_id: hogFunction.team_id,
+                        app_source_id: hogFunction.id,
+                        metric_kind: 'failure',
+                        metric_name: customAppMetricName,
+                        count: 1,
+                    })
+                }
+
                 if (customHttpResponse) {
-                    const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
+                    // A template that drops a delivery answers 200, to stop the provider retrying.
+                    // The status alone therefore no longer shows whether we processed the delivery.
+                    const level = customHttpResponse.status >= 400 || customAppMetricName ? 'warn' : 'info'
                     if (level === 'warn') {
                         const bodyStr =
                             typeof customHttpResponse.body === 'string'

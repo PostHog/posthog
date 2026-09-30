@@ -8,6 +8,8 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone as tz
 
+from clickhouse_driver.errors import UnknownPacketFromServerError
+from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes, CHQueryErrorUnknownTable
@@ -515,11 +517,21 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         assert mock_sync_execute.call_count == 1
         assert redis_mock.storage.get(checkpoint_key) == checkpoint_time.isoformat().encode()
 
+    @parameterized.expand(
+        [
+            ("at_capacity", ClickHouseAtCapacity),
+            ("unknown_packet", UnknownPacketFromServerError),
+        ]
+    )
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_transient_error_propagates_instead_of_being_tolerated(
-        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+        self,
+        _name: str,
+        error_cls: type[Exception],
+        mock_get_client: MagicMock,
+        mock_sync_execute: MagicMock,
     ) -> None:
         redis_mock = mock_redis_client()
         checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
@@ -531,13 +543,14 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         called_at = tz.make_aware(datetime(2024, 6, 15, 11, 47, 0))
         mock_sync_execute.side_effect = [
             [(self.team.pk, self.flag1.key, called_at, 5)],
-            ClickHouseAtCapacity(),
+            error_cls("boom"),
             [],
         ]
 
-        # A cluster shedding load is what autoretry_for handles, so the error has to escape
-        # the chunk loop. Tolerating it would report a successful sync and skip the retry.
-        with self.assertRaises(ClickHouseAtCapacity):
+        # A cluster shedding load, or a desynced pooled socket, is what autoretry_for handles,
+        # so the error has to escape the chunk loop. Tolerating it would report a successful
+        # sync and skip the retry.
+        with self.assertRaises(error_cls):
             sync_feature_flag_last_called()
 
         # The run stops at the failing chunk rather than querying the rest of the window
@@ -638,3 +651,81 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # sync_execute wraps capacity errors (code 202) into ClickHouseAtCapacity,
         # so the wrapped form must be retryable too
         assert ClickHouseAtCapacity in autoretry_for
+        # A desynced pooled socket is retryable for this task, which only reads from ClickHouse,
+        # but it has to stay out of the shared tuple: the driver can raise it after the server ran
+        # the query, so a write caller retrying it would land the write twice
+        assert UnknownPacketFromServerError in autoretry_for
+        assert UnknownPacketFromServerError not in CH_TRANSIENT_ERRORS
+
+    @parameterized.expand(
+        [
+            (
+                "unknown_packet",
+                UnknownPacketFromServerError,
+                "sync_feature_flag_last_called.UnknownPacketFromServerError",
+            ),
+            ("unknown_table", CHQueryErrorUnknownTable, None),
+        ]
+    )
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.tasks.tasks.capture_exception")
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_failure_fingerprint_is_set_only_for_the_desynced_socket(
+        self,
+        _name: str,
+        error_cls: type[Exception],
+        expected_fingerprint: str | None,
+        mock_get_client: MagicMock,
+        mock_sync_execute: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        mock_get_client.return_value = mock_redis_client()
+        # The driver names the packet it did not expect, and the number moves between
+        # occurrences. Without a fixed fingerprint every occurrence opens its own issue.
+        # Every other failure keeps the automatic grouping, so one triaged issue cannot
+        # swallow an unrelated one.
+        mock_sync_execute.side_effect = error_cls("boom")
+
+        with self.assertRaises(error_cls):
+            sync_feature_flag_last_called()
+
+        properties = mock_capture_exception.call_args.kwargs["additional_properties"]
+        assert properties.get("$exception_fingerprint") == expected_fingerprint
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_run_that_completes_on_a_retry_is_counted(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        mock_get_client.return_value = mock_redis_client()
+        mock_sync_execute.return_value = []
+        recoveries_metric = "posthog_feature_flag_last_called_at_sync_retry_recoveries_total"
+        recoveries_before = REGISTRY.get_sample_value(recoveries_metric) or 0.0
+
+        sync_feature_flag_last_called()
+
+        # A first attempt that succeeds is not a recovery
+        assert (REGISTRY.get_sample_value(recoveries_metric) or 0.0) == recoveries_before
+
+        cache.clear()
+        sync_feature_flag_last_called.push_request(retries=1)
+        try:
+            sync_feature_flag_last_called()
+        finally:
+            sync_feature_flag_last_called.pop_request()
+
+        assert (REGISTRY.get_sample_value(recoveries_metric) or 0.0) == recoveries_before + 1
+
+        cache.clear()
+        mock_sync_execute.side_effect = CHQueryErrorUnknownTable("boom")
+        sync_feature_flag_last_called.push_request(retries=1)
+        try:
+            with self.assertRaises(CHQueryErrorUnknownTable):
+                sync_feature_flag_last_called()
+        finally:
+            sync_feature_flag_last_called.pop_request()
+
+        # A retry that fails is not a recovery
+        assert (REGISTRY.get_sample_value(recoveries_metric) or 0.0) == recoveries_before + 1

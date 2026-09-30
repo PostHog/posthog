@@ -32,6 +32,7 @@ export enum HealthCheckId {
     PAGEVIEW_EVENTS = 'pageview_events',
     PAGELEAVE_EVENTS = 'pageleave_events',
     SCROLL_DEPTH = 'scroll_depth',
+    MISSING_SESSION_ID = 'missing_session_id',
 
     AUTHORIZED_URLS = 'authorized_urls',
     REVERSE_PROXY = 'reverse_proxy',

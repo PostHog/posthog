@@ -13,7 +13,6 @@ import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/u
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 
 import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
@@ -21,6 +20,7 @@ import { ChartDisplayType } from '~/types'
 import { FunnelBinsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelDisplayLayoutPicker'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { PathStepPicker } from 'products/product_analytics/frontend/insights/paths/filters/PathStepPicker'
 import { RetentionBreakdownFilter } from 'products/product_analytics/frontend/insights/retention/filters/RetentionBreakdownFilter'
 import { RetentionChartPicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionChartPicker'
 import { RetentionDatePicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionDatePicker'
@@ -28,7 +28,7 @@ import { RetentionDatePicker } from 'products/product_analytics/frontend/insight
 import { useInsightDisplayOptions } from './insightDisplayOptions'
 import { InsightDisplayOptionsPanel } from './InsightDisplayOptionsPanel'
 
-export function InsightDisplayConfig(): JSX.Element {
+export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: ReactNode }): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
 
     const {
@@ -156,11 +156,7 @@ export function InsightDisplayConfig(): JSX.Element {
                         </LemonDropdown>
                     </>
                 )}
-                {supportsDisplay && (
-                    <ConfigFilter>
-                        <ChartFilter />
-                    </ConfigFilter>
-                )}
+                {supportsDisplay && <ConfigFilter>{chartTypeControl ?? <ChartFilter />}</ConfigFilter>}
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionChartPicker />

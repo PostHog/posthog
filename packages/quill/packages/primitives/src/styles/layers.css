@@ -22,6 +22,11 @@
 :root {
     --text-xxs: 0.625rem;
     --text-xxs--line-height: 0.75rem;
+
+    /* Primary UI text: controls, list rows, chat, and container body text. Secondary text stays at --text-xs.
+       Set it on an ancestor to rescale the primary text together. */
+    --text-ui: 0.8125rem;
+    --text-ui--line-height: 1.25rem;
     --text-xs--line-height: 1rem;
     --text-sm--line-height: 1.25rem;
     --animate-spin: spin 1s linear infinite;

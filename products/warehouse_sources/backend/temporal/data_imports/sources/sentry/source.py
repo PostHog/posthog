@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
     SENTRY_RATE_LIMITED_MESSAGE,
+    SESSIONS_REJECTED_MESSAGE,
     STATS_SUMMARY_REJECTED_MESSAGE,
     SentryResumeConfig,
     _normalize_organization_slug,
@@ -66,7 +65,7 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SENTRY,
+            name=ExternalDataSourceType.SENTRY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sentry",
             iconPath="/static/services/sentry.png",
@@ -132,6 +131,8 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             # skipped no-projects case (see sentry.py). Deterministic for the request we build, so
             # stop retrying; the message is defined at the raise site so it stays credential-safe.
             STATS_SUMMARY_REJECTED_MESSAGE: None,
+            # Raised as `SentrySessionsRejectedError` for the same reason — see sentry.py.
+            SESSIONS_REJECTED_MESSAGE: None,
         }
 
     def get_retryable_errors(self) -> set[str]:

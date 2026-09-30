@@ -20,9 +20,8 @@ export function DoraDeploymentFrequency(): JSX.Element {
             id="deployment-frequency"
             title="Deployments over time"
             note={`Successful deployments per bucket in the ${environmentScopeLabel} scope.`}
-            busy={doraLoading && !!dora}
         >
-            {doraLoading && !dora ? (
+            {doraLoading ? (
                 <LemonSkeleton className="h-40 w-full" />
             ) : frequencyCounts.length === 0 ? (
                 <div className="py-8 text-center text-sm text-secondary">No deploy data for this window.</div>

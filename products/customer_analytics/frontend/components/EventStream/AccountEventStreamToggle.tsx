@@ -1,10 +1,9 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
+import { AccountEventStreamMembership } from './AccountEventStreamMembership'
 import { eventStreamLogic } from './eventStreamLogic'
 
 // Rendered as flag-gated tab content (AccountNotebooksExpansion), so eventStreamLogic
@@ -16,11 +15,7 @@ export function AccountEventStreamToggle({
     accountId: string
     externalId: string
 }): JSX.Element {
-    const { eventStream, eventStreamLoading, membershipUpdatingIds, isAccountInStream } = useValues(eventStreamLogic)
-    const { setAccountMembership } = useActions(eventStreamLogic)
-
-    const included = isAccountInStream(accountId)
-    const updating = membershipUpdatingIds.includes(accountId)
+    const { settingsUrl } = useValues(eventStreamLogic)
 
     return (
         <div className="flex flex-col gap-2 items-start">
@@ -32,29 +27,10 @@ export function AccountEventStreamToggle({
                     icon={<IconGear />}
                     tooltip="Configure the event stream"
                     data-attr="configure-event-stream"
-                    to={urls.customerAnalyticsConfiguration('customer-analytics-event-stream')}
+                    to={settingsUrl}
                 />
             </div>
-            <p className="mb-0 text-secondary">Stream this customer's events to your Slack channel in real time.</p>
-            <LemonSwitch
-                checked={included}
-                onChange={(checked) => setAccountMembership(accountId, checked)}
-                disabledReason={
-                    !eventStream && !eventStreamLoading
-                        ? 'Set up your event stream in settings first'
-                        : eventStreamLoading || updating
-                          ? 'Updating…'
-                          : undefined
-                }
-                label="Include in my event stream"
-                size="small"
-                bordered
-            />
-            {included && !externalId ? (
-                <span className="text-xs text-secondary">
-                    This account has no external ID, so its events can't be matched and won't stream.
-                </span>
-            ) : null}
+            <AccountEventStreamMembership accountId={accountId} externalId={externalId} />
         </div>
     )
 }

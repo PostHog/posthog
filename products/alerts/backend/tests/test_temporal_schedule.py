@@ -7,43 +7,30 @@ from django.test import override_settings
 
 from temporalio.client import Client, ScheduleActionStartWorkflow, ScheduleOverlapPolicy, ScheduleState
 
-from products.alerts.backend.temporal.schedule import SCHEDULE_ID, create_alerts_product_check_due_schedule
+from products.alerts.backend.temporal.schedule import SCHEDULE_ID, create_alerts_platform_tick_schedule
 
 MODULE = "products.alerts.backend.temporal.schedule"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("deployment", ["US", "EU", "E2E", "", None])
-async def test_schedule_does_not_access_temporal_outside_dev(deployment: str | None) -> None:
-    client = MagicMock(spec=Client)
-    with (
-        override_settings(CLOUD_DEPLOYMENT=deployment, DEBUG=True),
-        patch(f"{MODULE}.a_schedule_exists") as exists,
-        patch(f"{MODULE}.a_create_schedule") as create,
-        patch(f"{MODULE}.a_update_schedule") as update,
-    ):
-        await create_alerts_product_check_due_schedule(client)
-    exists.assert_not_awaited()
-    create.assert_not_awaited()
-    update.assert_not_awaited()
-    assert client.mock_calls == []
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("already_exists, paused", [(False, False), (True, False), (True, True)])
-async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exists: bool, paused: bool) -> None:
+async def test_schedule_creates_or_updates_with_bounded_policy(already_exists: bool, paused: bool) -> None:
     client = MagicMock(spec=Client)
     state = ScheduleState(paused=paused, note="Operator-controlled state")
     client.get_schedule_handle.return_value.describe = AsyncMock(
         return_value=MagicMock(schedule=MagicMock(state=state))
     )
     with (
-        override_settings(CLOUD_DEPLOYMENT="DEV", ALERTS_PRODUCT_EVALUATION_TASK_QUEUE="evaluation-test-queue"),
+        override_settings(
+            # A non-DEV deployment, because DEV would pass even if a region gate returned early.
+            CLOUD_DEPLOYMENT="US",
+            ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE="orchestration-test-queue",
+        ),
         patch(f"{MODULE}.a_schedule_exists", return_value=already_exists) as exists,
         patch(f"{MODULE}.a_create_schedule") as create,
         patch(f"{MODULE}.a_update_schedule") as update,
     ):
-        await create_alerts_product_check_due_schedule(client)
+        await create_alerts_platform_tick_schedule(client)
 
     exists.assert_awaited_once_with(client, SCHEDULE_ID)
     called = update if already_exists else create
@@ -56,10 +43,10 @@ async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exist
     schedule = called.await_args.args[2]
     action = schedule.action
     assert isinstance(action, ScheduleActionStartWorkflow)
-    assert action.workflow == "alerts-product-check-due"
+    assert action.workflow == "alerts-platform-orchestrate"
     assert list(action.args) == [{}]
     assert action.id == SCHEDULE_ID
-    assert action.task_queue == "evaluation-test-queue"
+    assert action.task_queue == "orchestration-test-queue"
     assert action.execution_timeout == dt.timedelta(seconds=50)
     assert action.retry_policy is not None
     assert action.retry_policy.maximum_attempts == 1

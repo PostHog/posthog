@@ -20,15 +20,16 @@ import { IconInfo } from '@posthog/icons'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { workflowLogic } from '../workflowLogic'
+import { HogFlowBranchSelectionProvider } from './HogFlowBranchSelection'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
 import { LOW_DETAIL_ZOOM, MIN_ZOOM } from './react_flow_utils/constants'
 import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
+import { HogFlowTreeEditor } from './tree/HogFlowTreeEditor'
 import { HogFlowActionEdge, HogFlowActionNode } from './types'
 
-// Inner component that encapsulates React Flow
-function HogFlowEditorContent(): JSX.Element {
+function HogFlowGraphEditor(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { nodes, edges, dropzoneNodes, isMovingNode, isCopyingNode, isZoomedOutFar } = useValues(hogFlowEditorLogic)
@@ -38,7 +39,6 @@ function HogFlowEditorContent(): JSX.Element {
         setSelectedNodeId,
         setReactFlowInstance,
         onNodesDelete,
-        showDropzones,
         onDragOver,
         onDrop,
         setReactFlowWrapper,
@@ -60,9 +60,13 @@ function HogFlowEditorContent(): JSX.Element {
     }, [setReactFlowWrapper])
 
     useEffect(() => {
-        if (nodesInitialized) {
-            fitView({ duration: 0 })
+        if (!nodesInitialized || !reactFlowWrapper.current) {
+            return
         }
+
+        const observer = new ResizeObserver(() => fitView({ duration: 0 }))
+        observer.observe(reactFlowWrapper.current)
+        return () => observer.disconnect()
     }, [fitView, nodesInitialized])
 
     // ReactFlow diffs its nodes prop by reference: an inline spread would hand it a fresh array
@@ -73,62 +77,91 @@ function HogFlowEditorContent(): JSX.Element {
     )
 
     return (
-        <div ref={reactFlowWrapper} className="flex flex-col grow w-full" data-attr="workflow-editor">
-            <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
-                className="grow"
-                fitView
-                minZoom={MIN_ZOOM}
-                // Only dispatched when the detail tier flips, so panning and zooming don't put a
-                // Redux action on every animation frame.
-                onMove={(_, viewport) => {
-                    const zoomedOutFar = viewport.zoom < LOW_DETAIL_ZOOM
-                    if (zoomedOutFar !== isZoomedOutFar) {
-                        setIsZoomedOutFar(zoomedOutFar)
-                    }
-                }}
-                nodes={nodesWithDropzones}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onNodesDelete={onNodesDelete}
-                onDragStart={showDropzones}
-                onDragOver={onDragOver}
-                onDrop={onDrop}
-                onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
-                nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
-                edgeTypes={REACT_FLOW_EDGE_TYPES as EdgeTypes}
-                nodesDraggable={false}
-                colorMode={isDarkModeOn ? 'dark' : 'light'}
-                onPaneClick={handlePaneClick}
+        <div
+            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto"
+            data-attr="workflow-editor"
+        >
+            <div
+                ref={reactFlowWrapper}
+                className="flex min-h-0 min-w-0 grow @max-[48rem]/workflow-editor:min-h-80 @max-[48rem]/workflow-editor:shrink-0"
             >
-                <Background gap={36} variant={BackgroundVariant.Dots} />
+                <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
+                    className="grow"
+                    fitView
+                    minZoom={MIN_ZOOM}
+                    // Only dispatched when the detail tier flips, so panning and zooming don't put a
+                    // Redux action on every animation frame.
+                    onMove={(_, viewport) => {
+                        const zoomedOutFar = viewport.zoom < LOW_DETAIL_ZOOM
+                        if (zoomedOutFar !== isZoomedOutFar) {
+                            setIsZoomedOutFar(zoomedOutFar)
+                        }
+                    }}
+                    nodes={nodesWithDropzones}
+                    edges={edges}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onNodesDelete={onNodesDelete}
+                    onDragOver={onDragOver}
+                    onDrop={onDrop}
+                    onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
+                    nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
+                    edgeTypes={REACT_FLOW_EDGE_TYPES as EdgeTypes}
+                    nodesDraggable={false}
+                    colorMode={isDarkModeOn ? 'dark' : 'light'}
+                    onPaneClick={handlePaneClick}
+                >
+                    <Background gap={36} variant={BackgroundVariant.Dots} />
 
-                {(isMovingNode || isCopyingNode) && (
-                    <Panel position="bottom-left">
-                        {/* Offset right of the zoom controls so the hint sits beside them */}
-                        <div className="flex items-center gap-1.5 ml-12 px-3 py-1.5 rounded border shadow-sm bg-surface-primary text-sm">
-                            <IconInfo className="text-base text-muted shrink-0" />
-                            <span>Click a highlighted spot to {isMovingNode ? 'move' : 'copy'} this step</span>
-                            <span className="text-muted">· press Esc to cancel</span>
-                        </div>
-                    </Panel>
-                )}
+                    {(isMovingNode || isCopyingNode) && (
+                        <Panel position="bottom-left">
+                            {/* Offset right of the zoom controls so the hint sits beside them */}
+                            <div className="flex flex-wrap items-center gap-1.5 ml-12 px-3 py-1.5 rounded border shadow-sm bg-surface-primary text-sm">
+                                <IconInfo className="text-base text-muted shrink-0" />
+                                <span>Click a highlighted spot to {isMovingNode ? 'move' : 'copy'} this step</span>
+                                <span className="text-muted">· press Esc to cancel</span>
+                            </div>
+                        </Panel>
+                    )}
 
-                <Controls showInteractive={false} />
+                    <Controls showInteractive={false} />
+                </ReactFlow>
+            </div>
 
-                <HogFlowEditorPanel />
-            </ReactFlow>
+            <HogFlowEditorPanel />
         </div>
     )
 }
 
-export function HogFlowEditor(): JSX.Element {
+function HogFlowTreeEditorContent(): JSX.Element {
+    return (
+        <div
+            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto"
+            data-attr="workflow-editor"
+        >
+            <HogFlowTreeEditor />
+            <HogFlowEditorPanel layout="panel" />
+        </div>
+    )
+}
+
+export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
     return (
-        <ReactFlowProvider>
-            <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
-                <HogFlowEditorContent />
-            </BindLogic>
-        </ReactFlowProvider>
+        <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
+            <HogFlowBranchSelectionProvider>
+                <div className="@container/workflow-editor flex min-h-0 min-w-0 flex-1">
+                    {isTreeView ? (
+                        <ReactFlowProvider>
+                            <HogFlowTreeEditorContent />
+                        </ReactFlowProvider>
+                    ) : (
+                        <ReactFlowProvider>
+                            <HogFlowGraphEditor />
+                        </ReactFlowProvider>
+                    )}
+                </div>
+            </HogFlowBranchSelectionProvider>
+        </BindLogic>
     )
 }

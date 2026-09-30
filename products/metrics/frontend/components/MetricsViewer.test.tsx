@@ -1,32 +1,30 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { insightsApi } from 'scenes/insights/utils/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    AppContext,
-    InsightShortId,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext, InsightShortId, InsightModel } from '~/types'
 
 import {
     metricsAttributesRetrieve,
+    metricsCharacterizeCreate,
     metricsQueryCreate,
-    metricsValuesRetrieve,
+    metricsNamesRetrieve,
 } from 'products/metrics/frontend/generated/api'
 
+import { MetricsGroupByButton } from './MetricsGroupByButton'
 import { MetricsViewer } from './MetricsViewer'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsSamplesCreate: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
@@ -40,7 +38,7 @@ jest.mock('scenes/insights/utils/api', () => ({
 // picker binds to, and `id` is what a dashboard write would patch. Typed as a Partial — the
 // shape `insightsApi.create` accepts — so these two fields are checked without padding the
 // fixture with the rest of the model, which this flow never touches.
-const SAVED_INSIGHT: Partial<QueryBasedInsightModel> = { id: 7, short_id: 'insight7' as InsightShortId }
+const SAVED_INSIGHT: Partial<InsightModel> = { id: 7, short_id: 'insight7' as InsightShortId }
 
 describe('MetricsViewer', () => {
     let logic: ReturnType<typeof metricsViewerLogic.build>
@@ -56,10 +54,10 @@ describe('MetricsViewer', () => {
         } as AppContext
         useMocks({ get: { '/api/environments/:team_id/dashboards/': { count: 0, results: [] } } })
         initKeaTests()
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: [] })
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: [] })
         jest.mocked(metricsQueryCreate).mockResolvedValue({ results: [] })
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({ results: [], count: 0 })
-        jest.mocked(insightsApi.create).mockResolvedValue(SAVED_INSIGHT as QueryBasedInsightModel)
+        jest.mocked(insightsApi.create).mockResolvedValue(SAVED_INSIGHT as InsightModel)
         logic = metricsViewerLogic()
         logic.mount()
     })
@@ -67,6 +65,28 @@ describe('MetricsViewer', () => {
     afterEach(() => {
         cleanup()
         logic?.unmount()
+    })
+
+    it('shows distinct value counts in the group-by dropdown and selects the attribute key', async () => {
+        jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
+            results: [
+                { name: 'service_name', value_count: 20 },
+                { name: 'env', value_count: 2 },
+            ],
+            count: 2,
+        })
+        const onChange = jest.fn()
+        render(<MetricsGroupByButton groupByKeys={[]} onChange={onChange} disabledReason={null} />)
+        fireEvent.click(screen.getByText('Group by'))
+        const serviceOption = await screen.findByText('service_name')
+        const envOption = screen.getByText('env')
+        expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        await userEvent.hover(screen.getByText('20'))
+        expect(await screen.findByText('Number of distinct values')).toBeInTheDocument()
+        fireEvent.change(screen.getByPlaceholderText('Group by attribute…'), { target: { value: 'e' } })
+        expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        fireEvent.click(envOption)
+        expect(onChange).toHaveBeenCalledWith(['env'])
     })
 
     // The formula input only means something once a second series can feed it; showing it
@@ -102,5 +122,34 @@ describe('MetricsViewer', () => {
         fireEvent.click(await screen.findByText('Add to a new dashboard'))
 
         expect(await screen.findByText('Create a dashboard')).toBeInTheDocument()
+    })
+
+    // Request windows resolve in the project timezone at fetch time, so a timezone change must
+    // refetch, or the chart keeps data for the old window under labels in the new timezone.
+    it('refetches the chart and anomaly for the new window when the project timezone changes', async () => {
+        logic.actions.setMetricName('http.server.duration')
+        logic.actions.setDateFrom('2026-06-15T10:00:00')
+        logic.actions.setDateTo('2026-06-15T12:00:00')
+
+        render(
+            <Provider>
+                <MetricsViewer />
+            </Provider>
+        )
+        await waitFor(() => expect(metricsQueryCreate).toHaveBeenCalled())
+        await waitFor(() => expect(metricsCharacterizeCreate).toHaveBeenCalled())
+        jest.mocked(metricsQueryCreate).mockClear()
+        jest.mocked(metricsCharacterizeCreate).mockClear()
+
+        teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, timezone: 'Europe/Zurich' })
+
+        await waitFor(() =>
+            expect(metricsQueryCreate).toHaveBeenCalledWith(
+                expect.anything(),
+                { query: expect.objectContaining({ dateFrom: '2026-06-15T08:00:00.000Z' }) },
+                expect.anything()
+            )
+        )
+        await waitFor(() => expect(metricsCharacterizeCreate).toHaveBeenCalled())
     })
 })

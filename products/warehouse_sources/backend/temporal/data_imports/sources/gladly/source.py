@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -77,6 +75,12 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
                 "account. Ask Gladly support to check the report is available for your account. If "
                 "Gladly confirms it is, contact PostHog support."
             ),
+            "Gladly report unavailable for this account": (
+                "Gladly returned an error every time PostHog asked for the report this table syncs "
+                "from, and the table has never synced. Ask Gladly support to make the report "
+                "available for your account, then re-enable this table. If Gladly confirms it is "
+                "available, contact PostHog support."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -106,7 +110,7 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GLADLY,
+            name=ExternalDataSourceType.GLADLY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.
@@ -212,4 +216,5 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             if inputs.should_use_incremental_field
             else None,
             domain=config.domain,
+            schema_has_ever_synced=inputs.schema_has_ever_synced,
         )

@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -30,9 +31,14 @@ import {
 } from 'products/experiments/frontend/generated/api'
 import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
 
-import { FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON, FUNNEL_SERVER_SIDE_COMPLETION_REASON } from '../utils'
-import { RETENTION_UNLINKABLE_REASON, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
 import {
+    FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
+    FUNNEL_SERVER_SIDE_COMPLETION_REASON,
+    RETENTION_UNLINKABLE_REASON,
+} from '../utils'
+import { viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
+import {
+    type ExperimentRecordingsNarrowingAction,
     type ExperimentReplayRecording,
     ExperimentReplayListEmptyReason,
     experimentReplayTabLogic,
@@ -142,6 +148,19 @@ const EXPERIMENT = {
     },
 } as unknown as Experiment
 
+// A flag that aggregates by group exposes groups rather than persons, which is what the comparison
+// would have to match against recordings.
+const GROUP_AGGREGATED_EXPERIMENT = {
+    ...EXPERIMENT,
+    id: 53,
+    feature_flag: {
+        ...EXPERIMENT.feature_flag,
+        filters: { ...EXPERIMENT.feature_flag?.filters, aggregation_group_type_index: 0 },
+    },
+} as unknown as Experiment
+
+const REFUSAL_DETAIL = "This experiment aggregates by group, so its exposures can't be matched to persons' recordings."
+
 const ALL_LINKABLE = {
     $feature_flag_called: true,
     purchase: true,
@@ -183,13 +202,35 @@ const listsRendered = (captureSpy: jest.SpyInstance, experimentId: number): any[
             event === 'experiment recordings list rendered' && (properties as any)?.experiment_id === experimentId
     )
 
+type TabLogic = ReturnType<typeof experimentReplayTabLogic.build>
+
+// The three narrowings the viewer controls, shared by the cases below and by the narrowing-action
+// cases under them, so the two tables cannot end up describing different tabs.
+const selectTestVariant = (logic: TabLogic): void => logic.actions.setSelectedVariantKey('test')
+
+const narrowToInSession = (logic: TabLogic): void => logic.actions.setExposureScope('in_session')
+
+const addFilterBarFilter = (logic: TabLogic): void =>
+    logic.actions.playlistFiltersChanged({
+        ...logic.values.recordingsFilters,
+        filter_group: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                },
+            ],
+        },
+    })
+
 interface EmptyReasonCase {
     reason: ExperimentReplayListEmptyReason
     /** One per case: the logic is keyed per experiment, and each case mounts its own. */
     experimentId: number
     experiment: Partial<Experiment>
     team?: Partial<TeamType>
-    setup?: (logic: ReturnType<typeof experimentReplayTabLogic.build>) => void
+    setup?: (logic: TabLogic) => void
 }
 
 // The team's retention period is the mock default of 30 days, which the run windows are set against.
@@ -249,19 +290,7 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.FiltersNarrowed,
         experimentId: 147,
         experiment: { start_date: daysAgo(10), end_date: null },
-        setup: (logic) =>
-            logic.actions.playlistFiltersChanged({
-                ...logic.values.recordingsFilters,
-                filter_group: {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        {
-                            type: FilterLogicalOperator.And,
-                            values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
-                        },
-                    ],
-                },
-            }),
+        setup: addFilterBarFilter,
     },
     {
         reason: ExperimentReplayListEmptyReason.EndedPastRetention,
@@ -273,17 +302,39 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         experimentId: 125,
         experiment: { start_date: daysAgo(1), end_date: null },
     },
+    // The same young run, narrowed by the viewer. A list this young is usually empty for every
+    // variant, every scope and every filter, so the age of the run stays the reason and the
+    // narrowing is not named on a guess. The banner hands back the narrowing's way out instead,
+    // which the narrowing-action cases below cover.
+    {
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 149,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: selectTestVariant,
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 150,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: narrowToInSession,
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 151,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: addFilterBarFilter,
+    },
     {
         reason: ExperimentReplayListEmptyReason.VariantHasNone,
         experimentId: 141,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
-        setup: (logic) => logic.actions.setSelectedVariantKey('test'),
+        setup: selectTestVariant,
     },
     {
         reason: ExperimentReplayListEmptyReason.InSessionHasNone,
         experimentId: 142,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
-        setup: (logic) => logic.actions.setExposureScope('in_session'),
+        setup: narrowToInSession,
     },
     {
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
@@ -296,6 +347,53 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
         experimentId: 128,
         experiment: { start_date: daysAgo(60), end_date: null },
+    },
+]
+
+// The way out the banner has to offer for each narrowing. Read on a young run, where the reason is
+// the age of the run rather than the narrowing, so this is the only thing that gets a viewer who
+// narrowed the list back out of it.
+const NARROWING_ACTION_CASES: {
+    narrowing: string
+    experimentId: number
+    team?: Partial<TeamType>
+    setup?: (logic: TabLogic) => void
+    reason: ExperimentReplayListEmptyReason
+    action: ExperimentRecordingsNarrowingAction | null
+}[] = [
+    {
+        narrowing: 'a filter added above',
+        experimentId: 152,
+        setup: addFilterBarFilter,
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        action: 'clear_filters',
+    },
+    {
+        narrowing: 'a selected variant',
+        experimentId: 153,
+        setup: selectTestVariant,
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        action: 'show_all_variants',
+    },
+    {
+        narrowing: 'the in-session scope',
+        experimentId: 154,
+        setup: narrowToInSession,
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        action: 'all_sessions',
+    },
+    { narrowing: 'nothing', experimentId: 155, reason: ExperimentReplayListEmptyReason.TooEarly, action: null },
+    {
+        // Replay off names its own cause, and its banner offers the settings link alone. The
+        // variant still narrows the tab, so reading the narrowing rather than the reason would
+        // report a button this viewer was never given, and every reason's click-through rate would
+        // be measured against renders that offered nothing.
+        narrowing: 'a selected variant under replay off',
+        experimentId: 156,
+        team: { session_recording_opt_in: false },
+        setup: selectTestVariant,
+        reason: ExperimentReplayListEmptyReason.ReplayDisabled,
+        action: null,
     },
 ]
 
@@ -711,9 +809,16 @@ describe('experimentReplayTabLogic', () => {
             metric_count: 2,
             linkable_metric_count: 1,
             exposure_scope: 'all_exposed',
+            // The pair that says this visit had a list to show, so a visit with no list rendered
+            // after it is a failure or a bounce rather than an experiment that never had one.
+            experiment_status: 'stopped',
+            list_unavailable_reason: null,
             in_session_available: true,
             in_session_unavailable_reason: null,
             in_session_uses_stamped_fallback: true,
+            // The default test flags leave the shelf off, so this view never saw the toggle.
+            behavior_comparison_available: false,
+            behavior_comparison_unavailable_reason: null,
         })
 
         // The check is shared with the metrics tab and reloads when the experiment's metrics change,
@@ -857,6 +962,31 @@ describe('experimentReplayTabLogic', () => {
         }
     )
 
+    it.each(NARROWING_ACTION_CASES)(
+        'reports $action as the way out of a young run narrowed by $narrowing',
+        async ({ experimentId, team, setup, reason, action }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ...team })
+            const young = experimentReplayTabLogic({
+                experiment: { ...EXPERIMENT, id: experimentId, start_date: daysAgo(1), end_date: null } as Experiment,
+            })
+            young.mount()
+            setup?.(young)
+            await expectLogic(young).toFinishAllListeners()
+
+            young.actions.recordingsLoaded([])
+            await expectLogic(young).toFinishAllListeners()
+
+            // The banner and the report both resolve the action from the reason, so a viewer who
+            // was handed a way out and a render counted as offering one cannot come apart.
+            expect(listsRendered(captureSpy, experimentId)[0][1]).toMatchObject({
+                empty_reason: reason,
+                narrowing_action: action,
+            })
+            young.unmount()
+        }
+    )
+
     it('reports no reason for the hidden-recordings action, and the reason for the others', async () => {
         // `show_hidden` is offered when rows came back and the browser hid them, so the list is not
         // empty. Sending the reason there would count a cause of emptiness against a list that had
@@ -878,9 +1008,13 @@ describe('experimentReplayTabLogic', () => {
                 event === 'experiment recordings empty state action clicked' &&
                 (properties as any)?.experiment_id === 143
         )
-        expect(clicks.map(([, properties]) => (properties as any).empty_reason)).toEqual([
-            null,
-            ExperimentReplayListEmptyReason.TooEarly,
+        expect(clicks.map(([, properties]) => properties as any)).toMatchObject([
+            { action: 'show_hidden', empty_reason: null, days_since_start: 1 },
+            {
+                action: 'replay_settings',
+                empty_reason: ExperimentReplayListEmptyReason.TooEarly,
+                days_since_start: 1,
+            },
         ])
 
         empty.unmount()
@@ -907,6 +1041,7 @@ describe('experimentReplayTabLogic', () => {
             experiment_id: 111,
             result_count: 2,
             empty_reason: null,
+            narrowing_action: null,
             days_since_start: 10,
             days_since_end: 2,
             retention_period: '90d',
@@ -917,6 +1052,8 @@ describe('experimentReplayTabLogic', () => {
             duration_filter_operator: 'gt',
             duration_filter_count: 1,
             duration_filter_customized: false,
+            filters_customized: false,
+            hide_viewed_recordings: 'off',
             exposure_linkable: true,
             variant: 'test',
             exposure_scope: 'all_exposed',
@@ -924,8 +1061,443 @@ describe('experimentReplayTabLogic', () => {
             selected_metric_count: 0,
             is_bucketed: false,
             watch_card_kind: null,
+            entry_point: null,
+            metric_unavailable_reason: null,
         })
         filled.unmount()
+    })
+
+    it.each([
+        { verdict: 'not_launched', experimentId: 160, experiment: { start_date: null, end_date: null } },
+        { verdict: 'group_aggregated', experimentId: 161, experiment: GROUP_AGGREGATED_EXPERIMENT },
+        {
+            verdict: 'no_variants',
+            experimentId: 162,
+            experiment: { feature_flag: { filters: { multivariate: { variants: [] } } } },
+        },
+        { verdict: null, experimentId: 163, experiment: {} },
+    ])('resolves $verdict as the list verdict', async ({ verdict, experimentId, experiment }) => {
+        // Every verdict but null is a request `resolve_exposure_linkage` refuses outright. The tab
+        // used to mount the list anyway, so a group-aggregated experiment answered every visit
+        // with an error toast and the playlist's generic banner.
+        const checked = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, ...experiment, id: experimentId } as Experiment,
+        })
+        checked.mount()
+        await expectLogic(checked).toFinishAllListeners()
+
+        expect(checked.values.listUnavailableReason).toBe(verdict)
+        checked.unmount()
+    })
+
+    it('reports a failed first page with the backend reason, and clears it on the next list', async () => {
+        // The playlist's own banner says "Error while trying to load recordings." for every
+        // failure, so without the detail neither the viewer nor a reader of the event can tell a
+        // refusal this experiment can never escape from a wait-and-retry.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const failures = (): any[] =>
+            captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings list failed' && (properties as any)?.experiment_id === 164
+            )
+        const failing = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 164, start_date: daysAgo(4), end_date: null } as Experiment,
+        })
+        failing.mount()
+        await expectLogic(failing).toFinishAllListeners()
+
+        failing.actions.recordingsLoadFailed({ status: 400, detail: REFUSAL_DETAIL }, true)
+        await expectLogic(failing).toFinishAllListeners()
+
+        expect(failing.values.listLoadError).toEqual({ status: 400, detail: REFUSAL_DETAIL })
+        expect(failures()).toHaveLength(1)
+        expect(failures()[0][1]).toMatchObject({
+            status: 400,
+            error_detail: REFUSAL_DETAIL,
+            days_since_start: 4,
+            variant: null,
+            exposure_scope: 'all_exposed',
+        })
+
+        // A later page failing is paging against a list that already has rows on screen.
+        failing.actions.recordingsLoadFailed({ status: 500, detail: 'Server error' }, false)
+        await expectLogic(failing).toFinishAllListeners()
+        expect(failures()).toHaveLength(1)
+
+        failing.actions.recordingsLoaded(loadedPage(['s1']))
+        await expectLogic(failing).toFinishAllListeners()
+        expect(failing.values.listLoadError).toBeNull()
+        failing.unmount()
+    })
+
+    it.each([
+        { visit: 'that never saw a list', experimentId: 165, experiment: {}, setup: undefined, abandoned: 1 },
+        {
+            visit: 'whose first page rendered',
+            experimentId: 166,
+            experiment: {},
+            setup: (tab: TabLogic) => tab.actions.recordingsLoaded(loadedPage(['s1'])),
+            abandoned: 0,
+        },
+        {
+            visit: 'whose first page failed',
+            experimentId: 167,
+            experiment: {},
+            setup: (tab: TabLogic) => tab.actions.recordingsLoadFailed({ status: 400, detail: REFUSAL_DETAIL }, true),
+            abandoned: 0,
+        },
+        {
+            visit: 'that never had a list to load',
+            experimentId: 168,
+            experiment: { start_date: null, end_date: null },
+            setup: undefined,
+            abandoned: 0,
+        },
+    ])(
+        'reports $abandoned abandoned list for a visit $visit',
+        async ({ experimentId, experiment, setup, abandoned }) => {
+            // The playlist drops a load at its breakpoint on unmount without dispatching success or
+            // failure, so a viewer who clicks through to another tab produces a tab view and nothing
+            // else. That bounce is most of the tab's unexplained visits, and only this event counts it.
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            const bounced = experimentReplayTabLogic({
+                experiment: { ...EXPERIMENT, id: experimentId, ...experiment } as Experiment,
+            })
+            bounced.mount()
+            await expectLogic(bounced).toFinishAllListeners()
+            setup?.(bounced)
+            await expectLogic(bounced).toFinishAllListeners()
+
+            bounced.unmount()
+
+            const abandons = captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings list abandoned' &&
+                    (properties as any)?.experiment_id === experimentId
+            )
+            expect(abandons).toHaveLength(abandoned)
+            if (abandoned > 0) {
+                expect(abandons[0][1]).toMatchObject({
+                    held_for_checks: false,
+                    bucket_loading: false,
+                    exposure_scope: 'all_exposed',
+                    ms_on_tab: expect.any(Number),
+                })
+            }
+        }
+    )
+
+    it.each([
+        {
+            answer: 'a bucket that fails',
+            experimentId: 169,
+            bucket: null,
+            renders: 1,
+        },
+        {
+            answer: 'a bucket that matches nothing',
+            experimentId: 170,
+            bucket: { ...BUCKET_RESPONSE, session_ids: [] },
+            renders: 1,
+        },
+        {
+            answer: 'a bucket that changes the session set',
+            experimentId: 171,
+            bucket: BUCKET_RESPONSE,
+            renders: 1,
+        },
+    ])(
+        'reports $renders render for an empty first page followed by $answer',
+        async ({ experimentId, bucket, renders }) => {
+            // An empty first page while the bucket loads is held back, because the bucket's answer
+            // reloads the list. When the answer leaves `session_ids` as it found them the playlist
+            // compares by value and never reloads, so the held-back page has to be replayed or the
+            // visit reports no list at all. When the answer does change them the reload reports the
+            // render itself, and replaying as well would count one list twice.
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockImplementation(() =>
+                bucket ? Promise.resolve(bucket) : Promise.reject(new Error('bucket failed'))
+            )
+            const racing = experimentReplayTabLogic({
+                experiment: { ...EXPERIMENT, id: experimentId, start_date: daysAgo(10), end_date: null } as Experiment,
+            })
+            racing.mount()
+            racing.actions.setMetricSelected('metric-purchase', true)
+            racing.actions.setMetricFilterMode('no_metric_activity')
+
+            // The bucket load debounces, so this page lands while the answer is still out.
+            racing.actions.recordingsLoaded([])
+            expect(listsRendered(captureSpy, experimentId)).toHaveLength(0)
+
+            await expectLogic(racing).toFinishAllListeners()
+
+            // The playlist reloads on a changed session set, which is the caller's next first page.
+            if (bucket?.session_ids.length) {
+                racing.actions.recordingsLoaded(loadedPage(bucket.session_ids))
+                await expectLogic(racing).toFinishAllListeners()
+            }
+
+            expect(listsRendered(captureSpy, experimentId)).toHaveLength(renders)
+            racing.unmount()
+        }
+    )
+
+    it('drops a held-back empty page once a first page fails, rather than replaying it', async () => {
+        // The visit ends on the failure, so the caption and the report both have to describe it.
+        // Replayed, the held-back page reported a render for a list that failed and cleared the
+        // caption underneath the playlist's own error banner.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        let resolveBucket!: (response: unknown) => void
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockImplementation(
+            () => new Promise((resolve) => (resolveBucket = resolve))
+        )
+        const failing = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 174, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        failing.mount()
+        failing.actions.setMetricSelected('metric-purchase', true)
+        failing.actions.setMetricFilterMode('no_metric_activity')
+
+        // The bucket load debounces, so both of these land while the answer is still out.
+        failing.actions.recordingsLoaded([])
+        failing.actions.recordingsLoadFailed({ status: 500, detail: 'Server error' }, true)
+
+        while ((experimentsSessionBucketsCreate as jest.Mock).mock.calls.length === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        // An answer that matches the session set the dropped page ran under, which is the case the
+        // replay exists for: the playlist compares by value, so it never reloads.
+        resolveBucket({ ...BUCKET_RESPONSE, session_ids: [] })
+        await expectLogic(failing).toFinishAllListeners()
+
+        expect(listsRendered(captureSpy, 174)).toHaveLength(0)
+        expect(failing.values.listLoadError).toEqual({ status: 500, detail: 'Server error' })
+        failing.unmount()
+    })
+
+    it('asks for no session bucket when it states that no list is available', async () => {
+        // The metric filter is one of three paths that reach the bucket without a list on screen:
+        // a results-row link, a multi-event metric's default click, and a mode a previous visit
+        // persisted. Each one used to spend a ClickHouse scan on a session set nothing can show.
+        const grouped = experimentReplayTabLogic({
+            experiment: { ...GROUP_AGGREGATED_EXPERIMENT, id: 172 } as Experiment,
+        })
+        grouped.mount()
+        grouped.actions.setMetricSelected('metric-purchase', true)
+        grouped.actions.setMetricFilterMode('no_metric_activity')
+        await expectLogic(grouped).toFinishAllListeners()
+
+        expect(grouped.values.sessionBucketRequest).toBeNull()
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        grouped.unmount()
+    })
+
+    it('still reports the group aggregation for a draft experiment', async () => {
+        // The list verdict takes the first refusal in the backend's order, so a draft's verdict is
+        // `not_launched` whatever its flag does. Read from that verdict, the shelf's own reason
+        // would go null on exactly the experiments it describes.
+        const draftGrouped = experimentReplayTabLogic({
+            experiment: {
+                ...GROUP_AGGREGATED_EXPERIMENT,
+                id: 173,
+                start_date: null,
+                end_date: null,
+            } as Experiment,
+        })
+        draftGrouped.mount()
+        await expectLogic(draftGrouped).toFinishAllListeners()
+
+        expect(draftGrouped.values.listUnavailableReason).toBe('not_launched')
+        expect(draftGrouped.values.behaviorComparisonUnavailableReason).toBe('group_aggregated')
+        draftGrouped.unmount()
+    })
+
+    it('reports the entry point a deep link set, and clears it when the viewer moves a facet', async () => {
+        // The entry point is what separates a list a results row opened from one somebody narrowed
+        // by hand, so an empty rate can be read per entry point. Left set after a manual change, it
+        // would credit the results row with lists it never asked for. The dropped-metric reason is
+        // read the same way, and it is also what the tab's caption explains the list with.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        router.actions.push('/experiments/63', {
+            tab: 'recordings',
+            variant: 'test',
+            entry: 'results_button',
+            metric_unavailable: 'no_uuid',
+        })
+        const fromResults = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 63, start_date: daysAgo(10), end_date: daysAgo(2) } as Experiment,
+        })
+        fromResults.mount()
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        expect(fromResults.values.droppedMetricReason).toBe('no_uuid')
+        // Left in the URL it would re-apply on the next remount and caption a list the viewer has
+        // since narrowed themselves.
+        expect(router.values.searchParams).toEqual({ tab: 'recordings' })
+
+        fromResults.actions.recordingsLoaded(loadedPage(['s1']))
+        await expectLogic(fromResults).toFinishAllListeners()
+        expect(listsRendered(captureSpy, 63)[0][1]).toMatchObject({
+            entry_point: 'results_button',
+            metric_unavailable_reason: 'no_uuid',
+            variant: 'test',
+        })
+
+        fromResults.actions.setSelectedVariantKey(null)
+        fromResults.actions.recordingsLoaded(loadedPage(['s1']))
+        await expectLogic(fromResults).toFinishAllListeners()
+        expect(fromResults.values.droppedMetricReason).toBeNull()
+        expect(listsRendered(captureSpy, 63)[1][1]).toMatchObject({
+            entry_point: null,
+            metric_unavailable_reason: null,
+            variant: null,
+        })
+        fromResults.unmount()
+    })
+
+    it('drops the entry point once the viewer narrows the list from the playlist bar', async () => {
+        // A filter added in the playlist bar narrows the list past what the link asked for, so the
+        // results row must stop being credited with it. The variant facet is left alone here, since
+        // moving one is the other way to clear the entry point and would hide this one failing.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        router.actions.push('/experiments/67', {
+            tab: 'recordings',
+            variant: 'test',
+            entry: 'results_button',
+            metric_unavailable: 'no_uuid',
+        })
+        const fromResults = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 67, start_date: daysAgo(10), end_date: daysAgo(2) } as Experiment,
+        })
+        fromResults.mount()
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        fromResults.actions.playlistFiltersChanged({
+            ...fromResults.values.recordingsFilters,
+            filter_group: {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                    },
+                ],
+            },
+        })
+        fromResults.actions.recordingsLoaded(loadedPage(['s1']))
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        expect(fromResults.values.entryPoint).toBe('results_button')
+        // The reducer keeps the reason, so the caption still explains the list the link opened.
+        expect(fromResults.values.droppedMetricReason).toBe('no_uuid')
+        expect(listsRendered(captureSpy, 67)[0][1]).toMatchObject({
+            entry_point: null,
+            metric_unavailable_reason: null,
+            variant: 'test',
+        })
+        fromResults.unmount()
+    })
+
+    it('applies a deep link once and takes its params out of the URL', async () => {
+        router.actions.push('/experiments/64', {
+            tab: 'recordings',
+            variant: 'test',
+            metric_uuid: 'metric-purchase',
+            metric_filter: 'no_metric_activity',
+            entry: 'results_menu',
+        })
+        const deepLinked = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 64 } as Experiment })
+        deepLinked.mount()
+        await expectLogic(deepLinked).toFinishAllListeners()
+
+        expect(deepLinked.values.selectedVariantKey).toBe('test')
+        expect(deepLinked.values.effectiveMetricUuids).toEqual(['metric-purchase'])
+        expect(deepLinked.values.metricFilterMode).toBe('no_metric_activity')
+        // Which control opened the tab has to survive the trip, or a menu selection and a plain
+        // button click become the same row in the report.
+        expect(deepLinked.values.entryPoint).toBe('results_menu')
+        // One request for the three facets: they arrive in one dispatch, and afterMount asks for
+        // the same bucket, so a second call here means the two are no longer collapsing.
+        expect(experimentsSessionBucketsCreate).toHaveBeenCalledTimes(1)
+        expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 64, {
+            bucket: 'no_metric_activity',
+            metric_uuids: ['metric-purchase'],
+            variant: 'test',
+        })
+        // The tab the link named stays; the three it consumed go, so a later remount reads the
+        // persisted state instead of applying the link again.
+        expect(router.values.searchParams).toEqual({ tab: 'recordings' })
+        deepLinked.unmount()
+    })
+
+    it('leaves a change made after a deep link in place when the tab remounts', async () => {
+        router.actions.push('/experiments/65', {
+            tab: 'recordings',
+            metric_uuid: 'metric-purchase',
+            metric_filter: 'no_metric_activity',
+        })
+        const deepLinked = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 65 } as Experiment })
+        deepLinked.mount()
+        await expectLogic(deepLinked).toFinishAllListeners()
+        deepLinked.actions.setMetricFilterMode('fired_all')
+        deepLinked.unmount()
+
+        // The tab bar renders only the active tab, so this logic unmounts on a tab switch and
+        // mounts again on return. A link still in the URL would re-apply and undo the change.
+        const remounted = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 65 } as Experiment })
+        remounted.mount()
+        await expectLogic(remounted).toFinishAllListeners()
+        expect(remounted.values.metricFilterMode).toBe('fired_all')
+        remounted.unmount()
+    })
+
+    it('starts a deep link from the whole exposed set, whatever scope the last visit left', async () => {
+        // The scope persists, and 'in_session' narrows to the sessions carrying exposure evidence.
+        // Left in place it would cut the population the row's label promised, with nothing on
+        // screen saying why.
+        const earlier = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 68 } as Experiment })
+        earlier.mount()
+        await expectLogic(earlier).toFinishAllListeners()
+        earlier.actions.setExposureScope('in_session')
+        await expectLogic(earlier).toMatchValues({ effectiveExposureScope: 'in_session' })
+        earlier.unmount()
+
+        router.actions.push('/experiments/68', { tab: 'recordings', variant: 'test', entry: 'results_button' })
+        const fromResults = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 68 } as Experiment })
+        fromResults.mount()
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        expect(fromResults.values.effectiveExposureScope).toBe('all_exposed')
+        expect(fromResults.values.recordingsFilters.experiment_exposure).toEqual({
+            experiment_id: 68,
+            variant: 'test',
+        })
+        fromResults.unmount()
+    })
+
+    it('degrades a deep link the experiment cannot answer to the tab defaults', async () => {
+        router.actions.push('/experiments/66', {
+            tab: 'recordings',
+            variant: 'nope',
+            metric_uuid: 'nope',
+            metric_filter: 'nope',
+        })
+        const stale = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 66 } as Experiment })
+        stale.mount()
+        await expectLogic(stale).toFinishAllListeners()
+
+        // A link that names a renamed variant, a deleted metric, or a mode that no longer exists
+        // has to land on the tab's own defaults rather than on a stuck filter or a refused request.
+        expect(stale.values.effectiveVariantKey).toBeNull()
+        // The facet persists, so a variant the experiment doesn't have must never be written: it
+        // would outlive this visit and show as a selection on the next one.
+        expect(stale.values.selectedVariantKey).toBeNull()
+        expect(stale.values.effectiveMetricUuids).toEqual([])
+        expect(stale.values.metricFilterMode).toBe('fired_all')
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        stale.unmount()
     })
 
     it.each([
@@ -1025,9 +1597,9 @@ describe('experimentReplayTabLogic', () => {
         )
         failing.actions.loadSessionBucket()
         await expectLogic(failing).toFinishAllListeners()
-        failing.actions.recordingsLoaded([])
-        await expectLogic(failing).toFinishAllListeners()
 
+        // A failed bucket leaves the session set empty, exactly as the dropped page found it, so
+        // the playlist never reloads and the answer alone has to produce the report.
         expect(listsRendered(captureSpy, 113)).toHaveLength(1)
         expect(listsRendered(captureSpy, 113)[0][1]).toMatchObject({
             result_count: 0,
@@ -1119,7 +1691,7 @@ describe('experimentReplayTabLogic', () => {
         expect(recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
     })
 
-    it.each(['fired_any', 'no_metric_activity', 'funnel_dropoff'] as const)(
+    it.each(['fired_any', 'no_metric_activity', 'funnel_dropoff', 'funnel_completed'] as const)(
         'leaves the list untouched when %s has no metric to apply',
         async (mode) => {
             await expectLogic(logic).toFinishAllListeners()
@@ -1148,6 +1720,26 @@ describe('experimentReplayTabLogic', () => {
             logic.actions.playlistFiltersChanged({ ...logic.values.recordingsFilters, session_ids: undefined })
         }).toMatchValues({ metricFilterMode: 'fired_all' })
         expect(logic.values.recordingsFilters.session_ids).toBeUndefined()
+    })
+
+    it("matches the funnel's last step for finished funnels, without asking the endpoint", async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setMetricSelected('metric-funnel', true)
+            logic.actions.setMetricFilterMode('funnel_completed')
+        }).toFinishAllListeners()
+
+        // Every other mode matches a funnel on its entry step, which is where a session starts the
+        // funnel rather than finishes it. Completion is an ordinary event filter on the last step,
+        // so it stays exact and uncapped instead of going to the capped bucket endpoint.
+        expect(logic.values.sessionBucketRequest).toBeNull()
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        expect(logic.values.recordingsFilters.session_ids).toBeUndefined()
+        expect(logic.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: [{ id: 'client_step', name: 'client_step', type: 'events', properties: [] }],
+            },
+        ])
     })
 
     it('takes one funnel metric for drop-off and leaves the rest unselectable', async () => {
@@ -1211,6 +1803,14 @@ describe('experimentReplayTabLogic', () => {
         // Nothing is asked of the endpoint, which would refuse this funnel anyway.
         expect(unmatchableFinish.values.sessionBucketRequest).toBeNull()
         expect(unmatchableFinish.values.recordingsFilters.session_ids).toBeUndefined()
+
+        // Both funnel modes read the same last step, so the one that filters client-side has to
+        // refuse the funnel too rather than matching on a step that isn't the completion.
+        await expectLogic(unmatchableFinish, () =>
+            unmatchableFinish.actions.setMetricFilterMode('funnel_completed')
+        ).toFinishAllListeners()
+        expect(unmatchableFinish.values.effectiveMetricUuids).toEqual([])
+        expect(unmatchableFinish.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
         unmatchableFinish.unmount()
     })
 
@@ -1381,6 +1981,103 @@ describe('experimentReplayTabLogic', () => {
 
         expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(1)
         expect(logic.values.sessionEventDeltas).toEqual(DELTA_RESPONSE)
+    })
+
+    it('asks for no comparison when the experiment aggregates by group, and reports why', async () => {
+        // The backend answers a group-aggregated experiment with the same 400 every time, so each
+        // open would spend a heavy request on a refusal the tab can name in advance. The tab view
+        // carries that reason, which is how a disabled toggle is told apart from one nobody opened.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const tabViews = (): any[] =>
+            captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings tab viewed' && (properties as any)?.experiment_id === 53
+            )
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON]: true })
+        const grouped = experimentReplayTabLogic({ experiment: GROUP_AGGREGATED_EXPERIMENT })
+        grouped.mount()
+
+        await expectLogic(grouped, () => {
+            grouped.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(grouped.values.behaviorComparisonUnavailableReason).toBe('group_aggregated')
+        expect(experimentsSessionEventDeltasCreate).not.toHaveBeenCalled()
+        expect(tabViews()).toHaveLength(1)
+        expect(tabViews()[0][1]).toMatchObject({
+            behavior_comparison_available: true,
+            behavior_comparison_unavailable_reason: 'group_aggregated',
+        })
+        grouped.unmount()
+    })
+
+    it.each([
+        {
+            failure: 'a refusal the backend states on purpose',
+            rejection: Object.assign(new Error('Request failed'), { status: 400, detail: REFUSAL_DETAIL }),
+            status: 400,
+            message: REFUSAL_DETAIL,
+            callsAfterReopen: 1,
+        },
+        {
+            failure: 'a request that may pass on a second attempt',
+            rejection: new Error('Failed to fetch'),
+            status: null,
+            message: 'Failed to fetch',
+            callsAfterReopen: 2,
+        },
+    ])('keeps the status beside the message for $failure', async ({ rejection, status, message, callsAfterReopen }) => {
+        // The status is what splits the two states the shelf renders, and what decides whether
+        // reopening asks again. A refusal leaves no deltas behind, so without the status the
+        // reopen path sends the same request and gets the same refusal back.
+        ;(experimentsSessionEventDeltasCreate as jest.Mock).mockRejectedValue(rejection)
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(logic.values.sessionEventDeltasError).toBe(message)
+        expect(logic.values.sessionEventDeltasErrorStatus).toBe(status)
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(callsAfterReopen)
+    })
+
+    it('reports the population the comparison covered, not just what it found', async () => {
+        // An empty reason on its own cannot be read: 'no_separation' over sixty people and over
+        // twelve thousand ask for different answers. So the report carries the denominator, the
+        // stretch of enrollment it came from, and whether the cap left older enrollees out.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith('experiment behavior comparison loaded', {
+            experiment_id: 42,
+            too_early: false,
+            empty_reason: null,
+            behavior_cards: 1,
+            friction_cards: 0,
+            variant_only_cards: 0,
+            metric_cards: 0,
+            dropped_duplicate_cards: 0,
+            used_exposure_fallback: false,
+            duration_ms: expect.any(Number),
+            compared_persons: 200,
+            compared_variants: 2,
+            compared_enrollment_hours: 744,
+            sessions_truncated: false,
+            events_truncated: false,
+            experiment_ended: true,
+            // Read off the fixture rather than hardcoded, so the assertion still states the same
+            // distance as real time moves past the run window.
+            days_since_start: dayjs().diff(dayjs(EXPERIMENT.start_date), 'day'),
+        })
     })
 
     it('does not fire a duplicate comparison when the shelf is closed and reopened mid-load', async () => {

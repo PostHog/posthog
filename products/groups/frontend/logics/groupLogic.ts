@@ -3,17 +3,14 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { getRelativeNextPath, toParams } from 'lib/utils/url'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -24,10 +21,25 @@ import { isDataTableNode } from '~/queries/utils'
 import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { Noun } from '../../../../frontend/src/models/groupsModel'
 import type { GroupType } from '../../../../frontend/src/types'
+import { groupsFindRetrieve } from '../generated/api'
+
+function reportGroupPropertyUpdated(
+    action: 'added' | 'updated' | 'removed',
+    totalProperties: number,
+    oldPropertyType?: string,
+    newPropertyType?: string
+): void {
+    posthog.capture(`group property ${action}`, {
+        old_property_type: oldPropertyType !== 'undefined' ? oldPropertyType : undefined,
+        new_property_type: newPropertyType !== 'undefined' ? newPropertyType : undefined,
+        total_properties: totalProperties,
+    })
+}
 
 function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTableNode {
     return {
@@ -75,7 +87,6 @@ export interface groupLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
-    currentTeamId: number | null // teamLogic
     backNavigation: GroupBackNavigation | null
     backTo: Breadcrumb
     breadcrumbs: Breadcrumb[]
@@ -149,10 +160,10 @@ export interface groupLogicActions {
         payload?: any
     }
     loadGroupSuccess: (
-        groupData: Group | null,
+        groupData: Group,
         payload?: any
     ) => {
-        groupData: Group | null
+        groupData: Group
         payload?: any
     }
     resetGroupEventsQuery: () => {
@@ -180,11 +191,11 @@ export interface groupLogicMeta {
             groupKey: string
         ) => boolean
         groupTypeName: (
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             groupTypeIndex: number
         ) => string
         groupTypeNamePlural: (
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             groupTypeIndex: number
         ) => string
         groupType: (groupTypes: Map<GroupTypeIndex, GroupType>, groupTypeIndex: number) => string | null
@@ -221,7 +232,7 @@ export interface groupLogicMeta {
         ) => boolean
         backNavigation: (searchParams: Record<string, any>) => GroupBackNavigation | null
         backTo: (
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             groupTypeIndex: number,
             backNavigation: GroupBackNavigation | null
         ) => Breadcrumb
@@ -247,14 +258,7 @@ export const groupLogic = kea<groupLogicType>([
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect(() => ({
         actions: [groupsModel, ['createDetailDashboard']],
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            groupsModel,
-            ['groupTypes', 'aggregationLabel'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
     })),
     actions(() => ({
         setGroupData: (group: Group) => ({ group }),
@@ -264,17 +268,20 @@ export const groupLogic = kea<groupLogicType>([
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         deleteProperty: (key: string) => ({ key }),
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ props }) => ({
         groupData: [
             null as Group | null,
             {
-                loadGroup: async () => {
-                    const params = { group_type_index: props.groupTypeIndex, group_key: props.groupKey }
-                    const url = `api/environments/${values.currentTeamId}/groups/find?${toParams(params)}`
-                    // groupsFindRetrieve returns Promise<void> because the endpoint declares no
-                    // response schema, so it cannot type the Group this loader returns.
-                    // nosemgrep: prefer-codegen-api
-                    return await api.get(url)
+                loadGroup: async (): Promise<Group> => {
+                    // The generated parameter is named projectId because OpenAPI renders the
+                    // path segment as {project_id}, but the groups routes register on team_id, so
+                    // this takes a team id. A project id resolves the wrong environment.
+                    const group = await groupsFindRetrieve(String(ApiConfig.getCurrentTeamId()), {
+                        group_type_index: props.groupTypeIndex,
+                        group_key: props.groupKey,
+                    })
+                    // Group narrows group_type_index to the five indexes a team can have.
+                    return { ...group, group_type_index: group.group_type_index as GroupTypeIndex }
                 },
             },
         ],
@@ -356,7 +363,7 @@ export const groupLogic = kea<groupLogicType>([
                 await api.groups.updateProperty(group.group_type_index, group.group_key, key, parsedValue)
                 lemonToast.success(`Group property ${action}`)
 
-                eventUsageLogic.actions.reportGroupPropertyUpdated(
+                reportGroupPropertyUpdated(
                     action,
                     Object.keys(group.group_properties).length,
                     oldPropertyType,
@@ -375,7 +382,7 @@ export const groupLogic = kea<groupLogicType>([
                 await api.groups.deleteProperty(group.group_type_index, group.group_key, key)
                 lemonToast.success(`Group property deleted`)
 
-                eventUsageLogic.actions.reportGroupPropertyUpdated('removed', 1, undefined, undefined)
+                reportGroupPropertyUpdated('removed', 1, undefined, undefined)
             }
         },
     })),

@@ -150,7 +150,12 @@ database "posthog" {
       topic_list           = "clickhouse_flag_evaluations"
       group_name           = "clickhouse_flag_evaluations"
       format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 10000
       skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 10000
+      flush_interval_ms    = 7500
     }
   }
 
@@ -905,6 +910,18 @@ database "posthog" {
     column "lc_modifiers" {
       type  = "String"
       alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')"
+    }
+    column "lc_plan_fingerprint" {
+      type  = "String"
+      alias = "ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), '')"
+    }
+    column "lc_estimated_rows" {
+      type  = "Int64"
+      alias = "ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0)"
+    }
+    column "lc_estimated_bytes" {
+      type  = "Int64"
+      alias = "ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)"
     }
     engine "distributed" {
       cluster_name    = "ops"

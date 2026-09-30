@@ -3,7 +3,7 @@
 Django mints a `phe_` off the PostHog-owned wizard team's `phs_`
 (WIZARD_GATEWAY_MINT_KEY) rather than sending the user's OAuth token to the
 gateway. The mint pins what the caller must not control (product=wizard, obo=the
-customer organization, the acting user) plus a per-run cap and an expiry, and the
+customer's team id, the acting user) plus a per-run cap and an expiry, and the
 debit lands on the wizard team, never the customer's wallet. Kept separate from
 products/tasks' sandbox mint (ai_gateway_token.py): the wizard needs
 `expires_at` back for CLI-side refresh, and an interactive mint answers one
@@ -67,6 +67,8 @@ WIZARD_MODEL_ALLOWLIST: dict[str, tuple[str, ...]] = {
     "gpt-5.6-luna": ("low",),
     "gpt-5.6-sol": ("medium",),
     "gpt-5.6-terra": ("low", "medium", "high"),
+    "gpt-6-luna": ("low", "medium"),
+    "gpt-6-sol": ("low", "medium", "high"),
 }
 
 # pi sends the provider-prefixed id for OpenAI models; the gateway pins the bare model.
@@ -193,23 +195,26 @@ NO_TIER_LIMITS = WizardTierLimits()
 
 # In code so a malformed WIZARD_GATEWAY_TIERS degrades toward the tier the
 # operator meant, not toward the flat setting, whose cap is wider than all three.
+# Caps do not pool across a run's tokens and the mint throttle is one bucket per
+# account, so mints_per_week is the hard per-account ceiling: keep the counts
+# low, since the weekly window can be spent in a day.
 _TIER_FLOORS: dict[str, WizardTierLimits] = {
     "new": WizardTierLimits(
         cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
-        mints_per_week=5,
+        mints_per_week=3,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "active": WizardTierLimits(
         cap_usd=Decimal("7").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_week=15,
+        mints_per_week=6,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "paid": WizardTierLimits(
         cap_usd=Decimal("10").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_week=30,
+        mints_per_week=12,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
 }
@@ -378,8 +383,7 @@ def wizard_gateway_configured() -> bool:
 
 
 def wizard_gateway_base_url() -> str:
-    """The gateway base without the version segment. The CLI gets the same string,
-    so both sides read one normalization of the setting."""
+    """The gateway base returned to the CLI, without the version segment."""
     return settings.WIZARD_GATEWAY_URL.rstrip("/").removesuffix("/v1")
 
 
@@ -399,7 +403,7 @@ def mint_wizard_gateway_token(
     bounded by the posture's ceiling, then the posture's own, then the flat
     setting, which applies only when there is no posture.
     """
-    base_url = wizard_gateway_base_url()
+    base_url = (settings.WIZARD_GATEWAY_MINT_URL or settings.WIZARD_GATEWAY_URL).rstrip("/").removesuffix("/v1")
     body = {
         "cap_usd": _cap_usd(cap_usd, program=program, posture=posture),
         "ttl_seconds": _ttl_seconds(posture),

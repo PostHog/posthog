@@ -58,9 +58,13 @@ rules:
                               |Account
                               |AccountChannelSummary
                               |AccountRelationship
+                              |AccountRelationshipControl
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
+                              |AccountView
                               |Action
+                              |AEOCitationCheck
+                              |AEOPrompt
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -74,6 +78,7 @@ rules:
                               |AgentTransportBinding
                               |AgentUser
                               |AIObservabilityChecklistItemState
+                              |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -111,10 +116,13 @@ rules:
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |Comment
+                              |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationDelivery
+                              |ConversationDeliveryPart
                               |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
@@ -129,7 +137,6 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
-                              |DashboardSavedView
                               |DashboardTemplate
                               |DashboardWidget
                               |DataColorTheme
@@ -206,6 +213,7 @@ rules:
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
+                              |FeatureRequestGitHubLink
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
@@ -229,6 +237,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
                               |HogFlowTemplate
@@ -245,6 +254,8 @@ rules:
                               |KnowledgeGapSuggestion
                               |KnowledgeLearningRun
                               |KnowledgeSource
+                              |PlaygroundChat
+                              |PlaygroundTurn
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -255,9 +266,11 @@ rules:
                               |Loop
                               |LoopFire
                               |NotebookWidgetInstance
+                              |NotebookWidgetSnapshot
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
+                              |LLMPromptDependency
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
@@ -293,7 +306,13 @@ rules:
                               |NotificationEvent
                               |Notebook
                               |NotebookNodeRun
+                              |NotebookRun
                               |ObjectMediaPreview
+                              |OfflineEvaluationResult
+                              |OfflineEvaluationResultPayload
+                              |OfflineExperiment
+                              |OfflineExperimentItem
+                              |OfflineExperimentItemPayload
                               |ParserRecipe
                               |PendingSourceCredential
                               |PluginConfig
@@ -304,10 +323,12 @@ rules:
                               |PullRequestAudience
                               |QuarantinedIdentifier
                               |QueryTabState
+                              |QueueJob
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationLabel
+                              |ReplayObservationMedia
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
@@ -325,6 +346,7 @@ rules:
                               |ResourceLink
                               |ScoreDefinition
                               |SavedHeatmap
+                              |HeatmapCaptureConfigVersion
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -334,8 +356,13 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportCheck
+                              |SignalReportGithubComment
+                              |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
+                              |SignalReportSlackThread
+                              |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
@@ -355,7 +382,10 @@ rules:
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
+                              |SubscriptionContext
                               |SubscriptionDelivery
+                              |PlatformAlert
+                              |PlatformAlertConfiguration
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -392,6 +422,7 @@ rules:
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
+                              |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
                               |UserInterview
@@ -410,6 +441,7 @@ rules:
                               |WizardRunArtifact
                               |WizardSession
                               |WizardWorker
+                              |WorkflowProposal
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -469,8 +501,10 @@ rules:
                         |Account
                         |AccountChannelSummary
                         |AccountRelationship
+                        |AccountRelationshipControl
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
+                        |AccountView
                         |Action
                         |AgentApplication
                         |AgentArtifact
@@ -485,6 +519,7 @@ rules:
                         |AgentTransportBinding
                         |AgentUser
                         |AIObservabilityChecklistItemState
+                        |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -522,10 +557,13 @@ rules:
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |Comment
+                        |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationDelivery
+                        |ConversationDeliveryPart
                         |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
@@ -540,7 +578,6 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |Dashboard
-                        |DashboardSavedView
                         |DashboardTemplate
                         |DashboardWidget
                         |DataColorTheme
@@ -614,6 +651,7 @@ rules:
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
+                        |FeatureRequestGitHubLink
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
@@ -637,6 +675,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
                         |HogFlowTemplate
@@ -653,14 +692,18 @@ rules:
                         |KnowledgeGapSuggestion
                         |KnowledgeLearningRun
                         |KnowledgeSource
+                        |PlaygroundChat
+                        |PlaygroundTurn
                         |Link
                         |LiveDebuggerBreakpoint
                         |Loop
                         |LoopFire
                         |LoopTrigger
                         |NotebookWidgetInstance
+                        |NotebookWidgetSnapshot
                         |LLMModelConfiguration
                         |LLMPrompt
+                        |LLMPromptDependency
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
@@ -694,7 +737,13 @@ rules:
                         |NotificationEvent
                         |Notebook
                         |NotebookNodeRun
+                        |NotebookRun
                         |ObjectMediaPreview
+                        |OfflineEvaluationResult
+                        |OfflineEvaluationResultPayload
+                        |OfflineExperiment
+                        |OfflineExperimentItem
+                        |OfflineExperimentItemPayload
                         |ParserRecipe
                         |PendingSourceCredential
                         |PluginConfig
@@ -705,10 +754,12 @@ rules:
                         |PullRequestAudience
                         |QuarantinedIdentifier
                         |QueryTabState
+                        |QueueJob
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationLabel
+                        |ReplayObservationMedia
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner
@@ -726,6 +777,7 @@ rules:
                         |ResourceLink
                         |ScoreDefinition
                         |SavedHeatmap
+                        |HeatmapCaptureConfigVersion
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording
@@ -735,8 +787,13 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportCheck
+                        |SignalReportGithubComment
+                        |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
+                        |SignalReportSlackThread
+                        |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
@@ -756,7 +813,10 @@ rules:
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
+                        |SubscriptionContext
                         |SubscriptionDelivery
+                        |PlatformAlert
+                        |PlatformAlertConfiguration
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -792,6 +852,7 @@ rules:
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
+                        |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
                         |UserInterview
@@ -810,6 +871,7 @@ rules:
                         |WizardRunArtifact
                         |WizardSession
                         |WizardWorker
+                        |WorkflowProposal
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)
@@ -911,6 +973,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
                               |Plugin
@@ -987,6 +1050,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
                         |Plugin
@@ -1230,6 +1294,7 @@ rules:
                       regex: |
                           (?x)(
                               AgentMemory
+                              |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
                               |InsightViewed
@@ -1304,6 +1369,7 @@ rules:
                 regex: |
                     (?x)(
                         AgentMemory
+                        |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
                         |InsightViewed

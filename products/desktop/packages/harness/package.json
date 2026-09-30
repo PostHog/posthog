@@ -32,6 +32,18 @@
       "types": "./dist/extensions/auto-publish/index.d.ts",
       "import": "./dist/extensions/auto-publish/index.js"
     },
+    "./extensions/context-wiki": {
+      "types": "./dist/extensions/context-wiki/index.d.ts",
+      "import": "./dist/extensions/context-wiki/index.js"
+    },
+    "./extensions/enrichment": {
+      "types": "./dist/extensions/enrichment/index.d.ts",
+      "import": "./dist/extensions/enrichment/index.js"
+    },
+    "./extensions/task-system-prompt": {
+      "types": "./dist/extensions/task-system-prompt/index.d.ts",
+      "import": "./dist/extensions/task-system-prompt/index.js"
+    },
     "./extensions/hog-branding": {
       "types": "./dist/extensions/hog-branding/index.d.ts",
       "import": "./dist/extensions/hog-branding/index.js"
@@ -39,6 +51,10 @@
     "./extensions/posthog-provider": {
       "types": "./dist/extensions/posthog-provider/index.d.ts",
       "import": "./dist/extensions/posthog-provider/index.js"
+    },
+    "./extensions/posthog-mcp-policy": {
+      "types": "./dist/extensions/posthog-mcp-policy/index.d.ts",
+      "import": "./dist/extensions/posthog-mcp-policy/index.js"
     },
     "./extensions/posthog-provider/model-catalog": {
       "types": "./dist/extensions/posthog-provider/model-catalog.d.ts",
@@ -72,9 +88,33 @@
       "types": "./dist/extensions/mcp/schema.d.ts",
       "import": "./dist/extensions/mcp/schema.js"
     },
+    "./extensions/mcp/tool-bridge": {
+      "types": "./dist/extensions/mcp/tool-bridge.d.ts",
+      "import": "./dist/extensions/mcp/tool-bridge.js"
+    },
     "./extensions/footer-focus-demo": {
       "types": "./dist/extensions/footer-focus-demo/index.d.ts",
       "import": "./dist/extensions/footer-focus-demo/index.js"
+    },
+    "./extensions/local-tools": {
+      "types": "./dist/extensions/local-tools/index.d.ts",
+      "import": "./dist/extensions/local-tools/index.js"
+    },
+    "./extensions/rtk": {
+      "types": "./dist/extensions/rtk/index.d.ts",
+      "import": "./dist/extensions/rtk/index.js"
+    },
+    "./extensions/benjamin": {
+      "types": "./dist/extensions/benjamin/index.d.ts",
+      "import": "./dist/extensions/benjamin/index.js"
+    },
+    "./extensions/agent-instructions": {
+      "types": "./dist/extensions/agent-instructions/index.d.ts",
+      "import": "./dist/extensions/agent-instructions/index.js"
+    },
+    "./extensions/skills-store": {
+      "types": "./dist/extensions/skills-store/index.d.ts",
+      "import": "./dist/extensions/skills-store/index.js"
     }
   },
   "scripts": {
@@ -90,6 +130,8 @@
     "@earendil-works/pi-coding-agent": "catalog:",
     "@earendil-works/pi-tui": "catalog:",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@posthog/enricher": "workspace:*",
+    "@posthog/git": "workspace:*",
     "@posthog/shared": "workspace:*",
     "fflate": "^0.8.2",
     "lru-cache": "^11.1.0",

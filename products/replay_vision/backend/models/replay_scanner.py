@@ -1,3 +1,4 @@
+import hashlib
 import datetime as dt
 from typing import TYPE_CHECKING
 
@@ -6,6 +7,8 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.utils.functional import Promise
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDModel
 
 # This model loads at django.setup() in every process; posthog.schema (the pydantic
@@ -85,6 +88,11 @@ class ScannerOrigin(models.TextChoices):
     INLINE = "inline", "Inline"
 
 
+def prompt_fingerprint(prompt: str) -> str:
+    """Identifies a prompt's text, so a condensed question can be matched to the prompt it came from."""
+    return hashlib.sha256(prompt.encode()).hexdigest()
+
+
 def initial_watermark() -> "datetime":
     """A new scanner's sweep watermark, started one settle-interval back so its first sweep immediately picks up
     recordings that have just cleared the settle window instead of a ~settle-interval cold start; it advances
@@ -104,8 +112,11 @@ class ReplayScannerManager(models.Manager["ReplayScanner"]):
         return super().get_queryset().filter(origin=ScannerOrigin.CONFIGURED)
 
 
-class ReplayScanner(UUIDModel):
+class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     """A configured probe that gets applied to completed session recordings (see README)."""
+
+    # A scanner sends recordings to an LLM, so its removal stays visible after the row is gone.
+    activity_logging_on_delete = True
 
     objects = ReplayScannerManager()
     all_origins = models.Manager()
@@ -270,6 +281,22 @@ class ReplayScanner(UUIDModel):
         null=True,
         blank=True,
         help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
+    )
+
+    # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
+    # template's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
+    prompt_question = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The prompt condensed by AI into one question, shown above an observation's answer.",
+    )
+    prompt_question_source = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="`prompt_fingerprint` of the prompt `prompt_question` was condensed from. A mismatch means it is stale.",
     )
 
     # Not "monthly": this resets with the org's billing period, which is only a calendar month

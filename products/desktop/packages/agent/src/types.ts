@@ -1,3 +1,4 @@
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import type { Adapter, ModelAccess, PostHogAPIConfig } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 
@@ -40,20 +41,6 @@ export interface StoredNotification {
  */
 export type StoredEntry = StoredNotification;
 
-/**
- * Per-session context wiki mount, threaded explicitly (instead of via global
- * `process.env` writes) so concurrent sessions never exchange wiki paths or
- * publish tokens.
- */
-export interface ContextWikiEnv {
-  /** Local checkout of the org's wiki (POSTHOG_CONTEXT_LAYER_PATH). */
-  path: string;
-  /** API path agents land wiki commits through (POSTHOG_CONTEXT_LAYER_COMMITS_PATH). */
-  commitsPath: string;
-  /** Publish token (POSTHOG_PERSONAL_API_KEY); absent for impersonated sessions. */
-  personalApiKey?: string;
-}
-
 export interface ProcessSpawnedCallback {
   onProcessSpawned?: (info: {
     pid: number;
@@ -69,6 +56,8 @@ export interface TaskExecutionOptions {
   adapter?: Adapter;
   model?: string;
   gatewayUrl?: string;
+  gatewayApiKey?: string;
+  codexBaseUrlInConfig?: boolean;
   codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
   codexBinaryPath?: string;

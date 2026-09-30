@@ -6,11 +6,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { mockScoutConfigs, mockScoutCosts, mockScoutRuns } from '../../../__mocks__/scoutConfigs'
+import { mockDailyQuietRuns, mockScoutConfigs, mockScoutCosts, mockScoutRuns } from '../../../__mocks__/scoutConfigs'
 import { ScoutDetailView } from './ScoutDetailView'
 
-// One scout's page. Use this to check the stat strip, including the staff-only cost tiles and the
-// spend line under it.
+// One scout's page. Use this to check the health strip, including the staff-only cost segment, and
+// the Reports / Runs / Signals tabs below it.
 
 const SKILL_NAME = mockScoutConfigs[0].skill_name
 
@@ -45,7 +45,7 @@ type Story = StoryObj<typeof ScoutDetailView>
 
 export const ScoutPage: Story = {}
 
-// The same scout for a non-staff reader: no cost tiles, no spend line, and no request for either.
+// The same scout for a non-staff reader: no cost segment, and no request for one.
 export const ScoutPageNonStaff: Story = {
     decorators: [
         mswDecorator({
@@ -54,7 +54,24 @@ export const ScoutPageNonStaff: Story = {
     ],
 }
 
-// A scout that spent but filed nothing: the third tile says so rather than pricing zero reports.
+// A scout that spent but filed nothing: no reports segment, and Runs leads the tabs.
 export const ScoutPageNoReports: Story = {
     args: { skillName: mockScoutConfigs[1].skill_name },
+}
+
+// The folded run group at its widest, in the narrowest pane it has to survive: runs a day apart
+// carry the long date form at both ends of the group header, which has to wrap rather than clip.
+export const ScoutPageNarrowRunHistory: Story = {
+    args: { skillName: mockScoutConfigs[1].skill_name },
+    parameters: { testOptions: { viewport: { width: 375, height: 900 }, waitForLoadersToDisappear: false } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/scout/runs/recent-per-scout/': () => [
+                    200,
+                    mockDailyQuietRuns(mockScoutConfigs[1]),
+                ],
+            },
+        }),
+    ],
 }

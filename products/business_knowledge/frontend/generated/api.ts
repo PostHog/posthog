@@ -13,6 +13,7 @@ import type {
     BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeGapSuggestionsListParams,
     BusinessKnowledgeSettingsApi,
+    BusinessKnowledgeSourcesDocumentsListParams,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesTextRetrieve200,
     CreateTextSourceApi,
@@ -24,9 +25,15 @@ import type {
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
     PaginatedKnowledgeGapSuggestionListApi,
+    PaginatedKnowledgeSourceDocumentListApi,
     PaginatedKnowledgeSourceListApi,
     PatchedBusinessKnowledgeSettingsUpdateApi,
     PatchedUpdateTextSourceApi,
+    PlaygroundChatApi,
+    PlaygroundChatListApi,
+    SandboxQuestionApi,
+    SandboxRunApi,
+    SandboxRunStartedApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -248,6 +255,142 @@ export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
     })
 }
 
+export const getBusinessKnowledgePlaygroundChatsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/playground/chats/`
+}
+
+/**
+ * Chats started by the current user in this project.
+ * @summary List business knowledge playground chats
+ */
+export const businessKnowledgePlaygroundChatsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PlaygroundChatListApi[]> => {
+    return apiMutator<PlaygroundChatListApi[]>(getBusinessKnowledgePlaygroundChatsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgePlaygroundChatsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/playground/chats/`
+}
+
+/**
+ * Create an empty chat. The first question sets the title.
+ * @summary Create a business knowledge playground chat
+ */
+export const businessKnowledgePlaygroundChatsCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PlaygroundChatApi> => {
+    return apiMutator<PlaygroundChatApi>(getBusinessKnowledgePlaygroundChatsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getBusinessKnowledgePlaygroundChatsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/business_knowledge/playground/chats/${id}/`
+}
+
+/**
+ * Reload a chat and its turns. Each turn's answer comes from its sandbox run. A chat started before AI data processing was turned off can still be read.
+ * @summary Get a business knowledge playground chat
+ */
+export const businessKnowledgePlaygroundChatsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PlaygroundChatApi> => {
+    return apiMutator<PlaygroundChatApi>(getBusinessKnowledgePlaygroundChatsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgePlaygroundChatsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/business_knowledge/playground/chats/${id}/`
+}
+
+/**
+ * Deletes the chat and its turns. Does not cancel a running sandbox agent.
+ * @summary Delete a business knowledge playground chat
+ */
+export const businessKnowledgePlaygroundChatsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBusinessKnowledgePlaygroundChatsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getBusinessKnowledgePlaygroundChatsAskCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/business_knowledge/playground/chats/${id}/ask/`
+}
+
+/**
+ * Append a turn and start a sandbox run. A second question in the same chat while its answer is still open returns 409. Other chats can run at the same time, up to 3 open answers per person.
+ * @summary Ask a question in a playground chat
+ */
+export const businessKnowledgePlaygroundChatsAskCreate = async (
+    projectId: string,
+    id: string,
+    sandboxQuestionApi: SandboxQuestionApi,
+    options?: RequestInit
+): Promise<PlaygroundChatApi> => {
+    return apiMutator<PlaygroundChatApi>(getBusinessKnowledgePlaygroundChatsAskCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxQuestionApi),
+    })
+}
+
+export const getBusinessKnowledgeSandboxCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/sandbox/`
+}
+
+/**
+ * Start a sandbox agent that can search only this project's business knowledge. Returns immediately.
+ * @summary Ask a business knowledge sandbox question
+ */
+export const businessKnowledgeSandboxCreate = async (
+    projectId: string,
+    sandboxQuestionApi: SandboxQuestionApi,
+    options?: RequestInit
+): Promise<SandboxRunStartedApi> => {
+    return apiMutator<SandboxRunStartedApi>(getBusinessKnowledgeSandboxCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxQuestionApi),
+    })
+}
+
+export const getBusinessKnowledgeSandboxRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/business_knowledge/sandbox/${id}/`
+}
+
+/**
+ * Poll a sandbox run started by the current user. A run that started before AI data processing was turned off can still be read.
+ * @summary Get a business knowledge sandbox run
+ */
+export const businessKnowledgeSandboxRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SandboxRunApi> => {
+    return apiMutator<SandboxRunApi>(getBusinessKnowledgeSandboxRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getBusinessKnowledgeSettingsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/business_knowledge/settings/`
 }
@@ -377,6 +520,41 @@ export const businessKnowledgeSourcesDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getBusinessKnowledgeSourcesDocumentsListUrl = (
+    projectId: string,
+    id: string,
+    params?: BusinessKnowledgeSourcesDocumentsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/sources/${id}/documents/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/sources/${id}/documents/`
+}
+
+export const businessKnowledgeSourcesDocumentsList = async (
+    projectId: string,
+    id: string,
+    params?: BusinessKnowledgeSourcesDocumentsListParams,
+    options?: RequestInit
+): Promise<PaginatedKnowledgeSourceDocumentListApi> => {
+    return apiMutator<PaginatedKnowledgeSourceDocumentListApi>(
+        getBusinessKnowledgeSourcesDocumentsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getBusinessKnowledgeSourcesRefreshCreateUrl = (projectId: string, id: string) => {

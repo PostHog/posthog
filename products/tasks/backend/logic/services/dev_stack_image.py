@@ -50,7 +50,7 @@ BAKE_SANDBOX_MEMORY_GB = 32.0
 PUBLISH_SNAPSHOT_MAX_ATTEMPTS = 3
 
 # Tail of bake output retained for error reporting.
-MAX_BAKE_LOG_CHARS = 20_000
+MAX_BAKE_LOG_BYTES = 8_000
 
 # VM base image reference the last successful bake layered on, so the refresh sweep can
 # tell whether the published image is stale (mirrors SandboxCustomImage.base_image_reference).
@@ -194,20 +194,20 @@ def bake_dev_stack_image(publish_name: str = DEV_STACK_IMAGE_NAME) -> str:
     try:
         sandbox.write_file(BAKE_SCRIPT_SANDBOX_PATH, script.encode())
 
-        log_tail: deque[str] = deque()
+        log_tail: deque[bytes] = deque()
         tail_len = 0
         stream = sandbox.execute_stream(f"bash {BAKE_SCRIPT_SANDBOX_PATH} 2>&1")
         for line in stream.iter_stdout():
             logger.info("dev_stack_image_bake_output", extra={"sandbox_id": sandbox.id, "line": line.rstrip()})
-            log_tail.append(line)
-            tail_len += len(line)
-            while tail_len > MAX_BAKE_LOG_CHARS and len(log_tail) > 1:
+            encoded_line = line.encode("utf-8")[-MAX_BAKE_LOG_BYTES:]
+            log_tail.append(encoded_line)
+            tail_len += len(encoded_line)
+            while tail_len > MAX_BAKE_LOG_BYTES and len(log_tail) > 1:
                 tail_len -= len(log_tail.popleft())
         result = stream.wait()
         if result.exit_code != 0:
-            raise DevStackImageBakeError(
-                f"Bake script exited with {result.exit_code}; output tail:\n{''.join(log_tail)[-MAX_BAKE_LOG_CHARS:]}"
-            )
+            output_tail = b"".join(log_tail)[-MAX_BAKE_LOG_BYTES:].decode("utf-8", errors="ignore")
+            raise DevStackImageBakeError(f"Bake script exited with {result.exit_code}; output tail:\n{output_tail}")
 
         image_id = _publish_snapshot_with_retries(sandbox, publish_name)
         _record_baked_base_reference(publish_name, base_reference)

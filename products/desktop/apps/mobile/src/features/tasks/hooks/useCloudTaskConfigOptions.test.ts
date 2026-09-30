@@ -1,24 +1,12 @@
-import {
-  DEFAULT_GATEWAY_MODEL,
-  type GatewayModel,
-  GLM53_FLASH_MODEL_FLAG,
-  GLM53_MODEL_FLAG,
-  KIMI_MODEL_FLAG,
-} from "@posthog/shared";
+import { DEFAULT_GATEWAY_MODEL, type GatewayModel } from "@posthog/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type PropsWithChildren } from "react";
 import { act, create } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetCloudTaskGatewayModels, mockUseAuthStore, mockUseFeatureFlag } =
-  vi.hoisted(() => ({
-    mockGetCloudTaskGatewayModels: vi.fn(),
-    mockUseAuthStore: vi.fn(),
-    mockUseFeatureFlag: vi.fn(),
-  }));
-
-vi.mock("posthog-react-native", () => ({
-  useFeatureFlag: mockUseFeatureFlag,
+const { mockGetCloudTaskGatewayModels, mockUseAuthStore } = vi.hoisted(() => ({
+  mockGetCloudTaskGatewayModels: vi.fn(),
+  mockUseAuthStore: vi.fn(),
 }));
 
 vi.mock("@/features/auth", () => ({
@@ -111,8 +99,6 @@ function gatewayModel(
 describe("useCloudTaskConfigOptions", () => {
   beforeEach(() => {
     mockGetCloudTaskGatewayModels.mockReset();
-    mockUseFeatureFlag.mockReset();
-    mockUseFeatureFlag.mockReturnValue(false);
     mockUseAuthStore.mockImplementation((selector) =>
       selector({ oauthAccessToken: "token" }),
     );
@@ -153,43 +139,23 @@ describe("useCloudTaskConfigOptions", () => {
     });
   });
 
-  it("replaces a hidden GLM current model with a visible model", async () => {
+  // The gateway serves these to everyone, and a second gate in this app used to hide them.
+  it.each([
+    { model: "zai-org/glm-5.3" },
+    { model: "zai-org/glm-5.3-flash" },
+    { model: "deepseek-ai/deepseek-v4-flash-0731" },
+  ])("offers a served $model", async ({ model }) => {
     mockGetCloudTaskGatewayModels.mockResolvedValue([
-      gatewayModel("zai-org/glm-5.3"),
+      gatewayModel(model),
       gatewayModel("claude-sonnet-5"),
     ]);
 
     const result = await renderHook("claude");
     await waitForAssertion(() => {
       const modelOption = getModelConfigOption(result.current.configOptions);
-      expect(modelOption.options.map((option) => option.value)).toEqual([
-        "claude-sonnet-5",
-      ]);
-      // Cross-harness groups drop the empty Z.ai group along with its heading.
-      expect(result.current.modelGroups.map((g) => g.group)).not.toContain(
-        "zai-org",
-      );
-    });
-  });
-
-  it.each([
-    { enabledFlag: GLM53_MODEL_FLAG, model: "zai-org/glm-5.3" },
-    { enabledFlag: GLM53_FLASH_MODEL_FLAG, model: "zai-org/glm-5.3-flash" },
-  ])("gates $model independently", async ({ enabledFlag, model }) => {
-    mockUseFeatureFlag.mockImplementation(
-      (flag: string) => flag === enabledFlag,
-    );
-    mockGetCloudTaskGatewayModels.mockResolvedValue([
-      gatewayModel("zai-org/glm-5.3"),
-      gatewayModel("zai-org/glm-5.3-flash"),
-    ]);
-
-    const result = await renderHook("claude");
-    await waitForAssertion(() => {
-      const modelOption = getModelConfigOption(result.current.configOptions);
-      expect(modelOption.options.map((option) => option.value)).toEqual([
+      expect(modelOption.options.map((option) => option.value)).toContain(
         model,
-      ]);
+      );
     });
   });
 
@@ -226,31 +192,17 @@ describe("useCloudTaskConfigOptions", () => {
     });
   });
 
-  it("hides Kimi K3 when its flag is off and keeps it when on", async () => {
+  it("offers a served Kimi K3", async () => {
     mockGetCloudTaskGatewayModels.mockResolvedValue([
       gatewayModel("moonshotai/kimi-k3", { owned_by: "modal" }),
       gatewayModel("claude-sonnet-5"),
     ]);
 
-    let flagOn = false;
-    mockUseFeatureFlag.mockImplementation(
-      (flag: string) => flag === KIMI_MODEL_FLAG && flagOn,
-    );
-
-    const off = await renderHook("claude");
+    const result = await renderHook("claude");
     await waitForAssertion(() => {
       const values = getModelConfigOption(
-        off.current.configOptions,
+        result.current.configOptions,
       ).options.map((option) => option.value);
-      expect(values).not.toContain("moonshotai/kimi-k3");
-    });
-
-    flagOn = true;
-    const on = await renderHook("claude");
-    await waitForAssertion(() => {
-      const values = getModelConfigOption(on.current.configOptions).options.map(
-        (option) => option.value,
-      );
       expect(values).toContain("moonshotai/kimi-k3");
     });
   });

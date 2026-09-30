@@ -23,9 +23,8 @@ from pydantic.dataclasses import dataclass
 class InsightVariableDefinition:
     """A saved query variable, as callers outside product analytics read it.
 
-    ``type`` carries an ``InsightVariableType`` value; the field stays a plain ``str`` because
-    that enum is a Django ``TextChoices`` and contracts hold no Django imports. Comparing it to
-    ``InsightVariableType.LIST`` works either way.
+    ``type`` carries an ``InsightVariableType`` value. Comparing it to
+    ``InsightVariableType.LIST`` works because the enum is a ``StrEnum``.
     """
 
     id: UUID
@@ -42,3 +41,11 @@ class TrendsQueryRunResult:
 
     results: list[dict[str, Any]]
     last_refresh: datetime | None = None
+
+
+@dataclass(frozen=True)
+class SavedInsightDefinition:
+    id: int
+    short_id: str
+    name: str | None
+    query: dict[str, Any]

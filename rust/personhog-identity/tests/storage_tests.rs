@@ -152,7 +152,10 @@ async fn creates_stub_with_deterministic_uuid_and_version_zero() {
     assert!(created);
     assert_eq!(person.uuid, person_uuid(ctx.team_id, "user-1"));
     assert_eq!(person.version, Some(0));
-    assert_eq!(person.properties.as_deref(), Some("{}"));
+    assert!(
+        person.properties.is_none(),
+        "identity never reads properties; the leader owns them"
+    );
     assert!(!person.is_identified);
     assert_eq!(
         person.created_at,
@@ -553,7 +556,6 @@ async fn deleted_person_is_revived_above_the_tombstone_on_recreate() {
     assert!(created, "a revival is a creation to the caller");
     assert_eq!(person.id, person_id, "revival keeps the row, not a new one");
     assert_eq!(person.version, Some(8), "revived above the tombstone");
-    assert_eq!(person.properties.as_deref(), Some("{}"));
     assert_eq!(
         ctx.distinct_id_state("revive-me").await,
         Some((person_id, false, Some(4))),
@@ -593,8 +595,8 @@ async fn a_tombstone_under_a_live_lifecycle_mark_does_not_revive() {
     .await
     .expect("insert op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
     )
     .bind(op)
     .bind(ctx.team_id as i32)
@@ -620,11 +622,13 @@ async fn a_tombstone_under_a_live_lifecycle_mark_does_not_revive() {
     assert!(resolved.is_empty(), "the tombstone stays tombstoned");
 
     // The saga finished; the mark is no longer live.
-    sqlx::query("UPDATE lifecycle_op_person SET status = 'deleted' WHERE op_id = $1")
-        .bind(op)
-        .execute(&ctx.pool)
-        .await
-        .expect("finish mark");
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'deleted', mark_active = false WHERE op_id = $1",
+    )
+    .bind(op)
+    .execute(&ctx.pool)
+    .await
+    .expect("finish mark");
     let second = ctx
         .storage
         .create_person_stubs(&[stub(&ctx, "marked-dead", &[])])
@@ -756,6 +760,53 @@ async fn resolve_returns_only_existing_keys() {
 }
 
 #[tokio::test]
+async fn resolve_does_not_lock_person_partitions_outside_the_batch() {
+    let ctx = TestContext::new().await;
+    let person_id = ctx.insert_person_with_distinct_id("pruned").await;
+
+    let own_partition: String = sqlx::query_scalar(&format!(
+        "SELECT tableoid::regclass::text FROM {} WHERE team_id = $1 AND id = $2",
+        ctx.tables.person
+    ))
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("person row should name its partition");
+    let other_partition: String = sqlx::query_scalar(
+        "SELECT inhrelid::regclass::text FROM pg_inherits
+         WHERE inhparent = $1::regclass AND inhrelid::regclass::text <> $2
+         ORDER BY 1 LIMIT 1",
+    )
+    .bind(&ctx.tables.person)
+    .bind(&own_partition)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("person table should have another partition");
+
+    let mut blocker = ctx.pool.begin().await.expect("begin should succeed");
+    sqlx::query(&format!(
+        "LOCK TABLE {other_partition} IN ACCESS EXCLUSIVE MODE"
+    ))
+    .execute(&mut *blocker)
+    .await
+    .expect("lock should succeed");
+
+    let resolved = tokio::time::timeout(
+        Duration::from_secs(5),
+        ctx.storage
+            .resolve_distinct_ids(&[(ctx.team_id, "pruned".to_string())]),
+    )
+    .await
+    .expect("resolve waited on a person partition its batch does not touch")
+    .expect("resolve should succeed");
+    assert_eq!(resolved[&(ctx.team_id, "pruned".to_string())].id, person_id);
+
+    blocker.rollback().await.ok();
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn attach_covers_fresh_revived_and_live_mappings_per_row() {
     let ctx = TestContext::new().await;
     let owner = ctx.insert_person_with_distinct_id("attach-owner").await;
@@ -880,8 +931,8 @@ async fn attach_refuses_a_person_held_by_a_live_lifecycle_op() {
     .await
     .expect("seed op row");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked', true)",
     )
     .bind(op_id)
     .bind(ctx.team_id as i32)

@@ -7,8 +7,9 @@ from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
 
+from django.apps import apps
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Exists, F, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
 from drf_spectacular.utils import extend_schema
@@ -34,6 +35,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
+from posthog.exceptions import Conflict
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
@@ -42,7 +44,9 @@ from posthog.models.file_system.file_system import (
     split_path,
     surface_q,
 )
+from posthog.models.file_system.file_system_home_folder import FileSystemHomeFolder
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
@@ -83,6 +87,23 @@ def validate_file_system_path(path: Any) -> str:
     if len(split_path(path)) > MAX_PATH_SEGMENTS:
         raise serializers.ValidationError(f"Path can be at most {MAX_PATH_SEGMENTS} levels deep.")
     return path
+
+
+class FileSystemListQuerySerializer(serializers.Serializer):
+    include_content_type = serializers.BooleanField(
+        default=False,
+        help_text="Include meta.content_type for notebooks and insights on this page, without their contents.",
+    )
+
+
+class FileSystemDeleteQuerySerializer(serializers.Serializer):
+    recursive = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "Delete folder contents too (default: true). Set false to delete only empty folders. "
+            "Nonempty folders return HTTP 409 with code directory_not_empty."
+        ),
+    )
 
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
@@ -172,6 +193,15 @@ class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
     default_limit = 100
 
 
+class FileSystemHomeFolderSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="The user's home folder ID, or null if deleted."
+    )
+    path = serializers.CharField(
+        read_only=True, allow_null=True, help_text="The current path of the user's home folder."
+    )
+
+
 class UnfiledFilesQuerySerializer(serializers.Serializer):
     type = serializers.CharField(required=False, allow_blank=True)
 
@@ -253,7 +283,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "link",
         "log_view",
         "undo_delete",
+        "home_folder",
     ]
+
+    @extend_schema(request=None, responses={200: FileSystemHomeFolderSerializer})
+    @action(detail=False, methods=["POST"])
+    def home_folder(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if self.file_system_surface != DEFAULT_SURFACE:
+            raise serializers.ValidationError("Home folders are only available in the project's Files sidebar.")
+        folder = FileSystemHomeFolder.ensure_for_user(team=self.team, user=cast(User, request.user))
+        return Response({"id": str(folder.id) if folder else None, "path": folder.path if folder else None})
 
     @cached_property
     def _denied_short_id_refs(self) -> dict[tuple[str, int], builtins.list[str]]:
@@ -521,15 +560,88 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset
 
-    def list(self, request, *args, **kwargs):
+    def _add_content_types(self, results: builtins.list[dict[str, object]]) -> None:
+        entry_teams = {
+            str(entry_id): team_id
+            for entry_id, team_id in FileSystem.objects.filter(
+                team__project_id=self.team.project_id,
+                id__in=[item["id"] for item in results if item.get("type") in ("notebook", "insight")],
+            ).values_list("id", "team_id")
+        }
+        denied: set[tuple[str, str, int]] = set()
+        for team_id in set(entry_teams.values()):
+            entries = [
+                (str(item["type"]), str(item["ref"]), team_id)
+                for item in results
+                if item.get("ref") and entry_teams.get(str(item["id"])) == team_id
+            ]
+            denied.update(
+                (entry_type, ref, team_id)
+                for entry_type, ref in entries_missing_access_level(
+                    entries, self.user_access_control, self.team.project_id, "viewer"
+                )
+            )
+        content_types: dict[tuple[str, int, str], str] = {}
+        for entry_type, app_label, model_name in (
+            ("notebook", "notebooks", "Notebook"),
+            ("insight", "product_analytics", "Insight"),
+        ):
+            refs = {
+                item["ref"]
+                for item in results
+                if item.get("type") == entry_type
+                and item.get("user_access_level") != "none"
+                and isinstance(item.get("ref"), str)
+                and item["ref"]
+            }
+            if not refs:
+                continue
+            model = apps.get_model(app_label, model_name)
+            queryset = model.objects.filter(team__project_id=self.team.project_id, short_id__in=refs, deleted=False)
+            if entry_type == "notebook":
+                queryset = queryset.alias(
+                    _markdown_type=Func(
+                        F("content__content__0__attrs__markdown"), function="jsonb_typeof", output_field=CharField()
+                    )
+                ).filter(
+                    visibility="default",
+                    content__content__0__type="ph-markdown-notebook",
+                    content__content__1__isnull=True,
+                    _markdown_type="string",
+                )
+                content_type = "text/markdown"
+            else:
+                queryset = queryset.filter(query__source__kind="HogQLQuery")
+                content_type = "application/sql"
+            for team_id, ref in queryset.values_list("team_id", "short_id"):
+                if (entry_type, ref, team_id) not in denied:
+                    content_types[(entry_type, team_id, ref)] = content_type
+        for item in results:
+            if item.get("type") not in ("notebook", "insight"):
+                continue
+            meta = item.get("meta")
+            item["meta"] = {
+                **(meta if isinstance(meta, dict) else {}),
+                "content_type": content_types.get(
+                    (str(item["type"]), entry_teams.get(str(item["id"]), -1), str(item.get("ref"))),
+                    "application/json",
+                ),
+            }
+
+    @extend_schema(parameters=[FileSystemListQuerySerializer])
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = FileSystemListQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
         order_by_param = request.query_params.get("order_by")
         # Recents (the high-volume, timeout-prone path) is served view-log-first, with or without a
         # search term — one query function, no join, no COUNT(*).
         if order_by_param in ("-last_viewed_at", "last_viewed_at") and request.user.is_authenticated:
-            return self._list_recents(request, descending=order_by_param == "-last_viewed_at")
-
-        response = super().list(request, *args, **kwargs)
-        response.data["users"] = self._created_by_users(response.data.get("results", []))
+            response = self._list_recents(request, descending=order_by_param == "-last_viewed_at")
+        else:
+            response = super().list(request, *args, **kwargs)
+            response.data["users"] = self._created_by_users(response.data.get("results", []))
+        if query_serializer.validated_data["include_content_type"]:
+            self._add_content_types(response.data.get("results", []))
         return response
 
     def _created_by_users(self, results: builtins.list[dict[str, Any]]) -> builtins.list[dict[str, Any]]:
@@ -760,15 +872,31 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return deleted_objects
 
-    def destroy(self, request, *args, **kwargs):
+    @extend_schema(parameters=[FileSystemDeleteQuerySerializer])
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = FileSystemDeleteQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         instance = self.get_object()
         original_path = instance.path
         instance_created_by = instance.created_by
         deleted_objects: list[dict[str, Any]]
 
         with transaction.atomic():
-            reaches_backing_object = self._ensure_can_delete(instance)
-            deleted_objects = self._delete_file_system_entry(instance, reaches_backing_object)
+            if instance.type == "folder" and not query.validated_data["recursive"]:
+                descendants = self._scope_by_project_and_environment(
+                    FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+                )
+                empty_folder = FileSystem.objects.filter(
+                    pk=instance.pk, team_id=instance.team_id, path=instance.path, type="folder"
+                ).filter(~Exists(descendants))
+                # Keep the emptiness predicate in the DELETE statement. Folders have no dependent rows,
+                # and the view-log cleanup signal only applies to files, so no collector is needed.
+                if not empty_folder._raw_delete(empty_folder.db):
+                    raise Conflict("Folder is not empty.", code="directory_not_empty")
+                deleted_objects = []
+            else:
+                reaches_backing_object = self._ensure_can_delete(instance)
+                deleted_objects = self._delete_file_system_entry(instance, reaches_backing_object)
 
         if instance.type == "folder":
             leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/"))
@@ -851,6 +979,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    def _move_folder_shortcuts(self, old_path: str, new_path: str, team_id: int) -> None:
+        shortcuts = self._scope_by_project(
+            FileSystemShortcut.objects.filter(team_id=team_id, type="folder", ref=old_path)
+        )
+        shortcuts.filter(path=join_path([split_path(old_path)[-1]])).update(path=join_path([split_path(new_path)[-1]]))
+        shortcuts.update(ref=new_path)
+
     @action(methods=["POST"], detail=True)
     def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
@@ -871,9 +1006,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 qs = self._scope_by_project_and_environment(qs)
                 qs = self._filter_by_access_control(qs)
                 for file in qs:
+                    old_child_path = file.path
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
                     file.save()
+                    if file.type == "folder":
+                        self._move_folder_shortcuts(old_child_path, file.path, file.team_id)
+
+                self._move_folder_shortcuts(old_path, new_path, instance.team_id)
 
                 targets = FileSystem.objects.filter(path=new_path).all()
                 targets = self._scope_by_project_and_environment(targets)

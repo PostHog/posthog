@@ -1,6 +1,7 @@
 from .account import Account
 from .account_channel_summary import AccountChannelSummary, SlackSummaryCadence
 from .account_track_rule_run import AccountTrackRuleRun, AccountTrackRuleRunStatus, AccountTrackRuleRunTrigger
+from .account_view import AccountView
 from .announcement import Announcement
 from .announcement_delivery import AnnouncementDelivery
 from .custom_property_definition import (
@@ -23,6 +24,7 @@ from .feature_request import (
     FeatureRequest,
     FeatureRequestAccountLink,
     FeatureRequestEvidence,
+    FeatureRequestGitHubLink,
     FeatureRequestHistory,
     FeatureRequestHistorySource,
     FeatureRequestPriority,
@@ -31,7 +33,7 @@ from .feature_request import (
     FeatureRequestStatus,
 )
 from .meeting import Meeting, MeetingParticipant, MeetingResponseStatus, MeetingStatus
-from .relationship import AccountRelationship, AccountRelationshipDefinition
+from .relationship import AccountRelationship, AccountRelationshipControl, AccountRelationshipDefinition
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from .user_customer_analytics_config import UserCustomerAnalyticsConfig
 
@@ -40,11 +42,13 @@ __all__ = [
     "CANONICAL_LAST_SLACK_MESSAGE_AT",
     "DATA_TYPE_BY_DISPLAY_TYPE",
     "Account",
+    "AccountView",
     "AccountChannelSummary",
     "AccountTrackRuleRun",
     "AccountTrackRuleRunStatus",
     "AccountTrackRuleRunTrigger",
     "AccountRelationship",
+    "AccountRelationshipControl",
     "AccountRelationshipDefinition",
     "Announcement",
     "AnnouncementDelivery",
@@ -65,6 +69,7 @@ __all__ = [
     "FeatureRequest",
     "FeatureRequestAccountLink",
     "FeatureRequestEvidence",
+    "FeatureRequestGitHubLink",
     "FeatureRequestHistory",
     "FeatureRequestHistorySource",
     "FeatureRequestPriority",

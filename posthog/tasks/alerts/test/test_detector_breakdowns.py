@@ -107,6 +107,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         team = MagicMock()
         alert = _make_alert(team, ZSCORE_DETECTOR_CONFIG)
         insight = MagicMock(spec=Insight)
+        insight.id = 7
         query = _make_query_with_breakdown()
 
         result = check_detector_alert(alert, insight, query)
@@ -115,7 +116,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         assert "staking" in result.breaches[0]
         assert "Anomaly detected" in result.breaches[0]
         # "staking" is at index 1 in the breakdown results
-        assert result.triggered_metadata == {"series_index": 1}
+        assert result.triggered_metadata == {"detector_type": "zscore", "series_index": 1, "insight_id": 7}
 
     @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_does_not_fire_when_all_breakdowns_are_normal(self, mock_calc: MagicMock) -> None:
@@ -220,8 +221,10 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
 
         assert result.breaches is not None and len(result.breaches) > 0
         assert "Anomaly detected" in result.breaches[0]
-        # Non-breakdown alerts should not set triggered_metadata
-        assert result.triggered_metadata is None
+        # A non-breakdown check records what produced it and nothing about the fit.
+        assert result.triggered_metadata is not None
+        assert result.triggered_metadata["detector_type"] == "zscore"
+        assert result.triggered_metadata["series_index"] == 0
 
     @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_breakdown_result_includes_anomaly_scores(self, mock_calc: MagicMock) -> None:
@@ -412,7 +415,7 @@ class TestSimulateDetectorBreakdowns:
         # Exercises the HogQLDetectorExtractor.simulate() dispatch route end-to-end: a HOG_QL_QUERY
         # insight resolves to the SQL extractor via DETECTOR_EXTRACTORS and scores its own rows.
         rows = [[v] for v in [*([10.0, 11.0, 10.0, 9.0] * 10), 500.0]]  # 41 single-column rows, spike last
-        mock_calc.return_value = MagicMock(result=rows, columns=["value"])
+        mock_calc.return_value = MagicMock(result=rows, columns=["value"], has_more=False)
 
         insight = MagicMock(spec=Insight)
         insight.query = {"kind": "HogQLQuery", "query": "SELECT value FROM events"}

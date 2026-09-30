@@ -39,15 +39,12 @@ describe("resolvePosthogPiModelCatalog", () => {
       "us",
     );
 
+    // Haiku is served here but absent from the catalog, so the picker does not offer it.
     expect(models).toEqual([
       expect.objectContaining({
         provider: "posthog",
         id: "claude-opus-5",
         thinkingLevels: expect.arrayContaining(["off", "high", "xhigh"]),
-      }),
-      expect.objectContaining({
-        provider: "posthog",
-        id: "claude-haiku-4-5",
       }),
     ]);
   });
@@ -79,11 +76,33 @@ describe("resolvePosthogPiModelCatalog", () => {
     expect(fable51.thinkingLevels).not.toContain("off");
   });
 
+  it("uses the GPT-6.1 Sol thinking levels before Pi adds the model", () => {
+    const [model] = resolvePosthogPiModelCatalog(
+      [
+        {
+          id: "gpt-6.1-sol",
+          context_window: 1_050_000,
+          supports_vision: true,
+          allowed: true,
+        },
+      ],
+      "us",
+    );
+
+    expect(model.thinkingLevels).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+
   it("marks the default model without changing catalog order", () => {
     const models = resolvePosthogPiModelCatalog(
       [
         {
-          id: "claude-haiku-4-5",
+          id: "claude-sonnet-5",
           context_window: 200_000,
           supports_vision: true,
           allowed: true,
@@ -99,7 +118,7 @@ describe("resolvePosthogPiModelCatalog", () => {
     );
 
     expect(models.map((model) => model.id)).toEqual([
-      "claude-haiku-4-5",
+      "claude-sonnet-5",
       DEFAULT_PI_MODEL_ID,
     ]);
     expect(models.find((model) => model.isDefault)?.id).toBe(
@@ -108,7 +127,6 @@ describe("resolvePosthogPiModelCatalog", () => {
   });
 
   it.each([
-    ["claude-haiku-4-5", "Claude Haiku 4.5"],
     ["claude-sonnet-5", "Claude Sonnet 5"],
     ["claude-fable-5", "Claude Fable 5"],
     ["claude-opus-5", "Claude Opus 5"],
@@ -116,6 +134,7 @@ describe("resolvePosthogPiModelCatalog", () => {
     ["gpt-5.6-terra", "GPT-5.6 Terra"],
     ["gpt-5.6-luna", "GPT-5.6 Luna"],
     ["gpt-6-astra", "GPT-6 Astra"],
+    ["gpt-6.1-sol", "GPT-6.1 Sol"],
     ["zai-org/glm-5.3", "GLM-5.3"],
     ["moonshotai/kimi-k3", "Kimi K3"],
     ["deepseek-ai/deepseek-v4-flash-0731", "DeepSeek V4 Flash"],
@@ -135,7 +154,7 @@ describe("resolvePosthogPiModelCatalog", () => {
     expect(models).toEqual([expect.objectContaining({ id, name })]);
   });
 
-  it("keeps unknown Pi models in the catalog", () => {
+  it("leaves a model the catalog does not list out of the picker", () => {
     const models = resolvePosthogPiModelCatalog(
       [
         {
@@ -148,40 +167,80 @@ describe("resolvePosthogPiModelCatalog", () => {
       "us",
     );
 
-    expect(models).toEqual([
-      expect.objectContaining({ id: "new-model", name: "New Model" }),
-    ]);
+    expect(models).toEqual([]);
   });
 
-  it.each([
-    "claude-sonnet-4-5",
-    "claude-sonnet-4-6",
-    "claude-sonnet-4-7",
-    "claude-sonnet-4-8",
-    "claude-opus-4-5",
-    "claude-opus-4-6",
-    "claude-opus-4-7",
-    "claude-opus-4-8",
-    "gpt-5.2",
-    "gpt-5.3-codex",
-    "gpt-5.4",
-    "gpt-5.5",
-    "gpt-5-mini",
-    "@cf/zai-org/glm-5.2",
-  ])("excludes %s from the Pi catalog", (id) => {
-    const models = resolvePosthogPiModelCatalog(
-      [
-        {
-          id,
-          context_window: 200_000,
-          supports_vision: true,
-          allowed: true,
-        },
-      ],
+  // One retired model and one the catalog never listed. `isOfferedModel` owns the full table,
+  // in packages/shared/src/model-catalog.test.ts; these two prove the filter is wired up here.
+  it.each(["claude-opus-4-7", "gpt-5.4"])(
+    "excludes %s from the Pi catalog",
+    (id) => {
+      const models = resolvePosthogPiModelCatalog(
+        [
+          {
+            id,
+            context_window: 200_000,
+            supports_vision: true,
+            allowed: true,
+          },
+        ],
+        "us",
+      );
+
+      expect(models).toEqual([]);
+    },
+  );
+
+  // Pi hid both while the two hide lists disagreed; every other picker offered them throughout.
+  it.each(["claude-opus-4-8", "gpt-5.5"])(
+    "offers %s in the Pi catalog",
+    (id) => {
+      const models = resolvePosthogPiModelCatalog(
+        [
+          {
+            id,
+            context_window: 200_000,
+            supports_vision: true,
+            allowed: true,
+          },
+        ],
+        "us",
+      );
+
+      expect(models).toEqual([expect.objectContaining({ id })]);
+    },
+  );
+
+  it("reads Go-shaped entries through the proxy and honours its marks", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          object: "list",
+          data: [
+            { id: "claude-opus-5", owned_by: "anthropic" },
+            {
+              id: "gpt-6-sol",
+              owned_by: "openai",
+              allowed: false,
+              restriction_reason: "paid_plan_required",
+            },
+          ],
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const models = await fetchPosthogPiModelCatalog(
+      "http://127.0.0.1:4100/session-token",
       "us",
+      "posthog-code-auth-proxy",
+      42,
     );
 
-    expect(models).toEqual([]);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://127.0.0.1:4100/session-token/v1/models",
+    );
+    expect(models.map((model) => model.id)).toEqual(["claude-opus-5"]);
   });
 
   it("uses fallback models without fetching while offline", async () => {

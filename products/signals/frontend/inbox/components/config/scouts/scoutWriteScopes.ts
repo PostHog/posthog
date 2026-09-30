@@ -2,7 +2,7 @@
 export interface ScoutWriteScopeRow {
     scope: string
     /** Heading the row sits under. Purely a label: the API stores a flat list of scopes. */
-    group: 'Analytics' | 'Monitoring' | 'Scouts and skills' | 'Data'
+    group: 'Analytics' | 'Monitoring' | 'Scouts and skills' | 'Data' | 'Replay vision'
     label: string
     description: string
 }
@@ -14,6 +14,10 @@ export interface ScoutWriteScopeRow {
  * reject it. A scope added there needs a row added here to be offered. Descriptions say what the
  * scope reaches, because each one covers update and delete of every object of its kind in the
  * project, not only the ones the scout made.
+ *
+ * Every row is offered whatever a project has set up: the MCP tools behind a grant are gated on the
+ * product, so a grant on a project without it is inert, and no row needs the picker to know which
+ * products the project has.
  */
 export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
     {
@@ -59,6 +63,13 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         group: 'Data',
         label: 'Warehouse tables',
         description: 'Create tables, refresh their schema, and manage data quality checks on them',
+    },
+    {
+        scope: 'replay_scanner:write',
+        group: 'Replay vision',
+        label: 'Replay vision scanners',
+        description:
+            'Create and update scanners, rate observations, and apply prompt suggestions. A scanner spends credits as it runs, so a scout has to give any it creates a credit limit. Scouts cannot delete scanners',
     },
 ]
 

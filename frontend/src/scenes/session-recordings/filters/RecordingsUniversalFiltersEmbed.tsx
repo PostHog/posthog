@@ -39,12 +39,7 @@ import { SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { CategoryDropdown } from 'lib/components/TaxonomicFilter/CategoryDropdown'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import {
-    CategoryDropdownVariant,
-    resolveCategoryDropdownVariant,
-    TaxonomicFilterGroupType,
-    TaxonomicFilterLogicProps,
-} from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
@@ -86,6 +81,7 @@ import {
     sessionRecordingsPlaylistLogic,
 } from '../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { FilterTemplates } from '../templates/FilterTemplates'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
@@ -333,7 +329,7 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
 
-    const { activeFilterTab } = useValues(playlistFiltersLogic)
+    const { activeFilterTab, templatesInFiltersPanel } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
 
     const { savedFilters } = useValues(sessionRecordingSavedFiltersLogic)
@@ -360,12 +356,32 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
             content: <SavedFilters setFilters={props.setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
+        ...(templatesInFiltersPanel
+            ? [
+                  {
+                      key: 'templates',
+                      label: <div className="px-2">Templates</div>,
+                      content: (
+                          <div className="p-2">
+                              <FilterTemplates
+                                  source="filters_panel"
+                                  onApply={(filters) => {
+                                      props.setFilters(filters)
+                                      setActiveFilterTab('filters')
+                                  }}
+                              />
+                          </div>
+                      ),
+                      'data-attr': 'session-recordings-templates-tab',
+                  },
+              ]
+            : []),
     ]
 
     return (
         <div className="relative">
             <LemonTabs
-                activeKey={activeFilterTab}
+                activeKey={tabs.some((tab) => tab.key === activeFilterTab) ? activeFilterTab : 'filters'}
                 onChange={(activeKey) => setActiveFilterTab(activeKey)}
                 size="small"
                 tabs={tabs}
@@ -596,10 +612,8 @@ function SavedFilterNameEditor({
 }
 
 export function RecordingsUniversalFilterAddFilterPopover({
-    categoryDropdownVariant,
     taxonomicGroupTypes,
 }: {
-    categoryDropdownVariant: CategoryDropdownVariant
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
 }): JSX.Element {
     const [isPopoverVisible, setIsPopoverVisible] = useState(false)
@@ -608,7 +622,7 @@ export function RecordingsUniversalFilterAddFilterPopover({
     const inputRef = useRef<HTMLInputElement | null>(null)
     const focusInput = (): void => inputRef.current?.focus()
 
-    const taxonomicFilterLogicKey = `session-recordings-add-filter-${useId()}`
+    const taxonomicFilterLogicKey = `session-recordings-add-filter-${useId()}-${isPopoverVisible ? 'open' : 'closed'}`
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey,
@@ -619,33 +633,29 @@ export function RecordingsUniversalFilterAddFilterPopover({
     // clicking the pill from a closed state opens its menu AND focuses the input (which
     // opens the surrounding popover); the popover portal mounts last and ends up
     // visually on top of the menu.
-    const suffix =
-        categoryDropdownVariant === 'control' || !isPopoverVisible ? undefined : (
-            <CategoryDropdown variant={categoryDropdownVariant} onAfterChange={focusInput} />
-        )
+    const suffix = !isPopoverVisible ? undefined : <CategoryDropdown onAfterChange={focusInput} />
+
+    const closePopover = (): void => {
+        setIsPopoverVisible(false)
+        setAddFilterSearchQuery('')
+    }
 
     const popover = (
         <Popover
             overlay={
                 <UniversalFilters.PureTaxonomicFilter
-                    fullWidth={false}
-                    onChange={() => {
-                        setIsPopoverVisible(false)
-                        setAddFilterSearchQuery('')
-                    }}
+                    onChange={closePopover}
                     searchQuery={addFilterSearchQuery}
                     hideSearchInput
                     taxonomicFilterLogicKey={taxonomicFilterLogicKey}
                 />
             }
             placement="bottom-start"
+            matchWidth
             visible={isPopoverVisible}
-            onClickOutside={() => {
-                setIsPopoverVisible(false)
-                setAddFilterSearchQuery('')
-            }}
+            onClickOutside={closePopover}
         >
-            <div className="w-full max-w-[600px] shrink grow-0">
+            <div className="w-full max-w-[600px] shrink grow-0 @container">
                 <LemonInput
                     type="search"
                     size="small"
@@ -664,8 +674,7 @@ export function RecordingsUniversalFilterAddFilterPopover({
                     onFocus={() => setIsPopoverVisible(true)}
                     onKeyDown={(e) => {
                         if (e.key === 'Escape') {
-                            setIsPopoverVisible(false)
-                            setAddFilterSearchQuery('')
+                            closePopover()
                             e.preventDefault()
                         }
                     }}
@@ -675,14 +684,10 @@ export function RecordingsUniversalFilterAddFilterPopover({
         </Popover>
     )
 
-    // Bind the logic whenever the pill variant is in play so the suffix can mount/unmount
-    // alongside popover visibility without remounting the popover itself.
-    return categoryDropdownVariant !== 'control' ? (
+    return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             {popover}
         </BindLogic>
-    ) : (
-        popover
     )
 }
 
@@ -741,10 +746,6 @@ export const ReplayFiltersTab = ({
 }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const categoryDropdownVariant = resolveCategoryDropdownVariant(
-        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
-    )
     const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
     const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_REPLAY_FILTERS')
     // A scanner keeps less of the filter set than this panel does, so what it would actually watch
@@ -963,10 +964,7 @@ export const ReplayFiltersTab = ({
                                     setFilters({ filter_group: newFilterGroup })
                                 }}
                             >
-                                <RecordingsUniversalFilterAddFilterPopover
-                                    categoryDropdownVariant={categoryDropdownVariant}
-                                    taxonomicGroupTypes={taxonomicGroupTypes}
-                                />
+                                <RecordingsUniversalFilterAddFilterPopover taxonomicGroupTypes={taxonomicGroupTypes} />
                             </UniversalFilters>
                         )}
                 </div>
