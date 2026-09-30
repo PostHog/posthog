@@ -233,7 +233,7 @@ const PULL_REQUESTS: PullRequestListApi = {
     limit: 1000,
 }
 
-// Only the failing open PR needs attention; the merged one is past the backlog.
+// Only the open PR needs attention, because the merged one has left the backlog.
 const ATTENTION_PULL_REQUESTS: AttentionPullRequestListApi = {
     items: PULL_REQUESTS.items.filter((item) => item.state === 'open'),
     total: 1,
