@@ -41,12 +41,9 @@ _TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX = "$sdk_debug_"
 def is_temporary_event_property(key: str) -> bool:
     """Whether the native cleaner stores this top-level event property in `temporary_properties`.
 
-    A dotted key is classified by the part before its first dot, as the cleaner does before it expands the key.
+    A dotted key such as `$set.foo` is one flat key, so it matches only the prefix rule, never a root name.
     """
-    if not key.startswith("$"):
-        return False
-    root = key.split(".", 1)[0]
-    return root in _TEMPORARY_EVENT_PROPERTY_ROOTS or root.startswith(_TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)
+    return key in _TEMPORARY_EVENT_PROPERTY_ROOTS or key.startswith(_TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)
 
 
 # Every path not declared below is a dynamic subcolumn (up to the column's max_dynamic_paths per part, then

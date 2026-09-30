@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math/bits"
 	"os"
 	"runtime/pprof"
 	"slices"
@@ -88,8 +87,7 @@ func isTemporaryProperty(key string) bool {
 	if len(key) == 0 || key[0] != '$' {
 		return false
 	}
-	root, _, _ := strings.Cut(key, ".")
-	switch root {
+	switch key {
 	case "$set", "$set_once", "$unset", "$group_set", "$feature_flag_request_id",
 		"$debug_first_full_snapshot_timestamp", "$snapshot_max_depth_exceeded",
 		"$sess_rec_flush_size", "$session_recording_remote_config",
@@ -97,7 +95,7 @@ func isTemporaryProperty(key string) bool {
 		"$replay_script_config", "$sent_at", "$lib_rate_limit_remaining_tokens", "$lib_custom_api_host":
 		return true
 	}
-	return strings.HasPrefix(root, "$sdk_debug_")
+	return strings.HasPrefix(key, "$sdk_debug_")
 }
 
 func makePathRules(paths ...string) *pathRule {
@@ -176,32 +174,23 @@ type entryInfo struct {
 	hasNonEmpty   bool
 }
 
-type mergeKey struct {
-	parent *value
-	key    string
-}
-
 type processor struct {
-	data            []byte
-	pos             int
-	kind            propertiesKind
-	mutated         bool
-	rawSafe         bool
-	free            []*value
-	info            map[string]entryInfo
-	index           map[mergeKey]*value
-	entriesBuf      []entry
-	entryBuffers    [8][]entry
-	entryBufferMask uint8
-	stringBuf       bytes.Buffer
-	tooDeepArrays   bool
-	discard         bool
-	collectNulls    bool
-	nullKeys        []string
-	path            []string
-	pathBuf         bytes.Buffer
-	docs            [envelopeDocs]bytes.Buffer
-	docNullKeys     [envelopeDocs][]string
+	data          []byte
+	pos           int
+	kind          propertiesKind
+	mutated       bool
+	rawSafe       bool
+	free          []*value
+	info          map[string]entryInfo
+	stringBuf     bytes.Buffer
+	tooDeepArrays bool
+	discard       bool
+	collectNulls  bool
+	nullKeys      []string
+	path          []string
+	pathBuf       bytes.Buffer
+	docs          [envelopeDocs]bytes.Buffer
+	docNullKeys   [envelopeDocs][]string
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -218,14 +207,6 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 }
 
 func (p *processor) prepareLine(rawLine []byte, buf *bytes.Buffer) {
-	for p.entryBufferMask != 0 {
-		i := bits.Len8(p.entryBufferMask) - 1
-		if cap(p.entryBuffers[i]) <= max(16, len(rawLine)) {
-			break
-		}
-		p.entryBuffers[i] = nil
-		p.entryBufferMask &^= 1 << i
-	}
 	if buf.Cap() > max(64*1024, 2*len(rawLine)) {
 		*buf = bytes.Buffer{}
 	}
@@ -449,7 +430,6 @@ func (p *processor) recycle(v *value) {
 	v.b = false
 	// Keep small arrays for reuse; bound clearing work for larger ones by this row's size.
 	if cap(v.entries) > max(16, 2*len(v.entries)) {
-		p.cacheEntries(v.entries)
 		v.entries = nil
 	}
 	if cap(v.values) > max(16, 2*len(v.values)) {
@@ -464,19 +444,6 @@ func (p *processor) recycle(v *value) {
 	v.entries = v.entries[:0]
 	v.values = v.values[:0]
 	p.free = append(p.free, v)
-}
-
-func (p *processor) cacheEntries(entries []entry) {
-	if cap(entries) <= 16 || cap(entries) > min(maxRecycledValues, len(p.data)) {
-		return
-	}
-	// One buffer per size class retains fewer than 8,192 entries across all classes.
-	i := bits.Len(uint(cap(entries)-1)) - 5
-	if cap(entries) > cap(p.entryBuffers[i]) {
-		clear(entries[:cap(entries)])
-		p.entryBuffers[i] = entries[:0]
-		p.entryBufferMask |= 1 << i
-	}
 }
 
 func (p *processor) parseValue(depth, arrayDepth int) (*value, error) {
@@ -547,9 +514,6 @@ func (p *processor) parseValue(depth, arrayDepth int) (*value, error) {
 func (p *processor) parseObject(depth, arrayDepth int) (*value, error) {
 	p.pos++
 	obj := p.newValue(kindObject)
-	if obj != nil && cap(p.entriesBuf) > cap(obj.entries) {
-		obj.entries, p.entriesBuf = p.entriesBuf, obj.entries
-	}
 	p.skipWS()
 	if p.consumeByte('}') {
 		return obj, nil
@@ -891,12 +855,7 @@ func (p *processor) cleanNode(pathRules *pathRule, v *value, depth int) (*value,
 }
 
 func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) error {
-	expanded, err := p.expandDottedEntries(obj.entries, depth)
-	if err != nil {
-		return err
-	}
-	obj.entries = expanded
-
+	var err error
 	var unparsable bytes.Buffer
 	writeIdx := 0
 	for readIdx, entry := range obj.entries {
@@ -970,46 +929,6 @@ func (p *processor) retainUnprocessedEntries(obj *value, writeIdx, readIdx int) 
 	obj.entries = obj.entries[:writeIdx+remaining]
 }
 
-func (p *processor) expandDottedEntries(entries []entry, depth int) ([]entry, error) {
-	needsExpand := false
-	for _, entry := range entries {
-		if strings.IndexByte(entry.key, '.') >= 0 {
-			if depth+strings.Count(entry.key, ".")+1 > maxJSONDepth {
-				return nil, errMaxJSONDepth
-			}
-			needsExpand = true
-		}
-	}
-	if !needsExpand {
-		return entries, nil
-	}
-	p.mutated = true
-
-	expanded := p.entriesBuf[:0]
-	if p.index == nil {
-		p.index = make(map[mergeKey]*value, len(entries))
-	}
-	for _, entry := range entries {
-		if strings.IndexByte(entry.key, '.') < 0 {
-			p.appendEntry(nil, &expanded, entry.key, entry.value)
-		} else {
-			p.insertDottedKey(nil, &expanded, entry.key, entry.value)
-		}
-	}
-
-	if len(p.index) > maxRecycledValues {
-		p.index = nil
-	} else {
-		clear(p.index)
-	}
-	clear(entries[:cap(entries)])
-	p.entriesBuf = entries[:0]
-	if cap(p.entriesBuf) > maxRecycledValues {
-		p.entriesBuf = nil
-	}
-	return expanded, nil
-}
-
 func (p *processor) writeUnparseableProperties(buf *bytes.Buffer, raw []byte) {
 	buf.Reset()
 	if p.kind == temporaryProperties {
@@ -1023,45 +942,6 @@ func (p *processor) writeUnparseableProperties(buf *bytes.Buffer, raw []byte) {
 	buf.WriteByte(':')
 	writeJSONString(buf, borrowedString(raw))
 	buf.WriteByte('}')
-}
-
-func (p *processor) appendEntry(parent *value, entries *[]entry, key string, child *value) {
-	*entries = append(*entries, entry{key: key, value: child})
-	mk := mergeKey{parent: parent, key: key}
-	if child.kind == kindObject {
-		p.index[mk] = child
-	} else {
-		delete(p.index, mk)
-	}
-}
-
-func (p *processor) insertDottedKey(parent *value, entries *[]entry, key string, child *value) {
-	for {
-		dot := strings.IndexByte(key, '.')
-		if dot < 0 {
-			p.appendEntry(parent, entries, key, child)
-			return
-		}
-
-		head := key[:dot]
-		rest := key[dot+1:]
-		mk := mergeKey{parent: parent, key: head}
-		target := p.index[mk]
-		if target == nil {
-			target = p.newValue(kindObject)
-			if p.entryBufferMask != 0 {
-				i := bits.Len8(p.entryBufferMask) - 1
-				if cap(p.entryBuffers[i]) > cap(target.entries) {
-					target.entries, p.entryBuffers[i] = p.entryBuffers[i], nil
-					p.entryBufferMask &^= 1 << i
-				}
-			}
-			p.appendEntry(parent, entries, head, target)
-		}
-		parent = target
-		entries = &parent.entries
-		key = rest
-	}
 }
 
 func (p *processor) deduplicateEntries(obj *value) {
@@ -1710,21 +1590,35 @@ func isBlank(raw []byte) bool {
 	return true
 }
 
+// %2E is the json_type_escape_dots_in_keys spelling, which tells the flat key `a.b` from the path `a` > `b`.
 func (p *processor) recordNullKey(key string) {
-	if len(p.path) == 0 {
+	if len(p.path) == 0 && strings.IndexByte(key, '.') < 0 {
 		p.nullKeys = append(p.nullKeys, key)
 		return
 	}
 	p.pathBuf.Reset()
 	for _, segment := range p.path {
-		p.pathBuf.WriteString(segment)
+		writeNullKeySegment(&p.pathBuf, segment)
 		p.pathBuf.WriteByte('.')
 	}
-	p.pathBuf.WriteString(key)
+	writeNullKeySegment(&p.pathBuf, key)
 	p.nullKeys = append(p.nullKeys, p.pathBuf.String())
 }
 
-// A duplicate or dotted key can leave a non-null value under a recorded path after cleaning.
+func writeNullKeySegment(buf *bytes.Buffer, segment string) {
+	for {
+		dot := strings.IndexByte(segment, '.')
+		if dot < 0 {
+			buf.WriteString(segment)
+			return
+		}
+		buf.WriteString(segment[:dot])
+		buf.WriteString("%2E")
+		segment = segment[dot+1:]
+	}
+}
+
+// A duplicate key can leave a non-null value under a recorded path after cleaning.
 func (p *processor) finishNullKeys(root *value, out []string) []string {
 	for _, key := range p.nullKeys {
 		if slices.Contains(out, key) || pathExists(root, key) {
@@ -1735,12 +1629,13 @@ func (p *processor) finishNullKeys(root *value, out []string) []string {
 	return out
 }
 
-// Cleaned keys never contain dots, so each segment is one object key or one array index.
+// Each segment is one object key, with its dots written as %2E, or one array index.
 func pathExists(v *value, path string) bool {
 	for v != nil {
 		segment, rest, more := strings.Cut(path, ".")
 		switch v.kind {
 		case kindObject:
+			segment = strings.ReplaceAll(segment, "%2E", ".")
 			var next *value
 			for _, entry := range v.entries {
 				if entry.key == segment {
