@@ -97,11 +97,13 @@ from products.signals.dags.inbox_ranking.training.dag import (
 )
 from products.signals.dags.inbox_ranking.training.examples import (
     STATE_LAG_LIMIT,
+    ConsentExclusion,
     Snapshot,
     assemble_snapshot,
     birth_day_positives,
     build_examples,
     cap_examples,
+    drop_without_training_consent,
     example_columns,
     holdout_mask,
     reports_missing_birth_snapshot,
@@ -504,6 +506,25 @@ def test_build_examples_skips_label_only_rows():
     assert build_examples(snapshots, head, TABULAR_FEATURE_SET)["report_id"].tolist() == ["a"]
 
 
+def test_build_examples_drops_reports_without_training_consent_at_training_time():
+    head = HEADS_BY_NAME["pr_created"]
+    later = D0 + datetime.timedelta(days=head.horizon_days)
+    # opted_out: its organization opted out after these snapshots were written; no_team: a state row
+    # with no readable team; eu: a label-only row with no state.
+    ids = ["consenting", "opted_out", "no_team", "eu"]
+    state = _state(ids, report_team_id=[1, 2, None, None], signal_count=[3, 3, 3, None])
+    snapshots = {
+        D0: Snapshot(date=D0, state=state, labels=_labels(ids)),
+        later: Snapshot(date=later, state=state, labels=_labels(ids, pr_created_count=[1, 1, 1, 1])),
+    }
+
+    kept, excluded = drop_without_training_consent(snapshots, frozenset({1}))
+
+    assert build_examples(kept, head, TABULAR_FEATURE_SET)["report_id"].tolist() == ["consenting"]
+    assert (excluded.reports, excluded.teams) == (2, 1)
+    assert kept[later].labels.index.tolist() == ["consenting", "eu"]
+
+
 def test_holdout_mask_cuts_by_report_not_by_row():
     examples = pd.DataFrame(
         {
@@ -816,7 +837,9 @@ def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_cos
         pd.NaT,
     ]
     snapshots = {
-        date: Snapshot(date=date, state=_state(ids, report_created_at=created), labels=_labels(ids))
+        date: Snapshot(
+            date=date, state=_state(ids, report_created_at=created, report_team_id=[1] * 5), labels=_labels(ids)
+        )
         for date in dates
         if date != gap
     }
@@ -831,6 +854,7 @@ def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_cos
     monkeypatch.setattr(f"{module}.s3_client", lambda: None)
     monkeypatch.setattr(f"{module}.snapshot_dates", lambda *args: dates)
     monkeypatch.setattr(f"{module}.load_snapshots", lambda *args, **kwargs: snapshots)
+    monkeypatch.setattr(f"{module}.training_consent_team_ids", lambda: frozenset({1}))
     monkeypatch.setattr(f"{module}.embeddings_extras", lambda *args: NO_EXTRAS)
     monkeypatch.setattr(f"{module}._write_examples", lambda *args: {})
     with dagster.build_asset_context(partition_key=dates[-1].isoformat()) as context:
@@ -1421,6 +1445,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             feature_set=TABULAR_FEATURE_SET.name,
             snapshots=20,
             backfilled_rows=0,
+            excluded=ConsentExclusion(reports=4, teams=2),
             per_head={
                 "open": HeadExampleCounts(
                     rows=10,
@@ -1508,6 +1533,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "example_window_start": "2026-07-01",
         "example_cap_bound": True,
         "feature_set": TABULAR_FEATURE_SET.name,
+        "excluded_no_training_consent_reports": 4,
+        "excluded_no_training_consent_teams": 2,
     }.items() <= examples_props.items()
     promotion_props = by_event["inbox_ranking_promotion_decided"][0]["properties"]
     assert {
@@ -2139,6 +2166,7 @@ def test_only_the_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
     monkeypatch.setattr(f"{module}.skip_unconfigured", lambda context: False)
     monkeypatch.setattr(f"{module}.s3_client", lambda: None)
     monkeypatch.setattr(f"{module}.load_snapshots", lambda *args, **kwargs: {})
+    monkeypatch.setattr(f"{module}.training_consent_team_ids", lambda: frozenset())
     monkeypatch.setattr(
         f"{module}.embeddings_extras",
         lambda context, client, bucket, prefix, partition_key, keys: {

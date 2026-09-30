@@ -624,6 +624,8 @@ SPECTACULAR_SETTINGS = {
             "RoleEnum": ["primary", "supporting"],
             # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
             "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
+            # The API-only pin kind uses StrEnum; name its component without a Django Choices class.
+            "AccountPropertyPinKindEnum": "products.customer_analytics.backend.facade.enums.ACCOUNT_PROPERTY_PIN_KIND_CHOICES",
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             # The subset a client may write. Shared by the single-issue and bulk write serializers,
@@ -1316,9 +1318,9 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
-# Decision model behind the preview HogQL `__preview_promptJev` function. Per environment, so a
+# Decision model behind the HogQL `jev` function. Per environment, so a
 # different model can be measured without a code change.
-HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jevk5-fp8-0.2")
+HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jeeves-0.1")
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
