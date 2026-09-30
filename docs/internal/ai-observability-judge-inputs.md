@@ -122,6 +122,7 @@ The playground keeps the provider's explanation so users can correct the setting
 
 Boolean online evaluations write their raw verdict to `$ai_evaluation_result`.
 Numeric evaluations write their score to `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max` bounds.
+Result badges and mean scores display up to two decimal places, with two significant digits for values below one to keep small nonzero scores visible. Badges expose the exact score on hover; storage, sorting, and passing rules use the original value.
 For online LLM judges, including System One, `step` is a suggested score increment in the prompt; results are not rounded or restricted to its multiples.
 Hog evaluations use the numeric value returned by the code and do not apply `step`.
 `$ai_evaluation_result_type` identifies the output type; events without it are legacy boolean results.

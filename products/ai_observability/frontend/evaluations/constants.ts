@@ -88,7 +88,7 @@ export function evaluationPassedHogQLForMany(detectorEvaluationIds: string[]): s
 }
 
 export function formatNumericEvaluationScore(score: number): string {
-    return Number(Math.abs(score) >= 1 ? score.toFixed(6) : score.toPrecision(6)).toString()
+    return Number(Math.abs(score) >= 1 ? score.toFixed(2) : score.toPrecision(2)).toString()
 }
 
 export function numericScorePasses(

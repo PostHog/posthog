@@ -66,13 +66,25 @@ describe('EvalResultBadges', () => {
     })
 
     it.each([
-        [1 / 3, '0.333333'],
+        [0, '0'],
+        [1 / 3, '0.33'],
         [123456789, '123456789'],
         [-123456789, '-123456789'],
-        [0.0000000123456789, '1.23457e-8'],
-        [1234567.1234567, '1234567.123457'],
-    ])('formats score %s without dropping integer digits', (score, label) => {
+        [0.0000000123456789, '1.2e-8'],
+        [1234567.1234567, '1234567.12'],
+    ])('formats score %s compactly without losing its magnitude', (score, label) => {
         expect(getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score })).label).toBe(label)
+    })
+
+    it.each([
+        [9.999, 'danger'],
+        [10.001, 'success'],
+    ])('uses the exact score %s for passing rules when the label is rounded', (score, type) => {
+        expect(
+            getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score }), {
+                passingRule: { operator: 'gte', threshold: 10 },
+            })
+        ).toMatchObject({ label: '10', type })
     })
 
     it.each([
