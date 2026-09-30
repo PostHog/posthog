@@ -531,7 +531,7 @@ def test_disk_headroom_leaves_out_the_share_the_mover_keeps_free(
     [
         pytest.param({"end_date": "2026-03-10"}, id="end_date_after_yesterday"),
         pytest.param({"start_date": "2026-03-01", "end_date": "2026-03-01"}, id="empty_window"),
-        pytest.param({"start_date": "2025-12-09"}, id="start_date_past_the_ttl"),
+        pytest.param({"start_date": "2025-12-10"}, id="start_date_expiring_on_the_run_date"),
     ],
 )
 def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any]) -> None:
@@ -545,7 +545,7 @@ def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any
         pytest.param(
             {"start_date": "2026-03-06", "end_date": "2026-03-09"}, date(2026, 3, 8), date(2026, 3, 6), 3, id="explicit"
         ),
-        pytest.param({}, date(2026, 3, 8), date(2025, 12, 10), 89, id="default"),
+        pytest.param({}, date(2026, 3, 8), date(2025, 12, 11), 88, id="default"),
     ],
 )
 def test_resolve_backfill_days_lists_each_day_newest_first(

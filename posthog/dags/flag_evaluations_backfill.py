@@ -85,7 +85,11 @@ WHERE policy.policy_name = (
 class FlagEvaluationsBackfillConfig(dagster.Config):
     start_date: str | None = pydantic.Field(
         default=None,
-        description="First day to copy (YYYY-MM-DD, UTC, inclusive). Defaults to 90 days before today.",
+        description=(
+            "First day to copy (YYYY-MM-DD, UTC, inclusive). Defaults to 89 days before today, which is also the "
+            "earliest allowed value. A run copies the oldest days last, so a run that lasts several days should "
+            "start a few days later, or the TTL drops those days soon after they are copied."
+        ),
     )
     end_date: str | None = pydantic.Field(
         default=None,
@@ -163,16 +167,15 @@ class DiskHeadroom:
 
 def resolve_backfill_days(config: FlagEvaluationsBackfillConfig, *, today: date) -> tuple[date, ...]:
     latest_end = today - timedelta(days=1)
-    start = (
-        date.fromisoformat(config.start_date)
-        if config.start_date
-        else today - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS)
-    )
+    # Rows from the day FLAG_EVALUATIONS_TTL_DAYS back expire during today, so the TTL drops their
+    # copies within hours. The window therefore starts one day later.
+    earliest_start = today - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS - 1)
+    start = date.fromisoformat(config.start_date) if config.start_date else earliest_start
     end = date.fromisoformat(config.end_date) if config.end_date else latest_end
-    earliest_start = today - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS)
     if start < earliest_start:
         raise dagster.Failure(
-            description=f"start_date {start} is before {earliest_start}. The TTL drops those rows as soon as they land."
+            description=f"start_date {start} is before {earliest_start}. "
+            f"The {FLAG_EVALUATIONS_TTL_DAYS}-day TTL drops those rows before or during this run."
         )
     if end > latest_end:
         raise dagster.Failure(description=f"end_date {end} is after yesterday ({latest_end}).")
