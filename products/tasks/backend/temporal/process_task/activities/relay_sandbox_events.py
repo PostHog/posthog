@@ -30,6 +30,12 @@ from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
 )
+from products.tasks.backend.logic.services.process_killed import (
+    PROCESS_KILLED_EVENT,
+    ProcessKilledNotice,
+    format_process_killed_message,
+    parse_process_killed,
+)
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_after_final_message
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
@@ -39,7 +45,11 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
-from products.tasks.backend.temporal.metrics import increment_tool_call_only_heartbeat
+from products.tasks.backend.temporal.metrics import (
+    increment_sandbox_process_killed_notification,
+    increment_tool_call_only_heartbeat,
+)
+from products.tasks.backend.temporal.observability import emit_agent_log
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
     get_task_run_credential_user,
@@ -526,6 +536,10 @@ async def _relay_loop(
                                 permission_request = parse_permission_request(event_data)
                                 if permission_request is not None:
                                     await asyncio.to_thread(_broker_permission_request, task_run, permission_request)
+                            process_killed = parse_process_killed(event_data)
+                            if process_killed is not None:
+                                increment_sandbox_process_killed_notification()
+                                await asyncio.to_thread(_report_process_killed, run_id, task_run, process_killed)
                             reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
@@ -992,6 +1006,19 @@ async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[in
             )
     except Exception as e:
         logger.debug("agentsh_emit_failed", error=str(e))
+
+
+def _report_process_killed(run_id: str, task_run: TaskRunModel | None, notice: ProcessKilledNotice) -> None:
+    if not settings.TEST:
+        close_old_connections()
+    try:
+        emit_agent_log(run_id, "warn", format_process_killed_message(notice))
+        if task_run is None:
+            return
+        task_run.capture_event(PROCESS_KILLED_EVENT, notice.analytics_properties())
+    finally:
+        if not settings.TEST:
+            close_old_connections()
 
 
 def _is_terminal_event(event_data: dict) -> bool:
