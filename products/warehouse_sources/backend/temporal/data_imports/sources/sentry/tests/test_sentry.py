@@ -1945,6 +1945,32 @@ class TestSentryCustomIteratorEndpoints:
         assert rows == [{"key": "browser.name", "attributeType": "string", "dataset": "spans"}]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_trace_item_attributes_skips_dataset_on_persistent_server_error(self, mock_request) -> None:
+        # A persistent 5xx for one dataset (retries already exhausted by _request_with_retry)
+        # must not fail the whole endpoint — skip that dataset, like the other slices do.
+        def side_effect(url, headers=None, params=None, timeout=None):
+            dataset = (params or {}).get("dataset")
+            if dataset == "spans":
+                return _response([{"key": "browser.name", "attributeType": "string"}])
+            if dataset == "logs":
+                return _response(None, status_code=502)
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="trace_item_attributes",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"key": "browser.name", "attributeType": "string", "dataset": "spans"}]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_trace_item_stats_flattens_attribute_distributions(self, mock_request) -> None:
         def side_effect(url, headers=None, params=None, timeout=None):
             if (params or {}).get("itemType") == "spans":
