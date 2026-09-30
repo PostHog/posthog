@@ -26,6 +26,7 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
     const submissions = new Map<string, ScoutTrialLaunchApi>()
     const evaluations = new Map<string, ScoutTrialEvaluationApi>()
     const comparisons = new Map<string, ScoutTrialComparisonApi>()
+    const comparisonPollCounts = new Map<string, number>()
     let rubric: ScoutRubricDocumentApi = {
         config_id: trialFixtureConfig.id,
         skill_name: scoutRubricReferenceFixture.skill_name,
@@ -128,7 +129,9 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
                 if (!comparison) {
                     return [404, { detail: 'Comparison not found.' }]
                 }
-                const status = comparison.status === 'running' ? 'judging' : 'completed'
+                const pollCount = (comparisonPollCounts.get(id) ?? 0) + 1
+                comparisonPollCounts.set(id, pollCount)
+                const status = pollCount === 1 ? 'running' : pollCount === 2 ? 'judging' : 'completed'
                 const updated: ScoutTrialComparisonApi = {
                     ...comparison,
                     status,
@@ -151,6 +154,9 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
             '/api/projects/:team/signals/scout/configs/:config/trial_result/': ({ request }) => {
                 const launchId = new URL(request.url).searchParams.get('launch_id')!
                 const submission = submissions.get(launchId)
+                const comparison = [...comparisons.values()].find(({ variants }) =>
+                    variants.some(({ launch_ids }) => launch_ids.includes(launchId))
+                )
                 return [
                     200,
                     {
@@ -158,6 +164,20 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
                         launch_id: launchId,
                         model: submission?.model ?? trialFixtureResult.model,
                         reasoning_effort: submission?.reasoning_effort ?? trialFixtureResult.reasoning_effort,
+                        ...(comparison?.status === 'running'
+                            ? {
+                                  status: 'in_progress',
+                                  task_status: 'in_progress',
+                                  completed_at: null,
+                                  result_key: null,
+                                  reports: [],
+                                  memory: {},
+                                  summary: '',
+                                  cost_usd: null,
+                                  input_tokens: null,
+                                  output_tokens: null,
+                              }
+                            : {}),
                     },
                 ]
             },
@@ -265,12 +285,14 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
                         launch_id: launchId,
                         model: submission?.model ?? trialFixtureResult.model,
                         reasoning_effort: submission?.reasoning_effort ?? trialFixtureResult.reasoning_effort,
-                        status: 'running',
+                        status: 'in_progress',
                         task_status: 'in_progress',
                         reports: [],
                         memory: {},
                         summary: '',
                         completed_at: null,
+                        input_tokens: null,
+                        output_tokens: null,
                     },
                 ]
             },

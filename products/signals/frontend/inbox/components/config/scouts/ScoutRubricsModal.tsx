@@ -388,7 +388,9 @@ export function ScoutRubricsModal({
                                 <LemonCard hoverEffect={false} className="divide-y overflow-hidden p-0">
                                     {criteria.length === 0 && (
                                         <p className="m-0 p-6 text-center text-sm text-secondary">
-                                            No scout-specific criteria yet. Add one, or generate suggestions.
+                                            {custom
+                                                ? 'No scout-specific criteria yet. Add one, or generate suggestions.'
+                                                : 'No shared defaults in this rubric.'}
                                         </p>
                                     )}
                                     {criteria.map((criterion) => (
