@@ -11,9 +11,12 @@ that record that keeps failing stops routing, so a commit cannot run on both eng
 Any other event goes to Depot only after Depot started a run for it. Depot compiles its run
 from the pull request's merge ref as soon as the event arrives, while GitHub Actions waits
 until GitHub has updated that ref. When the ref is missing, Depot ends the run with no
-workflows; when it stays stale, Depot fails to compile. Depot also cancels some runs under
-its concurrency policy before they start. Each case leaves the event with no Depot run, so
-it stays here.
+workflows; when it stays stale, Depot fails to compile. Each case leaves the event with no
+Depot run, so it stays here.
+
+The hand-off names the Depot workflow this script found, and only that workflow runs the
+tests. Depot starts a workflow for every pull request event, so this is what keeps the
+event GitHub Actions kept and the workflow that tests it the same.
 """
 
 import os
@@ -177,33 +180,34 @@ def fetch_handoff_checks(repo: str, sha: str, token: str, *, opener: Any = None)
     raise HandoffReadError(f"GET {url} exhausted {API_ATTEMPTS} attempts")
 
 
-def depot_started(
+def depot_workflow(
     reader: CheckReader,
     pr_number: int,
     event_at: str,
     *,
     clock: Callable[[], float] = time.time,
     sleep: Callable[[float], None] = time.sleep,
-) -> bool:
-    """Whether Depot started a run for this event, waiting up to DEPOT_START_SECONDS after it.
+) -> str | None:
+    """The Depot workflow that started for this event, waiting up to DEPOT_START_SECONDS after it.
 
-    The started check names the event, so it identifies this event's run and no other.
+    The started check names the event. Two events in the same second share that name, so the
+    newest check wins, and the hand-off names its workflow so only that workflow runs the tests.
     """
     try:
         deadline = datetime.strptime(event_at, EVENT_TIME).replace(tzinfo=UTC).timestamp() + DEPOT_START_SECONDS
     except ValueError:
-        return False
+        return None
     name = event_check_name(STARTED_JOB, pr_number, event_at)
     while True:
         try:
-            if reader.read(name):
-                return True
+            if started := reader.read(name):
+                return max(started, key=lambda check: check.id).depot_workflow
         except ReadFailedError:
             pass
         except ReadRefusedError:
-            return False
+            return None
         if clock() >= deadline:
-            return False
+            return None
         sleep(DEPOT_POLL_SECONDS)
 
 
@@ -239,22 +243,21 @@ def main() -> int:
         else:
             sys.stdout.write(f"::notice::Earlier hand-off on this commit: {prior_handoff or 'none'}\n")
     decision = route_with(prior_handoff)
-    if (
-        decision.engine == "depot"
-        and prior_handoff not in ENGINE_BY_HANDOFF_CONCLUSION
-        and pr_number is not None
-        and not depot_started(
+    workflow = None
+    if decision.engine == "depot" and pr_number is not None:
+        workflow = depot_workflow(
             CheckRunReader(env["REPO"], env["SHA"], env["GH_TOKEN"], pr_number=pr_number, app_ids=(MIRROR_APP_ID,)),
             pr_number,
             env.get("EVENT_AT", ""),
         )
-    ):
-        decision = Decision("github", "Depot CI started no run for this event")
+        # A commit that already ran on Depot stays there, and its relay reports the missing run.
+        if workflow is None and prior_handoff not in ENGINE_BY_HANDOFF_CONCLUSION:
+            decision = Decision("github", "Depot CI started no run for this event")
     sys.stdout.write(f"::notice::Backend CI engine: {decision.engine} ({decision.reason})\n")
     output_path = env.get("GITHUB_OUTPUT")
     if output_path:
         with open(output_path, "a", encoding="utf-8") as handle:
-            handle.write(f"engine={decision.engine}\nreason={decision.reason}\n")
+            handle.write(f"engine={decision.engine}\nreason={decision.reason}\ndepot_workflow={workflow or ''}\n")
     return 0
 
 

@@ -73,7 +73,11 @@ In the following cancelled runs, an unstarted job received a `cancelled` check w
 
 ## Finding one event's Depot run
 
-Check times and `pull_requests` did not pick out the Depot run in these cases, so the event goes into a check name. The Depot wait job's name ends with `(PR <number>, event <pull_request.updated_at>)`, and Depot renders expressions in job names into the check name. `.github/scripts/ci_backend_relay.py` builds the same name from the GitHub run's payload, reads that check, takes the Depot workflow id from its `details_url`, and reads the gate check of that workflow only. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, and GitHub relay job `107655803961` used `EVENT_AT: 2026-09-24T13:33:14Z` and relayed a successful gate.
+Check times and `pull_requests` did not pick out the Depot run in these cases, so the event goes into a check name. The Depot wait job's name ends with `(PR <number>, event <pull_request.updated_at>)`, and Depot renders expressions in job names into the check name. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, and GitHub relay job `107655803961` used `EVENT_AT: 2026-09-24T13:33:14Z` and relayed a successful gate.
+
+An event name alone is not enough, because two events in the same second share it, and every Depot run of a pull request can read every hand-off on its commit. Measured 2026-09-30 on PR 109405: Depot run `fp8s482ldl` for event 20:12:50Z logged "GitHub Actions handed the backend tests to Depot CI", although GitHub Actions had cancelled that event's hand-off. It had read the next event's hand-off check.
+
+So GitHub Actions names the workflow. The first step of the Depot wait job posts `Depot run started (PR <number>, event <updated_at>)` with the workflow in its `details_url`. `.github/scripts/ci_backend_route.py` waits for that check and takes the workflow id of the newest one. The hand-off job then posts `Hand off backend tests to Depot workflow <id>`, and the Depot wait job of that workflow is the only one that finds its check. `.github/scripts/ci_backend_relay.py` reads the checks of that workflow only.
 
 ### Racing events
 
@@ -83,7 +87,7 @@ Two events of one commit that arrive within a second or two race the concurrency
 - PR 106435: GitHub Actions kept the newer event (15:17:41Z). Depot kept the older one (15:17:40Z) and cancelled `nzb661zql2`.
 - Neither cancelled Depot run posted a wait check, so each surviving GitHub relay found no run for its event and failed after the grace period, although Depot's run for the other event passed on the same commit.
 
-GitHub Actions alone does the same. Among the 946 `ci-backend.yml` pull request runs created on 2026-09-25 between 11:30Z and 16:00Z, 56 same-commit pairs were created within 30 seconds of each other, 52 of them 0 to 2 seconds apart. GitHub kept the older run in 6 pairs, all 0 to 1 second apart. So after its grace period, the relay follows the Depot run of an event of the same pull request up to 2 seconds away (`RACING_EVENT_SECONDS`), newest first.
+GitHub Actions alone does the same. Among the 946 `ci-backend.yml` pull request runs created on 2026-09-25 between 11:30Z and 16:00Z, 56 same-commit pairs were created within 30 seconds of each other, 52 of them 0 to 2 seconds apart. GitHub kept the older run in 6 pairs, all 0 to 1 second apart. No order Depot sees can predict which event GitHub Actions keeps, so Depot never picks one: the hand-off names the workflow (see above), and GitHub Actions cancels the rest (see "Superseded runs").
 
 The newest check per name tells you the verdict. It does not tell you whether the PR can merge. A cancelled run on the same head keeps its checks, and when one of them is a required check, GitHub's merge box and Trunk keep the PR blocked until that run is rerun. `/merging-prs` has the recipe.
 
@@ -94,7 +98,9 @@ Depot's concurrency policy keeps the workflow it created last, and a Depot run g
 - PR 107856: run `wq9rjmvr7z` for head `056fb05982` was created at 16:09:59Z and got its workflow at 16:11:10Z. Run `0k16ml32s1` for the newer head `b9fbb26201` was created at 16:10:18Z and got its workflow at 16:11:09Z, so Depot cancelled `0k16ml32s1`.
 - PR 108622: two events of `d484f7a101` at 18:29:23Z and 18:29:34Z. GitHub Actions kept the second. Depot kept the first, whose gate passed, and the relay's 2-second racing window did not reach it.
 
-Run creation keeps event order: across 138 pairs of distinct events, each run's `created_at` followed its event by 1 to 12 seconds and never inverted. Across 356 consecutive run pairs of one pull request, Depot's run order matched GitHub Actions' run order in 355, and the other pair was a same-second tie on GitHub. Any order Depot sees can still disagree with the event GitHub Actions kept, because GitHub Actions keeps the older of two events 0 to 1 seconds apart in some pairs (see "Racing events"). So `.depot/workflows/ci-backend.yml` gives each event its own concurrency group, and its `cancel-superseded-runs` job runs only after the hand-off, in the run of the event GitHub Actions kept. It cancels every other run of the pull request that Depot created at the same time or earlier, and never its own run. A newer run cancels it in turn once GitHub Actions hands that newer event off.
+Ordering runs inside Depot does not fix this. A Depot-side cancel job that kept the newest run by `created_at` still cancelled the event GitHub Actions kept. Measured 2026-09-30 on PR 109390: GitHub Actions kept the older of two events 1 second apart (20:03:46Z and 20:03:47Z). Depot run `xz2gvwb1l2` for that event posted its started check, then the cancel job cancelled it. The relay read "absent" for 15 minutes before a fallback found the other event's run.
+
+Run creation keeps event order: across 138 pairs of distinct events, each run's `created_at` followed its event by 1 to 12 seconds and never inverted. So `.depot/workflows/ci-backend.yml` gives each pull request run its own concurrency group, and Depot cancels nothing. The `cancel-superseded-depot-runs` job in `.github/workflows/ci-backend.yml` runs in the event GitHub Actions kept, and cancels every Depot run of the pull request created before that event. Those runs belong to events GitHub Actions dropped, and this event's run is always created after it.
 
 ## pull_request_target checks
 

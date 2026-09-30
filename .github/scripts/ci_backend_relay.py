@@ -1,27 +1,12 @@
 #!/usr/bin/env python3
-"""Follow the Depot CI run that took over one pull request event, and read one of its checks.
+"""Follow the Depot CI workflow that took over one pull request event, and read one of its checks.
 
-GitHub Actions hands a pull request event to Depot CI (see ci_backend_route.py), and Depot
-starts a workflow for every pull request event. One commit can therefore carry Depot runs of
-earlier events, a duplicate run of the same event, and runs of another pull request with the
-same head. Depot check times and pull request lists cannot tell them apart:
-
-- When Depot cancels a superseded run, it posts a cancelled check for each job that had not
-  started, with `started_at` set to the cancel time.
-- Depot's checks sit in its app's check suite for the commit, which carries the branch of the
-  commit's first push. When that branch is not the pull request's head, the checks list no
-  pull request.
-
-.agents/skills/depot-ci/references/posthog-check-run-semantics.md has the measurements.
-So the Depot wait job's check name carries the event: the pull request number and its
-`updated_at`, which both engines read from the same event payload. That check identifies the
-event's run, and every other check of the run is matched by the Depot workflow id in its
-details URL.
-
-Two events of one commit that arrive within a second or two race the concurrency cancel of
-both engines, and each engine can keep a different event. GitHub Actions alone can also keep
-either event of such a pair, so when this event has no live Depot run, the relay follows the
-run that Depot kept for the racing event.
+GitHub Actions hands a pull request event to one Depot workflow, which ci_backend_route.py
+picks and names (see "Superseded runs" in
+.agents/skills/depot-ci/references/posthog-check-run-semantics.md). The relay reads that
+workflow's checks only, matched by the Depot workflow id in each check's details URL. Check
+times and pull request lists cannot pick out a Depot run, because Depot backdates the checks
+of cancelled jobs and can leave its check suite without a pull request.
 
 Standard library only: the relay job runs this with the runner's python3 before any install.
 """
@@ -37,7 +22,6 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Protocol
 
@@ -54,7 +38,6 @@ WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 EVENT_SUFFIX = " (PR {pr}, event {event_at})"
 # How a pull request event payload renders `updated_at`.
 EVENT_TIME = "%Y-%m-%dT%H:%M:%SZ"
-RACING_EVENT_SECONDS = 2
 GATE_CHECK = f"{DEPOT_WORKFLOW} / Django Tests Pass on Depot"
 DEPOT_RUN_URL = re.compile(r"^https://depot\.dev/orgs/([^/?]+)/workflows/([a-z0-9]+)(?:[?/]|$)")
 PENDING_STATES = frozenset({"queued", "in_progress", "pending", "waiting", "requested"})
@@ -167,13 +150,6 @@ def current_check(checks: Iterable[CheckRun], workflow: str | None) -> CheckRun 
     if mirrored and len(native) <= len({check.attempt or str(check.id) for check in mirrored}):
         return max(mirrored, key=lambda check: check.id)
     return max(native, key=lambda check: check.id, default=None)
-
-
-def newest_live(runs: Sequence[CheckRun]) -> CheckRun | None:
-    """The newest run that was not cancelled, or the newest cancelled run when every run was."""
-    current = [check for workflow in {run.depot_workflow for run in runs} if (check := current_check(runs, workflow))]
-    live = [run for run in current if run.state != "cancelled"]
-    return max(live or current, key=lambda run: run.id, default=None)
 
 
 def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
@@ -317,19 +293,8 @@ class Event:
     pr_number: int
     # The pull request's `updated_at` in this event's payload.
     event_at: str
-
-
-def racing_wait(reader: CheckReader, event: Event, followed: set[str]) -> str | None:
-    """The newest racing wait check whose job took the hand-off or is pending, skipping `followed`."""
-    event_at = datetime.strptime(event.event_at, EVENT_TIME)
-    for offset in range(RACING_EVENT_SECONDS, -RACING_EVENT_SECONDS - 1, -1):
-        name = wait_check_name(event.pr_number, (event_at + timedelta(seconds=offset)).strftime(EVENT_TIME))
-        if name in followed:
-            continue
-        wait = newest_live(reader.read(name))
-        if progress(wait, ()).phase in (Phase.STARTING, Phase.RUNNING):
-            return name
-    return None
+    # The Depot workflow GitHub Actions handed this event to, empty when Depot started none.
+    workflow: str
 
 
 def prerequisite_failure(reader: CheckReader, wait: CheckRun, current: Progress) -> Progress:
@@ -350,19 +315,19 @@ def poll(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Progress:
-    """Polls until the event's check finishes, Depot declines the hand-off, or a deadline passes.
+    """Polls until the handed-off workflow's check finishes or is cancelled, or a deadline passes.
 
-    A duplicate run of the same event can replace a cancelled one, so an absent or cancelled
-    run gets `absent_minutes` of grace. After the grace period, the run of a racing event
-    stands in for an absent or cancelled one.
+    Depot posts the wait job's check only when that job ends, so an absent one gets
+    `absent_minutes` before the relay gives up on the workflow.
     """
+    if not event.workflow:
+        return Progress(Phase.ABSENT)
     start = clock()
     event_name = wait_check_name(event.pr_number, event.event_at)
-    followed = {event_name}
     current = Progress(Phase.ABSENT)
     while True:
         try:
-            wait = newest_live(reader.read(event_name))
+            wait = current_check(reader.read(event_name), event.workflow)
             checks = reader.read(check_name) if wait and wait.state == "success" else []
             current = progress(wait, checks)
             # Depot cancels its own run only after a deterministic prerequisite failure. A gate that
@@ -371,16 +336,10 @@ def poll(
                 current = prerequisite_failure(reader, wait, current)
             sys.stdout.write(f"Depot run for this event: {current.phase.value} {current.state}".rstrip() + "\n")
             elapsed = clock() - start
-            if current.phase in (Phase.FINISHED, Phase.DECLINED):
+            if current.phase in (Phase.FINISHED, Phase.DECLINED, Phase.CANCELLED):
                 return current
-            if current.phase in (Phase.ABSENT, Phase.CANCELLED) and elapsed >= absent_minutes * 60:
-                racing = racing_wait(reader, event, followed)
-                if racing is None:
-                    return current
-                sys.stdout.write(f"Depot kept a racing event of this commit instead. Following: {racing}\n")
-                followed.add(racing)
-                event_name = racing
-                continue
+            if current.phase == Phase.ABSENT and elapsed >= absent_minutes * 60:
+                return current
         except ReadFailedError as error:
             # A failed read says nothing about the run, so it must not end the wait as absent.
             sys.stdout.write(f"::warning::{error}. Reading again.\n")
@@ -436,13 +395,13 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
         ]
     if result.phase == Phase.CANCELLED:
         return 1, [
-            f"::error::Depot CI cancelled its run for this event of {event.sha} and started no replacement.",
+            f"::error::Depot CI cancelled its run for this event of {event.sha}.",
             *retry_instructions(event, result.details_url, run_id),
         ]
     if result.phase == Phase.DECLINED:
         return 1, [f"::error::Depot declined the hand-off for {event.sha} (wait job: {result.state})"]
     if result.phase == Phase.ABSENT:
-        return 1, [f"::error::Depot CI started no run for this event of {event.sha}: no wait job for it"]
+        return 1, [f"::error::Depot CI started no run for this event of {event.sha}"]
     return 1, [f"::error::No Depot verdict for {event.sha} within the relay's deadline"]
 
 
@@ -451,7 +410,13 @@ def main(argv: Sequence[str]) -> int:
         sys.stderr.write("usage: ci_backend_relay.py gate\n")
         return 2
     env = os.environ
-    event = Event(repo=env["REPO"], sha=env["SHA"], pr_number=int(env["PR_NUMBER"]), event_at=env["EVENT_AT"])
+    event = Event(
+        repo=env["REPO"],
+        sha=env["SHA"],
+        pr_number=int(env["PR_NUMBER"]),
+        event_at=env["EVENT_AT"],
+        workflow=env.get("DEPOT_WORKFLOW", ""),
+    )
     reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"], pr_number=event.pr_number)
     try:
         result = poll(reader, event, GATE_CHECK, deadline_minutes=90, absent_minutes=15)

@@ -22,11 +22,9 @@ SPEC.loader.exec_module(relay)
 DEPOT_WORKFLOW_FILE = Path(__file__).parents[2] / ".depot" / "workflows" / "ci-backend.yml"
 PR = 105723
 EVENT_AT = "2026-09-24T09:54:20Z"
-EVENT = relay.Event(repo="PostHog/posthog", sha="a8a3755cf964", pr_number=PR, event_at=EVENT_AT)
+EVENT = relay.Event(repo="PostHog/posthog", sha="a8a3755cf964", pr_number=PR, event_at=EVENT_AT, workflow="live")
 EVENT_WAIT = relay.wait_check_name(PR, EVENT_AT)
 PLAIN_WAIT = f"{relay.DEPOT_WORKFLOW} / {relay.WAIT_JOB}"
-OLDER_RACING_WAIT = relay.wait_check_name(PR, "2026-09-24T09:54:19Z")
-NEWER_RACING_WAIT = relay.wait_check_name(PR, "2026-09-24T09:54:22Z")
 
 
 def api_run(id: int, state: str, workflow: str = "live", attempt: str = "") -> dict[str, Any]:
@@ -73,6 +71,19 @@ def test_mirrored_checks_carry_the_names_the_relay_reads() -> None:
     assert handoff["env"]["GATE_CHECK"] == gate["env"]["GATE_CHECK"] == relay.GATE_CHECK
 
 
+def test_depot_waits_for_the_hand_off_check_github_posts() -> None:
+    github = yaml.safe_load((Path(__file__).parents[1] / "workflows" / "ci-backend.yml").read_text())
+    step = next(
+        step
+        for step in github["jobs"]["hand-off-to-depot"]["steps"]
+        if step.get("name") == "Name the Depot workflow that runs the tests"
+    )
+    posted = step["env"]["HANDOFF_CHECK"].replace("${{ needs.changes.outputs.depot_workflow }}", "w1")
+    awaited = re.search(r'HANDOFF_CHECK="([^"]+)"', DEPOT_WORKFLOW_FILE.read_text())
+    assert awaited is not None
+    assert awaited.group(1).replace("${BASH_REMATCH[1]}", "w1") == posted
+
+
 @pytest.mark.parametrize(
     "event_waits,gates,expected",
     [
@@ -93,10 +104,10 @@ def test_mirrored_checks_carry_the_names_the_relay_reads() -> None:
             id="this run's gate wins over a newer id elsewhere",
         ),
         pytest.param(
-            [run(1, "cancelled", workflow="dup1"), run(2, "success", workflow="dup2")],
-            [run(10, "failure", workflow="dup2")],
-            (relay.Phase.FINISHED, "failure"),
-            id="duplicate run of the event replaces a cancelled one",
+            [run(1, "success", workflow="other")],
+            [run(10, "failure", workflow="other")],
+            (relay.Phase.ABSENT, ""),
+            id="another workflow of the same event is ignored",
         ),
         pytest.param(
             [run(1, "success")],
@@ -113,7 +124,7 @@ def test_mirrored_checks_carry_the_names_the_relay_reads() -> None:
     ],
 )
 def test_progress_of_this_events_run(event_waits: list[Any], gates: list[Any], expected: tuple[Any, str]) -> None:
-    wait = relay.newest_live(event_waits)
+    wait = relay.current_check(event_waits, EVENT.workflow)
     result = relay.progress(wait, gates)
     assert (result.phase, result.state) == expected
 
@@ -150,23 +161,15 @@ class FakeClock:
     "polls,expected,min_minutes",
     [
         pytest.param(
-            [{EVENT_WAIT: [run(1, "cancelled", workflow="dup1")]}] * 3
-            + [{EVENT_WAIT: [run(1, "cancelled", workflow="dup1"), run(2, "success", workflow="dup2")]}]
-            + [
+            [
                 {
-                    EVENT_WAIT: [run(1, "cancelled", workflow="dup1"), run(2, "success", workflow="dup2")],
-                    relay.GATE_CHECK: [run(10, "success", workflow="dup2")],
+                    EVENT_WAIT: [run(1, "success"), run(2, "success", workflow="duplicate")],
+                    relay.GATE_CHECK: [run(10, "success"), run(11, "failure", workflow="duplicate")],
                 }
             ],
             (relay.Phase.FINISHED, "success"),
             0,
-            id="a cancelled run is replaced within the grace window",
-        ),
-        pytest.param(
-            [{EVENT_WAIT: [run(1, "cancelled")]}],
-            (relay.Phase.CANCELLED, "cancelled"),
-            15,
-            id="a cancelled run fails only after the grace window",
+            id="the handed-off workflow decides, not a newer one of the same event",
         ),
         pytest.param([{}], (relay.Phase.ABSENT, ""), 15, id="no run fails after the grace window"),
         pytest.param(
@@ -176,76 +179,6 @@ class FakeClock:
             (relay.Phase.FINISHED, "success"),
             16,
             id="a failed read after the grace window keeps waiting",
-        ),
-        pytest.param(
-            [
-                {
-                    OLDER_RACING_WAIT: [run(1, "success", workflow="racing")],
-                    relay.GATE_CHECK: [run(10, "failure", workflow="racing")],
-                }
-            ],
-            (relay.Phase.FINISHED, "failure"),
-            15,
-            id="an older racing event's run stands in for an absent run",
-        ),
-        pytest.param(
-            [
-                {
-                    EVENT_WAIT: [run(1, "cancelled")],
-                    NEWER_RACING_WAIT: [run(2, "success", workflow="racing")],
-                    relay.GATE_CHECK: [run(10, "success", workflow="racing")],
-                }
-            ],
-            (relay.Phase.FINISHED, "success"),
-            15,
-            id="a newer racing event's run stands in for a cancelled run",
-        ),
-        pytest.param(
-            [
-                {
-                    NEWER_RACING_WAIT: [run(1, "success", workflow="newer")],
-                    OLDER_RACING_WAIT: [run(2, "success", workflow="older")],
-                    relay.GATE_CHECK: [run(10, "cancelled", workflow="newer"), run(11, "success", workflow="older")],
-                }
-            ],
-            (relay.Phase.FINISHED, "success"),
-            15,
-            id="the next racing event's run stands in when the followed one is cancelled",
-        ),
-        pytest.param(
-            [
-                {
-                    NEWER_RACING_WAIT: [run(1, "success", workflow="newer")],
-                    OLDER_RACING_WAIT: [run(2, "success", workflow="older")],
-                    relay.GATE_CHECK: [run(10, "success", workflow="newer"), run(11, "failure", workflow="older")],
-                }
-            ],
-            (relay.Phase.FINISHED, "success"),
-            15,
-            id="the newer of two racing runs stands in",
-        ),
-        pytest.param(
-            [
-                {
-                    NEWER_RACING_WAIT: [run(1, "skipped", workflow="declined")],
-                    OLDER_RACING_WAIT: [run(2, "success", workflow="older")],
-                    relay.GATE_CHECK: [run(10, "success", workflow="older")],
-                }
-            ],
-            (relay.Phase.FINISHED, "success"),
-            15,
-            id="a racing run that declined the hand-off does not stand in",
-        ),
-        pytest.param(
-            [
-                {
-                    relay.wait_check_name(PR, "2026-09-24T09:54:17Z"): [run(1, "success", workflow="earlier")],
-                    relay.GATE_CHECK: [run(10, "success", workflow="earlier")],
-                }
-            ],
-            (relay.Phase.ABSENT, ""),
-            15,
-            id="an event outside the race window does not stand in",
         ),
         pytest.param(
             [{EVENT_WAIT: [run(1, "success")]}],
@@ -432,13 +365,12 @@ def test_cancelled_gate_reports_only_current_selected_prerequisite(
     )
     code, lines = relay.relay_gate(result, EVENT, "123")
     assert code == 1
+    assert clock.now == 0
     if state == "failure" and workflow == "live" and newer is None:
-        assert clock.now == 0
         assert lines == [f"::error::{name} failed on Depot (check 2). Push a fix; a retry will not help."]
         assert result.root_check_id == 2
     else:
         assert result.phase == relay.Phase.CANCELLED
-        assert clock.now == 900
 
 
 @pytest.mark.parametrize("name", relay.PREREQUISITES)
@@ -589,7 +521,7 @@ def test_relay_reads_the_current_attempt_across_apps(
         return FakeResponse(json.dumps({"check_runs": body}).encode(), "")
 
     reader = relay.CheckRunReader(EVENT.repo, EVENT.sha, "token", opener=opener)
-    wait = relay.newest_live(reader.read(EVENT_WAIT))
+    wait = relay.current_check(reader.read(EVENT_WAIT), "w1")
     if expected is None:
         with pytest.raises(relay.ReadFailedError):
             reader.read(relay.GATE_CHECK)

@@ -181,6 +181,8 @@ jobs:
             # Which engine runs this event's backend tests. Depot CI never decides on its
             # own: it waits for the hand-off job below and runs only when that succeeded.
             engine: ${{ steps.route.outputs.engine || 'github' }}
+            # The one Depot workflow that runs this event's tests. The hand-off names it.
+            depot_workflow: ${{ steps.route.outputs.depot_workflow }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -505,19 +507,58 @@ jobs:
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
               run: python3 .github/scripts/ci_backend_route.py
 
-    # The only signal Depot CI acts on. Its wait job in .depot/workflows/ci-backend.yml
-    # polls this check by name and runs the backend tests only when it concluded
-    # `success`, so a skipped hand-off keeps the event on GitHub Actions. Renaming
-    # this job breaks that lookup.
+    # The only signal Depot CI acts on. The router reads this job's check as the commit's
+    # durable engine record, so renaming it breaks that lookup. For a pull request, the
+    # step's check names the one Depot workflow that runs the tests. Depot's wait job in
+    # .depot/workflows/ci-backend.yml polls for that check, so every other Depot workflow
+    # of the pull request runs nothing.
     hand-off-to-depot:
         name: Hand off backend tests to Depot CI
         runs-on: ubuntu-24.04
         timeout-minutes: 2
         needs: [changes]
         if: needs.changes.outputs.engine == 'depot'
-        permissions: {}
+        permissions:
+            checks: write
         steps:
             - run: echo "::notice::Depot CI runs the backend tests for this event. GitHub Actions runs none."
+            - name: Name the Depot workflow that runs the tests
+              if: needs.changes.outputs.depot_workflow != ''
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  # .depot/workflows/ci-backend.yml builds the same name; change both.
+                  HANDOFF_CHECK: Hand off backend tests to Depot workflow ${{ needs.changes.outputs.depot_workflow }}
+              run: |
+                  gh api "repos/$REPO/check-runs" --method POST -f name="$HANDOFF_CHECK" -f head_sha="$SHA" \
+                      -f status=completed -f conclusion=success --silent
+
+    # GitHub Actions keeps one run per pull request, so a Depot run created before this event
+    # belongs to an event it dropped. Cancelling here, and never from Depot, means only
+    # GitHub Actions decides which event runs.
+    cancel-superseded-depot-runs:
+        name: Cancel superseded Backend CI runs on Depot
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/cancel_superseded_depot_runs.py
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - name: Cancel this PR's older Depot runs
+              continue-on-error: true
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
+              run: python3 .github/scripts/cancel_superseded_depot_runs.py
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -4242,12 +4283,11 @@ jobs:
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
               if: needs.changes.outputs.engine == 'depot'
               continue-on-error: true
-            # The script finds this event's Depot run by the event in its wait job's check
-            # name, then waits for that run's gate. Its docstring explains why check times
-            # and pull request lists cannot identify the run.
+            # The script waits for the gate of the Depot workflow the hand-off named.
             - name: Relay the Depot verdict
               if: needs.changes.outputs.engine == 'depot'
               env:
+                  DEPOT_WORKFLOW: ${{ needs.changes.outputs.depot_workflow }}
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   GH_TOKEN: ${{ github.token }}
                   REPO: ${{ github.repository }}

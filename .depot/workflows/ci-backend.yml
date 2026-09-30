@@ -54,9 +54,9 @@
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
 #   The shadow routes cache writes to Depot Cache, so it must not fill the GitHub
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
-# - Superseded-run cancel: Depot's concurrency policy can keep an older event, so each event gets
-#   its own group, and after the hand-off `cancel-superseded-runs` cancels older runs. See "Superseded runs" in
-#   .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
+# - Superseded runs: each pull request run gets its own concurrency group, and canonical's
+#   `cancel-superseded-depot-runs` job cancels the runs of events GitHub Actions dropped. See
+#   "Superseded runs" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 # - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
 #   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
 # - calculate-running-time: canonical's PostHog/posthog-github-action reads the run from the
@@ -136,9 +136,10 @@ name: Backend CI on Depot
 # Depot CI copy of canonical Backend CI. Branch protection requires only canonical's
 # `Django Tests Pass`, which relays this workflow's gate when the event ran here. Each event runs on
 # exactly one engine, and GitHub Actions picks it. The `wait-for-handoff` job waits for the
-# `Hand off backend tests to Depot CI` check from .github/workflows/ci-backend.yml and
-# `changes` (root of the needs graph) only runs when that check succeeded, so the whole
-# workflow cascades off otherwise. A manual run needs that check on its commit too.
+# `Hand off backend tests to Depot workflow <id>` check that names this workflow, posted by
+# .github/workflows/ci-backend.yml, and `changes` (root of the needs graph) only runs when it
+# found that check, so the whole workflow cascades off otherwise. A manual run needs the
+# `Hand off backend tests to Depot CI` check on its commit instead.
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
 # with canonical; it runs whenever either file changes, independent of the percent.
 on:
@@ -162,10 +163,11 @@ on:
         # the doubled matrices in place of that leg.
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
-    # PRs: one group per event; cancel-superseded-runs cancels stale runs. Push: per-SHA so master
+    # PRs: one group per run, so Depot never cancels the workflow GitHub Actions handed off;
+    # canonical's cancel-superseded-depot-runs job cancels stale runs. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}', github.event.pull_request.number, github.run_id) || github.head_ref || github.ref }}
+    cancel-in-progress: false
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so the PR-base
@@ -275,13 +277,8 @@ jobs:
                   EVENT: ${{ github.event_name }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.fork == true }}
                   SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-                  # A no-ci draft marked ready keeps its SHA, so its earlier skipped hand-off
-                  # check is still on the commit. Only a check that started after this event counts.
-                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
-                  # Two open PRs can share a head SHA, so only this PR's hand-off counts.
-                  # A manual run has no PR and accepts the newest hand-off from any PR.
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  # Must match the job name in .github/workflows/ci-backend.yml.
+                  # A manual run accepts the newest hand-off of its commit from any PR. Must match
+                  # the job name in .github/workflows/ci-backend.yml.
                   HANDOFF_CHECK: Hand off backend tests to Depot CI
                   GITHUB_ACTIONS_APP_ID: '15368'
               run: |
@@ -292,6 +289,13 @@ jobs:
                   # this commit off, so the tests never run on both engines.
                   attempts=30
                   [ "$EVENT" = pull_request ] || attempts=1
+                  if [ "$EVENT" = pull_request ]; then
+                      # Depot starts a workflow for every pull request event, and GitHub Actions hands the
+                      # tests to one of them by id. Any other workflow of this event, or of an event
+                      # GitHub Actions dropped, never finds its check and runs nothing.
+                      # .github/workflows/ci-backend.yml posts this name; change both.
+                      [[ "$DEPOT_JOB_URL" =~ /workflows/([a-z0-9]+) ]] && HANDOFF_CHECK="Hand off backend tests to Depot workflow ${BASH_REMATCH[1]}"
+                  fi
                   if [ "$IS_FORK" = true ]; then
                       # The fork controls its own copy of the GitHub Actions workflow, so its hand-off is not trusted.
                       echo "::notice::Fork pull requests never run on Depot CI."
@@ -310,8 +314,7 @@ jobs:
                                   mv /tmp/handoff-etag.new /tmp/handoff-etag
                                   # A cancelled hand-off comes from a GitHub run that was cancelled before its
                                   # hand-off job finished, so it carries no decision, as in ci_backend_route.py.
-                                  # GitHub posts it with started_at set to the cancel time, which can follow this event.
-                                  state=$(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select(.conclusion != "cancelled" and (.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
+                                  state=$(jq -r '[.check_runs[] | select(.conclusion != "cancelled")] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
                                   ;;
                               304) ;;
                               401|403) echo "::warning::check-runs API returned $code; cannot read the hand-off"; break ;;
@@ -350,28 +353,6 @@ jobs:
                   }
                   post "$WAIT_CHECK" success
                   [ "$HANDED_OFF" = true ] || post "$GATE_CHECK" skipped
-    # Runs only after the hand-off, so it acts on the event GitHub Actions kept and never on its own order.
-    cancel-superseded-runs:
-        needs: wait-for-handoff
-        if: github.event_name == 'pull_request' && needs.wait-for-handoff.outputs.handed_off == 'true'
-        runs-on: depot-ubuntu-24.04
-        timeout-minutes: 5
-        name: Cancel superseded Backend CI runs
-        permissions:
-            contents: read
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: .github/scripts/cancel_superseded_depot_runs.py
-                  sparse-checkout-cone-mode: false
-            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
-            - name: Cancel this PR's older runs
-              continue-on-error: true
-              env:
-                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
-                  REPO: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-              run: python3 .github/scripts/cancel_superseded_depot_runs.py
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
