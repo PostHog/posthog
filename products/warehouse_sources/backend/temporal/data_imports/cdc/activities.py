@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     SELF_MANAGED_LAG_REASON,
     clear_recovered_self_managed_lag,
     clear_slot_loss_markers,
+    holds_slot_loss_marker,
     mark_cdc_broken,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter, purge_buffer_prefix
@@ -426,9 +427,12 @@ class CDCExtractActivity:
             self._load_pk_columns()
             self._read_wal_loop()
             # A read that got this far proves the slot is back, so a reset held for it can finish on
-            # the next run even if recovery never runs again.
+            # the next run, and the markers of the lost slot can go, even if recovery never runs again.
             for schema in self.cdc_schemas:
                 self._release_reset_awaiting_slot(schema)
+            if any(holds_slot_loss_marker(schema) for schema in self.cdc_schemas):
+                assert self.source is not None
+                clear_slot_loss_markers(self.source)
 
             self.log.info("wal_changes_read", event_count=self.event_count, tables=list(self.all_table_names))
 
@@ -1185,9 +1189,6 @@ class CDCExtractActivity:
             schema.save(update_fields=["status", "latest_error", "updated_at"])
             self._schema_log(schema).warning("cdc_schema_reset_for_slot_recovery", schema_id=str(schema.id))
 
-        # Also before the recreation: once the new slot exists, no later run repeats this recovery.
-        clear_slot_loss_markers(self.source)
-
         resource_fields = self.adapter.recreate_slot(
             self.source, tables=[self._qualified_table_name(s) for s in self.cdc_schemas]
         )
@@ -1202,6 +1203,7 @@ class CDCExtractActivity:
             self._release_reset_awaiting_slot(schema)
         for schema in reset_schemas:
             self._unpause_schema_schedule(schema)
+        clear_slot_loss_markers(self.source)
 
         self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))
 

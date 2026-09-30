@@ -136,6 +136,10 @@ def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
     return clear_broken_markers(source, reason=SELF_MANAGED_LAG_REASON)
 
 
+def holds_slot_loss_marker(schema: ExternalDataSchema) -> bool:
+    return ((schema.sync_type_config or {}).get("cdc_broken") or {}).get("reason") in _SLOT_LOSS_REASONS
+
+
 def clear_slot_loss_markers(source: ExternalDataSource) -> int:
     """Lift the markers of a lost slot once capture has recreated it. Returns how many schemas were cleared.
 
