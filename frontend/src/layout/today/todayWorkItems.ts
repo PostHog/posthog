@@ -11,11 +11,15 @@ export interface TodayWorkItem {
     id: string
     title: string
     timestamp: string | null
+    createdAt: string | null
     status: string | null
     channel: string | null
     createdById: number | null
     latestRunId: string | null
     originProduct: string | null
+    /** What filed it: a session's origin product, or PostHog AI for a chat. */
+    source: string | null
+    repository: string | null
 }
 
 export interface TodayWorkGroup {
@@ -42,11 +46,14 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         id: task.id,
         title: task.title,
         timestamp: task.last_activity_at ?? task.updated_at ?? task.created_at ?? null,
+        createdAt: task.created_at ?? null,
         status: task.latest_run?.status ?? null,
         channel: task.channel ?? null,
         createdById: task.created_by?.id ?? null,
         latestRunId: task.latest_run?.id ?? null,
         originProduct: task.origin_product ?? null,
+        source: task.origin_product || null,
+        repository: task.repository || null,
     }
 }
 
@@ -56,11 +63,14 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         id: conversation.id,
         title: conversation.title ?? '',
         timestamp: conversation.updated_at ?? conversation.created_at,
+        createdAt: conversation.created_at,
         status: null,
         channel: null,
-        createdById: null,
+        createdById: conversation.user?.id ?? null,
         latestRunId: null,
         originProduct: null,
+        source: 'posthog_ai',
+        repository: null,
     }
 }
 
@@ -79,10 +89,15 @@ export function buildRecentItems(
         .slice(0, limit)
 }
 
-export function groupByDay(items: TodayWorkItem[], now: Dayjs = dayjs()): TodayWorkGroup[] {
+export function groupByDay(
+    items: TodayWorkItem[],
+    now: Dayjs = dayjs(),
+    timeField: 'timestamp' | 'createdAt' = 'timestamp'
+): TodayWorkGroup[] {
     const groups: TodayWorkGroup[] = []
     for (const item of items) {
-        const time = item.timestamp ? earlierOf(dayjs(item.timestamp), now) : null
+        const timestamp = item[timeField]
+        const time = timestamp ? earlierOf(dayjs(timestamp), now) : null
         const key = time ? time.format('YYYY-MM-DD') : 'undated'
         const last = groups[groups.length - 1]
         if (last?.key === key) {
