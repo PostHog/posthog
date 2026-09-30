@@ -11,6 +11,7 @@ import temporalio.workflow
 import temporalio.exceptions
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import (
@@ -82,6 +83,7 @@ from products.warehouse_sources.backend.facade.hooks import (
 # Covers every command the data quality feature adds here: the stage/audit/publish trio and the
 # warn-mode suite child.
 QUALITY_AUDIT_PATCH = "data-quality-audit-2026-08"
+QUALITY_BLOCK_SUITE_RUN_ID_PATCH = "data-quality-block-suite-run-id-2026-09"
 ACCOUNT_PROPERTY_S3_SYNC_PATCH = "account-property-s3-sync-2026-08"
 ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH = "account-property-staging-workflow-2026-08"
 
@@ -166,6 +168,12 @@ class MaterializeViewWorkflowResult:
     quality_blocking_failures: int | None = None
     quality_audited: bool = False
     trino_materialized: bool | None = None
+
+
+@frozen
+class _StagedAuditVerdict:
+    suite_run_id: str | None
+    blocking_failures: int
 
 
 @temporalio.workflow.defn(name="data-modeling-materialize-view")
@@ -316,7 +324,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     if temporalio.workflow.patched(QUALITY_AUDIT_PATCH)
                     else QUALITY_AUDIT_SKIP
                 )
-                staged_verdict: int | None = None
+                staged_verdict: _StagedAuditVerdict | None = None
                 prepare_inputs = PrepareQueryableTableInputs(
                     team_id=inputs.team_id,
                     job_id=job_id,
@@ -336,7 +344,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     staged_verdict = await self._staged_audit_verdict(
                         inputs, job_id, materialize_result, stage_result.staged_folder_path
                     )
-                    if staged_verdict:
+                    if staged_verdict is not None and staged_verdict.blocking_failures:
                         await temporalio.workflow.execute_activity(
                             quality_block_materialization_activity,
                             QualityBlockMaterializationInputs(
@@ -344,7 +352,12 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                                 node_id=inputs.node_id,
                                 dag_id=inputs.dag_id,
                                 job_id=job_id,
-                                blocking_failures=staged_verdict,
+                                blocking_failures=staged_verdict.blocking_failures,
+                                suite_run_id=(
+                                    staged_verdict.suite_run_id
+                                    if temporalio.workflow.patched(QUALITY_BLOCK_SUITE_RUN_ID_PATCH)
+                                    else None
+                                ),
                             ),
                             start_to_close_timeout=dt.timedelta(minutes=5),
                             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
@@ -369,7 +382,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                             node_id=inputs.node_id,
                             rows_materialized=materialize_result.row_count,
                             duration_seconds=blocked_duration_seconds,
-                            quality_blocking_failures=staged_verdict,
+                            quality_blocking_failures=staged_verdict.blocking_failures,
                             quality_audited=True,
                             trino_materialized=trino_materialized,
                         )
@@ -470,7 +483,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     node_id=inputs.node_id,
                     rows_materialized=materialize_result.row_count,
                     duration_seconds=duration_seconds,
-                    quality_blocking_failures=staged_verdict,
+                    quality_blocking_failures=(
+                        staged_verdict.blocking_failures if staged_verdict is not None else None
+                    ),
                     quality_audited=quality_audited,
                     trino_materialized=trino_materialized,
                 )
@@ -553,8 +568,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         job_id: str,
         materialize_result: MaterializeViewResult,
         staged_folder_path: str,
-    ) -> int | None:
-        """The blocking-failure count, or None when the audit reached no verdict.
+    ) -> _StagedAuditVerdict | None:
+        """The suite ID and blocking-failure count, or None when the audit reached no verdict.
 
         None still publishes, because a broken check pipeline is not a verdict on the data, and it
         leaves the node to the DAG's sweep so the checks get another chance. Cancellation is not
@@ -585,7 +600,11 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             )
             return None
         if isinstance(result, dict):
-            return int(result.get("checks_failed_blocking") or 0)
+            suite_run_id = result.get("suite_run_id")
+            return _StagedAuditVerdict(
+                suite_run_id=suite_run_id if isinstance(suite_run_id, str) else None,
+                blocking_failures=int(result.get("checks_failed_blocking") or 0),
+            )
         return None
 
     async def _start_suite_on_published_data(

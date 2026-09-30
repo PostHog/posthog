@@ -2,6 +2,7 @@ import typing
 import asyncio
 import threading
 import contextvars
+from collections.abc import Callable
 
 from structlog import get_logger
 from temporalio import activity
@@ -61,6 +62,7 @@ class ShutdownMonitor:
     def __init__(self):
         self._monitor_shutdown_task: asyncio.Task[None] | None = None
         self._monitor_shutdown_thread: threading.Thread | None = None
+        self._on_shutdown_callbacks: list[tuple[contextvars.Context, Callable[[], None]]] = []
         self._is_shutdown_event = asyncio.Event()
         self._is_shutdown_event_sync = threading.Event()
         self._stop_event_sync = threading.Event()
@@ -105,9 +107,26 @@ class ShutdownMonitor:
                 # Not running in an activity context.
                 return
 
+            self.logger.info("Shutdown detected.")
+            # Run the callbacks before the event is set: a caller that sees the event can raise and
+            # leave the monitor at once, and a callback that ran after that would never run at all.
+            for context, callback in self._on_shutdown_callbacks:
+                try:
+                    context.run(callback)
+                except Exception:
+                    self.logger.exception("A shutdown callback failed.")
             self._is_shutdown_event.set()
 
         self._monitor_shutdown_task = asyncio.create_task(monitor())
+
+    def run_on_shutdown(self, callback: Callable[[], None]) -> None:
+        """Call `callback` once when the worker starts to shut down.
+
+        `callback` runs with a copy of the caller's contextvars, taken now, so it sees the structlog
+        context the caller has bound (for example the job context an activity binds after it enters
+        the monitor). Only the async monitor calls it, so register it inside `async with ShutdownMonitor()`.
+        """
+        self._on_shutdown_callbacks.append((contextvars.copy_context(), callback))
 
     def start_sync(self):
         """Start a `threading.Thread` to monitor for worker shutdown.

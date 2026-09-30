@@ -269,6 +269,28 @@ describe("OtelRunTelemetry", () => {
         severityText: "WARN",
         body: "tool call failed",
       },
+      {
+        name: "process_killed",
+        entry: makeEntry("_posthog/process_killed", {
+          pid: 4242,
+          comm: "vitest",
+          treeRssBytes: 12_884_901_888,
+          memoryCurrentBytes: 14_602_888_806,
+          memoryLimitBytes: 17_179_869_184,
+          signal: "SIGTERM",
+          at: "2026-01-01T00:00:00.000Z",
+        }),
+        severityText: "WARN",
+        body: "process killed (vitest)",
+        attrs: {
+          event_type: "_posthog/process_killed",
+          process_comm: "vitest",
+          process_signal: "SIGTERM",
+          process_tree_rss_bytes: 12_884_901_888,
+          memory_current_bytes: 14_602_888_806,
+          memory_limit_bytes: 17_179_869_184,
+        },
+      },
     ])("maps $name", ({ entry, severityText = "INFO", body, attrs = {} }) => {
       const mapped = mapNotificationToLogRecord(entry);
 
@@ -354,6 +376,25 @@ describe("OtelRunTelemetry", () => {
         makeEntry("_posthog/error", {
           source: "agent_server_crash",
           error: "Agent server crashed: ENOENT open '/repos/acme/SECRET/.env'",
+        }),
+      );
+
+      expect(mapped).not.toBeNull();
+      expect(JSON.stringify([mapped?.body, mapped?.attributes])).not.toContain(
+        "SECRET",
+      );
+    });
+
+    it("never exports the killed process command line", () => {
+      const mapped = mapNotificationToLogRecord(
+        makeEntry("_posthog/process_killed", {
+          pid: 4242,
+          comm: "node",
+          command: "node test.js --token=SECRET",
+          treeRssBytes: 1,
+          memoryCurrentBytes: 2,
+          memoryLimitBytes: 3,
+          signal: "SIGKILL",
         }),
       );
 

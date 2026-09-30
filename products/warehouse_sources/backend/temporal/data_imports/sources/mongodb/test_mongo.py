@@ -37,7 +37,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
-    get_leading_index_keys,
+    get_index_keys,
+    get_index_keys_by_collection,
     get_server_metadata,
     mongo_source,
 )
@@ -315,9 +316,9 @@ class TestProcessDocWithFieldLogging(SimpleTestCase):
         assert "_id=<unavailable>" in log_msg
 
 
-class TestGetLeadingIndexKeys(SimpleTestCase):
-    """The MongoDB warning hinges on whether the user's chosen incremental
-    field is the *leading* key of any index — non-leading positions in compound
+class TestGetIndexKeys(SimpleTestCase):
+    """A field is offered as an incremental cursor when any index covers it, and the MongoDB
+    warning hinges on whether it is the *leading* key of one — non-leading positions in compound
     indexes don't speed up `WHERE field >= last_max` queries.
     """
 
@@ -327,25 +328,51 @@ class TestGetLeadingIndexKeys(SimpleTestCase):
         coll.list_indexes.return_value = iter(indexes)
         return coll
 
-    def test_collects_leading_keys_only(self):
+    def test_separates_covered_keys_from_leading_keys(self):
         coll = self._collection_with_indexes(
             [
                 {"key": {"_id": 1}},
                 {"key": {"updated_at": -1}},
-                # `user_id` is the leading key here; `created_at` is not
+                # `user_id` is the leading key here; `created_at` is covered but not leading
                 {"key": {"user_id": 1, "created_at": 1}},
             ]
         )
-        assert get_leading_index_keys(coll) == {"_id", "updated_at", "user_id"}
+        index_keys = get_index_keys(coll)
+
+        assert index_keys is not None
+        assert index_keys.covered == frozenset({"_id", "updated_at", "user_id", "created_at"})
+        assert index_keys.leading == frozenset({"_id", "updated_at", "user_id"})
 
     def test_returns_none_on_failure(self):
         coll = MagicMock()
         coll.list_indexes.side_effect = RuntimeError("network down")
-        assert get_leading_index_keys(coll) is None
+        assert get_index_keys(coll) is None
 
-    def test_returns_empty_set_for_collection_with_no_indexes(self):
-        coll = self._collection_with_indexes([])
-        assert get_leading_index_keys(coll) == set()
+    def test_returns_empty_keys_for_collection_with_no_indexes(self):
+        index_keys = get_index_keys(self._collection_with_indexes([]))
+
+        assert index_keys is not None
+        assert index_keys.covered == frozenset()
+        assert index_keys.leading == frozenset()
+
+    def test_reads_each_collection_indexes_once(self):
+        # Schema discovery answers a blocking HTTP request, so a second round trip per collection
+        # is what runs a database with many collections past that request's deadline.
+        collections = {name: self._collection_with_indexes([{"key": {"_id": 1}}]) for name in ("a", "b", "c")}
+        db = MagicMock()
+        db.__getitem__.side_effect = lambda name: collections[name]
+
+        result = get_index_keys_by_collection(db, list(collections))
+
+        assert set(result) == set(collections)
+        for name, coll in collections.items():
+            assert coll.list_indexes.call_count == 1, f"{name} was read more than once"
+
+    def test_reads_nothing_when_no_collections(self):
+        db = MagicMock()
+
+        assert get_index_keys_by_collection(db, []) == {}
+        db.__getitem__.assert_not_called()
 
 
 class TestBuildQuery(SimpleTestCase):

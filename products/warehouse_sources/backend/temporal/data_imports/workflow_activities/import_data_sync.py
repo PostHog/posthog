@@ -2,6 +2,7 @@ import uuid
 import socket
 import asyncio
 import datetime as dt
+import functools
 import dataclasses
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
@@ -25,7 +26,7 @@ from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.shutdown import ShutdownMonitor
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -37,7 +38,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES
+from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    TERMINAL_JOB_STATUSES,
+    get_worker_shutdown_handoff_metric,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_non_retryable_error,
     report_heartbeat_timeout,
@@ -68,6 +72,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
     is_byte_bounded_extraction_enabled,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import (
+    SourceCursorManager,
+    build_cursor_manager,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
     is_transient_egress_proxy_error,
@@ -417,6 +425,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             sync_type=model.schema.sync_type if model.schema is not None else None,
             pipeline_version=model.pipeline_version,
         )
+        shutdown_monitor.run_on_shutdown(functools.partial(_log_worker_shutdown_during_import, logger))
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
@@ -519,6 +528,11 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     source_type=source_type,
                 )
 
+            # A reset or a revive empties the table, so the run starts from no cursor, like the watermark above.
+            source_cursor_manager = build_cursor_manager(
+                new_source, schema.sync_type_config if use_stored_cursors else None, logger
+            )
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
@@ -553,6 +567,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 byte_bounded_extraction=byte_bounded_extraction,
                 keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
+                source_cursor=source_cursor_manager,
             )
 
             try:
@@ -633,6 +648,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
                 resumable_source_manager=resumable_source_manager,
+                source_cursor_manager=source_cursor_manager,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -695,6 +711,18 @@ POSTHOG_DATABASE_UNAVAILABLE_MESSAGE = (
 )
 
 
+def _log_worker_shutdown_during_import(logger: FilteringBoundLogger) -> None:
+    # One line per import still running when the worker got SIGTERM. A matching hand-off line from
+    # _handle_import_error means the import moved to another pod; without one, the import held
+    # this pod until it finished or the graceful shutdown timeout ran out.
+    info = activity.info()
+    logger.info(
+        "Worker shutdown detected while import is running",
+        attempt=info.attempt,
+        attempt_elapsed_seconds=round((dt.datetime.now(dt.UTC) - info.started_time).total_seconds()),
+    )
+
+
 async def _handle_import_error(
     job_inputs: PipelineInputs,
     logger: FilteringBoundLogger,
@@ -721,6 +749,13 @@ async def _handle_import_error(
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
+    if isinstance(error, WorkerShuttingDownError):
+        # An expected hand-off, not a failure: Temporal retries the activity on another worker.
+        if activity.in_activity():
+            get_worker_shutdown_handoff_metric(str(job_inputs.job_type)).add(1)
+        await logger.ainfo("Handing the import off to another worker because this worker is shutting down")
+        raise error
+
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
     error_msg = str(error)
 
@@ -924,8 +959,10 @@ async def _run(
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
     resumable_source_manager: ResumableSourceManager | None,
+    source_cursor_manager: SourceCursorManager[Any] | None = None,
 ) -> PipelineResult:
     try:
+        reset_pipeline = reset_pipeline or source_response.destination_reset_required
         models = await _get_models(job_inputs.run_id)
 
         use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
@@ -942,6 +979,7 @@ async def _run(
                 shutdown_monitor,
                 resumable_source_manager,
                 models=models,
+                source_cursor_manager=source_cursor_manager,
             )
         else:
             pipeline = PipelineNonDLT(
@@ -952,6 +990,7 @@ async def _run(
                 shutdown_monitor,
                 resumable_source_manager,
                 models=models,
+                source_cursor_manager=source_cursor_manager,
             )
 
         result = await pipeline.run()

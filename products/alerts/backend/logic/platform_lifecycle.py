@@ -113,6 +113,7 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         state=alert.state if alert else PlatformAlert.State.NOT_FIRING.value,
         last_notified_at=alert.last_notified_at if alert else None,
         snooze_until=alert.snooze_until if alert else None,
+        firing_started_at=alert.firing_started_at if alert else None,
     )
 
 
@@ -156,6 +157,10 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
             alert = alerts[str(configuration.id)]
+            episode = outcome.firing_episode
+            # The row holds the firing the alert is in, so a check that ended one clears it. The
+            # ended firing stays on the history row instead.
+            alert.firing_started_at = episode.started_at if episode and not episode.ended else None
             alert.state = outcome.new_state
             if outcome.notified:
                 alert.last_notified_at = now
@@ -172,7 +177,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 ),
             )
 
-        PlatformAlert.objects.for_team(team_id).bulk_update(list(alerts.values()), ["state", "last_notified_at"])
+        PlatformAlert.objects.for_team(team_id).bulk_update(
+            list(alerts.values()), ["state", "last_notified_at", "firing_started_at"]
+        )
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["consecutive_failures", "enabled", "next_check_at"]
         )
