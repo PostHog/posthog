@@ -478,6 +478,9 @@ class RESTClient:
 
             if resume_hook is not None:
                 resume_hook(paginator.get_resume_state() if paginator is not None and paginator.has_next_page else None)
+                # The page is yielded and its cursor staged, so resuming here loses nothing. This keeps
+                # a run of empty pages (a fan-out parent with no children) able to hand off at shutdown.
+                reach_framework_safe_point()
 
             # Direct Resource traversal has consumed the page before execution resumes here, so this
             # is safe even when a dependent resource routes its resume hook only to the child.

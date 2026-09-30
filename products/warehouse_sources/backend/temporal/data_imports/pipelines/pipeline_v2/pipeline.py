@@ -330,6 +330,8 @@ class PipelineNonDLT(Generic[ResumableData]):
                 safe_point_scope.close()
 
             await write_remaining_rows()
+            if self._resource.on_complete is not None:
+                await asyncio.to_thread(self._resource.on_complete)
 
             await self._persist_observed_columns()
 
