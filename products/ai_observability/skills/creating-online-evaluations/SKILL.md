@@ -51,6 +51,8 @@ debugging a live eval), defer to `exploring-llm-evaluations`.
 | `posthog:llma-evaluation-backfill-estimate` | Count what a backfill over past data would evaluate           |
 | `posthog:llma-evaluation-backfill-create`   | Evaluate past data, only after the user confirms the estimate |
 | `posthog:llma-evaluation-backfill-get`      | Track a backfill's progress and coverage                      |
+| `posthog:llma-evaluation-backfill-list`     | Find an evaluation's backfills, including one already running |
+| `posthog:llma-evaluation-backfill-cancel`   | Stop a running backfill when the user asks                    |
 | `posthog:execute-sql`                       | Verify a condition matches the events and volume you expect   |
 | `posthog:generate-app-url`                  | Build a region- and project-qualified deep link to the eval   |
 
@@ -332,7 +334,13 @@ the Backfills tab on the evaluation.
    `conditions`, and `rerun_existing`, so the run matches what they approved.
 3. Track it with `posthog:llma-evaluation-backfill-get`. Skipped units were already being evaluated by the
    eval itself, so they are covered, not missed. Once it completes, a `remaining_count` above zero means
-   units were left without a result; offer another backfill over the same range.
+   units were left without a result; offer another backfill over the same range. Offer it once. If the
+   second run leaves units behind again, the eval keeps failing on them, so tell the user instead of
+   offering a third.
+4. If `posthog:llma-evaluation-backfill-create` says it could not confirm the start, call
+   `posthog:llma-evaluation-backfill-list` before trying again, because the backfill may be running.
+5. To stop a backfill, call `posthog:llma-evaluation-backfill-cancel`. Evaluations it already started
+   still finish.
 
 One backfill runs per evaluation at a time.
 
