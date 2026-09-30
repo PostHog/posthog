@@ -256,6 +256,29 @@ class TestListSnapshotResumable:
         manager.save_state.assert_not_called()
 
 
+class TestEmptyPagesReachSafePoints:
+    @parameterized.expand(
+        [
+            ("deltas", lambda manager: document_deltas("https://x.convex.cloud", "key", "t", 10, manager)),
+            ("snapshot", lambda manager: list_snapshot("https://x.convex.cloud", "key", "t", manager)),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_each_empty_page_stages_its_cursor_then_reaches_a_safe_point(self, _name, read, mock_get: Mock) -> None:
+        manager = _make_manager(can_resume=False)
+        mock_get.return_value.get.side_effect = [
+            _make_response({"values": [], "cursor": 20, "snapshot": 5, "hasMore": True}),
+            _make_response({"values": [], "cursor": 30, "snapshot": 5, "hasMore": True}),
+            _make_response({"values": [], "cursor": 40, "snapshot": 5, "hasMore": False}),
+        ]
+
+        batches = list(read(manager))
+
+        assert batches == []
+        calls = [name for name, *_ in manager.method_calls if name in ("save_state", "safe_point")]
+        assert calls == ["save_state", "safe_point", "save_state", "safe_point"]
+
+
 class TestDocumentDeltasResumable:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_fresh_run_saves_state_after_each_page(self, mock_get: Mock) -> None:
