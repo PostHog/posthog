@@ -6,6 +6,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json'
+import type { BillingProductV2Type } from '~/types'
 
 import {
     buildUsageLimitApproachingMessage,
@@ -362,12 +363,19 @@ describe('formatWithDecimals', () => {
 })
 
 describe('formatTierPrice', () => {
+    const withDisplay = (display_divisor: number | null, display_unit: string | null): BillingProductV2Type => ({
+        ...billingJson.products[0],
+        display_divisor,
+        display_unit,
+    })
+
     it.each([
-        ['a per-MB-day price scaled to GB-month', '0.00000166666667', { display_divisor: 30000 }, '$0.05'],
-        ['a per-MB price scaled to GB', '0.00005', { display_divisor: 1000 }, '$0.05'],
-        ['an unscaled price at full precision', '0.000000625', {}, '$0.000000625'],
+        ['a per-MB-day price scaled to GB-month', '0.00000166666667', withDisplay(30000, 'GB-month'), '$0.05'],
+        ['a scaled price that rounds up to $0.1', '0.00000333333333', withDisplay(30000, 'GB-month'), '$0.1'],
+        ['a per-MB price scaled to GB', '0.00005', withDisplay(1000, 'GB'), '$0.05'],
+        ['an unscaled price at full precision', '0.000000625', withDisplay(null, null), '$0.000000625'],
     ])('formats %s', (_name, unitAmountUsd, product, expected) => {
-        expect(formatTierPrice(unitAmountUsd, product as any)).toEqual(expected)
+        expect(formatTierPrice(unitAmountUsd, product)).toEqual(expected)
     })
 })
 
