@@ -126,7 +126,8 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         experiment = recalculation.experiment
 
         # request_recalculation sets total_metrics from the same resolver, so the run's progress count
-        # matches the metrics this activity schedules.
+        # matches the metrics this activity schedules. The payload keeps the role in metric_type because
+        # recorded workflow histories carry that field name.
         metrics_to_recalculate = [
             ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
             for metric in resolve_scheduled_metrics(experiment)
@@ -545,7 +546,7 @@ def _fail(
 def _capture_experiment_metric_event(
     experiment: Experiment,
     metric_uuid: str,
-    metric_type: str,
+    role: str,
     metric_dict: dict | None,
     event: str,
     extra_properties: dict[str, Any],
@@ -554,9 +555,9 @@ def _capture_experiment_metric_event(
     """Emit a per-metric product analytics event. Telemetry must never fail the activity, so any error
     is swallowed. Attributed to the experiment creator, falling back to a team-scoped distinct_id.
 
-    `metric_type` is the primary/secondary classification carried from discovery
-    (`ExperimentMetricToRecalculate.metric_type`), threaded through the workflow + activity args so the
-    capture path doesn't have to re-query the M2M to resolve it.
+    `role` ("primary" or "secondary") is carried from discovery in `ExperimentMetricToRecalculate.metric_type`,
+    threaded through the workflow + activity args so the capture path doesn't have to re-query the M2M to
+    resolve it.
 
     Every recalc trigger is user-originated (manual click, page load, stale/auto refresh), so context is
     "ui" with mechanism "orchestrated"; `trigger` carries the finer-grained origin.
@@ -576,7 +577,7 @@ def _capture_experiment_metric_event(
                 "team_id": team.id,
                 "metric_uuid": metric_uuid,
                 "metric_kind": (metric_dict or {}).get("metric_type"),
-                "is_primary": metric_type == "primary",
+                "is_primary": role == "primary",
                 "execution_mode": "recalculation",
                 "context": "ui",
                 "mechanism": "orchestrated",
@@ -638,7 +639,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     metric_uuid: str,
     recalculation_id: str,
     query_to: str,
-    metric_type: str = "primary",
+    role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
 ) -> MetricRecalculationResult:
@@ -755,7 +756,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             _capture_experiment_metric_event(
                 experiment,
                 metric_uuid,
-                metric_type,
+                role,
                 metric_dict,
                 "experiment metric error",
                 {
@@ -811,7 +812,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             _capture_experiment_metric_event(
                 experiment,
                 metric_uuid,
-                metric_type,
+                role,
                 metric_dict,
                 "experiment metric finished",
                 {"duration_ms": round((time.perf_counter() - calc_started_at) * 1000)},
@@ -844,7 +845,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             _capture_experiment_metric_event(
                 experiment,
                 metric_uuid,
-                metric_type,
+                role,
                 metric_dict,
                 "experiment metric error",
                 {
@@ -884,7 +885,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 _capture_experiment_metric_event(
                     experiment,
                     metric_uuid,
-                    metric_type,
+                    role,
                     metric_dict,
                     "experiment metric retry",
                     {
@@ -943,7 +944,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 _capture_experiment_metric_event(
                     experiment,
                     metric_uuid,
-                    metric_type,
+                    role,
                     metric_dict,
                     "experiment metric retry",
                     {

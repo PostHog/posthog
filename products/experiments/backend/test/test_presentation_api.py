@@ -7933,7 +7933,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         ]
     )
     def test_bulk_remove_shared_metrics_does_not_touch_ordering(
-        self, metric_type: str, ordering_field: str, other_ordering_field: str
+        self, role: str, ordering_field: str, other_ordering_field: str
     ):
         saved_metric_uuids: list[str] = []
         saved_metric_ids: list[int] = []
@@ -7958,10 +7958,10 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             f"/api/projects/{self.team.id}/experiments/",
             {
                 "allow_unknown_events": True,
-                "name": f"Bulk Remove Activity Test ({metric_type})",
-                "feature_flag_key": f"bulk-remove-activity-{metric_type}",
+                "name": f"Bulk Remove Activity Test ({role})",
+                "feature_flag_key": f"bulk-remove-activity-{role}",
                 "saved_metrics_ids": [
-                    {"id": saved_metric_id, "metadata": {"type": metric_type}} for saved_metric_id in saved_metric_ids
+                    {"id": saved_metric_id, "metadata": {"type": role}} for saved_metric_id in saved_metric_ids
                 ],
                 ordering_field: saved_metric_uuids,
             },
@@ -7973,7 +7973,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         logs_before = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
 
         # A removal sends no ordering: the stale entries match nothing and are ignored on read.
-        inline_metrics_field = "metrics" if metric_type == "primary" else "metrics_secondary"
+        inline_metrics_field = "metrics" if role == "primary" else "metrics_secondary"
         remove_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {

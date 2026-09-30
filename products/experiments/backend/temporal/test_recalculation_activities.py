@@ -73,14 +73,12 @@ def _calculate(
     metric_uuid: str,
     recalculation_id: str,
     query_to: str,
-    metric_type: str = "primary",
+    role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
-        return _calculate_raw(
-            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
-        )
+        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -112,13 +110,13 @@ class TestRecalculationActivities(BaseTest):
     ) -> ExperimentMetricsRecalculation:
         return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, trigger=trigger)
 
-    def _attach_saved_metric(self, exp: Experiment, uuid: str, metric_type: str) -> None:
+    def _attach_saved_metric(self, exp: Experiment, uuid: str, role: str) -> None:
         saved = ExperimentSavedMetric.objects.create(
             team=self.team,
             name=f"saved-{uuid}",
             query={"uuid": uuid, "kind": "ExperimentMetric", "metric_type": "mean"},
         )
-        ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": metric_type})
+        ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": role})
 
     @parameterized.expand(
         [
@@ -168,13 +166,13 @@ class TestRecalculationActivities(BaseTest):
             ),
         ]
     )
-    def test_discover_persists_metric_uuids(self, name: str, primary, secondary, saved, expected_uuids, expected_types):
+    def test_discover_persists_metric_uuids(self, name: str, primary, secondary, saved, expected_uuids, expected_roles):
         exp = self._experiment(flag_key=f"discover-{name}")
         exp.metrics = primary
         exp.metrics_secondary = secondary
         exp.save()
-        for uuid, metric_type in saved:
-            self._attach_saved_metric(exp, uuid, metric_type)
+        for uuid, role in saved:
+            self._attach_saved_metric(exp, uuid, role)
         recalc = self._recalc(exp)
 
         metrics = _discover(str(recalc.id))
@@ -182,7 +180,7 @@ class TestRecalculationActivities(BaseTest):
         recalc.refresh_from_db()
         assert set(recalc.metric_uuids) == expected_uuids
         assert {m.metric_uuid for m in metrics} == expected_uuids
-        assert {m.metric_type for m in metrics} == expected_types
+        assert {m.metric_type for m in metrics} == expected_roles
 
     @parameterized.expand(
         [
@@ -1552,9 +1550,8 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["execution_mode"] == "recalculation"
 
     def test_secondary_metric_is_not_marked_primary(self):
-        # metric_type is now threaded through from the workflow's discovery output rather than re-derived
-        # from a fresh DB lookup. The activity's caller (workflow) reads the value from
-        # ExperimentMetricToRecalculate; tests pass it explicitly to exercise the same path.
+        # The workflow passes the role from discovery (ExperimentMetricToRecalculate.metric_type), and the
+        # calculation does not look it up again, so the test passes it explicitly to exercise the same path.
         exp = self._experiment(flag_key="an-secondary", secondary=[_mean_metric("s1")])
         recalc = self._recalc(exp, metric_uuids=["s1"])
 
@@ -1563,7 +1560,7 @@ class TestRecalculationAnalytics(BaseTest):
                 "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
             ) as mock_runner:
                 mock_runner.return_value.run.return_value.model_dump.return_value = {}
-                _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO, metric_type="secondary")
+                _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO, role="secondary")
 
         assert captured[0]["properties"]["is_primary"] is False
 
